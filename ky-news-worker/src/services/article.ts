@@ -67,8 +67,40 @@ function pickInlineImage(html: string, pageUrl: string): string | null {
 }
 
 function extractReadableText(html: string): string {
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  const source = bodyMatch?.[1] || html;
+  const cleaned = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<aside[\s\S]*?<\/aside>/gi, " ");
+
+  const candidates: RegExp[] = [
+    /<article[^>]*>([\s\S]*?)<\/article>/i,
+    /<main[^>]*>([\s\S]*?)<\/main>/i,
+    /<section[^>]+class=["'][^"']*(?:article|story|post|entry|content-body|article-body)[^"']*["'][^>]*>([\s\S]*?)<\/section>/i,
+    /<div[^>]+class=["'][^"']*(?:article|story|post|entry|content-body|article-body)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
+  ];
+
+  let source = "";
+  for (const re of candidates) {
+    const match = cleaned.match(re);
+    const block = match?.[1] || "";
+    if (!block) continue;
+    const text = stripTags(block);
+    if (text.length >= 220) {
+      source = block;
+      break;
+    }
+  }
+
+  if (!source) {
+    const bodyMatch = cleaned.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    source = bodyMatch?.[1] || cleaned;
+  }
+
   const text = stripTags(source);
   return text.length > EXCERPT_MAX_CHARS ? text.slice(0, EXCERPT_MAX_CHARS) : text;
 }

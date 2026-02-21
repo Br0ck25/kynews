@@ -274,7 +274,6 @@ async function createCoreSchema(env: Env): Promise<void> {
     { sql: "CREATE INDEX IF NOT EXISTS idx_weather_alerts_alert_id ON weather_alerts(alert_id)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_lost_found_posts_status ON lost_found_posts(status, submitted_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_lost_found_posts_county ON lost_found_posts(state_code, county, status)" },
-    { sql: "CREATE INDEX IF NOT EXISTS idx_lost_found_posts_resolved ON lost_found_posts(is_resolved, submitted_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_lost_found_images_post_id ON lost_found_images(post_id)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_lost_found_reports_post_id ON lost_found_reports(post_id, created_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at)" },
@@ -297,6 +296,7 @@ async function createCoreSchema(env: Env): Promise<void> {
   await addColumnIfMissing(db, "lost_found_posts", "is_resolved", "INTEGER NOT NULL DEFAULT 0");
   await addColumnIfMissing(db, "lost_found_posts", "resolved_at", "TEXT");
   await addColumnIfMissing(db, "lost_found_posts", "resolved_note", "TEXT");
+  await d1Run(db, "CREATE INDEX IF NOT EXISTS idx_lost_found_posts_resolved ON lost_found_posts(is_resolved, submitted_at)");
 }
 
 export function ensureSchema(env: Env): Promise<void> {

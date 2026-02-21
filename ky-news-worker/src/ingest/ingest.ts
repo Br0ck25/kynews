@@ -299,6 +299,7 @@ async function tagItemLocations(
     stateCode: string;
     parts: string[];
     url: string;
+    author?: string | null;
     defaultCounty?: string | null;
     feedUrl?: string | null;
   }
@@ -311,6 +312,10 @@ async function tagItemLocations(
   let signalText = baseText;
   let counties = detectKyCounties(baseText);
   let otherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
+  const looksSyndicated =
+    /\/ap\//i.test(input.url) ||
+    /\bassociated press\b/i.test(baseText) ||
+    /^ap\b/i.test(String(input.author || "").trim().toLowerCase());
 
   const meta = await d1First<{
     article_checked_at: string | null;
@@ -361,7 +366,11 @@ async function tagItemLocations(
 
   const kySignal = st !== "KY" ? true : isKyGoogleWatchFeed || hasKySignal(signalText, counties);
   const hasOtherStateSignal = st === "KY" && otherStateNames.length > 0;
-  const shouldTagAsKy = st !== "KY" || !hasOtherStateSignal || kySignal;
+  if (st === "KY" && looksSyndicated && !kySignal && counties.length === 0) {
+    return { excerpt, imageCandidate };
+  }
+
+  const shouldTagAsKy = st !== "KY" || kySignal || (!hasOtherStateSignal && !looksSyndicated);
 
   if (!shouldTagAsKy) {
     return { excerpt, imageCandidate };
@@ -375,7 +384,7 @@ async function tagItemLocations(
   if (st === "KY") {
     const tagged = new Set(counties.map((c) => normalizeCounty(c)).filter(Boolean));
     const fallbackCounty = normalizeCounty(input.defaultCounty || "");
-    if (fallbackCounty && kySignal && (!hasOtherStateSignal || tagged.size > 0)) {
+    if (fallbackCounty && (kySignal || (!hasOtherStateSignal && !looksSyndicated || tagged.size > 0))) {
       tagged.add(fallbackCounty);
     }
 
@@ -521,6 +530,7 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
               stateCode: feed.state_code || "KY",
               parts: [title, summaryText || "", contentText || ""],
               url: link,
+              author,
               defaultCounty: feed.default_county,
               feedUrl: feed.url
             });

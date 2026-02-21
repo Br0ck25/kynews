@@ -23,7 +23,7 @@ const ItemsQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(720).default(2),
+  hours: z.coerce.number().min(1).max(24 * 365).default(2),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
 });
@@ -34,14 +34,14 @@ const SearchQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(720).default(2),
+  hours: z.coerce.number().min(1).max(24 * 365).default(2),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
 });
 
 const CountiesQuery = z.object({
   state: z.string().length(2).default("KY"),
-  hours: z.coerce.number().min(1).max(720).default(2)
+  hours: z.coerce.number().min(1).max(24 * 365).default(2)
 });
 
 const OpenProxyQuery = z.object({

@@ -106,7 +106,7 @@ const THEME_PREF_KEY = "ui_theme";
 const OWNER_ADMIN_TOKEN_KEY = "owner_admin_token";
 const OWNER_ADMIN_ROUTE = "/owner-panel-ky-news";
 const TODAY_LOOKBACK_HOURS = 72;
-const OBITUARY_LOOKBACK_HOURS = 24 * 120;
+const OBITUARY_LOOKBACK_HOURS = 24 * 365;
 const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" OR \"visitation\" OR \"memorial service\" OR \"passed away\"";
 type ThemeMode = "light" | "dark";
 
@@ -1307,6 +1307,7 @@ function WeatherScreen() {
   const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const allCounties = useMemo(() => (kyCounties as { name: string }[]).map((c) => c.name), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1345,8 +1346,25 @@ function WeatherScreen() {
         {!county ? (
           <div className="card" style={{ padding: 14 }}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>Choose your county first</div>
-            <button className="btn primary" onClick={() => nav("/my-local")}>
-              Set My County
+            <select
+              className="searchInput"
+              value={county}
+              onChange={(e) => {
+                const next = e.target.value;
+                setCounty(next);
+                if (next) setMyLocalCounty(next);
+              }}
+              style={{ marginBottom: 8 }}
+            >
+              <option value="">Select county...</option>
+              {allCounties.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <button className="btn" onClick={() => nav("/my-local")}>
+              Open Local News Settings
             </button>
           </div>
         ) : null}
@@ -1366,8 +1384,24 @@ function WeatherScreen() {
             <div className="weatherSummary">{forecast?.periods?.[0]?.shortForecast || "Forecast loading..."}</div>
             <div className="weatherActions">
               <button className="btn" onClick={() => nav("/my-local")}>
-                Change County
+                Local News Settings
               </button>
+              <select
+                className="searchInput"
+                value={county}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setCounty(next);
+                  if (next) setMyLocalCounty(next);
+                }}
+                style={{ maxWidth: 200 }}
+              >
+                {allCounties.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
               <button className="btn" onClick={() => setCounty(getMyLocalCounty())}>
                 Refresh
               </button>
@@ -1436,7 +1470,7 @@ function WeatherScreen() {
           <div className="card" style={{ padding: 14 }}>
             <div style={{ fontWeight: 900, marginBottom: 10 }}>Forecast</div>
             <div className="weatherPeriodGrid">
-              {forecast.periods.slice(0, 8).map((p) => (
+              {forecast.periods.slice(0, 14).map((p) => (
                 <div key={p.name + p.startTime} className="weatherPeriodCard">
                   <div className="weatherPeriodHead">{p.name}</div>
                   <div className="weatherPeriodTemp">{p.temperature}°{p.temperatureUnit}</div>
