@@ -250,7 +250,14 @@ async function upsertItemAndLink(
     image_url: string | null;
     hash: string;
   }
-): Promise<void> {
+): Promise<"inserted" | "updated" | "unchanged"> {
+  const existing = await d1First<{ hash: string | null }>(env.ky_news_db, "SELECT hash FROM items WHERE id=?", [row.id]);
+
+  if (existing?.hash && existing.hash === row.hash) {
+    await d1Run(env.ky_news_db, "INSERT OR IGNORE INTO feed_items (feed_id, item_id) VALUES (?, ?)", [feedId, row.id]);
+    return "unchanged";
+  }
+
   await d1Run(
     env.ky_news_db,
     `
@@ -282,6 +289,7 @@ async function upsertItemAndLink(
   );
 
   await d1Run(env.ky_news_db, "INSERT OR IGNORE INTO feed_items (feed_id, item_id) VALUES (?, ?)", [feedId, row.id]);
+  return existing ? "updated" : "inserted";
 }
 
 async function tagItemLocations(
@@ -483,7 +491,7 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
             [title, link, summaryText || "", contentText || "", author || "", publishedAt || ""].join("|")
           );
 
-          await upsertItemAndLink(env, feed.id, {
+          const upserted = await upsertItemAndLink(env, feed.id, {
             id: itemId,
             title,
             url: link,
@@ -496,6 +504,10 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
             image_url: imageUrl,
             hash
           });
+
+          if (upserted === "unchanged") {
+            continue;
+          }
 
           summary.itemsUpserted += 1;
           feedItemsUpserted += 1;
