@@ -7,6 +7,7 @@ import { LOST_FOUND_STATUSES, LOST_FOUND_TYPES, normalizeCounty } from "../lib/u
 import { d1All, d1First, d1Run } from "../services/db";
 import { decryptText, encryptText, hashIp } from "../lib/crypto";
 import {
+  enforceRateLimit,
   enforceSubmissionRateLimit,
   getAdminIdentity,
   getClientIp,
@@ -64,6 +65,9 @@ async function mapLostFoundRow(
     submitted_at: row.submitted_at,
     approved_at: row.approved_at,
     rejected_at: row.rejected_at,
+    is_resolved: Number(row.is_resolved) === 1,
+    resolved_at: row.resolved_at,
+    resolved_note: row.resolved_note,
     expires_at: row.expires_at,
     moderation_note: row.moderation_note,
     images
@@ -153,11 +157,18 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     const where = ["datetime(p.expires_at) > datetime('now')"];
     const binds: unknown[] = [];
 
-    const status = parsed.data.status === "published" ? "approved" : parsed.data.status;
-    if (!admin && status !== "approved") unauthorized("Only published lost-and-found posts are public");
+    if (!admin && parsed.data.status !== "published") unauthorized("Only published lost-and-found posts are public");
 
-    where.push("p.status = ?");
-    binds.push(status);
+    if (parsed.data.status === "published") {
+      where.push("p.status = 'approved'");
+      where.push("COALESCE(p.is_resolved, 0) = 0");
+    } else if (parsed.data.status === "resolved") {
+      where.push("p.status = 'approved'");
+      where.push("COALESCE(p.is_resolved, 0) = 1");
+    } else {
+      where.push("p.status = ?");
+      binds.push(parsed.data.status);
+    }
 
     if (parsed.data.type) {
       where.push("p.type = ?");
@@ -191,7 +202,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     c.header("Cache-Control", "public, max-age=30, s-maxage=60, stale-while-revalidate=120");
     return c.json({
       posts,
-      status,
+      status: parsed.data.status,
       county: parsed.data.county ? normalizeCounty(parsed.data.county) : null
     });
   });
@@ -296,8 +307,81 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     return c.json({ ok: true });
   });
 
+  const MarkFoundBody = z.object({
+    contactEmail: z.string().email(),
+    note: z.string().max(500).optional()
+  });
+
+  app.post("/api/lost-found/:id/mark-found", async (c) => {
+    const id = String(c.req.param("id") || "");
+    const body = await c.req.json().catch(() => null);
+    const parsed = MarkFoundBody.safeParse(body || {});
+    if (!parsed.success) badRequest("Invalid payload");
+
+    const ip = getClientIp(c);
+    const rl = await enforceRateLimit(c.env, `lf-mark-found:${ip}`, 12, 60 * 60);
+    if (!rl.allowed) tooManyRequests("Rate limit exceeded. Try again later.");
+
+    const post = await d1First<{
+      id: string;
+      type: string;
+      status: string;
+      is_resolved: number;
+      contact_email_encrypted: string;
+    }>(
+      c.env.ky_news_db,
+      `
+      SELECT id, type, status, is_resolved, contact_email_encrypted
+      FROM lost_found_posts
+      WHERE id=? AND datetime(expires_at) > datetime('now')
+      LIMIT 1
+      `,
+      [id]
+    );
+    if (!post) {
+      const exists = await d1First<{ id: string }>(c.env.ky_news_db, "SELECT id FROM lost_found_posts WHERE id=?", [id]);
+      if (!exists) notFound("Post not found");
+      badRequest("This listing has expired");
+    }
+
+    if (post.type !== "lost" || post.status !== "approved") {
+      badRequest("Only active lost posts can be marked found");
+    }
+    if (Number(post.is_resolved || 0) === 1) {
+      return c.json({ ok: true, id, status: "resolved" });
+    }
+
+    const submittedEmail = parsed.data.contactEmail.trim().toLowerCase();
+    const ownerEmail = String((await decryptText(c.env, post.contact_email_encrypted)) || "")
+      .trim()
+      .toLowerCase();
+    if (!ownerEmail || ownerEmail !== submittedEmail) {
+      unauthorized("Contact email verification failed");
+    }
+
+    const info = await d1Run(
+      c.env.ky_news_db,
+      `
+      UPDATE lost_found_posts
+      SET
+        is_resolved=1,
+        resolved_at=datetime('now'),
+        resolved_note=?
+      WHERE id=? AND status='approved' AND COALESCE(is_resolved, 0)=0
+      `,
+      [parsed.data.note || null, id]
+    );
+
+    const changed = Number((info.meta as any)?.changes || 0);
+    if (!changed) {
+      return c.json({ ok: true, id, status: "resolved" });
+    }
+
+    return c.json({ ok: true, id, status: "resolved" });
+  });
+
   const AdminListQuery = z.object({
-    status: z.enum(["pending", "approved", "rejected"]).default("pending"),
+    status: z.enum(["pending", "approved", "rejected", "resolved", "all"]).default("pending"),
     limit: z.coerce.number().min(1).max(200).default(100)
   });
 
@@ -305,6 +389,17 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     const admin = requireAdmin(c);
     const parsed = AdminListQuery.safeParse(queryInput(c));
     if (!parsed.success) badRequest("Invalid query");
+
+    const where: string[] = [];
+    const binds: unknown[] = [];
+
+    if (parsed.data.status === "resolved") {
+      where.push("p.status = 'approved'");
+      where.push("COALESCE(p.is_resolved, 0) = 1");
+    } else if (parsed.data.status !== "all") {
+      where.push("p.status = ?");
+      binds.push(parsed.data.status);
+    }
 
     const rows = await d1All<Record<string, unknown>>(
       c.env.ky_news_db,
@@ -317,11 +412,11 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
           WHERE i.post_id = p.id
         ) AS images_csv
       FROM lost_found_posts p
-      WHERE p.status = ?
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY p.submitted_at DESC
       LIMIT ?
       `,
-      [parsed.data.status, parsed.data.limit]
+      [...binds, parsed.data.limit]
     );
 
     const posts = await Promise.all(rows.map((r) => mapLostFoundRow(c.env, r, true)));
@@ -391,5 +486,53 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
 
     await insertAdminLog(c.env, admin.email, "lost_found.reject", "lost_found_post", id, parsed.data);
     return c.json({ ok: true, id, status: "rejected" });
+  });
+
+  app.delete("/api/admin/lost-found/:id", async (c) => {
+    const admin = requireAdmin(c);
+    const id = String(c.req.param("id") || "");
+
+    const row = await d1First<{ id: string; images_csv: string | null }>(
+      c.env.ky_news_db,
+      `
+      SELECT
+        p.id,
+        (
+          SELECT group_concat(i.r2_key)
+          FROM lost_found_images i
+          WHERE i.post_id = p.id
+        ) AS images_csv
+      FROM lost_found_posts p
+      WHERE p.id=?
+      LIMIT 1
+      `,
+      [id]
+    );
+    if (!row) notFound("Post not found");
+
+    const imageKeys = String(row.images_csv || "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_images WHERE post_id=?", [id]);
+    await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_reports WHERE post_id=?", [id]);
+    await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_posts WHERE id=?", [id]);
+
+    await Promise.all(
+      imageKeys.map(async (key) => {
+        try {
+          await c.env.ky_news_media.delete(`lost-found/${key}`);
+        } catch {
+          // Ignore media delete failures; DB record is source of truth for visibility.
+        }
+      })
+    );
+
+    await insertAdminLog(c.env, admin.email, "lost_found.delete", "lost_found_post", id, {
+      deleted_images: imageKeys.length
+    });
+
+    return c.json({ ok: true, id, deletedImages: imageKeys.length });
   });
 }

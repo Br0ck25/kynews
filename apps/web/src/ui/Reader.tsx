@@ -110,6 +110,8 @@ export default function Reader() {
 
   const dt = item?.published_at ? new Date(item.published_at) : null;
   const dateStr = dt ? dt.toLocaleString() : "-";
+  const summaryText = toText(item?.summary);
+  const contentText = toText(item?.content);
 
   return (
     <div className="app">
@@ -163,13 +165,21 @@ export default function Reader() {
                 </div>
 
                 <div className="readerBody">
-                  {toText(item.content || item.summary) ? (
-                    <p>{toText(item.content || item.summary)}</p>
-                  ) : (
-                    <p style={{ color: "var(--muted)" }}>
-                      This feed did not provide content. Use "Open original in app".
-                    </p>
-                  )}
+                  {summaryText ? (
+                    <>
+                      <div style={{ fontWeight: 800, marginBottom: 6 }}>Summary</div>
+                      <p>{summaryText}</p>
+                    </>
+                  ) : null}
+                  {contentText && contentText !== summaryText ? (
+                    <>
+                      <div style={{ fontWeight: 800, marginBottom: 6, marginTop: 12 }}>Source Excerpt</div>
+                      <p>{contentText}</p>
+                    </>
+                  ) : null}
+                  {!summaryText && !contentText ? (
+                    <p style={{ color: "var(--muted)" }}>This feed did not provide enough text for an in-app summary yet.</p>
+                  ) : null}
                 </div>
               </div>
             ) : (

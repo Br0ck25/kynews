@@ -82,7 +82,7 @@ select {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: var(--safe-top) 14px 0;
+  padding: calc(var(--safe-top) + 2px) 14px 0;
   background: linear-gradient(90deg, var(--nav-bg) 0%, var(--nav-bg-soft) 55%, var(--nav-bg) 100%);
   border-bottom: 1px solid var(--border);
 }
@@ -130,6 +130,7 @@ select {
 .content {
   width: 100%;
   overflow: auto;
+  padding-top: 2px;
   padding-bottom: calc(84px + var(--safe-bottom));
 }
 

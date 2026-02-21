@@ -1,6 +1,6 @@
 export const NEWS_SCOPES = ["ky", "national", "all"] as const;
 export const LOST_FOUND_TYPES = ["lost", "found"] as const;
-export const LOST_FOUND_STATUSES = ["pending", "approved", "rejected", "published"] as const;
+export const LOST_FOUND_STATUSES = ["pending", "approved", "rejected", "published", "resolved"] as const;
 
 const PAID_SOURCE_DOMAINS = ["kentucky.com", "courier-journal.com", "bizjournals.com"];
 

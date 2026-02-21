@@ -78,14 +78,54 @@ export type LostFoundPost = {
   county: string;
   state_code: string;
   status: "pending" | "approved" | "rejected";
+  is_resolved?: boolean;
   show_contact: boolean;
   contact_email?: string | null;
   submitted_at: string;
   approved_at?: string | null;
   rejected_at?: string | null;
+  resolved_at?: string | null;
+  resolved_note?: string | null;
   expires_at: string;
   moderation_note?: string | null;
   images: string[];
+};
+
+export type AdminIngestionLog = {
+  id: number;
+  started_at: string;
+  finished_at?: string | null;
+  status: string;
+  source?: string | null;
+  feed_errors: number;
+  details?: {
+    feedsProcessed?: number;
+    feedsUpdated?: number;
+    itemsSeen?: number;
+    itemsUpserted?: number;
+    summariesGenerated?: number;
+    imagesMirrored?: number;
+    errors?: number;
+  } | null;
+};
+
+export type AdminFeedHealth = {
+  id: string;
+  name: string;
+  url: string;
+  category: string;
+  region_scope?: string | null;
+  enabled: boolean;
+  last_checked_at?: string | null;
+  last_metric_at?: string | null;
+  last_status?: string | null;
+  last_duration_ms: number;
+  last_items_upserted: number;
+  recent_items: number;
+  checks_window: number;
+  errors_window: number;
+  error_rate: number;
+  health_status: "healthy" | "degraded" | "critical" | "unknown";
 };
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -196,13 +236,19 @@ export async function getWeatherAlerts(opts: { county?: string; state?: string }
   );
 }
 
-export async function listLostFound(opts: { type?: LostFoundType; county?: string; status?: "published" | "pending" | "approved" | "rejected"; limit?: number } = {}) {
+export async function listLostFound(opts: { type?: LostFoundType; county?: string; status?: "published" | "pending" | "approved" | "rejected" | "resolved"; limit?: number } = {}) {
   const params = new URLSearchParams();
   if (opts.type) params.set("type", opts.type);
   if (opts.county) params.set("county", opts.county);
   if (opts.status) params.set("status", opts.status);
   if (opts.limit != null) params.set("limit", String(opts.limit));
   return fetchJson<{ posts: LostFoundPost[]; status: string; county?: string | null }>(`/api/lost-found?${params.toString()}`);
+}
+
+function adminHeaders(token?: string): HeadersInit {
+  const headers: Record<string, string> = {};
+  if (token?.trim()) headers["x-admin-token"] = token.trim();
+  return headers;
 }
 
 export async function getLostFoundUploadUrl(filename: string, mimeType: string) {
@@ -245,6 +291,116 @@ export async function submitLostFound(input: {
       showContact: input.showContact ?? false,
       imageKeys: input.imageKeys ?? []
     })
+  });
+}
+
+export async function markLostFoundAsFound(input: {
+  id: string;
+  contactEmail: string;
+  note?: string;
+}) {
+  return fetchJson<{ ok: boolean; id: string; status: string }>(`/api/lost-found/${encodeURIComponent(input.id)}/mark-found`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contactEmail: input.contactEmail,
+      note: input.note?.trim() || undefined
+    })
+  });
+}
+
+export async function listAdminLostFound(input: {
+  token?: string;
+  status?: "pending" | "approved" | "rejected" | "resolved" | "all";
+  limit?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  params.set("status", input.status || "all");
+  params.set("limit", String(input.limit ?? 120));
+  return fetchJson<{ admin: string; posts: LostFoundPost[] }>(`/api/admin/lost-found?${params.toString()}`, {
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function deleteAdminLostFound(input: { token?: string; id: string }) {
+  return fetchJson<{ ok: boolean; id: string; deletedImages: number }>(`/api/admin/lost-found/${encodeURIComponent(input.id)}`, {
+    method: "DELETE",
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function approveAdminLostFound(input: {
+  token?: string;
+  id: string;
+  showContact?: boolean;
+  note?: string;
+}) {
+  return fetchJson<{ ok: boolean; id: string; status: string }>(
+    `/api/admin/lost-found/${encodeURIComponent(input.id)}/approve`,
+    {
+      method: "POST",
+      headers: {
+        ...adminHeaders(input.token),
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        showContact: input.showContact,
+        note: input.note?.trim() || undefined
+      })
+    }
+  );
+}
+
+export async function rejectAdminLostFound(input: {
+  token?: string;
+  id: string;
+  reason: string;
+}) {
+  return fetchJson<{ ok: boolean; id: string; status: string }>(
+    `/api/admin/lost-found/${encodeURIComponent(input.id)}/reject`,
+    {
+      method: "POST",
+      headers: {
+        ...adminHeaders(input.token),
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        reason: input.reason
+      })
+    }
+  );
+}
+
+export async function getAdminIngestionLogs(input: {
+  token?: string;
+  limit?: number;
+  cursor?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(input.limit ?? 20));
+  if (input.cursor) params.set("cursor", String(input.cursor));
+  return fetchJson<{ logs: AdminIngestionLog[]; nextCursor: number | null }>(`/api/admin/ingestion/logs?${params.toString()}`, {
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function getAdminFeedHealth(input: {
+  token?: string;
+  hours?: number;
+  limit?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  params.set("hours", String(input.hours ?? 48));
+  params.set("limit", String(input.limit ?? 300));
+  return fetchJson<{ hours: number; feeds: AdminFeedHealth[] }>(`/api/admin/feeds/health?${params.toString()}`, {
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function runAdminFeedReload(input: { token?: string } = {}) {
+  return fetchJson<{ ok: boolean; code: number; stdout: string; stderr: string }>("/api/admin/feeds/reload", {
+    method: "POST",
+    headers: adminHeaders(input.token)
   });
 }
 

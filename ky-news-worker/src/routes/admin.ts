@@ -383,9 +383,15 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
         `,
         [itemId, reviewedSummary]
       );
-      await c.env.CACHE.put(`summary:v1:${itemId}`, reviewedSummary, {
-        expirationTtl: Number(c.env.SUMMARY_CACHE_TTL_SECONDS || 30 * 24 * 60 * 60)
-      });
+      const ttl = Number(c.env.SUMMARY_CACHE_TTL_SECONDS || 30 * 24 * 60 * 60);
+      await Promise.all([
+        c.env.CACHE.put(`summary:v2:${itemId}`, reviewedSummary, {
+          expirationTtl: ttl
+        }),
+        c.env.CACHE.put(`summary:v1:${itemId}`, reviewedSummary, {
+          expirationTtl: ttl
+        })
+      ]);
     }
 
     await d1Run(

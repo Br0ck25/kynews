@@ -37,7 +37,7 @@ app.use("*", async (c, next) => {
       if (!origin) return origins[0] || "*";
       return origins.includes(origin) ? origin : origins[0] || "*";
     },
-    allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["content-type", "x-admin-token", "cf-access-authenticated-user-email"],
     exposeHeaders: ["x-request-id"],
     maxAge: 86400

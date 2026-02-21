@@ -12,6 +12,16 @@ import {
   submitLostFound,
   getLostFoundUploadUrl,
   uploadLostFoundImage,
+  markLostFoundAsFound,
+  listAdminLostFound,
+  deleteAdminLostFound,
+  approveAdminLostFound,
+  rejectAdminLostFound,
+  getAdminIngestionLogs,
+  getAdminFeedHealth,
+  runAdminFeedReload,
+  type AdminFeedHealth,
+  type AdminIngestionLog,
   type Feed,
   type Item,
   type LostFoundPost,
@@ -93,9 +103,11 @@ const COVERAGE_TABS = [
 const LOCAL_PREF_KEY = "my_local_county";
 const SELECTED_COUNTIES_PREF_KEY = "selected_counties";
 const THEME_PREF_KEY = "ui_theme";
+const OWNER_ADMIN_TOKEN_KEY = "owner_admin_token";
+const OWNER_ADMIN_ROUTE = "/owner-panel-ky-news";
 const TODAY_LOOKBACK_HOURS = 72;
-const OBITUARY_LOOKBACK_HOURS = 24 * 30;
-const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" OR \"visitation\" OR \"memorial service\"";
+const OBITUARY_LOOKBACK_HOURS = 24 * 120;
+const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" OR \"visitation\" OR \"memorial service\" OR \"passed away\"";
 type ThemeMode = "light" | "dark";
 
 function getMyLocalCounty(): string {
@@ -153,6 +165,27 @@ function setThemeMode(mode: ThemeMode) {
   }
 }
 
+function getOwnerAdminToken(): string {
+  try {
+    return (localStorage.getItem(OWNER_ADMIN_TOKEN_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function setOwnerAdminToken(token: string) {
+  try {
+    const normalized = token.trim();
+    if (normalized) {
+      localStorage.setItem(OWNER_ADMIN_TOKEN_KEY, normalized);
+    } else {
+      localStorage.removeItem(OWNER_ADMIN_TOKEN_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function applyThemeMode(mode: ThemeMode) {
   if (typeof document === "undefined") return;
   document.documentElement.setAttribute("data-theme", mode);
@@ -180,6 +213,7 @@ export default function App() {
       <Route path="/read-later" element={<ReadLaterScreen />} />
       <Route path="/search" element={<SearchScreen />} />
       <Route path="/preferences" element={<PreferencesScreen />} />
+      <Route path={OWNER_ADMIN_ROUTE} element={<OwnerAdminScreen />} />
       <Route
         path="/settings"
         element={
@@ -1370,15 +1404,28 @@ function WeatherScreen() {
                     </>
                   ) : null}
                 </div>
-                {a.description ? (
-                  <div style={{ fontSize: 13, lineHeight: 1.45, marginBottom: a.instruction ? 6 : 0 }}>
-                    {truncateText(a.description, 500)}
-                  </div>
-                ) : null}
+                <div style={{ fontSize: 13, lineHeight: 1.45, marginBottom: a.instruction ? 6 : 0 }}>
+                  {truncateText(
+                    a.description ||
+                      a.instruction ||
+                      "The National Weather Service has not published additional narrative text for this alert yet. Stay weather-aware and monitor updates.",
+                    500
+                  )}
+                </div>
                 {a.instruction ? (
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#92400e" }}>
                     Action: {truncateText(a.instruction, 320)}
                   </div>
+                ) : null}
+                {a.url ? (
+                  <a
+                    href={a.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: "inline-block", marginTop: 6, fontSize: 12, color: "#92400e", fontWeight: 700 }}
+                  >
+                    Read full NWS alert
+                  </a>
                 ) : null}
               </div>
             ))}
@@ -1569,16 +1616,22 @@ function LostFoundScreen() {
   const [type, setType] = useState<LostFoundType>("lost");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [county, setCounty] = useState(() => getMyLocalCounty());
+  const [formCounty, setFormCounty] = useState(() => getMyLocalCounty());
+  const [listCounty, setListCounty] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [showContact, setShowContact] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
+  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [markEmail, setMarkEmail] = useState("");
+  const [markNote, setMarkNote] = useState("");
+  const [markSubmitting, setMarkSubmitting] = useState(false);
+  const [markMessage, setMarkMessage] = useState("");
 
   async function refresh() {
     setLoading(true);
     try {
-      const res = await listLostFound({ status: "published", county: county || undefined, limit: 50 });
+      const res = await listLostFound({ status: "published", county: listCounty || undefined, limit: 80 });
       setPosts(res.posts);
     } catch {
       setPosts([]);
@@ -1589,10 +1642,10 @@ function LostFoundScreen() {
 
   useEffect(() => {
     void refresh();
-  }, [county]);
+  }, [listCounty]);
 
   async function submit() {
-    if (!title.trim() || !description.trim() || !county.trim() || !contactEmail.trim()) {
+    if (!title.trim() || !description.trim() || !formCounty.trim() || !contactEmail.trim()) {
       setMessage("Please complete all required fields.");
       return;
     }
@@ -1611,7 +1664,7 @@ function LostFoundScreen() {
         type,
         title: title.trim(),
         description: description.trim(),
-        county: county.trim(),
+        county: formCounty.trim(),
         contactEmail: contactEmail.trim(),
         showContact,
         imageKeys
@@ -1628,6 +1681,37 @@ function LostFoundScreen() {
       setMessage(String(err?.message || err));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function startMarkFound(postId: string) {
+    setMarkingId(postId);
+    setMarkEmail("");
+    setMarkNote("");
+    setMarkMessage("");
+  }
+
+  async function submitMarkFound(postId: string) {
+    if (!markEmail.trim()) {
+      setMarkMessage("Enter the same contact email used when you created this listing.");
+      return;
+    }
+
+    setMarkSubmitting(true);
+    setMarkMessage("");
+    try {
+      await markLostFoundAsFound({
+        id: postId,
+        contactEmail: markEmail.trim(),
+        note: markNote.trim() || undefined
+      });
+      setMarkMessage("Listing marked as found.");
+      setMarkingId(null);
+      await refresh();
+    } catch (err: any) {
+      setMarkMessage(String(err?.message || err));
+    } finally {
+      setMarkSubmitting(false);
     }
   }
 
@@ -1663,8 +1747,8 @@ function LostFoundScreen() {
             className="searchInput"
             style={{ marginBottom: 8 }}
             placeholder="County"
-            value={county}
-            onChange={(e) => setCounty(e.target.value)}
+            value={formCounty}
+            onChange={(e) => setFormCounty(e.target.value)}
           />
           <input
             className="searchInput"
@@ -1691,10 +1775,22 @@ function LostFoundScreen() {
         </div>
 
         <div className="card" style={{ padding: 14 }}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>Published Listings</div>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Published Listings</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <input
+              className="searchInput"
+              placeholder="Filter listings by county (optional)"
+              value={listCounty}
+              onChange={(e) => setListCounty(e.target.value)}
+            />
+            <button className="btn" onClick={() => setListCounty("")} type="button">
+              Clear
+            </button>
+          </div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
             New submissions may remain hidden until approved.
           </div>
+          {markMessage ? <div style={{ marginBottom: 10, color: "var(--muted)" }}>{markMessage}</div> : null}
           {loading ? <div style={{ color: "var(--muted)" }}>Loading...</div> : null}
           {!loading && !posts.length ? <div style={{ color: "var(--muted)" }}>No listings found.</div> : null}
           {posts.map((p) => (
@@ -1717,8 +1813,327 @@ function LostFoundScreen() {
                   style={{ marginTop: 8, maxHeight: 220 }}
                 />
               ) : null}
+              {p.type === "lost" && !p.is_resolved ? (
+                <div style={{ marginTop: 8 }}>
+                  {markingId === p.id ? (
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                        Confirm with the contact email used at submit time.
+                      </div>
+                      <input
+                        className="searchInput"
+                        type="email"
+                        placeholder="Contact email"
+                        value={markEmail}
+                        onChange={(e) => setMarkEmail(e.target.value)}
+                        style={{ marginBottom: 8 }}
+                      />
+                      <textarea
+                        className="searchInput"
+                        placeholder="Optional note"
+                        value={markNote}
+                        onChange={(e) => setMarkNote(e.target.value)}
+                        style={{ marginBottom: 8, minHeight: 72 }}
+                      />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          className="btn primary"
+                          type="button"
+                          disabled={markSubmitting}
+                          onClick={() => submitMarkFound(p.id)}
+                        >
+                          {markSubmitting ? "Updating..." : "Mark Found"}
+                        </button>
+                        <button
+                          className="btn"
+                          type="button"
+                          disabled={markSubmitting}
+                          onClick={() => setMarkingId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button className="btn" type="button" onClick={() => startMarkFound(p.id)}>
+                      I found this item
+                    </button>
+                  )}
+                </div>
+              ) : null}
             </div>
           ))}
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function OwnerAdminScreen() {
+  const [tokenInput, setTokenInput] = useState(() => getOwnerAdminToken());
+  const [token, setToken] = useState(() => getOwnerAdminToken());
+  const [loading, setLoading] = useState(false);
+  const [runningIngest, setRunningIngest] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected" | "resolved" | "all">("all");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [logs, setLogs] = useState<AdminIngestionLog[]>([]);
+  const [feedHealth, setFeedHealth] = useState<AdminFeedHealth[]>([]);
+  const [posts, setPosts] = useState<LostFoundPost[]>([]);
+
+  async function refreshAll(activeToken = token) {
+    if (!activeToken.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const [logRes, healthRes, lostRes] = await Promise.all([
+        getAdminIngestionLogs({ token: activeToken, limit: 15 }),
+        getAdminFeedHealth({ token: activeToken, hours: 48, limit: 200 }),
+        listAdminLostFound({ token: activeToken, status: statusFilter, limit: 200 })
+      ]);
+      setLogs(logRes.logs || []);
+      setFeedHealth(healthRes.feeds || []);
+      setPosts(lostRes.posts || []);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+      setLogs([]);
+      setFeedHealth([]);
+      setPosts([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!token.trim()) return;
+    void refreshAll(token);
+  }, [token, statusFilter]);
+
+  async function saveTokenAndLoad() {
+    const normalized = tokenInput.trim();
+    setOwnerAdminToken(normalized);
+    setToken(normalized);
+    if (normalized) {
+      await refreshAll(normalized);
+    } else {
+      setLogs([]);
+      setFeedHealth([]);
+      setPosts([]);
+    }
+  }
+
+  async function runIngestNow() {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+
+    setRunningIngest(true);
+    setNotice("");
+    setError("");
+    try {
+      const res = await runAdminFeedReload({ token });
+      if (!res.ok) {
+        setError(res.stderr || "Manual ingestion failed");
+      } else {
+        setNotice("Manual ingestion triggered successfully.");
+      }
+      await refreshAll(token);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    } finally {
+      setRunningIngest(false);
+    }
+  }
+
+  async function deletePost(postId: string) {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+    const confirmed = window.confirm("Delete this listing permanently?");
+    if (!confirmed) return;
+
+    setNotice("");
+    setError("");
+    try {
+      await deleteAdminLostFound({ token, id: postId });
+      setPosts((prev) => prev.filter((post) => post.id !== postId));
+      setNotice("Listing deleted.");
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    }
+  }
+
+  async function approvePost(postId: string) {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+    setNotice("");
+    setError("");
+    try {
+      await approveAdminLostFound({ token, id: postId });
+      setNotice("Listing approved.");
+      await refreshAll(token);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    }
+  }
+
+  async function rejectPost(postId: string) {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+    const reason = window.prompt("Reason for rejection (required):", "Policy violation");
+    if (!reason || !reason.trim()) return;
+
+    setNotice("");
+    setError("");
+    try {
+      await rejectAdminLostFound({ token, id: postId, reason: reason.trim() });
+      setNotice("Listing rejected.");
+      await refreshAll(token);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    }
+  }
+
+  const criticalFeeds = feedHealth.filter((f) => f.health_status === "critical");
+  const degradedFeeds = feedHealth.filter((f) => f.health_status === "degraded");
+
+  return (
+    <AppShell title="Owner Admin">
+      <div className="section">
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Private Owner Panel</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
+            This route is not linked in the app. Keep the URL and token private.
+          </div>
+          <input
+            className="searchInput"
+            type="password"
+            placeholder="Admin token"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            style={{ marginBottom: 8 }}
+          />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="btn primary" type="button" onClick={saveTokenAndLoad} disabled={loading}>
+              Save Token + Load
+            </button>
+            <button className="btn" type="button" onClick={() => void refreshAll(token)} disabled={loading || !token.trim()}>
+              Refresh
+            </button>
+            <button className="btn" type="button" onClick={runIngestNow} disabled={runningIngest || !token.trim()}>
+              {runningIngest ? "Running..." : "Run Ingestion Now"}
+            </button>
+          </div>
+          {error ? <div style={{ color: "#b91c1c", marginTop: 8 }}>{error}</div> : null}
+          {notice ? <div style={{ color: "var(--muted)", marginTop: 8 }}>{notice}</div> : null}
+        </div>
+
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Ingestion Status</div>
+          <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
+            Critical feeds: {criticalFeeds.length} | Degraded feeds: {degradedFeeds.length} | Total checked: {feedHealth.length}
+          </div>
+          {!logs.length ? (
+            <div style={{ color: "var(--muted)" }}>No ingestion logs loaded yet.</div>
+          ) : (
+            logs.slice(0, 8).map((log) => (
+              <div key={log.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+                <div style={{ fontWeight: 700 }}>
+                  Run #{log.id} • {log.status} • {log.source || "cron/manual"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  Started {formatPublishedDate(log.started_at)} | Finished {log.finished_at ? formatPublishedDate(log.finished_at) : "running"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  Feeds {log.details?.feedsProcessed ?? 0}, New items {log.details?.itemsUpserted ?? 0}, Summaries {log.details?.summariesGenerated ?? 0}, Errors {log.feed_errors}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Feed Health (48h)</div>
+          {!feedHealth.length ? (
+            <div style={{ color: "var(--muted)" }}>No feed health data loaded yet.</div>
+          ) : (
+            feedHealth
+              .sort((a, b) => {
+                const rank = (x: string) => (x === "critical" ? 0 : x === "degraded" ? 1 : x === "healthy" ? 2 : 3);
+                return rank(a.health_status) - rank(b.health_status);
+              })
+              .slice(0, 25)
+              .map((feed) => (
+                <div key={feed.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+                  <div style={{ fontWeight: 700 }}>
+                    {feed.name} ({feed.health_status})
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                    {feed.category} | Last check {feed.last_metric_at ? formatPublishedDate(feed.last_metric_at) : "never"} | Recent items {feed.recent_items} | Error rate {(feed.error_rate * 100).toFixed(0)}%
+                  </div>
+                </div>
+              ))
+          )}
+        </div>
+
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <div style={{ fontWeight: 900 }}>Lost & Found Listings</div>
+            <select
+              className="searchInput"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+              style={{ maxWidth: 180 }}
+            >
+              <option value="all">All</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+          {!posts.length ? (
+            <div style={{ color: "var(--muted)" }}>No listings found for this filter.</div>
+          ) : (
+            posts.map((post) => (
+              <div key={post.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+                <div style={{ fontWeight: 700 }}>
+                  {post.type.toUpperCase()} • {post.status}
+                  {post.is_resolved ? " • resolved" : ""}
+                </div>
+                <div>{post.title}</div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  {post.county}, {post.state_code} | Submitted {formatPublishedDate(post.submitted_at)}
+                </div>
+                <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {post.status === "pending" ? (
+                    <>
+                      <button className="btn primary" type="button" onClick={() => void approvePost(post.id)}>
+                        Approve
+                      </button>
+                      <button className="btn" type="button" onClick={() => void rejectPost(post.id)}>
+                        Reject
+                      </button>
+                    </>
+                  ) : null}
+                  <button className="btn" type="button" onClick={() => void deletePost(post.id)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </AppShell>
