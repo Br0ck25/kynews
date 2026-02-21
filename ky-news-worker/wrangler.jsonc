@@ -1,0 +1,84 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "ky-news-worker",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-02-19",
+	"observability": {
+		"enabled": true
+	},
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"triggers": {
+		"crons": ["*/15 * * * *"]
+	},
+	"d1_databases": [
+		{
+			"binding": "ky_news_db",
+			"database_name": "ky-news-db",
+			"database_id": "f1669001-2a51-4114-a84e-73cfa7f1c584"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "ky_news_media",
+			"bucket_name": "ky-news-media"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "CACHE",
+			"id": "bf967297a73b4e9ebc8e473ba5140ab9"
+		}
+	],
+	"ai": {
+		"binding": "AI"
+	},
+	"vars": {
+		"APP_NAME": "EKY News",
+		"NWS_USER_AGENT": "EKY-News-Worker/1.0 (ops@example.com)",
+		"AI_MODEL": "@cf/meta/llama-3.1-8b-instruct",
+		"SUMMARY_CACHE_TTL_SECONDS": "2592000",
+		"MAX_INGEST_ITEMS_PER_FEED": "60",
+		"MAX_FEEDS_PER_RUN": "200",
+		"API_CACHE_TTL_SECONDS": "120",
+		"LOG_TTL_SECONDS": "1209600",
+		"ERROR_EVENT_TTL_DAYS": "30",
+		"RATE_LIMIT_READ_PER_MIN": "240",
+		"RATE_LIMIT_WRITE_PER_MIN": "60",
+		"RATE_LIMIT_ADMIN_PER_MIN": "90",
+		"BOT_SCORE_MIN": "18"
+	}
+	/**
+	 * Smart Placement
+	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+	 */
+	// "placement": {  "mode": "smart" }
+	/**
+	 * Bindings
+	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
+	 * databases, object storage, AI inference, real-time communication and more.
+	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
+	 */
+	/**
+	 * Environment Variables
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+	 * Note: Use secrets to store sensitive data.
+	 * https://developers.cloudflare.com/workers/configuration/secrets/
+	 */
+	// "vars": {  "MY_VARIABLE": "production_value" }
+	/**
+	 * Static Assets
+	 * https://developers.cloudflare.com/workers/static-assets/binding/
+	 */
+	// "assets": {  "directory": "./public/",  "binding": "ASSETS" }
+	/**
+	 * Service Bindings (communicate between multiple Workers)
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
+	 */
+	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
+}

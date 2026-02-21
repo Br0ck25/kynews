@@ -1,0 +1,270 @@
+[
+  {
+    "city": "Louisville",
+    "county": "Jefferson"
+  },
+  {
+    "city": "Lexington",
+    "county": "Fayette"
+  },
+  {
+    "city": "Bowling Green",
+    "county": "Warren"
+  },
+  {
+    "city": "Owensboro",
+    "county": "Daviess"
+  },
+  {
+    "city": "Covington",
+    "county": "Kenton"
+  },
+  {
+    "city": "Frankfort",
+    "county": "Franklin"
+  },
+  {
+    "city": "Paducah",
+    "county": "McCracken"
+  },
+  {
+    "city": "Richmond",
+    "county": "Madison"
+  },
+  {
+    "city": "Georgetown",
+    "county": "Scott"
+  },
+  {
+    "city": "Florence",
+    "county": "Boone"
+  },
+  {
+    "city": "Hopkinsville",
+    "county": "Christian"
+  },
+  {
+    "city": "Elizabethtown",
+    "county": "Hardin"
+  },
+  {
+    "city": "Nicholasville",
+    "county": "Jessamine"
+  },
+  {
+    "city": "Henderson",
+    "county": "Henderson"
+  },
+  {
+    "city": "Ashland",
+    "county": "Boyd"
+  },
+  {
+    "city": "Somerset",
+    "county": "Pulaski"
+  },
+  {
+    "city": "Danville",
+    "county": "Boyle"
+  },
+  {
+    "city": "Murray",
+    "county": "Calloway"
+  },
+  {
+    "city": "Mayfield",
+    "county": "Graves"
+  },
+  {
+    "city": "Bardstown",
+    "county": "Nelson"
+  },
+  {
+    "city": "Shelbyville",
+    "county": "Shelby"
+  },
+  {
+    "city": "London",
+    "county": "Laurel"
+  },
+  {
+    "city": "Pikeville",
+    "county": "Pike"
+  },
+  {
+    "city": "Hazard",
+    "county": "Perry"
+  },
+  {
+    "city": "Morehead",
+    "county": "Rowan"
+  },
+  {
+    "city": "Mount Sterling",
+    "county": "Montgomery"
+  },
+  {
+    "city": "Maysville",
+    "county": "Mason"
+  },
+  {
+    "city": "Prestonsburg",
+    "county": "Floyd"
+  },
+  {
+    "city": "Paintsville",
+    "county": "Johnson"
+  },
+  {
+    "city": "Russellville",
+    "county": "Logan"
+  },
+  {
+    "city": "Glasgow",
+    "county": "Barren"
+  },
+  {
+    "city": "Campbellsville",
+    "county": "Taylor"
+  },
+  {
+    "city": "Berea",
+    "county": "Madison"
+  },
+  {
+    "city": "Harrodsburg",
+    "county": "Mercer"
+  },
+  {
+    "city": "Versailles",
+    "county": "Woodford"
+  },
+  {
+    "city": "La Grange",
+    "county": "Oldham"
+  },
+  {
+    "city": "Carrollton",
+    "county": "Carroll"
+  },
+  {
+    "city": "Princeton",
+    "county": "Caldwell"
+  },
+  {
+    "city": "Benton",
+    "county": "Marshall"
+  },
+  {
+    "city": "Cadiz",
+    "county": "Trigg"
+  },
+  {
+    "city": "Columbia",
+    "county": "Adair"
+  },
+  {
+    "city": "Jamestown",
+    "county": "Russell"
+  },
+  {
+    "city": "Monticello",
+    "county": "Wayne"
+  },
+  {
+    "city": "Corbin",
+    "county": "Whitley"
+  },
+  {
+    "city": "Harlan",
+    "county": "Harlan"
+  },
+  {
+    "city": "Whitesburg",
+    "county": "Letcher"
+  },
+  {
+    "city": "Inez",
+    "county": "Martin"
+  },
+  {
+    "city": "Jackson",
+    "county": "Breathitt"
+  },
+  {
+    "city": "Manchester",
+    "county": "Clay"
+  },
+  {
+    "city": "Pineville",
+    "county": "Bell"
+  },
+  {
+    "city": "Barbourville",
+    "county": "Knox"
+  },
+  {
+    "city": "Middlesboro",
+    "county": "Bell"
+  },
+  {
+    "city": "Williamsburg",
+    "county": "Whitley"
+  },
+  {
+    "city": "Somerset",
+    "county": "Pulaski"
+  },
+  {
+    "city": "Newport",
+    "county": "Campbell"
+  },
+  {
+    "city": "Fort Thomas",
+    "county": "Campbell"
+  },
+  {
+    "city": "Erlanger",
+    "county": "Kenton"
+  },
+  {
+    "city": "Independence",
+    "county": "Kenton"
+  },
+  {
+    "city": "Fort Wright",
+    "county": "Kenton"
+  },
+  {
+    "city": "Alexandria",
+    "county": "Campbell"
+  },
+  {
+    "city": "Union",
+    "county": "Boone"
+  },
+  {
+    "city": "Burlington",
+    "county": "Boone"
+  },
+  {
+    "city": "Hebron",
+    "county": "Boone"
+  },
+  {
+    "city": "Jeffersontown",
+    "county": "Jefferson"
+  },
+  {
+    "city": "St. Matthews",
+    "county": "Jefferson"
+  },
+  {
+    "city": "Shively",
+    "county": "Jefferson"
+  },
+  {
+    "city": "Okolona",
+    "county": "Jefferson"
+  }
+]
