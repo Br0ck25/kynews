@@ -1,0 +1,23 @@
+{
+  "name": "feedly-clone-local",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,ingester,web -c auto \"npm run dev -w apps/api\" \"npm run dev -w apps/ingester\" \"npm run dev -w apps/web\"",
+    "db:reset": "node scripts/reset-db.mjs",
+    "feeds:seed": "node scripts/seed-feeds.mjs",
+    "seed:feeds": "npm run feeds:seed",
+    "ingest:once": "node apps/ingester/src/ingester.mjs --once",
+    "dev:setup": "npm run db:reset && npm run feeds:seed",
+    "lint": "echo \"(optional) add eslint later\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  },
+  "dependencies": {
+    "hono": "^4.12.1",
+    "rss-parser": "^3.13.0"
+  }
+}

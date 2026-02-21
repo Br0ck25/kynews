@@ -1,0 +1,15 @@
+name = "ekn-api"
+main = "src/index.ts"
+compatibility_date = "2026-02-20"
+
+[vars]
+NWS_USER_AGENT = "EasternKentuckyNews/1.0 (admin@example.com)"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ekn-prod"
+database_id = "REPLACE_ME"
+
+[[r2_buckets]]
+binding = "LOST_FOUND_BUCKET"
+bucket_name = "ekn-lost-found-prod"

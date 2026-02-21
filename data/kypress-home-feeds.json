@@ -1,0 +1,218 @@
+[
+  {
+    "county": "Boyd",
+    "paper": "Greater Ashland Beacon",
+    "site": "https://www.ashlandbeacon.com",
+    "feedUrl": "https://www.ashlandbeacon.com/blog-feed.xml",
+    "finalUrl": "https://www.ashlandbeacon.com/blog-feed.xml",
+    "status": 200
+  },
+  {
+    "county": "Kenton",
+    "paper": "LINK nky",
+    "site": "https://www.linknky.com",
+    "feedUrl": "https://linknky.com/feed/",
+    "finalUrl": "https://linknky.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Whitley",
+    "paper": "Corbin/Whitley News Journal",
+    "site": "https://www.thenewsjournal.net",
+    "feedUrl": "https://thenewsjournal.net/feed/",
+    "finalUrl": "https://thenewsjournal.net/feed/",
+    "status": 200
+  },
+  {
+    "county": "Ohio",
+    "paper": "Ohio County Times-News",
+    "site": "https://www.octimesnews.com",
+    "feedUrl": "https://www.octimesnews.com/feed/",
+    "finalUrl": "https://www.octimesnews.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "LaRue",
+    "paper": "LaRue County Herald News",
+    "site": "https://www.laruecountyherald.com",
+    "feedUrl": "http://www.pmg-ky2.com/search/?f=rss&amp;t=article&amp;c=larue&amp;l=50&amp;s=start_time&amp;sd=desc",
+    "finalUrl": "https://www.pmg-ky2.com/search/?f=rss&amp;t=article&amp;c=larue&amp;l=50&amp;s=start_time&amp;sd=desc",
+    "status": 200
+  },
+  {
+    "county": "Adair",
+    "paper": "Adair Progress",
+    "site": "https://www.adairprogress.com",
+    "feedUrl": "https://www.adairprogress.com/feed/",
+    "finalUrl": "https://www.adairprogress.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Warren",
+    "paper": "College Heights Herald",
+    "site": "https://www.wkuherald.com",
+    "feedUrl": "https://wkuherald.com/feed/",
+    "finalUrl": "https://wkuherald.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Marion",
+    "paper": "Lebanon Enterprise",
+    "site": "https://www.lebanonenterprise.com",
+    "feedUrl": "http://www.pmg-ky2.com/search/?f=rss&amp;t=article&amp;c=lebanon&amp;l=50&amp;s=start_time&amp;sd=desc",
+    "finalUrl": "https://www.pmg-ky2.com/search/?f=rss&amp;t=article&amp;c=lebanon&amp;l=50&amp;s=start_time&amp;sd=desc",
+    "status": 200
+  },
+  {
+    "county": "Campbell",
+    "paper": "The Northerner",
+    "site": "https://www.thenortherner.com",
+    "feedUrl": "https://www.thenortherner.com/feed/",
+    "finalUrl": "https://www.thenortherner.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Jefferson",
+    "paper": "Forward Kentucky",
+    "site": "https://www.forwardky.com",
+    "feedUrl": "https://www.forwardky.com/latest/rss/",
+    "finalUrl": "https://www.forwardky.com/latest/rss/",
+    "status": 200
+  },
+  {
+    "county": "Green",
+    "paper": "Greensburg Record Herald",
+    "site": "https://www.record-herald.com",
+    "feedUrl": "https://www.record-herald.com/feed/",
+    "finalUrl": "https://www.record-herald.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Lawrence",
+    "paper": "The Big Sandy News",
+    "site": "https://www.thebigsandynews.com",
+    "feedUrl": "https://thebigsandynews.com/index-rally?format=rss",
+    "finalUrl": "https://thebigsandynews.com/index-rally?format=rss",
+    "status": 200
+  },
+  {
+    "county": "Fulton",
+    "paper": "The Current",
+    "site": "https://www.thecurrent.press",
+    "feedUrl": "https://www.thecurrent.press/feed.atom",
+    "finalUrl": "https://www.thecurrent.press/feed.atom",
+    "status": 200
+  },
+  {
+    "county": "Carter",
+    "paper": "Carter County Times",
+    "site": "https://www.cartercountytimes.com",
+    "feedUrl": "https://cartercountytimes.com/feed/",
+    "finalUrl": "https://cartercountytimes.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Daviess",
+    "paper": "Owensboro Times",
+    "site": "https://www.owensborotimes.com",
+    "feedUrl": "https://www.owensborotimes.com/feed/",
+    "finalUrl": "https://www.owensborotimes.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Fayette",
+    "paper": "Kentucky Kernel",
+    "site": "https://www.kykernel.com",
+    "feedUrl": "https://kykernel.com/feed/",
+    "finalUrl": "https://kykernel.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Calloway",
+    "paper": "The Murray Sentinel",
+    "site": "https://www.themurraysentinel.org",
+    "feedUrl": "https://themurraysentinel.org/feed/",
+    "finalUrl": "https://themurraysentinel.org/feed/",
+    "status": 200
+  },
+  {
+    "county": "Edmonson",
+    "paper": "Edmonson News",
+    "site": "https://www.jpinews.com",
+    "feedUrl": "https://www.jpinews.com/feed/",
+    "finalUrl": "https://www.jpinews.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Woodford",
+    "paper": "Woodford Sun",
+    "site": "https://www.woodfordsun.com",
+    "feedUrl": "https://www.woodfordsun.com/blog-feed.xml",
+    "finalUrl": "https://www.woodfordsun.com/blog-feed.xml",
+    "status": 200
+  },
+  {
+    "county": "Wayne",
+    "paper": "Wayne Weekly",
+    "site": "https://www.thewayneweekly.com",
+    "feedUrl": "https://www.thewayneweekly.com/feed/",
+    "finalUrl": "https://www.thewayneweekly.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Bourbon",
+    "paper": "Bourbon County Citizen",
+    "site": "https://www.bourboncountycitizen.com",
+    "feedUrl": "https://www.bourboncountycitizen.com/feed/",
+    "finalUrl": "https://www.bourboncountycitizen.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Webster",
+    "paper": "Sebree Banner",
+    "site": "https://www.cpcnewspapers.com",
+    "feedUrl": "https://www.cpcnewspapers.com/feed/",
+    "finalUrl": "https://www.cpcnewspapers.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Hancock",
+    "paper": "Hancock Clarion",
+    "site": "https://www.hancockclarion.com",
+    "feedUrl": "https://www.hancockclarion.com/feed/",
+    "finalUrl": "https://www.hancockclarion.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Monroe",
+    "paper": "Tompkinsville News",
+    "site": "https://www.tompkinsvillenews.com",
+    "feedUrl": "https://www.tompkinsvillenews.com/feed/",
+    "finalUrl": "https://www.tompkinsvillenews.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Lewis",
+    "paper": "The Lewis County Herald",
+    "site": "https://www.lewiscountyherald.com",
+    "feedUrl": "https://lewiscountyherald.com/feed/",
+    "finalUrl": "https://lewiscountyherald.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Magoffin",
+    "paper": "Salyersville Independent",
+    "site": "https://www.salyersvilleindependent.com",
+    "feedUrl": "https://salyersvilleindependent.com/feed/",
+    "finalUrl": "https://salyersvilleindependent.com/feed/",
+    "status": 200
+  },
+  {
+    "county": "Martin",
+    "paper": "Mountain Citizen",
+    "site": "https://www.mountaincitizen.com",
+    "feedUrl": "https://mountaincitizen.com/feed/",
+    "finalUrl": "https://mountaincitizen.com/feed/",
+    "status": 200
+  }
+]

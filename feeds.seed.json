@@ -1,0 +1,2210 @@
+[
+  {
+    "id": "ky-wlky-top",
+    "name": "WLKY Top Stories",
+    "category": "Kentucky - TV",
+    "url": "https://www.wlky.com/topstories-rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-lex18",
+    "name": "LEX18 Headlines",
+    "category": "Kentucky - TV",
+    "url": "https://www.lex18.com/index.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wtvq-local",
+    "name": "ABC36 (WTVQ) Local News",
+    "category": "Kentucky - TV",
+    "url": "https://www.wtvq.com/category/local-news/feed",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-spectrum-lou",
+    "name": "Spectrum News Louisville Headlines",
+    "category": "Kentucky - Local",
+    "url": "https://spectrumlocalnews.com/services/contentfeed.ky%7Clouisville%7Cnews.landing.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wdrb-search",
+    "name": "WDRB News (RSS Search)",
+    "category": "Kentucky - Local",
+    "url": "https://www.wdrb.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wpsd-search",
+    "name": "WPSD Local 6 (RSS Search)",
+    "category": "Kentucky - Local",
+    "url": "https://www.wpsdlocal6.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-kentuckylantern-politics",
+    "name": "Kentucky Lantern Politics",
+    "category": "Kentucky - Politics",
+    "url": "https://kentuckylantern.com/category/politics/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-forwardky",
+    "name": "ForwardKY Latest",
+    "category": "Kentucky - Politics",
+    "url": "https://www.forwardky.com/latest/rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-uknow-campus",
+    "name": "UKNow Campus News",
+    "category": "Kentucky - Education",
+    "url": "https://uknow.uky.edu/feeds/section/347/rss.xml",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-uknow-happenings",
+    "name": "UKNow Happenings",
+    "category": "Kentucky - Events",
+    "url": "https://uknow.uky.edu/feeds/section/426/rss.xml",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-lex18-news",
+    "name": "LEX18 News",
+    "category": "Kentucky - TV",
+    "url": "https://www.lex18.com/news.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-lex18-weather",
+    "name": "LEX18 Weather",
+    "category": "Kentucky - Weather",
+    "url": "https://www.lex18.com/weather.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wtvq-weather",
+    "name": "ABC36 (WTVQ) Weather",
+    "category": "Kentucky - Weather",
+    "url": "https://www.wtvq.com/category/weather/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-whas-news",
+    "name": "WHAS11 News",
+    "category": "Kentucky - TV",
+    "url": "https://www.whas11.com/feeds/syndication/rss/news",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-whas-weather",
+    "name": "WHAS11 Weather",
+    "category": "Kentucky - Weather",
+    "url": "https://www.whas11.com/feeds/syndication/rss/weather",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wfpl",
+    "name": "WFPL Louisville",
+    "category": "Kentucky - Radio",
+    "url": "https://wfpl.org/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-kentuckytoday",
+    "name": "Kentucky Today",
+    "category": "Kentucky - Statewide",
+    "url": "https://www.kentuckytoday.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-kentuckynewera",
+    "name": "Kentucky New Era",
+    "category": "Kentucky - Local",
+    "url": "https://www.kentuckynewera.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-timesleader",
+    "name": "The Times Leader",
+    "category": "Kentucky - Local",
+    "url": "https://www.timesleader.net/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-dailyindependent",
+    "name": "Daily Independent",
+    "category": "Kentucky - Local",
+    "url": "https://www.dailyindependent.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wcpo-state",
+    "name": "WCPO Kentucky",
+    "category": "Kentucky - Regional",
+    "url": "https://www.wcpo.com/news/state/state-kentucky.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wowk-kentucky",
+    "name": "WOWK Kentucky",
+    "category": "Kentucky - Regional",
+    "url": "https://www.wowktv.com/news/kentucky/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "nat-nyt-home",
+    "name": "New York Times - Home Page",
+    "category": "National - General",
+    "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
+  },
+  {
+    "id": "nat-npr-news",
+    "name": "NPR - News",
+    "category": "National - General",
+    "url": "https://feeds.npr.org/1001/rss.xml",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
+  },
+  {
+    "id": "nat-bbc-us-canada",
+    "name": "BBC - US and Canada",
+    "category": "National - General",
+    "url": "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
+  },
+  {
+    "id": "nat-cnn-top",
+    "name": "CNN - Top Stories",
+    "category": "National - General",
+    "url": "https://rss.cnn.com/rss/edition.rss",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
+  },
+  {
+    "id": "nat-cbs-main",
+    "name": "CBS News - Top",
+    "category": "National - General",
+    "url": "https://www.cbsnews.com/latest/rss/main",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-adair-adair-progress",
+    "name": "Adair Progress",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.adairprogress.com/feed",
+    "state_code": "KY",
+    "default_county": "Adair",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-bell-middlesboro-news",
+    "name": "Middlesboro News",
+    "category": "Kentucky - County Papers",
+    "url": "https://middlesboronews.com/feed",
+    "state_code": "KY",
+    "default_county": "Bell",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-bourbon-bourbon-county-citizen",
+    "name": "Bourbon County Citizen",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.bourboncountycitizen.com/feed",
+    "state_code": "KY",
+    "default_county": "Bourbon",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-boyle-advocate-messenger",
+    "name": "Advocate Messenger",
+    "category": "Kentucky - County Papers",
+    "url": "https://amnews.com/feed",
+    "state_code": "KY",
+    "default_county": "Boyle",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-calloway-the-murray-sentinel",
+    "name": "The Murray Sentinel",
+    "category": "Kentucky - County Papers",
+    "url": "https://themurraysentinel.org/feed",
+    "state_code": "KY",
+    "default_county": "Calloway",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-campbell-the-northerner",
+    "name": "The Northerner",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.thenortherner.com/feed",
+    "state_code": "KY",
+    "default_county": "Campbell",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-carter-carter-county-times",
+    "name": "Carter County Times",
+    "category": "Kentucky - County Papers",
+    "url": "https://cartercountytimes.com/feed",
+    "state_code": "KY",
+    "default_county": "Carter",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-clark-winchester-sun",
+    "name": "Winchester Sun",
+    "category": "Kentucky - County Papers",
+    "url": "https://winchestersun.com/feed",
+    "state_code": "KY",
+    "default_county": "Clark",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-daviess-owensboro-times",
+    "name": "Owensboro Times",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.owensborotimes.com/feed",
+    "state_code": "KY",
+    "default_county": "Daviess",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-edmonson-edmonson-news",
+    "name": "Edmonson News",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.jpinews.com/feed",
+    "state_code": "KY",
+    "default_county": "Edmonson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-fayette-kentucky-kernel",
+    "name": "Kentucky Kernel",
+    "category": "Kentucky - County Papers",
+    "url": "https://kykernel.com/feed",
+    "state_code": "KY",
+    "default_county": "Fayette",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-floyd-floyd-county-chronicle",
+    "name": "Floyd County Chronicle and Times",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.floydct.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Floyd",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-franklin-frankfort-state-journa",
+    "name": "Frankfort State Journal",
+    "category": "Kentucky - County Papers",
+    "url": "https://state-journal.com/feed",
+    "state_code": "KY",
+    "default_county": "Franklin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-green-greensburg-record-hera",
+    "name": "Greensburg Record Herald",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.record-herald.com/feed",
+    "state_code": "KY",
+    "default_county": "Green",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-hancock-hancock-clarion",
+    "name": "Hancock Clarion",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.hancockclarion.com/feed",
+    "state_code": "KY",
+    "default_county": "Hancock",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-harlan-harlan-enterprise",
+    "name": "Harlan Enterprise",
+    "category": "Kentucky - County Papers",
+    "url": "https://harlanenterprise.net/feed",
+    "state_code": "KY",
+    "default_county": "Harlan",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-jessamine-jessamine-journal",
+    "name": "Jessamine Journal",
+    "category": "Kentucky - County Papers",
+    "url": "https://jessaminejournal.com/feed",
+    "state_code": "KY",
+    "default_county": "Jessamine",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-kenton-link-nky",
+    "name": "LINK nky",
+    "category": "Kentucky - County Papers",
+    "url": "https://linknky.com/feed",
+    "state_code": "KY",
+    "default_county": "Kenton",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-knott-troublesome-creek-time",
+    "name": "Troublesome Creek Times",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.troublesomecreektimes.com/feed",
+    "state_code": "KY",
+    "default_county": "Knott",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-lewis-the-lewis-county-heral",
+    "name": "The Lewis County Herald",
+    "category": "Kentucky - County Papers",
+    "url": "https://lewiscountyherald.com/feed",
+    "state_code": "KY",
+    "default_county": "Lewis",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-lincoln-interior-journal",
+    "name": "Interior Journal",
+    "category": "Kentucky - County Papers",
+    "url": "https://theinteriorjournal.com/feed",
+    "state_code": "KY",
+    "default_county": "Lincoln",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-madison-richmond-register",
+    "name": "Richmond Register",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.richmondregister.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Madison",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-magoffin-salyersville-independe",
+    "name": "Salyersville Independent",
+    "category": "Kentucky - County Papers",
+    "url": "https://salyersvilleindependent.com/feed",
+    "state_code": "KY",
+    "default_county": "Magoffin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-marshall-the-lake-news",
+    "name": "The Lake News",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.thelakenews.com/feed",
+    "state_code": "KY",
+    "default_county": "Marshall",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-martin-mountain-citizen",
+    "name": "Mountain Citizen",
+    "category": "Kentucky - County Papers",
+    "url": "https://mountaincitizen.com/feed",
+    "state_code": "KY",
+    "default_county": "Martin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-mccracken-paducah-sun",
+    "name": "Paducah Sun",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.paducahsun.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "McCracken",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-monroe-tompkinsville-news",
+    "name": "Tompkinsville News",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.tompkinsvillenews.com/feed",
+    "state_code": "KY",
+    "default_county": "Monroe",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-ohio-ohio-county-times-news",
+    "name": "Ohio County Times-News",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.octimesnews.com/feed",
+    "state_code": "KY",
+    "default_county": "Ohio",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-simpson-franklin-favorite",
+    "name": "Franklin Favorite",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.franklinfavorite.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Simpson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-warren-bowling-green-daily-ne",
+    "name": "Bowling Green Daily News",
+    "category": "Kentucky - County Papers",
+    "url": "https://bgdailynews.com/feed",
+    "state_code": "KY",
+    "default_county": "Warren",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-warren-college-heights-herald",
+    "name": "College Heights Herald",
+    "category": "Kentucky - County Papers",
+    "url": "https://wkuherald.com/feed",
+    "state_code": "KY",
+    "default_county": "Warren",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-wayne-wayne-weekly",
+    "name": "Wayne Weekly",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.thewayneweekly.com/feed",
+    "state_code": "KY",
+    "default_county": "Wayne",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-webster-sebree-banner",
+    "name": "Sebree Banner",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.cpcnewspapers.com/feed",
+    "state_code": "KY",
+    "default_county": "Webster",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-whitley-corbin-whitley-news-jo",
+    "name": "Corbin/Whitley News Journal",
+    "category": "Kentucky - County Papers",
+    "url": "https://thenewsjournal.net/feed",
+    "state_code": "KY",
+    "default_county": "Whitley",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-boyd-greater-ashland-beacon",
+    "name": "Greater Ashland Beacon",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.ashlandbeacon.com/blog-feed.xml",
+    "state_code": "KY",
+    "default_county": "Boyd",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-larue-larue-county-herald-ne",
+    "name": "LaRue County Herald News",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.pmg-ky2.com/search/?f=rss&t=article&c=larue&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "LaRue",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-marion-lebanon-enterprise",
+    "name": "Lebanon Enterprise",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.pmg-ky2.com/search/?f=rss&t=article&c=lebanon&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Marion",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-lawrence-the-big-sandy-news",
+    "name": "The Big Sandy News",
+    "category": "Kentucky - County Papers",
+    "url": "https://thebigsandynews.com/index-rally?format=rss",
+    "state_code": "KY",
+    "default_county": "Lawrence",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-fulton-the-current",
+    "name": "The Current",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.thecurrent.press/feed.atom",
+    "state_code": "KY",
+    "default_county": "Fulton",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-woodford-woodford-sun",
+    "name": "Woodford Sun",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.woodfordsun.com/blog-feed.xml",
+    "state_code": "KY",
+    "default_county": "Woodford",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-adair",
+    "name": "Adair County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Adair%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Adair",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-allen",
+    "name": "Allen County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Allen%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Allen",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-anderson",
+    "name": "Anderson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Anderson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Anderson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-ballard",
+    "name": "Ballard County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Ballard%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Ballard",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-barren",
+    "name": "Barren County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Barren%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Barren",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-bath",
+    "name": "Bath County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Bath%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Bath",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-bell",
+    "name": "Bell County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Bell%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Bell",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-boone",
+    "name": "Boone County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Boone%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Boone",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-bourbon",
+    "name": "Bourbon County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Bourbon%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Bourbon",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-boyd",
+    "name": "Boyd County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Boyd%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Boyd",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-boyle",
+    "name": "Boyle County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Boyle%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Boyle",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-bracken",
+    "name": "Bracken County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Bracken%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Bracken",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-breathitt",
+    "name": "Breathitt County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Breathitt%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Breathitt",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-breckinridge",
+    "name": "Breckinridge County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Breckinridge%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Breckinridge",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-bullitt",
+    "name": "Bullitt County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Bullitt%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Bullitt",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-butler",
+    "name": "Butler County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Butler%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Butler",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-caldwell",
+    "name": "Caldwell County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Caldwell%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Caldwell",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-calloway",
+    "name": "Calloway County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Calloway%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Calloway",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-campbell",
+    "name": "Campbell County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Campbell%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Campbell",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-carlisle",
+    "name": "Carlisle County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Carlisle%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Carlisle",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-carroll",
+    "name": "Carroll County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Carroll%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Carroll",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-carter",
+    "name": "Carter County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Carter%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Carter",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-casey",
+    "name": "Casey County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Casey%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Casey",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-christian",
+    "name": "Christian County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Christian%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Christian",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-clark",
+    "name": "Clark County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Clark%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Clark",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-clay",
+    "name": "Clay County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Clay%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Clay",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-clinton",
+    "name": "Clinton County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Clinton%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Clinton",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-crittenden",
+    "name": "Crittenden County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Crittenden%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Crittenden",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-cumberland",
+    "name": "Cumberland County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Cumberland%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Cumberland",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-daviess",
+    "name": "Daviess County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Daviess%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Daviess",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-edmonson",
+    "name": "Edmonson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Edmonson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Edmonson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-elliott",
+    "name": "Elliott County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Elliott%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Elliott",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-estill",
+    "name": "Estill County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Estill%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Estill",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-fayette",
+    "name": "Fayette County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Fayette%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Fayette",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-fleming",
+    "name": "Fleming County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Fleming%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Fleming",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-floyd",
+    "name": "Floyd County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Floyd%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Floyd",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-franklin",
+    "name": "Franklin County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Franklin%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Franklin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-fulton",
+    "name": "Fulton County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Fulton%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Fulton",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-gallatin",
+    "name": "Gallatin County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Gallatin%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Gallatin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-garrard",
+    "name": "Garrard County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Garrard%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Garrard",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-grant",
+    "name": "Grant County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Grant%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Grant",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-graves",
+    "name": "Graves County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Graves%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Graves",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-grayson",
+    "name": "Grayson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Grayson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Grayson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-green",
+    "name": "Green County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Green%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Green",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-greenup",
+    "name": "Greenup County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Greenup%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Greenup",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-hancock",
+    "name": "Hancock County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Hancock%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Hancock",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-hardin",
+    "name": "Hardin County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Hardin%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Hardin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-harlan",
+    "name": "Harlan County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Harlan%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Harlan",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-harrison",
+    "name": "Harrison County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Harrison%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Harrison",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-hart",
+    "name": "Hart County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Hart%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Hart",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-henderson",
+    "name": "Henderson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Henderson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Henderson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-henry",
+    "name": "Henry County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Henry%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Henry",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-hickman",
+    "name": "Hickman County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Hickman%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Hickman",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-hopkins",
+    "name": "Hopkins County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Hopkins%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Hopkins",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-jackson",
+    "name": "Jackson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Jackson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Jackson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-jefferson",
+    "name": "Jefferson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Jefferson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Jefferson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-jessamine",
+    "name": "Jessamine County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Jessamine%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Jessamine",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-johnson",
+    "name": "Johnson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Johnson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Johnson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-kenton",
+    "name": "Kenton County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Kenton%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Kenton",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-knott",
+    "name": "Knott County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Knott%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Knott",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-knox",
+    "name": "Knox County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Knox%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Knox",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-larue",
+    "name": "Larue County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Larue%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Larue",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-laurel",
+    "name": "Laurel County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Laurel%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Laurel",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-lawrence",
+    "name": "Lawrence County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Lawrence%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Lawrence",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-lee",
+    "name": "Lee County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Lee%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Lee",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-leslie",
+    "name": "Leslie County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Leslie%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Leslie",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-letcher",
+    "name": "Letcher County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Letcher%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Letcher",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-lewis",
+    "name": "Lewis County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Lewis%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Lewis",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-lincoln",
+    "name": "Lincoln County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Lincoln%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Lincoln",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-livingston",
+    "name": "Livingston County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Livingston%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Livingston",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-logan",
+    "name": "Logan County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Logan%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Logan",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-lyon",
+    "name": "Lyon County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Lyon%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Lyon",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-madison",
+    "name": "Madison County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Madison%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Madison",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-magoffin",
+    "name": "Magoffin County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Magoffin%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Magoffin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-marion",
+    "name": "Marion County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Marion%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Marion",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-marshall",
+    "name": "Marshall County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Marshall%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Marshall",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-martin",
+    "name": "Martin County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Martin%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Martin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-mason",
+    "name": "Mason County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Mason%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Mason",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-mccracken",
+    "name": "McCracken County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=McCracken%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "McCracken",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-mccreary",
+    "name": "McCreary County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=McCreary%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "McCreary",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-mclean",
+    "name": "McLean County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=McLean%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "McLean",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-meade",
+    "name": "Meade County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Meade%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Meade",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-menifee",
+    "name": "Menifee County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Menifee%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Menifee",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-mercer",
+    "name": "Mercer County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Mercer%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Mercer",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-metcalfe",
+    "name": "Metcalfe County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Metcalfe%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Metcalfe",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-monroe",
+    "name": "Monroe County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Monroe%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Monroe",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-montgomery",
+    "name": "Montgomery County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Montgomery%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Montgomery",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-morgan",
+    "name": "Morgan County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Morgan%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Morgan",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-muhlenberg",
+    "name": "Muhlenberg County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Muhlenberg%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Muhlenberg",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-nelson",
+    "name": "Nelson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Nelson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Nelson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-nicholas",
+    "name": "Nicholas County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Nicholas%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Nicholas",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-ohio",
+    "name": "Ohio County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Ohio%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Ohio",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-oldham",
+    "name": "Oldham County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Oldham%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Oldham",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-owen",
+    "name": "Owen County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Owen%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Owen",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-owsley",
+    "name": "Owsley County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Owsley%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Owsley",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-pendleton",
+    "name": "Pendleton County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Pendleton%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Pendleton",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-perry",
+    "name": "Perry County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Perry%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Perry",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-pike",
+    "name": "Pike County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Pike%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Pike",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-powell",
+    "name": "Powell County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Powell%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Powell",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-pulaski",
+    "name": "Pulaski County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Pulaski%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Pulaski",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-robertson",
+    "name": "Robertson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Robertson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Robertson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-rockcastle",
+    "name": "Rockcastle County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Rockcastle%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Rockcastle",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-rowan",
+    "name": "Rowan County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Rowan%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Rowan",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-russell",
+    "name": "Russell County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Russell%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Russell",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-scott",
+    "name": "Scott County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Scott%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Scott",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-shelby",
+    "name": "Shelby County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Shelby%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Shelby",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-simpson",
+    "name": "Simpson County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Simpson%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Simpson",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-spencer",
+    "name": "Spencer County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Spencer%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Spencer",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-taylor",
+    "name": "Taylor County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Taylor%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Taylor",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-todd",
+    "name": "Todd County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Todd%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Todd",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-trigg",
+    "name": "Trigg County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Trigg%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Trigg",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-trimble",
+    "name": "Trimble County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Trimble%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Trimble",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-union",
+    "name": "Union County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Union%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Union",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-warren",
+    "name": "Warren County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Warren%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Warren",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-washington",
+    "name": "Washington County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Washington%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Washington",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-wayne",
+    "name": "Wayne County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Wayne%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Wayne",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-webster",
+    "name": "Webster County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Webster%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Webster",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-whitley",
+    "name": "Whitley County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Whitley%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Whitley",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-wolfe",
+    "name": "Wolfe County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Wolfe%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Wolfe",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-woodford",
+    "name": "Woodford County Watch",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Woodford%20County%20Kentucky&format=rss",
+    "state_code": "KY",
+    "default_county": "Woodford",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-kentuckylantern-latest",
+    "name": "Kentucky Lantern Latest",
+    "category": "Kentucky - Statewide",
+    "url": "https://kentuckylantern.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wave3-arc",
+    "name": "WAVE 3 News",
+    "category": "Kentucky - TV",
+    "url": "https://www.wave3.com/arc/outboundfeeds/rss/?outputType=xml",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wkyt-arc",
+    "name": "WKYT News",
+    "category": "Kentucky - TV",
+    "url": "https://www.wkyt.com/arc/outboundfeeds/rss/?outputType=xml",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wymt-arc",
+    "name": "WYMT News",
+    "category": "Kentucky - Regional",
+    "url": "https://www.wymt.com/arc/outboundfeeds/rss/?outputType=xml",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wbko-arc",
+    "name": "WBKO News",
+    "category": "Kentucky - TV",
+    "url": "https://www.wbko.com/arc/outboundfeeds/rss/?outputType=xml",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wkms-regional-news",
+    "name": "WKMS Regional News",
+    "category": "Kentucky - Radio",
+    "url": "https://www.wkms.org/rss.xml",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-nkytribune",
+    "name": "NKyTribune",
+    "category": "Kentucky - Local",
+    "url": "https://www.nkytribune.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-lane-report",
+    "name": "Lane Report",
+    "category": "Kentucky - Business",
+    "url": "https://www.lanereport.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-kentuckycom-homepage",
+    "name": "Kentucky.com Headlines",
+    "category": "Kentucky - Statewide",
+    "url": "https://feeds.mcclatchy.com/kentucky/stories",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-messenger-inquirer",
+    "name": "Messenger-Inquirer",
+    "category": "Kentucky - Local",
+    "url": "https://www.messenger-inquirer.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-shelby-sentinel-news",
+    "name": "Sentinel-News",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.pmg-ky1.com/search/?f=rss&t=article&c=sentinel_news&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Shelby",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-oldham-oldham-era",
+    "name": "Oldham Era",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.pmg-ky1.com/search/?f=rss&t=article&c=oldham_era&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Oldham",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-grant-grant-county-news",
+    "name": "Grant County News",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.pmg-ky3.com/search/?f=rss&t=article&c=grantco&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Grant",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-pike-appalachian-news-express",
+    "name": "Appalachian News-Express",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.news-expressky.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc&k%5B%5D=%23topstory",
+    "state_code": "KY",
+    "default_county": "Pike",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wsaz-arc",
+    "name": "WSAZ Tri-State News",
+    "category": "Kentucky - Regional",
+    "url": "https://www.wsaz.com/arc/outboundfeeds/rss/?outputType=xml",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-lpm-news-rss",
+    "name": "LPM News",
+    "category": "Kentucky - Radio",
+    "url": "https://www.lpm.org/news.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-county-trigg-cadiz-record",
+    "name": "Cadiz Record",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.kentuckynewera.com/search/?f=rss&t=article&c=cadiz_record&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Trigg",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-obits-statewide-watch",
+    "name": "Kentucky Obituaries Watch",
+    "category": "Kentucky - Obituaries",
+    "url": "https://www.bing.com/news/search?q=Kentucky%20obituaries&format=rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-obits-dailyindependent",
+    "name": "Daily Independent Obituaries",
+    "category": "Kentucky - Obituaries",
+    "url": "https://www.dailyindependent.com/search/?f=rss&t=article&c=obituaries&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Boyd",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-obits-paducahsun",
+    "name": "Paducah Sun Obituaries",
+    "category": "Kentucky - Obituaries",
+    "url": "https://www.paducahsun.com/search/?f=rss&t=article&c=obituaries&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "McCracken",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-obits-newsenterprise",
+    "name": "News-Enterprise Obituaries",
+    "category": "Kentucky - Obituaries",
+    "url": "https://www.thenewsenterprise.com/search/?f=rss&t=article&c=obituaries&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Hardin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-obits-messenger-inquirer",
+    "name": "Messenger-Inquirer Obituaries",
+    "category": "Kentucky - Obituaries",
+    "url": "https://www.messenger-inquirer.com/search/?f=rss&t=article&c=obituaries&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Daviess",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-obits-kentuckynewera",
+    "name": "Kentucky New Era Obituaries",
+    "category": "Kentucky - Obituaries",
+    "url": "https://www.kentuckynewera.com/search/?f=rss&t=article&c=obituaries&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Christian",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-obits-richmondregister",
+    "name": "Richmond Register Obituaries",
+    "category": "Kentucky - Obituaries",
+    "url": "https://www.richmondregister.com/search/?f=rss&t=article&c=obituaries&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Madison",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-obits-news-expressky",
+    "name": "News-Express Obituaries",
+    "category": "Kentucky - Obituaries",
+    "url": "https://www.news-expressky.com/search/?f=rss&t=article&c=obituaries&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "Pike",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-ballard-wickliffe",
+    "name": "Ballard County Watch (Wickliffe)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Wickliffe%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Ballard",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-elliott-sandy-hook",
+    "name": "Elliott County Watch (Sandy Hook)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Sandy%20Hook%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Elliott",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-gallatin-warsaw",
+    "name": "Gallatin County Watch (Warsaw)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Warsaw%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Gallatin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-garrard-lancaster",
+    "name": "Garrard County Watch (Lancaster)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Lancaster%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Garrard",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-marion-lebanon",
+    "name": "Marion County Watch (Lebanon)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Lebanon%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Marion",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-trimble-bedford",
+    "name": "Trimble County Watch (Bedford)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Bedford%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Trimble",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-ballard-lacenter",
+    "name": "Ballard County Watch (La Center)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=La%20Center%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Ballard",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-elliott-isonville",
+    "name": "Elliott County Watch (Isonville)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Isonville%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Elliott",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-gallatin-sparta",
+    "name": "Gallatin County Watch (Sparta)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Sparta%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Gallatin",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-watch-garrard-paint-lick",
+    "name": "Garrard County Watch (Paint Lick)",
+    "category": "Kentucky - County Watch",
+    "url": "https://www.bing.com/news/search?q=Paint%20Lick%20Kentucky%20news&format=rss",
+    "state_code": "KY",
+    "default_county": "Garrard",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wbontv",
+    "name": "WBONTV Local News",
+    "category": "Kentucky - Local",
+    "url": "https://wbontv.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-mclean-county-journal",
+    "name": "McLean County Journal",
+    "category": "Kentucky - County Papers",
+    "url": "https://www.messenger-inquirer.com/search/?f=rss&t=article&c=mclean_county&l=50&s=start_time&sd=desc",
+    "state_code": "KY",
+    "default_county": "McLean",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-business-lexington",
+    "name": "Business Lexington",
+    "category": "Kentucky - Business",
+    "url": "https://smileypete.com/business/index.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  }
+]
