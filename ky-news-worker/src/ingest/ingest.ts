@@ -94,9 +94,12 @@ async function fetchWithConditional(
   url: string,
   etag: string | null,
   lastModified: string | null,
-  force: boolean
+  force: boolean,
+  userAgent: string
 ): Promise<{ status: number; etag: string | null; lastModified: string | null; text: string | null }> {
   const headers = new Headers();
+  headers.set("accept", "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8");
+  headers.set("user-agent", userAgent);
 
   if (!force) {
     if (etag) headers.set("If-None-Match", etag);
@@ -406,6 +409,7 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
 
   try {
     const constrainedFeedIds = Array.isArray(options.feedIds) ? options.feedIds.filter(Boolean) : [];
+    const rssUserAgent = env.RSS_USER_AGENT || "EKY-News-Bot/1.0 (+https://kynews.pages.dev)";
     const feeds = constrainedFeedIds.length
       ? await d1All<FeedRow>(
           env.ky_news_db,
@@ -423,7 +427,7 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
           SELECT id, name, url, etag, last_modified, state_code, region_scope, default_county
           FROM feeds
           WHERE enabled=1
-          ORDER BY name
+          ORDER BY COALESCE(last_checked_at, '1970-01-01 00:00:00') ASC, name
           LIMIT ?
           `,
           [Number.isFinite(maxFeeds) ? maxFeeds : 200]
@@ -438,7 +442,13 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
       let feedStatus: "ok" | "error" | "not_modified" = "ok";
       let feedErrorMessage: string | undefined;
       try {
-        const fetched = await fetchWithConditional(feed.url, feed.etag, feed.last_modified, Boolean(options.force));
+        const fetched = await fetchWithConditional(
+          feed.url,
+          feed.etag,
+          feed.last_modified,
+          Boolean(options.force),
+          rssUserAgent
+        );
         feedHttpStatus = fetched.status;
 
         await d1Run(
@@ -551,6 +561,8 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
           error: feedErrorMessage
         });
       } finally {
+        await d1Run(env.ky_news_db, "UPDATE feeds SET last_checked_at=datetime('now') WHERE id=?", [feed.id]);
+
         const feedMetric = {
           feedId: feed.id,
           status: feedStatus,

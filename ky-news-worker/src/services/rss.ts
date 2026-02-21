@@ -82,9 +82,11 @@ function normalizeDate(value: string | null): string | null {
 }
 
 function pickImage(item: Record<string, unknown>): string | null {
-  const enclosure = item.enclosure as Record<string, unknown> | undefined;
-  if (enclosure?.url && /^https?:\/\//i.test(String(enclosure.url))) {
-    return String(enclosure.url);
+  const enclosures = toArray(item.enclosure as Record<string, unknown> | Array<Record<string, unknown>> | undefined);
+  for (const enclosure of enclosures) {
+    if (enclosure?.url && /^https?:\/\//i.test(String(enclosure.url))) {
+      return String(enclosure.url);
+    }
   }
 
   const mediaContent = item["media:content"] as Record<string, unknown> | Array<Record<string, unknown>> | undefined;

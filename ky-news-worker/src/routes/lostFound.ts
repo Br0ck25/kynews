@@ -236,6 +236,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     const id = randomUUID();
     const county = normalizeCounty(parsed.data.county);
     const encryptedContact = await encryptText(c.env, parsed.data.contactEmail.trim().toLowerCase());
+    const initialStatus = c.env.LOST_FOUND_AUTO_APPROVE === "1" ? "approved" : "pending";
 
     await d1Run(
       c.env.ky_news_db,
@@ -243,7 +244,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
       INSERT INTO lost_found_posts (
         id, type, title, description, county, state_code,
         contact_email_encrypted, show_contact, status, expires_at
-      ) VALUES (?, ?, ?, ?, ?, 'KY', ?, ?, 'pending', datetime('now', '+30 days'))
+      ) VALUES (?, ?, ?, ?, ?, 'KY', ?, ?, ?, datetime('now', '+30 days'))
       `,
       [
         id,
@@ -252,9 +253,14 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
         parsed.data.description.trim(),
         county,
         encryptedContact,
-        parsed.data.showContact ? 1 : 0
+        parsed.data.showContact ? 1 : 0,
+        initialStatus
       ]
     );
+
+    if (initialStatus === "approved") {
+      await d1Run(c.env.ky_news_db, "UPDATE lost_found_posts SET approved_at=datetime('now') WHERE id=?", [id]);
+    }
 
     for (const imageKey of parsed.data.imageKeys) {
       await d1Run(c.env.ky_news_db, "INSERT INTO lost_found_images (id, post_id, r2_key) VALUES (?, ?, ?)", [
@@ -264,7 +270,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
       ]);
     }
 
-    return c.json({ ok: true, id, status: "pending" });
+    return c.json({ ok: true, id, status: initialStatus });
   });
 
   const ReportBody = z.object({

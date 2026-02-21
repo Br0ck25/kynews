@@ -74,6 +74,13 @@ function formatFromNow(iso?: string | null) {
   return formatPublishedDate(iso);
 }
 
+function truncateText(value: string, maxChars = 420): string {
+  const text = stripHtml(value).trim();
+  if (!text) return "";
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`;
+}
+
 const COVERAGE_TABS = [
   { id: "today", label: "TODAY", path: "/today" },
   { id: "national", label: "NATIONAL", path: "/national" },
@@ -86,6 +93,9 @@ const COVERAGE_TABS = [
 const LOCAL_PREF_KEY = "my_local_county";
 const SELECTED_COUNTIES_PREF_KEY = "selected_counties";
 const THEME_PREF_KEY = "ui_theme";
+const TODAY_LOOKBACK_HOURS = 72;
+const OBITUARY_LOOKBACK_HOURS = 24 * 30;
+const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" OR \"visitation\" OR \"memorial service\"";
 type ThemeMode = "light" | "dark";
 
 function getMyLocalCounty(): string {
@@ -626,21 +636,39 @@ function TodayScreen() {
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statewideFallback, setStatewideFallback] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const res = await getItems({
+        const primary = await getItems({
           state: state || undefined,
           county: county || undefined,
           counties: !county ? selectedCounties : undefined,
+          hours: TODAY_LOOKBACK_HOURS,
           limit: 30
         });
+
         if (cancelled) return;
-        setItems(res.items);
-        setCursor(res.nextCursor);
+        const shouldFallback = !state && !county && selectedCounties.length > 0 && !primary.items.length;
+
+        if (shouldFallback) {
+          const fallback = await getItems({
+            scope: "ky",
+            hours: TODAY_LOOKBACK_HOURS,
+            limit: 30
+          });
+          if (cancelled) return;
+          setItems(fallback.items);
+          setCursor(fallback.nextCursor);
+          setStatewideFallback(true);
+        } else {
+          setItems(primary.items);
+          setCursor(primary.nextCursor);
+          setStatewideFallback(false);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -654,13 +682,21 @@ function TodayScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await getItems({
-        state: state || undefined,
-        county: county || undefined,
-        counties: !county ? selectedCounties : undefined,
-        cursor,
-        limit: 30
-      });
+      const res = statewideFallback
+        ? await getItems({
+            scope: "ky",
+            hours: TODAY_LOOKBACK_HOURS,
+            cursor,
+            limit: 30
+          })
+        : await getItems({
+            state: state || undefined,
+            county: county || undefined,
+            counties: !county ? selectedCounties : undefined,
+            hours: TODAY_LOOKBACK_HOURS,
+            cursor,
+            limit: 30
+          });
       setItems((prev) => [...prev, ...res.items]);
       setCursor(res.nextCursor);
     } finally {
@@ -681,6 +717,9 @@ function TodayScreen() {
       <CoverageTabs />
 
       <div className="section">
+        {statewideFallback ? (
+          <div className="locationBanner">No recent stories in your selected counties. Showing statewide coverage.</div>
+        ) : null}
         {locationLabel ? <div className="locationBanner">Coverage: {locationLabel}</div> : null}
 
         {loading && !items.length ? (
@@ -1320,7 +1359,27 @@ function WeatherScreen() {
             {alerts.map((a) => (
               <div key={a.id} style={{ marginBottom: 12 }}>
                 <div style={{ fontWeight: 800 }}>{a.headline}</div>
-                <div style={{ fontSize: 13, color: "var(--muted)" }}>{a.event} • {a.severity}</div>
+                <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>
+                  {a.event} • {a.severity}
+                  {a.starts_at || a.ends_at ? (
+                    <>
+                      {" "}
+                      •{" "}
+                      {a.starts_at ? `Starts ${formatPublishedDate(a.starts_at)}` : "In effect now"}
+                      {a.ends_at ? ` | Ends ${formatPublishedDate(a.ends_at)}` : ""}
+                    </>
+                  ) : null}
+                </div>
+                {a.description ? (
+                  <div style={{ fontSize: 13, lineHeight: 1.45, marginBottom: a.instruction ? 6 : 0 }}>
+                    {truncateText(a.description, 500)}
+                  </div>
+                ) : null}
+                {a.instruction ? (
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#92400e" }}>
+                    Action: {truncateText(a.instruction, 320)}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -1347,26 +1406,41 @@ function WeatherScreen() {
 
 function ObituariesScreen() {
   const nav = useNavigate();
-  const selectedCounties = useMemo(() => getSelectedCounties(), []);
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fallbackSearch, setFallbackSearch] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const res = await getItems({
+        const categoryFeed = await getItems({
           scope: "ky",
           category: "Kentucky - Obituaries",
-          counties: selectedCounties.length ? selectedCounties : undefined,
-          hours: 24 * 14,
+          hours: OBITUARY_LOOKBACK_HOURS,
           limit: 30
         });
         if (cancelled) return;
-        setItems(res.items);
-        setCursor(res.nextCursor);
+
+        if (categoryFeed.items.length) {
+          setItems(categoryFeed.items);
+          setCursor(categoryFeed.nextCursor);
+          setFallbackSearch(false);
+          return;
+        }
+
+        const fallback = await searchItems(OBITUARY_FALLBACK_QUERY, {
+          scope: "ky",
+          hours: OBITUARY_LOOKBACK_HOURS,
+          limit: 30
+        });
+        if (cancelled) return;
+
+        setItems(fallback.items);
+        setCursor(fallback.nextCursor);
+        setFallbackSearch(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1374,20 +1448,26 @@ function ObituariesScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCounties]);
+  }, []);
 
   async function loadMore() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await getItems({
-        scope: "ky",
-        category: "Kentucky - Obituaries",
-        counties: selectedCounties.length ? selectedCounties : undefined,
-        hours: 24 * 14,
-        cursor,
-        limit: 30
-      });
+      const res = fallbackSearch
+        ? await searchItems(OBITUARY_FALLBACK_QUERY, {
+            scope: "ky",
+            hours: OBITUARY_LOOKBACK_HOURS,
+            cursor,
+            limit: 30
+          })
+        : await getItems({
+            scope: "ky",
+            category: "Kentucky - Obituaries",
+            hours: OBITUARY_LOOKBACK_HOURS,
+            cursor,
+            limit: 30
+          });
       setItems((prev) => [...prev, ...res.items]);
       setCursor(res.nextCursor);
     } finally {
@@ -1399,6 +1479,9 @@ function ObituariesScreen() {
     <AppShell title="Obituaries">
       <CoverageTabs />
       <div className="section">
+        {fallbackSearch ? (
+          <div className="locationBanner">Showing obituary keyword matches from Kentucky sources.</div>
+        ) : null}
         {loading && !items.length ? (
           <div className="card emptyState">Loading obituary stories...</div>
         ) : (
@@ -1524,7 +1607,7 @@ function LostFoundScreen() {
         imageKeys.push(upload.objectKey);
       }
 
-      await submitLostFound({
+      const submitted = await submitLostFound({
         type,
         title: title.trim(),
         description: description.trim(),
@@ -1539,7 +1622,7 @@ function LostFoundScreen() {
       setContactEmail("");
       setShowContact(false);
       setFile(null);
-      setMessage("Submission received and pending moderation.");
+      setMessage(submitted.status === "approved" ? "Listing published." : "Submission received and pending moderation.");
       await refresh();
     } catch (err: any) {
       setMessage(String(err?.message || err));
@@ -1609,6 +1692,9 @@ function LostFoundScreen() {
 
         <div className="card" style={{ padding: 14 }}>
           <div style={{ fontWeight: 900, marginBottom: 10 }}>Published Listings</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+            New submissions may remain hidden until approved.
+          </div>
           {loading ? <div style={{ color: "var(--muted)" }}>Loading...</div> : null}
           {!loading && !posts.length ? <div style={{ color: "var(--muted)" }}>No listings found.</div> : null}
           {posts.map((p) => (

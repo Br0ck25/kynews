@@ -10,6 +10,7 @@
     "feeds:seed": "node scripts/seed-feeds.mjs",
     "seed:feeds": "npm run feeds:seed",
     "ingest:once": "node apps/ingester/src/ingester.mjs --once",
+    "prod:smoke": "node scripts/prod-smoke-test.mjs",
     "dev:setup": "npm run db:reset && npm run feeds:seed",
     "lint": "echo \"(optional) add eslint later\""
   },

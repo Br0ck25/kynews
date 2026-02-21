@@ -17,6 +17,8 @@ export interface Env {
   ADMIN_EMAIL?: string;
   DATA_ENCRYPTION_KEY?: string;
   REQUIRE_TURNSTILE?: string;
+  LOST_FOUND_AUTO_APPROVE?: string;
+  RSS_USER_AGENT?: string;
   AI_MODEL?: string;
   SUMMARY_CACHE_TTL_SECONDS?: string;
   MAX_INGEST_ITEMS_PER_FEED?: string;
