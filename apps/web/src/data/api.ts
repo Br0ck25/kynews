@@ -186,6 +186,26 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function isInvalidQueryError(err: unknown) {
+  const msg = String((err as any)?.message || err || "");
+  return /invalid query/i.test(msg);
+}
+
+function withLegacyHoursFallback(url: string) {
+  return url.replace(/([?&])hours=0(?=(&|$))/g, "$1hours=8760");
+}
+
+async function fetchJsonWithHoursFallback<T>(url: string, init?: RequestInit): Promise<T> {
+  try {
+    return await fetchJson<T>(url, init);
+  } catch (err) {
+    // Backward compatibility: some deployed API versions reject hours=0.
+    // Retry with the widest accepted window (1 year) so local pages still function.
+    if (!/[?&]hours=0(?:&|$)/.test(url) || !isInvalidQueryError(err)) throw err;
+    return fetchJson<T>(withLegacyHoursFallback(url), init);
+  }
+}
+
 export async function getFeeds(opts: { scope?: NewsScope } = {}): Promise<Feed[]> {
   const params = new URLSearchParams();
   if (opts.scope) params.set("scope", opts.scope);
@@ -221,7 +241,7 @@ export async function getItems(
   if (opts.hours != null) params.set("hours", String(opts.hours));
   if (opts.cursor) params.set("cursor", opts.cursor);
   params.set("limit", String(opts.limit ?? 30));
-  return fetchJson<{ items: (Item & { sort_ts?: string })[]; nextCursor: string | null }>(`/api/items?${params.toString()}`);
+  return fetchJsonWithHoursFallback<{ items: (Item & { sort_ts?: string })[]; nextCursor: string | null }>(`/api/items?${params.toString()}`);
 }
 
 export async function searchItems(
@@ -261,7 +281,7 @@ export async function getCounties(opts: { state?: string; hours?: number } = {})
   const params = new URLSearchParams();
   params.set("state", (opts.state ?? "KY").toUpperCase());
   if (opts.hours != null) params.set("hours", String(opts.hours));
-  return fetchJson<{ state: string; hours: number; counties: CountyCount[] }>(`/api/counties?${params.toString()}`);
+  return fetchJsonWithHoursFallback<{ state: string; hours: number; counties: CountyCount[] }>(`/api/counties?${params.toString()}`);
 }
 
 export async function getWeatherForecast(county: string, state = "KY") {

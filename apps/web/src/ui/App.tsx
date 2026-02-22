@@ -134,6 +134,11 @@ const THEME_PREF_KEY = "ui_theme";
 const OWNER_ADMIN_TOKEN_KEY = "owner_admin_token";
 const OWNER_ADMIN_ROUTE = "/owner-panel-ky-news";
 const TODAY_LOOKBACK_HOURS = 72;
+// Smaller page chunks reduce initial API latency and first-render network payload.
+const FEED_PAGE_SIZE = 20;
+const COUNTY_PAGE_SIZE = 20;
+// Rendering every thumbnail up front can pull several megabytes on the first view.
+const MAX_INLINE_CARD_IMAGES = 1;
 const SPORTS_LOOKBACK_HOURS = 24 * 14;
 const MIN_COUNTY_STORIES = 5;
 const OBITUARY_LOOKBACK_HOURS = 24 * 365;
@@ -313,7 +318,7 @@ export default function App() {
     "@type": "Organization",
     name: "Local KY News",
     url: siteUrl,
-    logo: absoluteUrl("/logo.png")
+    logo: absoluteUrl("/pwa-512.png")
   };
 
   useEffect(() => {
@@ -479,7 +484,7 @@ function AppShell({
         </button>
 
         <div className="title brandTitle">
-          <img className="brandLogo" src="/logo.png" alt="Local KY News" />
+          <img className="brandLogo" src="/pwa-192.png" alt="Local KY News" loading="eager" decoding="async" />
           <span>{title}</span>
         </div>
         <div className="topbarSpacer" />
@@ -605,7 +610,7 @@ function CoverageTabs() {
   );
 }
 
-function ItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
+function ItemCard({ item, onOpen, showImage = true }: { item: Item; onOpen: () => void; showImage?: boolean }) {
   const [readMap, setReadMap] = useState<Map<string, boolean>>(new Map());
   const [saved, setSaved] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
@@ -669,12 +674,16 @@ function ItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
       role="button"
       tabIndex={0}
     >
-      {item.image_url && !imageFailed ? (
+      {showImage && item.image_url && !imageFailed ? (
         <img
           className="postImage"
           src={item.image_url}
           alt=""
           loading="lazy"
+          fetchPriority="low"
+          decoding="async"
+          width={640}
+          height={360}
           onError={() => setImageFailed(true)}
         />
       ) : (
@@ -722,7 +731,15 @@ function ItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
   );
 }
 
-function FeaturedItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
+function FeaturedItemCard({
+  item,
+  onOpen,
+  prioritizeImage = true
+}: {
+  item: Item;
+  onOpen: () => void;
+  prioritizeImage?: boolean;
+}) {
   const [readMap, setReadMap] = useState<Map<string, boolean>>(new Map());
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -768,7 +785,11 @@ function FeaturedItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) 
           className="featuredImage"
           src={item.image_url}
           alt=""
-          loading="lazy"
+          loading={prioritizeImage ? "eager" : "lazy"}
+          fetchPriority={prioritizeImage ? "high" : "auto"}
+          decoding="async"
+          width={1280}
+          height={720}
           onError={() => setImageFailed(true)}
         />
       ) : (
@@ -788,11 +809,13 @@ function FeaturedItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) 
 function StoryDeck({
   items,
   onOpen,
-  emptyMessage = "No stories yet."
+  emptyMessage = "No stories yet.",
+  prioritizeFeaturedImage = true
 }: {
   items: Item[];
   onOpen: (id: string) => void;
   emptyMessage?: string;
+  prioritizeFeaturedImage?: boolean;
 }) {
   if (!items.length) {
     return <div className="card emptyState">{emptyMessage}</div>;
@@ -801,11 +824,12 @@ function StoryDeck({
   const [featured, ...rest] = items;
   return (
     <>
-      <FeaturedItemCard item={featured} onOpen={() => onOpen(featured.id)} />
+      <FeaturedItemCard item={featured} onOpen={() => onOpen(featured.id)} prioritizeImage={prioritizeFeaturedImage} />
       {rest.length ? (
         <div className="postGrid">
-          {rest.map((it) => (
-            <ItemCard key={it.id} item={it} onOpen={() => onOpen(it.id)} />
+          {rest.map((it, index) => (
+            // Cap inline card images per deck to keep first-load payload bounded.
+            <ItemCard key={it.id} item={it} showImage={index < MAX_INLINE_CARD_IMAGES} onOpen={() => onOpen(it.id)} />
           ))}
         </div>
       ) : null}
@@ -895,7 +919,7 @@ function TodayScreen() {
           county: county || undefined,
           counties: !county ? selectedCounties : undefined,
           hours: TODAY_LOOKBACK_HOURS,
-          limit: 30
+          limit: FEED_PAGE_SIZE
         });
 
         if (cancelled) return;
@@ -905,7 +929,7 @@ function TodayScreen() {
           const fallback = await getItems({
             scope: "ky",
             hours: TODAY_LOOKBACK_HOURS,
-            limit: 30
+            limit: FEED_PAGE_SIZE
           });
           if (cancelled) return;
           setItems(fallback.items);
@@ -934,7 +958,7 @@ function TodayScreen() {
             scope: "ky",
             hours: TODAY_LOOKBACK_HOURS,
             cursor,
-            limit: 30
+            limit: FEED_PAGE_SIZE
           })
         : await getItems({
             state: state || undefined,
@@ -942,7 +966,7 @@ function TodayScreen() {
             counties: !county ? selectedCounties : undefined,
             hours: TODAY_LOOKBACK_HOURS,
             cursor,
-            limit: 30
+            limit: FEED_PAGE_SIZE
           });
       setItems((prev) => {
         const seenUrls = new Set(prev.map((i) => i.url));
@@ -1009,7 +1033,7 @@ function NationalScreen() {
     (async () => {
       setLoading(true);
       try {
-        const res = await getItems({ scope: "national", limit: 30 });
+        const res = await getItems({ scope: "national", limit: FEED_PAGE_SIZE });
         if (cancelled) return;
         setItems(res.items.filter((item) => !isLikelySportsItem(item)));
         setCursor(res.nextCursor);
@@ -1026,7 +1050,7 @@ function NationalScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await getItems({ scope: "national", cursor, limit: 30 });
+      const res = await getItems({ scope: "national", cursor, limit: FEED_PAGE_SIZE });
       setItems((prev) => {
         const seenUrls = new Set(prev.map((i) => i.url));
         return [...prev, ...res.items.filter((item) => !isLikelySportsItem(item) && !seenUrls.has(item.url))];
@@ -1072,7 +1096,7 @@ function SportsScreen() {
           state: selectedCounties.length ? "KY" : undefined,
           counties: selectedCounties.length ? selectedCounties : undefined,
           hours: SPORTS_LOOKBACK_HOURS,
-          limit: 30
+          limit: FEED_PAGE_SIZE
         });
         if (cancelled) return;
         setItems(res.items);
@@ -1096,7 +1120,7 @@ function SportsScreen() {
         counties: selectedCounties.length ? selectedCounties : undefined,
         hours: SPORTS_LOOKBACK_HOURS,
         cursor,
-        limit: 30
+        limit: FEED_PAGE_SIZE
       });
       setItems((prev) => {
         const seenUrls = new Set(prev.map((i) => i.url));
@@ -1143,7 +1167,7 @@ function FeedScreen() {
       if (!cancelled) setFeed(f);
 
       try {
-        const res = await getItems({ feedId: feedId || undefined, limit: 30 });
+        const res = await getItems({ feedId: feedId || undefined, limit: FEED_PAGE_SIZE });
         if (cancelled) return;
         setItems(res.items);
         setCursor(res.nextCursor);
@@ -1160,7 +1184,7 @@ function FeedScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await getItems({ feedId: feedId || undefined, cursor, limit: 30 });
+      const res = await getItems({ feedId: feedId || undefined, cursor, limit: FEED_PAGE_SIZE });
       setItems((prev) => {
         const seenUrls = new Set(prev.map((i) => i.url));
         return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
@@ -1603,7 +1627,7 @@ function CountyPage() {
       try {
         if (!countyName) {
           setError("Unknown county. Showing statewide Kentucky coverage.");
-          const fallback = await getItems({ scope: "ky", hours: 0, limit: 30 });
+          const fallback = await getItems({ scope: "ky", hours: 0, limit: FEED_PAGE_SIZE });
           if (cancelled) return;
           setStatewideItems(fallback.items.slice(0, MIN_COUNTY_STORIES));
           return;
@@ -1613,10 +1637,10 @@ function CountyPage() {
 
         const primary = await getItems({
           state: "KY",
-          county: countySlug,
+          county: countyName,
           unfiltered: true,
           hours: 0,
-          limit: 30
+          limit: COUNTY_PAGE_SIZE
         });
         if (cancelled) return;
         setItems(primary.items);
@@ -1639,7 +1663,7 @@ function CountyPage() {
     if (!shouldLoadFallback) return;
 
     (async () => {
-      const fallback = await getItems({ scope: "ky", hours: 0, limit: 30 });
+      const fallback = await getItems({ scope: "ky", hours: 0, limit: FEED_PAGE_SIZE });
       if (cancelled) return;
       const needed = MIN_COUNTY_STORIES - items.length;
       const seen = new Set(items.map((item) => item.url));
@@ -1658,11 +1682,11 @@ function CountyPage() {
     try {
       const res = await getItems({
         state: "KY",
-        county: countySlug,
+        county: countyName || countySlug,
         unfiltered: true,
         hours: 0,
         cursor,
-        limit: 30
+        limit: COUNTY_PAGE_SIZE
       });
       setItems((prev) => {
         const seenIds = new Set(prev.map((item) => item.id));
@@ -1811,6 +1835,7 @@ function CountyPage() {
                 <StoryDeck
                   items={statewideItems}
                   onOpen={openItem}
+                  prioritizeFeaturedImage={false}
                   emptyMessage="No additional statewide stories right now."
                 />
               </div>
@@ -2040,7 +2065,7 @@ function ObituariesScreen() {
           category: "Kentucky - Obituaries",
           counties: selectedCounties.length ? selectedCounties : undefined,
           hours: OBITUARY_LOOKBACK_HOURS,
-          limit: 30
+          limit: FEED_PAGE_SIZE
         });
         if (cancelled) return;
 
@@ -2055,7 +2080,7 @@ function ObituariesScreen() {
           scope: "ky",
           counties: selectedCounties.length ? selectedCounties : undefined,
           hours: OBITUARY_LOOKBACK_HOURS,
-          limit: 30
+          limit: FEED_PAGE_SIZE
         });
         if (cancelled) return;
 
@@ -2081,7 +2106,7 @@ function ObituariesScreen() {
             counties: selectedCounties.length ? selectedCounties : undefined,
             hours: OBITUARY_LOOKBACK_HOURS,
             cursor,
-            limit: 30
+            limit: FEED_PAGE_SIZE
           })
         : await getItems({
             scope: "ky",
@@ -2089,7 +2114,7 @@ function ObituariesScreen() {
             counties: selectedCounties.length ? selectedCounties : undefined,
             hours: OBITUARY_LOOKBACK_HOURS,
             cursor,
-            limit: 30
+            limit: FEED_PAGE_SIZE
           });
       setItems((prev) => {
         const seenUrls = new Set(prev.map((i) => i.url));
@@ -2143,7 +2168,7 @@ function SchoolsScreen() {
           scope: "ky",
           counties: selectedCounties.length ? selectedCounties : undefined,
           hours: 24 * 14,
-          limit: 30
+          limit: FEED_PAGE_SIZE
         });
         if (cancelled) return;
         setItems(res.items);
@@ -2166,7 +2191,7 @@ function SchoolsScreen() {
         counties: selectedCounties.length ? selectedCounties : undefined,
         hours: 24 * 14,
         cursor,
-        limit: 30
+        limit: FEED_PAGE_SIZE
       });
       setItems((prev) => {
         const seenUrls = new Set(prev.map((i) => i.url));
@@ -2570,6 +2595,8 @@ function LostFoundScreen() {
                   src={`/api/uploads/lost-found/${encodeURIComponent(p.images[0])}`}
                   alt=""
                   className="lostFoundImage"
+                  loading="lazy"
+                  decoding="async"
                 />
               ) : null}
               {p.type === "lost" && !p.is_resolved ? (
@@ -3197,7 +3224,7 @@ function SearchScreen() {
         scope: "all",
         sort: sortOrder,
         cursor: nextCursor ?? undefined,
-        limit: 30
+        limit: FEED_PAGE_SIZE
       });
       setItems((prev) => (nextCursor ? [...prev, ...res.items] : res.items));
       setCursor(res.nextCursor);
