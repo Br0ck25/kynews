@@ -137,8 +137,8 @@ const TODAY_LOOKBACK_HOURS = 72;
 // Smaller page chunks reduce initial API latency and first-render network payload.
 const FEED_PAGE_SIZE = 20;
 const COUNTY_PAGE_SIZE = 20;
-// Rendering every thumbnail up front can pull several megabytes on the first view.
-const MAX_INLINE_CARD_IMAGES = 1;
+// Users expect cards with available images to show thumbnails in-feed.
+const MAX_INLINE_CARD_IMAGES = Number.MAX_SAFE_INTEGER;
 const SPORTS_LOOKBACK_HOURS = 24 * 14;
 const MIN_COUNTY_STORIES = 5;
 const OBITUARY_LOOKBACK_HOURS = 24 * 365;
@@ -147,7 +147,90 @@ const SPORTS_QUERY =
   "\"sports\" OR \"sport\" OR \"football\" OR \"basketball\" OR \"baseball\" OR \"soccer\" OR \"volleyball\" OR \"wrestling\" OR \"athletics\"";
 const routeScrollPositions = new Map<string, number>();
 const FEED_SCROLL_STORAGE_PREFIX = "feed_scroll_pos:";
+const routeFeedSnapshots = new Map<string, RouteFeedSnapshot>();
+const FEED_STATE_STORAGE_PREFIX = "feed_state:";
+const FEED_STATE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 type ThemeMode = "light" | "dark";
+
+type RouteFeedSnapshot = {
+  items: Item[];
+  cursor: string | null;
+  meta?: Record<string, unknown>;
+  savedAt: number;
+};
+
+type RouteFeedSnapshotInput = {
+  items: Item[];
+  cursor: string | null;
+  meta?: Record<string, unknown>;
+};
+
+function compactSnapshotItem(item: Item): Item {
+  return {
+    id: item.id,
+    title: item.title,
+    url: item.url,
+    author: item.author ?? null,
+    region_scope: item.region_scope,
+    published_at: item.published_at ?? null,
+    summary: item.summary ? String(item.summary).slice(0, 2400) : null,
+    seo_description: item.seo_description ?? null,
+    content: item.content ? String(item.content).slice(0, 1200) : null,
+    image_url: item.image_url ?? null,
+    states: Array.isArray(item.states) ? item.states : [],
+    counties: Array.isArray(item.counties) ? item.counties : []
+  };
+}
+
+function parseRouteFeedSnapshot(raw: unknown): RouteFeedSnapshot | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  if (!Array.isArray(row.items)) return null;
+  const cursor = row.cursor == null ? null : String(row.cursor);
+  const savedAt = Number(row.savedAt);
+  if (!Number.isFinite(savedAt) || savedAt <= 0) return null;
+  if (Date.now() - savedAt > FEED_STATE_MAX_AGE_MS) return null;
+  const meta = row.meta && typeof row.meta === "object" ? (row.meta as Record<string, unknown>) : undefined;
+  return {
+    items: row.items as Item[],
+    cursor,
+    meta,
+    savedAt
+  };
+}
+
+function persistRouteFeedSnapshot(routeKey: string, input: RouteFeedSnapshotInput) {
+  const snapshot: RouteFeedSnapshot = {
+    items: input.items.map(compactSnapshotItem),
+    cursor: input.cursor ?? null,
+    meta: input.meta,
+    savedAt: Date.now()
+  };
+  routeFeedSnapshots.set(routeKey, snapshot);
+  try {
+    sessionStorage.setItem(`${FEED_STATE_STORAGE_PREFIX}${routeKey}`, JSON.stringify(snapshot));
+  } catch {
+    // ignore
+  }
+}
+
+function readRouteFeedSnapshot(routeKey: string): RouteFeedSnapshot | null {
+  const inMemory = parseRouteFeedSnapshot(routeFeedSnapshots.get(routeKey));
+  if (inMemory) return inMemory;
+  try {
+    const raw = sessionStorage.getItem(`${FEED_STATE_STORAGE_PREFIX}${routeKey}`);
+    if (!raw) return null;
+    const parsed = parseRouteFeedSnapshot(JSON.parse(raw));
+    if (!parsed) {
+      sessionStorage.removeItem(`${FEED_STATE_STORAGE_PREFIX}${routeKey}`);
+      return null;
+    }
+    routeFeedSnapshots.set(routeKey, parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 function persistRouteScroll(routeKey: string, scrollTop: number) {
   routeScrollPositions.set(routeKey, scrollTop);
@@ -183,11 +266,16 @@ function captureActiveContentScroll(routeKey: string) {
   persistRouteScroll(routeKey, Math.max(0, top || 0));
 }
 
-function useOpenItemNavigation() {
+function useOpenItemNavigation(getSnapshot?: () => RouteFeedSnapshotInput | null, snapshotKey?: string) {
   const nav = useNavigate();
   const loc = useLocation();
   return (id: string) => {
-    captureActiveContentScroll(`${loc.pathname}${loc.search}`);
+    const routeKey = snapshotKey || `${loc.pathname}${loc.search}`;
+    const snapshot = getSnapshot?.() || null;
+    if (snapshot) {
+      persistRouteFeedSnapshot(routeKey, snapshot);
+    }
+    captureActiveContentScroll(routeKey);
     nav(`/item/${id}`);
   };
 }
@@ -830,7 +918,7 @@ function StoryDeck({
       {rest.length ? (
         <div className="postGrid">
           {rest.map((it, index) => (
-            // Cap inline card images per deck to keep first-load payload bounded.
+            // All cards should render thumbnails when available.
             <ItemCard key={it.id} item={it} showImage={index < MAX_INLINE_CARD_IMAGES} onOpen={() => onOpen(it.id)} />
           ))}
         </div>
@@ -886,7 +974,6 @@ function InfinitePager({
 
 function TodayScreen() {
   const nav = useNavigate();
-  const openItem = useOpenItemNavigation();
   const loc = useLocation();
   const q = new URLSearchParams(loc.search);
   const state = (q.get("state") || "").toUpperCase();
@@ -894,11 +981,27 @@ function TodayScreen() {
   const selectedCountyPrefs = useSelectedCountyPreferences();
   const selectedCounties = state || county ? [] : selectedCountyPrefs;
   const countyFilter = county ? [county] : selectedCounties;
+  const routeStateKey = useMemo(
+    () =>
+      `${loc.pathname}${loc.search}|state=${state}|county=${county}|counties=${[...selectedCounties].sort().join(",")}`,
+    [loc.pathname, loc.search, state, county, selectedCounties]
+  );
+  const restoredFeed = useMemo(() => readRouteFeedSnapshot(routeStateKey), [routeStateKey]);
 
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [statewideFallback, setStatewideFallback] = useState(false);
+  const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
+  const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
+  const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
+  const [statewideFallback, setStatewideFallback] = useState<boolean>(
+    () => Boolean((restoredFeed?.meta as Record<string, unknown> | undefined)?.statewideFallback)
+  );
+  const openItem = useOpenItemNavigation(
+    () => ({
+      items,
+      cursor,
+      meta: { statewideFallback }
+    }),
+    routeStateKey
+  );
   const websiteSchema: SeoJsonLd = {
     "@context": "https://schema.org",
     "@type": "WebSite",
@@ -914,6 +1017,15 @@ function TodayScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const cached = readRouteFeedSnapshot(routeStateKey);
+      if (cached?.items?.length) {
+        if (cancelled) return;
+        setItems(cached.items);
+        setCursor(cached.cursor ?? null);
+        setStatewideFallback(Boolean((cached.meta as Record<string, unknown> | undefined)?.statewideFallback));
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const primary = await getItems({
@@ -949,7 +1061,7 @@ function TodayScreen() {
     return () => {
       cancelled = true;
     };
-  }, [state, county, selectedCounties]);
+  }, [state, county, selectedCounties, routeStateKey]);
 
   async function loadMore() {
     if (!cursor || loading) return;
@@ -1025,14 +1137,31 @@ function TodayScreen() {
 
 function NationalScreen() {
   const nav = useNavigate();
-  const openItem = useOpenItemNavigation();
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const loc = useLocation();
+  const routeStateKey = `${loc.pathname}${loc.search}`;
+  const restoredFeed = useMemo(() => readRouteFeedSnapshot(routeStateKey), [routeStateKey]);
+  const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
+  const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
+  const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
+  const openItem = useOpenItemNavigation(
+    () => ({
+      items,
+      cursor
+    }),
+    routeStateKey
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const cached = readRouteFeedSnapshot(routeStateKey);
+      if (cached?.items?.length) {
+        if (cancelled) return;
+        setItems(cached.items);
+        setCursor(cached.cursor ?? null);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const res = await getItems({ scope: "national", limit: FEED_PAGE_SIZE });
@@ -1046,7 +1175,7 @@ function NationalScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [routeStateKey]);
 
   async function loadMore() {
     if (!cursor || loading) return;
@@ -1082,15 +1211,35 @@ function NationalScreen() {
 
 function SportsScreen() {
   const nav = useNavigate();
-  const openItem = useOpenItemNavigation();
+  const loc = useLocation();
   const selectedCounties = useSelectedCountyPreferences();
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const routeStateKey = useMemo(
+    () => `${loc.pathname}${loc.search}|counties=${[...selectedCounties].sort().join(",")}`,
+    [loc.pathname, loc.search, selectedCounties]
+  );
+  const restoredFeed = useMemo(() => readRouteFeedSnapshot(routeStateKey), [routeStateKey]);
+  const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
+  const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
+  const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
+  const openItem = useOpenItemNavigation(
+    () => ({
+      items,
+      cursor
+    }),
+    routeStateKey
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const cached = readRouteFeedSnapshot(routeStateKey);
+      if (cached?.items?.length) {
+        if (cancelled) return;
+        setItems(cached.items);
+        setCursor(cached.cursor ?? null);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const res = await searchItems(SPORTS_QUERY, {
@@ -1110,7 +1259,7 @@ function SportsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCounties]);
+  }, [selectedCounties, routeStateKey]);
 
   async function loadMore() {
     if (!cursor || loading) return;
@@ -1153,16 +1302,33 @@ function SportsScreen() {
 
 function FeedScreen() {
   const nav = useNavigate();
-  const openItem = useOpenItemNavigation();
+  const loc = useLocation();
   const { feedId } = useParams();
+  const routeStateKey = `${loc.pathname}${loc.search}`;
+  const restoredFeed = useMemo(() => readRouteFeedSnapshot(routeStateKey), [routeStateKey]);
   const [feed, setFeed] = useState<Feed | null>(null);
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
+  const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
+  const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
+  const openItem = useOpenItemNavigation(
+    () => ({
+      items,
+      cursor
+    }),
+    routeStateKey
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const cached = readRouteFeedSnapshot(routeStateKey);
+      if (cached?.items?.length) {
+        if (cancelled) return;
+        setItems(cached.items);
+        setCursor(cached.cursor ?? null);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       const feeds = await getFeeds().catch(() => []);
       const f = feeds.find((x) => x.id === feedId) || null;
@@ -1180,7 +1346,7 @@ function FeedScreen() {
     return () => {
       cancelled = true;
     };
-  }, [feedId]);
+  }, [feedId, routeStateKey]);
 
   async function loadMore() {
     if (!cursor || loading) return;
@@ -1562,8 +1728,11 @@ function MyLocalScreen() {
 
 function CountyPage() {
   const nav = useNavigate();
-  const openItem = useOpenItemNavigation();
+  const loc = useLocation();
   const { countySlug = "" } = useParams();
+  const routeStateKey = `${loc.pathname}${loc.search}`;
+  const restoredFeed = useMemo(() => readRouteFeedSnapshot(routeStateKey), [routeStateKey]);
+  const restoredMeta = restoredFeed?.meta as Record<string, unknown> | undefined;
 
   const countyName = useMemo(() => countySlugToName(countySlug), [countySlug]);
   const displayCountyName = useMemo(
@@ -1572,14 +1741,27 @@ function CountyPage() {
   );
   const canonicalSlug = useMemo(() => (countyName ? countyNameToSlug(countyName) : ""), [countyName]);
 
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
+  const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [statewideItems, setStatewideItems] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [statewideItems, setStatewideItems] = useState<Item[]>(() =>
+    Array.isArray(restoredMeta?.statewideItems) ? (restoredMeta?.statewideItems as Item[]) : []
+  );
+  const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
+  const [error, setError] = useState<string>(() => String(restoredMeta?.error || ""));
   const [saved, setSaved] = useState(false);
   const [shareMessage, setShareMessage] = useState("");
+  const openItem = useOpenItemNavigation(
+    () => ({
+      items,
+      cursor,
+      meta: {
+        statewideItems,
+        error
+      }
+    }),
+    routeStateKey
+  );
 
   const pageTitle = `${displayCountyName} County, KY News — Local KY News`;
   const pageDescription = `The latest news from ${displayCountyName} County, Kentucky.`;
@@ -1620,6 +1802,17 @@ function CountyPage() {
     setShareMessage("");
 
     (async () => {
+      const cached = readRouteFeedSnapshot(routeStateKey);
+      if (cached?.items?.length) {
+        if (cancelled) return;
+        const meta = cached.meta as Record<string, unknown> | undefined;
+        setItems(cached.items);
+        setCursor(cached.cursor ?? null);
+        setStatewideItems(Array.isArray(meta?.statewideItems) ? (meta?.statewideItems as Item[]) : []);
+        setError(String(meta?.error || ""));
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       setError("");
       setItems([]);
@@ -1657,7 +1850,7 @@ function CountyPage() {
     return () => {
       cancelled = true;
     };
-  }, [countyName, countySlug]);
+  }, [countyName, countySlug, routeStateKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2050,16 +2243,39 @@ function WeatherScreen() {
 
 function ObituariesScreen() {
   const nav = useNavigate();
-  const openItem = useOpenItemNavigation();
+  const loc = useLocation();
   const selectedCounties = useSelectedCountyPreferences();
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [fallbackSearch, setFallbackSearch] = useState(false);
+  const routeStateKey = useMemo(
+    () => `${loc.pathname}${loc.search}|counties=${[...selectedCounties].sort().join(",")}`,
+    [loc.pathname, loc.search, selectedCounties]
+  );
+  const restoredFeed = useMemo(() => readRouteFeedSnapshot(routeStateKey), [routeStateKey]);
+  const restoredMeta = restoredFeed?.meta as Record<string, unknown> | undefined;
+  const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
+  const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
+  const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
+  const [fallbackSearch, setFallbackSearch] = useState<boolean>(() => Boolean(restoredMeta?.fallbackSearch));
+  const openItem = useOpenItemNavigation(
+    () => ({
+      items,
+      cursor,
+      meta: { fallbackSearch }
+    }),
+    routeStateKey
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const cached = readRouteFeedSnapshot(routeStateKey);
+      if (cached?.items?.length) {
+        if (cancelled) return;
+        setItems(cached.items);
+        setCursor(cached.cursor ?? null);
+        setFallbackSearch(Boolean((cached.meta as Record<string, unknown> | undefined)?.fallbackSearch));
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const categoryFeed = await getItems({
@@ -2096,7 +2312,7 @@ function ObituariesScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCounties]);
+  }, [selectedCounties, routeStateKey]);
 
   async function loadMore() {
     if (!cursor || loading) return;
@@ -2153,17 +2369,37 @@ function ObituariesScreen() {
 
 function SchoolsScreen() {
   const nav = useNavigate();
-  const openItem = useOpenItemNavigation();
+  const loc = useLocation();
   const selectedCounties = useSelectedCountyPreferences();
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const routeStateKey = useMemo(
+    () => `${loc.pathname}${loc.search}|counties=${[...selectedCounties].sort().join(",")}`,
+    [loc.pathname, loc.search, selectedCounties]
+  );
+  const restoredFeed = useMemo(() => readRouteFeedSnapshot(routeStateKey), [routeStateKey]);
+  const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
+  const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
+  const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
+  const openItem = useOpenItemNavigation(
+    () => ({
+      items,
+      cursor
+    }),
+    routeStateKey
+  );
 
   const schoolQuery = "\"school\" OR \"schools\" OR \"district\" OR \"classroom\" OR \"student\" OR \"teacher\" OR \"university\" OR \"college\"";
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const cached = readRouteFeedSnapshot(routeStateKey);
+      if (cached?.items?.length) {
+        if (cancelled) return;
+        setItems(cached.items);
+        setCursor(cached.cursor ?? null);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const res = await searchItems(schoolQuery, {
@@ -2182,7 +2418,7 @@ function SchoolsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCounties]);
+  }, [selectedCounties, routeStateKey]);
 
   async function loadMore() {
     if (!cursor || loading) return;
@@ -3210,12 +3446,29 @@ function OwnerAdminScreen() {
 }
 
 function SearchScreen() {
-  const openItem = useOpenItemNavigation();
-  const [q, setQ] = useState("");
-  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const loc = useLocation();
+  const routeStateKey = `${loc.pathname}${loc.search}`;
+  const restoredFeed = useMemo(() => readRouteFeedSnapshot(routeStateKey), [routeStateKey]);
+  const restoredMeta = restoredFeed?.meta as Record<string, unknown> | undefined;
+  const [q, setQ] = useState<string>(() => String(restoredMeta?.q || ""));
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">(() =>
+    restoredMeta?.sortOrder === "oldest" ? "oldest" : "newest"
+  );
+  const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
+  const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
   const [loading, setLoading] = useState(false);
+  const skipInitialSortRefreshRef = useRef(Boolean(restoredFeed?.items?.length));
+  const openItem = useOpenItemNavigation(
+    () => ({
+      items,
+      cursor,
+      meta: {
+        q,
+        sortOrder
+      }
+    }),
+    routeStateKey
+  );
 
   async function runSearch(nextCursor?: string | null) {
     if (!q.trim()) return;
@@ -3236,6 +3489,10 @@ function SearchScreen() {
   }
 
   useEffect(() => {
+    if (skipInitialSortRefreshRef.current) {
+      skipInitialSortRefreshRef.current = false;
+      return;
+    }
     if (!q.trim()) return;
     void runSearch(null);
   }, [sortOrder]);
