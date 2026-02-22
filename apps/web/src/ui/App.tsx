@@ -318,7 +318,9 @@ export default function App() {
     "@type": "Organization",
     name: "Local KY News",
     url: siteUrl,
-    logo: absoluteUrl("/pwa-512.png")
+    // use the project logo so that search engines and social previews
+    // see the most up‑to‑date branding
+    logo: absoluteUrl("/logo.png")
   };
 
   useEffect(() => {
@@ -484,7 +486,7 @@ function AppShell({
         </button>
 
         <div className="title brandTitle">
-          <img className="brandLogo" src="/pwa-192.png" alt="Local KY News" loading="eager" decoding="async" />
+          <img className="brandLogo" src="/logo.png" alt="Local KY News" loading="eager" decoding="async" />
           <span>{title}</span>
         </div>
         <div className="topbarSpacer" />
