@@ -67,11 +67,20 @@ export async function insertAdminLog(
   entityId: string,
   payload: unknown = null
 ): Promise<void> {
-  await d1Run(
-    env.ky_news_db,
-    "INSERT INTO admin_audit_log (id, actor_email, action, entity_type, entity_id, payload_json) VALUES (?, ?, ?, ?, ?, ?)",
-    [randomUUID(), actorEmail, action, entityType, entityId, payload == null ? null : JSON.stringify(payload)]
-  );
+  try {
+    await d1Run(
+      env.ky_news_db,
+      "INSERT INTO admin_audit_log (id, actor_email, action, entity_type, entity_id, payload_json) VALUES (?, ?, ?, ?, ?, ?)",
+      [randomUUID(), actorEmail, action, entityType, entityId, payload == null ? null : JSON.stringify(payload)]
+    );
+  } catch (err) {
+    logWarn("admin.audit.log_failed", {
+      action,
+      entityType,
+      entityId,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
 }
 
 export function getClientIp(c: AppContext): string {

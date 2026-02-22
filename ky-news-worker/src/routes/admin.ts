@@ -5,7 +5,7 @@ import type { AppBindings } from "../types";
 import { badRequest, notFound } from "../lib/errors";
 import { normalizeCounty, safeJsonParse } from "../lib/utils";
 import { runManualFeedIngest, runManualIngest } from "../ingest/ingest";
-import { d1All, d1First, d1Run } from "../services/db";
+import { d1All, d1First, d1Run, tableHasColumn } from "../services/db";
 import { insertAdminLog, requireRole } from "../services/security";
 import { detectKyCounties, detectOtherStateNames, hasKySignal } from "../services/location";
 
@@ -170,7 +170,14 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
 
     const options = parsed.data;
     const window = `-${options.hours} hours`;
-    const scopeWhere = options.includeNational ? "" : "AND i.region_scope='ky'";
+    const [hasArticleExcerpt, hasRegionScope] = await Promise.all([
+      tableHasColumn(c.env.ky_news_db, "items", "article_text_excerpt"),
+      tableHasColumn(c.env.ky_news_db, "items", "region_scope")
+    ]);
+    const excerptSelect = hasArticleExcerpt
+      ? "i.article_text_excerpt AS article_text_excerpt"
+      : "'' AS article_text_excerpt";
+    const scopeWhere = options.includeNational || !hasRegionScope ? "" : "AND i.region_scope='ky'";
 
     const rows = await d1All<Record<string, unknown>>(
       c.env.ky_news_db,
@@ -180,8 +187,7 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
         i.title,
         i.summary,
         i.content,
-        i.article_text_excerpt,
-        i.region_scope
+        ${excerptSelect}
       FROM items i
       WHERE COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)
         ${scopeWhere}

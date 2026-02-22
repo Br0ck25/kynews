@@ -538,7 +538,7 @@ const SearchQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(24 * 365).default(2),
+  hours: z.coerce.number().min(1).max(24 * 365).optional(),
   sort: z.enum(["newest", "oldest"]).default("newest"),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
@@ -560,7 +560,7 @@ app.get("/api/search", async (req) => {
     ensureSchema(db);
 
     const where = [];
-    const params = { limit: Math.min(limit * 4, 400), since: `-${hours} hours` };
+    const params = { limit: Math.min(limit * 4, 400) };
 
     const searchClause = buildSearchClause(q, params);
     const hintedCounties =
@@ -582,7 +582,10 @@ app.get("/api/search", async (req) => {
     } else {
       where.push(searchClause);
     }
-    where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', @since)");
+    if (hours != null) {
+      where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', @since)");
+      params.since = `-${hours} hours`;
+    }
 
     if (scope !== "all") {
       where.push("i.region_scope = @scope");
@@ -829,6 +832,15 @@ function sameSet(a, b) {
   return true;
 }
 
+function tableHasColumn(db, table, column) {
+  try {
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+    return rows.some((row) => String(row?.name || "") === column);
+  } catch {
+    return false;
+  }
+}
+
 app.post("/api/admin/items/revalidate", async (req) => {
   const admin = requireAdmin(app, req);
   const parsed = RevalidateItemsBody.safeParse(req.body ?? {});
@@ -840,7 +852,12 @@ app.post("/api/admin/items/revalidate", async (req) => {
   const db = openDb();
   try {
     ensureSchema(db);
-    const scopeWhere = options.includeNational ? "" : "AND i.region_scope='ky'";
+    const hasArticleExcerpt = tableHasColumn(db, "items", "article_text_excerpt");
+    const hasRegionScope = tableHasColumn(db, "items", "region_scope");
+    const excerptSelect = hasArticleExcerpt
+      ? "i.article_text_excerpt AS article_text_excerpt"
+      : "'' AS article_text_excerpt";
+    const scopeWhere = options.includeNational || !hasRegionScope ? "" : "AND i.region_scope='ky'";
     const rows = db
       .prepare(
         `
@@ -849,8 +866,7 @@ app.post("/api/admin/items/revalidate", async (req) => {
           i.title,
           i.summary,
           i.content,
-          i.article_text_excerpt,
-          i.region_scope
+          ${excerptSelect}
         FROM items i
         WHERE COALESCE(i.published_at, i.fetched_at) >= datetime('now', @window)
           ${scopeWhere}

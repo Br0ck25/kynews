@@ -354,7 +354,31 @@ function AppShell({
   useEffect(() => {
     const node = contentRef.current;
     if (!node) return;
-    node.scrollTop = readRouteScroll(routeKey);
+    const target = readRouteScroll(routeKey);
+    if (target <= 0) {
+      node.scrollTop = 0;
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 180;
+    let rafId = 0;
+
+    const restore = () => {
+      if (cancelled) return;
+      node.scrollTop = target;
+      attempts += 1;
+      if (node.scrollTop >= target - 2) return;
+      if (attempts >= maxAttempts) return;
+      rafId = window.requestAnimationFrame(restore);
+    };
+
+    restore();
+    return () => {
+      cancelled = true;
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
   }, [routeKey]);
 
   useEffect(() => {
@@ -2763,11 +2787,8 @@ function OwnerAdminScreen() {
 }
 
 function SearchScreen() {
-  const nav = useNavigate();
   const openItem = useOpenItemNavigation();
   const [q, setQ] = useState("");
-  const [scope, setScope] = useState<"ky" | "national" | "all">("ky");
-  const [rangeDays, setRangeDays] = useState<7 | 30 | 60>(7);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -2779,8 +2800,7 @@ function SearchScreen() {
     setLoading(true);
     try {
       const res = await searchItems(q.trim(), {
-        scope,
-        hours: rangeDays * 24,
+        scope: "all",
         sort: sortOrder,
         cursor: nextCursor ?? undefined,
         limit: 30
@@ -2795,7 +2815,7 @@ function SearchScreen() {
   useEffect(() => {
     if (!q.trim()) return;
     void runSearch(null);
-  }, [scope, rangeDays, sortOrder]);
+  }, [sortOrder]);
 
   return (
     <AppShell title="Search">
@@ -2811,69 +2831,19 @@ function SearchScreen() {
           }}
         />
 
-        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-          <button
-            className="pill"
-            style={{ flex: 1, textAlign: "center", cursor: "pointer", borderColor: scope === "ky" ? "var(--accent)" : undefined }}
-            onClick={() => setScope("ky")}
+        <div style={{ marginTop: 12 }}>
+          <label htmlFor="search-sort-order" style={{ display: "block", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+            Sort
+          </label>
+          <select
+            id="search-sort-order"
+            className="searchInput"
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value as "newest" | "oldest")}
           >
-            Kentucky
-          </button>
-          <button
-            className="pill"
-            style={{ flex: 1, textAlign: "center", cursor: "pointer", borderColor: scope === "national" ? "var(--accent)" : undefined }}
-            onClick={() => setScope("national")}
-          >
-            National
-          </button>
-          <button
-            className="pill"
-            style={{ flex: 1, textAlign: "center", cursor: "pointer", borderColor: scope === "all" ? "var(--accent)" : undefined }}
-            onClick={() => setScope("all")}
-          >
-            Both
-          </button>
-        </div>
-
-        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-          <button
-            className="pill"
-            style={{ flex: 1, textAlign: "center", borderColor: rangeDays === 7 ? "var(--accent)" : undefined }}
-            onClick={() => setRangeDays(7)}
-          >
-            Last 7 Days
-          </button>
-          <button
-            className="pill"
-            style={{ flex: 1, textAlign: "center", borderColor: rangeDays === 30 ? "var(--accent)" : undefined }}
-            onClick={() => setRangeDays(30)}
-          >
-            Last 30 Days
-          </button>
-          <button
-            className="pill"
-            style={{ flex: 1, textAlign: "center", borderColor: rangeDays === 60 ? "var(--accent)" : undefined }}
-            onClick={() => setRangeDays(60)}
-          >
-            Last 60 Days
-          </button>
-        </div>
-
-        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-          <button
-            className="pill"
-            style={{ flex: 1, textAlign: "center", borderColor: sortOrder === "newest" ? "var(--accent)" : undefined }}
-            onClick={() => setSortOrder("newest")}
-          >
-            Sort: Newest
-          </button>
-          <button
-            className="pill"
-            style={{ flex: 1, textAlign: "center", borderColor: sortOrder === "oldest" ? "var(--accent)" : undefined }}
-            onClick={() => setSortOrder("oldest")}
-          >
-            Sort: Oldest
-          </button>
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+          </select>
         </div>
 
         {!q.trim() ? (

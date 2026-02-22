@@ -35,7 +35,7 @@ const SearchQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(24 * 365).default(2),
+  hours: z.coerce.number().min(1).max(24 * 365).optional(),
   sort: z.enum(["newest", "oldest"]).default("newest"),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
@@ -109,8 +109,10 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
     const where: string[] = [];
     const binds: unknown[] = [];
 
-    where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)");
-    binds.push(`-${hours} hours`);
+    if (hours != null) {
+      where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)");
+      binds.push(`-${hours} hours`);
+    }
 
     if (scope !== "all") {
       where.push("i.region_scope = ?");
@@ -254,8 +256,10 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
       binds.push(...search.binds);
     }
 
-    where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)");
-    binds.push(`-${hours} hours`);
+    if (hours != null) {
+      where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)");
+      binds.push(`-${hours} hours`);
+    }
 
     if (scope !== "all") {
       where.push("i.region_scope = ?");

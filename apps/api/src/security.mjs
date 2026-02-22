@@ -79,7 +79,16 @@ export function requireAdmin(app, req) {
 }
 
 export function insertAdminLog(db, actorEmail, action, entityType, entityId, payload = null) {
-  db.prepare(
-    "INSERT INTO admin_audit_log (id, actor_email, action, entity_type, entity_id, payload_json) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(randomUUID(), actorEmail, action, entityType, entityId, payload ? JSON.stringify(payload) : null);
+  try {
+    db.prepare(
+      "INSERT INTO admin_audit_log (id, actor_email, action, entity_type, entity_id, payload_json) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(randomUUID(), actorEmail, action, entityType, entityId, payload ? JSON.stringify(payload) : null);
+  } catch (err) {
+    console.warn("admin.audit.log_failed", {
+      action,
+      entityType,
+      entityId,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
 }
