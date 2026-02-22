@@ -1,3 +1,15 @@
+import kyCounties from "../../ingester/src/ky-counties.json" with { type: "json" };
+
+const COUNTY_NAME_BY_NORMALIZED = new Map(
+  (Array.isArray(kyCounties) ? kyCounties : [])
+    .map((row) => String(row?.name || "").trim())
+    .filter(Boolean)
+    .map((name) => [
+      name.toLowerCase().replace(/\s+county$/i, "").replace(/[^a-z0-9]+/g, " ").trim(),
+      name
+    ])
+);
+
 export function csvToArray(csv) {
   if (!csv) return [];
   return String(csv)
@@ -111,10 +123,16 @@ export function buildSearchClause(rawQuery, params) {
 }
 
 export function normalizeCounty(county) {
-  return String(county || "")
+  const base = String(county || "")
     .trim()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
     .replace(/\s+county$/i, "")
-    .replace(/\s+/g, " ");
+    .trim();
+  if (!base) return "";
+
+  const key = base.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return COUNTY_NAME_BY_NORMALIZED.get(key) || base;
 }
 
 export function isKy(stateCode) {

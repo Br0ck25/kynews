@@ -202,6 +202,7 @@ export async function getItems(
     state?: string;
     county?: string;
     counties?: string[];
+    unfiltered?: boolean;
     hours?: number;
     cursor?: string | null;
     limit?: number;
@@ -216,6 +217,7 @@ export async function getItems(
   if (opts.counties?.length) {
     for (const county of opts.counties) params.append("counties", county);
   }
+  if (opts.unfiltered) params.set("unfiltered", "1");
   if (opts.hours != null) params.set("hours", String(opts.hours));
   if (opts.cursor) params.set("cursor", opts.cursor);
   params.set("limit", String(opts.limit ?? 30));

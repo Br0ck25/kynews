@@ -24,7 +24,8 @@ const ItemsQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(24 * 365).default(2),
+  unfiltered: z.string().optional(),
+  hours: z.coerce.number().min(0).max(24 * 365).default(2),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
 });
@@ -43,7 +44,7 @@ const SearchQuery = z.object({
 
 const CountiesQuery = z.object({
   state: z.string().length(2).default("KY"),
-  hours: z.coerce.number().min(1).max(24 * 365).default(2)
+  hours: z.coerce.number().min(0).max(24 * 365).default(2)
 });
 
 const OpenProxyQuery = z.object({
@@ -95,12 +96,13 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
     });
   });
 
-  app.get("/api/items", async (c) => {
+  const handleItemsRequest = async (c: any) => {
     const parsed = ItemsQuery.safeParse(queryInput(c));
     if (!parsed.success) badRequest("Invalid query");
 
-    const { feedId, category, scope, state, county, counties, hours, cursor, limit } = parsed.data;
+    const { feedId, category, scope, state, county, counties, unfiltered, hours, cursor, limit } = parsed.data;
     const countyList = county ? [normalizeCounty(county)] : parseCountyList(counties);
+    const includeUnfiltered = ["1", "true", "yes"].includes(String(unfiltered || "").toLowerCase());
 
     if ((state || countyList.length) && scope === "national") {
       badRequest("State/county filters only apply to KY scope");
@@ -109,7 +111,7 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
     const where: string[] = [];
     const binds: unknown[] = [];
 
-    if (hours != null) {
+    if (hours > 0) {
       where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)");
       binds.push(`-${hours} hours`);
     }
@@ -154,6 +156,8 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
       }
     }
 
+    const whereSql = where.length ? where.join(" AND ") : "1=1";
+
     const sql = `
       SELECT DISTINCT
         i.id, i.title, i.url, i.author, i.region_scope, i.published_at, i.summary, i.content, i.image_url,
@@ -172,23 +176,26 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
       ${needsFi ? "JOIN feed_items fi ON fi.item_id = i.id" : ""}
       ${category ? "JOIN feeds f ON f.id = fi.feed_id" : ""}
       ${needsLoc ? "JOIN item_locations il ON il.item_id = i.id" : ""}
-      WHERE ${where.join(" AND ")}
+      WHERE ${whereSql}
       ORDER BY sort_ts DESC, i.id DESC
       LIMIT ?
     `;
 
-    binds.push(Math.min(limit * 4, 400));
+    binds.push(includeUnfiltered ? limit : Math.min(limit * 4, 400));
 
     const rows = await d1All<Record<string, unknown>>(c.env.ky_news_db, sql, binds);
     const mapped = rows.map((row) => mapItemRow(row as Record<string, unknown>)) as unknown as Array<
       Record<string, unknown> & { id: string; title: string; url: string; sort_ts?: string }
     >;
-    const items = rankAndFilterItems(mapped, limit);
+    const items = includeUnfiltered ? mapped.slice(0, limit) : rankAndFilterItems(mapped, limit);
     const tail = items[items.length - 1] as any;
     const nextCursor = items.length ? `${String(tail.sort_ts || "")}|${String(tail.id || "")}` : null;
     c.header("cache-control", "public, max-age=20, s-maxage=45, stale-while-revalidate=90");
     return c.json({ items, nextCursor });
-  });
+  };
+
+  app.get("/api/items", handleItemsRequest);
+  app.get("/api/articles", handleItemsRequest);
 
   app.get("/api/counties", async (c) => {
     const parsed = CountiesQuery.safeParse(queryInput(c));
@@ -201,20 +208,28 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
     return respondCachedJson(c, {
       ttlSeconds: cacheTtl,
       producer: async () => {
+        const where = [
+          "il.state_code = ?",
+          "il.county != ''",
+          "i.region_scope = 'ky'"
+        ];
+        const binds: unknown[] = [state.toUpperCase()];
+        if (hours > 0) {
+          where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)");
+          binds.push(`-${hours} hours`);
+        }
+
         const rows = await d1All<{ county: string; count: number }>(
           c.env.ky_news_db,
           `
           SELECT il.county AS county, COUNT(DISTINCT il.item_id) AS count
           FROM item_locations il
           JOIN items i ON i.id = il.item_id
-          WHERE il.state_code = ?
-            AND il.county != ''
-            AND i.region_scope = 'ky'
-            AND COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)
+          WHERE ${where.join(" AND ")}
           GROUP BY il.county
           ORDER BY il.county
           `,
-          [state.toUpperCase(), `-${hours} hours`]
+          binds
         );
         return { state: state.toUpperCase(), hours, counties: rows };
       }

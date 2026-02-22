@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { getItem, type Item } from "../data/api";
 import { cacheLastOpened, getCachedItem, isSaved, markRead, toggleSaved } from "../data/localDb";
 import { IconHeart, IconShare } from "./icons";
+import { SeoMeta, absoluteUrl, metaDescription, type SeoJsonLd } from "./Seo";
 
 function htmlToText(html: string | null | undefined) {
   if (!html) return "";
@@ -53,6 +54,18 @@ function toParagraphs(html: string | null | undefined): string[] {
     .filter(Boolean);
   if (!base.length) return [];
   return base.flatMap((paragraph) => splitLongParagraph(paragraph));
+}
+
+/**
+ * Normalise a stored summary string so that paragraph breaks introduced by the AI
+ * (e.g. "The U.\n\nS. team") are collapsed back into a single paragraph of prose.
+ * This is a client-side safety net for summaries already persisted in the database
+ * before the server-side prompt fix was deployed.
+ */
+function normaliseSummaryText(text: string | null | undefined): string {
+  if (!text) return "";
+  // Collapse every sequence of newlines (including \n\n from broken abbreviations) to a space.
+  return text.replace(/\n+/g, " ").replace(/[ \t]{2,}/g, " ").trim();
 }
 
 function sourceFromUrl(url: string) {
@@ -184,14 +197,48 @@ export default function Reader() {
 
   const dt = item?.published_at ? new Date(item.published_at) : null;
   const dateStr = dt ? dt.toLocaleString() : "-";
-  const summaryParagraphs = useMemo(() => toParagraphs(item?.summary), [item?.summary]);
+  // Normalise the summary first to collapse any AI-generated mid-sentence newlines
+  // (e.g. "The U.\n\nS. team") present in summaries stored before the server fix.
+  const normalisedSummary = normaliseSummaryText(item?.summary);
+  const summaryParagraphs = useMemo(() => toParagraphs(normalisedSummary || null), [normalisedSummary]);
   const contentParagraphs = useMemo(() => toParagraphs(item?.content), [item?.content]);
   const summaryFingerprint = summaryParagraphs.join(" ").toLowerCase();
   const contentFingerprint = contentParagraphs.join(" ").toLowerCase();
-  const showContent = contentParagraphs.length > 0 && contentFingerprint !== summaryFingerprint;
+  // Only show the raw content ("Article Content") if there is NO AI summary.
+  // When a summary exists it already captures the key information; showing the
+  // original feed excerpt alongside it is redundant and confusing to readers.
+  const showContent = contentParagraphs.length > 0 && !summaryParagraphs.length && contentFingerprint !== summaryFingerprint;
+  const canonicalPath = id ? `/item/${id}` : "/item";
+  const seoDescription = metaDescription(item?.summary || item?.content || item?.title || "Read this Kentucky news article.");
+  const seoTitle = item?.title ? `${item.title} — Local KY News` : "Article — Local KY News";
+  const articleSchema: SeoJsonLd | undefined = item
+    ? {
+        "@context": "https://schema.org",
+        "@type": "NewsArticle",
+        headline: item.title,
+        description: seoDescription,
+        datePublished: item.published_at || undefined,
+        author: {
+          "@type": "Organization",
+          name: sourceFromUrl(item.url) || "Local KY News"
+        },
+        image: item.image_url ? [absoluteUrl(item.image_url)] : undefined,
+        mainEntityOfPage: absoluteUrl(canonicalPath),
+        url: absoluteUrl(canonicalPath)
+      }
+    : undefined;
 
   return (
     <div className="app">
+      <SeoMeta
+        title={seoTitle}
+        description={seoDescription}
+        path={canonicalPath}
+        type="article"
+        image={item?.image_url || undefined}
+        publishedTime={item?.published_at || undefined}
+        jsonLd={articleSchema}
+      />
       <header className="topbar">
         <button className="iconBtn" onClick={() => nav(-1)} aria-label="Back">
           ←
@@ -236,7 +283,7 @@ export default function Reader() {
                   ) : null}
                   {showContent ? (
                     <>
-                      <div style={{ fontWeight: 800, marginBottom: 6, marginTop: 12 }}>Source Excerpt</div>
+                      <div style={{ fontWeight: 800, marginBottom: 6, marginTop: 12 }}>Article Content</div>
                       {contentParagraphs.map((paragraph, idx) => (
                         <p key={`content-${idx}`}>{paragraph}</p>
                       ))}

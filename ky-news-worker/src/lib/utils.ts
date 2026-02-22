@@ -1,4 +1,5 @@
 import { decodeHtmlEntities, normalizeWhitespace, toHttpsUrl } from "./text";
+import kyCounties from "../data/ky-counties.json";
 
 export const NEWS_SCOPES = ["ky", "national", "all"] as const;
 export const LOST_FOUND_TYPES = ["lost", "found"] as const;
@@ -28,6 +29,16 @@ const OUTPUT_SUMMARY_LABEL_RE =
   /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*|__)?\s*(?:background|summary|key points?|key people|impact|impacts|what'?s next|what to watch next|overview|bottom line|main takeaways?|takeaways?|places|timeline|causes?)\s*:?\s*(?:\*\*|__)?\s*/gi;
 const OUTPUT_NAV_CLUSTER_RE =
   /\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)(?:\s+\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)\b){4,}/gi;
+
+const COUNTY_NAME_BY_NORMALIZED = new Map(
+  (Array.isArray(kyCounties) ? (kyCounties as Array<{ name?: string }>) : [])
+    .map((row) => String(row?.name || "").trim())
+    .filter(Boolean)
+    .map((name) => [
+      name.toLowerCase().replace(/\s+county$/i, "").replace(/[^a-z0-9]+/g, " ").trim(),
+      name
+    ])
+);
 
 function sanitizeSummaryForOutput(input: unknown): string | null {
   const raw = String(input || "").trim();
@@ -112,10 +123,15 @@ export function safeJsonParse<T>(input: unknown, fallback: T): T {
 }
 
 export function normalizeCounty(county: unknown): string {
-  return String(county || "")
+  const base = String(county || "")
     .trim()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
     .replace(/\s+county$/i, "")
-    .replace(/\s+/g, " ");
+    .trim();
+  if (!base) return "";
+  const key = base.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return COUNTY_NAME_BY_NORMALIZED.get(key) || base;
 }
 
 export function parseCountyList(input: unknown): string[] {

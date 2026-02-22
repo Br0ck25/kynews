@@ -36,19 +36,30 @@ export type LocalCachedItem = {
   source?: string | null;
 };
 
+export type LocalSavedPage = {
+  id: string;        // page key
+  savedAt: string;   // ISO
+  title: string;
+  url: string;
+  source?: string | null;
+  countySlug?: string | null;
+};
+
 class LocalDB extends Dexie {
   read!: Table<LocalReadState, string>;
   saved!: Table<LocalSavedState, string>;
   savedItems!: Table<LocalSavedItem, string>;
   cached!: Table<LocalCachedItem, string>;
+  savedPages!: Table<LocalSavedPage, string>;
 
   constructor() {
     super("feedreader_local");
-    this.version(2).stores({
+    this.version(3).stores({
       read: "id, readAt",
       saved: "id, savedAt",
       savedItems: "id, savedAt",
-      cached: "id, cachedAt"
+      cached: "id, cachedAt",
+      savedPages: "id, savedAt, countySlug"
     });
   }
 }
@@ -97,6 +108,28 @@ export async function isSaved(id: string) {
 
 export async function listSavedItems(limit = 200) {
   return localDb.savedItems.orderBy("savedAt").reverse().limit(limit).toArray();
+}
+
+export async function toggleSavedPage(page: {
+  id: string;
+  title: string;
+  url: string;
+  source?: string | null;
+  countySlug?: string | null;
+}) {
+  const existing = await localDb.savedPages.get(page.id);
+  if (existing) {
+    await localDb.savedPages.delete(page.id);
+    return false;
+  }
+
+  const savedAt = new Date().toISOString();
+  await localDb.savedPages.put({ ...page, savedAt });
+  return true;
+}
+
+export async function isSavedPage(id: string) {
+  return !!(await localDb.savedPages.get(id));
 }
 
 export async function cacheLastOpened(item: Omit<LocalCachedItem, "cachedAt">, maxItems = 30) {

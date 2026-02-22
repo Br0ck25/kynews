@@ -48,6 +48,118 @@ await fs.mkdir(uploadDir, { recursive: true });
 
 app.get("/api/health", async () => ({ ok: true, now: new Date().toISOString() }));
 
+app.get("/sitemap.xml", async (_req, reply) => {
+  const siteUrl = getSiteUrl();
+
+  const staticRoutes = [
+    { path: "/", changefreq: "daily", priority: 1.0 },
+    { path: "/local", changefreq: "weekly", priority: 0.4 },
+    { path: "/weather", changefreq: "weekly", priority: 0.4 },
+    { path: "/lost-found", changefreq: "weekly", priority: 0.4 }
+  ];
+
+  const db = openDb();
+  let articleRows = [];
+  let lostFoundRows = [];
+  try {
+    ensureSchema(db);
+    articleRows = db
+      .prepare(
+        `
+        SELECT id, COALESCE(published_at, fetched_at) AS lastmod
+        FROM items
+        ORDER BY COALESCE(published_at, fetched_at) DESC
+        LIMIT 500
+      `
+      )
+      .all();
+
+    lostFoundRows = db
+      .prepare(
+        `
+        SELECT id, submitted_at
+        FROM lost_found_posts
+        WHERE status = 'approved'
+          AND COALESCE(is_resolved, 0) = 0
+        ORDER BY submitted_at DESC
+        LIMIT 500
+      `
+      )
+      .all();
+  } finally {
+    db.close();
+  }
+
+  const urlTags = [];
+
+  for (const entry of staticRoutes) {
+    urlTags.push(
+      buildSitemapUrlTag({
+        loc: `${siteUrl}${entry.path}`,
+        changefreq: entry.changefreq,
+        priority: entry.priority
+      })
+    );
+  }
+
+  for (const slug of KY_COUNTY_SLUGS) {
+    urlTags.push(
+      buildSitemapUrlTag({
+        loc: `${siteUrl}/news/${encodeURIComponent(slug)}`,
+        changefreq: "daily",
+        priority: 0.8
+      })
+    );
+  }
+
+  for (const row of articleRows) {
+    const lastmod = parseIso(row.lastmod);
+    urlTags.push(
+      buildSitemapUrlTag({
+        loc: `${siteUrl}/item/${encodeURIComponent(String(row.id || ""))}`,
+        lastmod: lastmod || undefined,
+        changefreq: "monthly",
+        priority: 0.6
+      })
+    );
+  }
+
+  for (const row of lostFoundRows) {
+    const lastmod = parseIso(row.submitted_at);
+    urlTags.push(
+      buildSitemapUrlTag({
+        loc: `${siteUrl}/lost-found?post=${encodeURIComponent(String(row.id || ""))}`,
+        lastmod: lastmod || undefined,
+        changefreq: "weekly",
+        priority: 0.4
+      })
+    );
+  }
+
+  const xml = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...urlTags,
+    "</urlset>"
+  ].join("\n");
+
+  reply.header("content-type", "application/xml; charset=utf-8");
+  return reply.send(xml);
+});
+
+app.get("/robots.txt", async (_req, reply) => {
+  const siteUrl = getSiteUrl();
+  const body = [
+    "User-agent: *",
+    "Allow: /",
+    "Disallow: /admin",
+    "Disallow: /api/",
+    `Sitemap: ${siteUrl}/sitemap.xml`
+  ].join("\n");
+  reply.header("content-type", "text/plain; charset=utf-8");
+  return reply.send(body);
+});
+
 const NEWS_SCOPES = ["ky", "national", "all"];
 const PAID_SOURCE_DOMAINS = [
   "bizjournals.com",
@@ -69,6 +181,7 @@ const HEAVY_DEPRIORITIZED_PAID_DOMAINS = ["dailyindependent.com"];
 const PAID_FALLBACK_LIMIT = 2;
 const PAID_FALLBACK_WHEN_EMPTY_LIMIT = 3;
 const MIN_ITEM_WORDS = 50;
+const DEFAULT_SITE_URL = "https://localky.news";
 
 function normLocationText(s) {
   return String(s || "")
@@ -76,6 +189,54 @@ function normLocationText(s) {
     .replace(/&amp;/g, "&")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function getSiteUrl() {
+  return String(process.env.SITE_URL || DEFAULT_SITE_URL).replace(/\/+$/g, "");
+}
+
+function countyNameToSlug(name) {
+  const normalized = String(name || "")
+    .trim()
+    .replace(/\s+county$/i, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!normalized) return "";
+  return `${normalized}-county`;
+}
+
+const KY_COUNTY_SLUGS = Array.from(
+  new Set(
+    (Array.isArray(kyCounties) ? kyCounties : [])
+      .map((row) => countyNameToSlug(row?.name))
+      .filter(Boolean)
+  )
+);
+
+function xmlEscape(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function parseIso(value) {
+  const d = new Date(String(value || ""));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function buildSitemapUrlTag({ loc, changefreq, priority, lastmod }) {
+  const lines = ["  <url>", `    <loc>${xmlEscape(loc)}</loc>`];
+  if (lastmod) lines.push(`    <lastmod>${xmlEscape(lastmod)}</lastmod>`);
+  if (changefreq) lines.push(`    <changefreq>${xmlEscape(changefreq)}</changefreq>`);
+  if (priority != null) lines.push(`    <priority>${Number(priority).toFixed(1)}</priority>`);
+  lines.push("  </url>");
+  return lines.join("\n");
 }
 
 const KY_COUNTY_PATTERNS = (() => {
@@ -231,6 +392,14 @@ function parseCountyList(input) {
     if (!out.includes(county)) out.push(county);
   }
   return out;
+}
+
+function parseItemsCursor(cursor) {
+  if (!cursor) return null;
+  const raw = String(cursor);
+  const [ts, id] = raw.split("|");
+  if (!ts) return null;
+  return { ts, id: id || null };
 }
 
 function sourceHost(url) {
@@ -401,17 +570,19 @@ const ItemsQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(24 * 365).default(2),
+  unfiltered: z.string().optional(),
+  hours: z.coerce.number().min(0).max(24 * 365).default(2),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
 });
 
-app.get("/api/items", async (req) => {
+const handleItemsRoute = async (req) => {
   const parsed = ItemsQuery.safeParse(req.query ?? {});
   if (!parsed.success) return app.httpErrors.badRequest("Invalid query");
 
-  const { feedId, category, scope, state, county, counties, hours, cursor, limit } = parsed.data;
+  const { feedId, category, scope, state, county, counties, unfiltered, hours, cursor, limit } = parsed.data;
   const countyList = county ? [normalizeCounty(county)] : parseCountyList(counties);
+  const includeUnfiltered = ["1", "true", "yes"].includes(String(unfiltered || "").toLowerCase());
 
   if ((state || countyList.length) && scope === "national") {
     return app.httpErrors.badRequest("State/county filters only apply to KY scope");
@@ -422,9 +593,12 @@ app.get("/api/items", async (req) => {
     ensureSchema(db);
 
     const where = [];
-    const params = { since: `-${hours} hours`, limit: Math.min(limit * 4, 400) };
+    const params = { limit: includeUnfiltered ? limit : Math.min(limit * 4, 400) };
 
-    where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', @since)");
+    if (hours > 0) {
+      where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', @since)");
+      params.since = `-${hours} hours`;
+    }
 
     if (scope !== "all") {
       where.push("i.region_scope = @scope");
@@ -458,10 +632,21 @@ app.get("/api/items", async (req) => {
       }
     }
 
-    if (cursor) {
-      where.push("COALESCE(i.published_at, i.fetched_at) < @cursor");
-      params.cursor = cursor;
+    const parsedCursor = parseItemsCursor(cursor);
+    if (parsedCursor) {
+      if (parsedCursor.id) {
+        where.push(
+          "(COALESCE(i.published_at, i.fetched_at) < @cursorTs OR (COALESCE(i.published_at, i.fetched_at) = @cursorTs AND i.id < @cursorId))"
+        );
+        params.cursorTs = parsedCursor.ts;
+        params.cursorId = parsedCursor.id;
+      } else {
+        where.push("COALESCE(i.published_at, i.fetched_at) < @cursorTs");
+        params.cursorTs = parsedCursor.ts;
+      }
     }
+
+    const whereSql = where.length ? where.join(" AND ") : "1=1";
 
     const sql = `
       SELECT DISTINCT
@@ -481,23 +666,27 @@ app.get("/api/items", async (req) => {
       ${needsFi ? "JOIN feed_items fi ON fi.item_id = i.id" : ""}
       ${category ? "JOIN feeds f ON f.id = fi.feed_id" : ""}
       ${needsLoc ? "JOIN item_locations il ON il.item_id = i.id" : ""}
-      WHERE ${where.join(" AND ")}
-      ORDER BY sort_ts DESC
+      WHERE ${whereSql}
+      ORDER BY sort_ts DESC, i.id DESC
       LIMIT @limit
     `;
 
     const itemsRaw = db.prepare(sql).all(params);
-    const items = rankAndFilterItems(itemsRaw.map(mapItemRow), limit);
-    const nextCursor = items.length ? items[items.length - 1].sort_ts : null;
+    const mappedItems = itemsRaw.map(mapItemRow);
+    const items = includeUnfiltered ? mappedItems.slice(0, limit) : rankAndFilterItems(mappedItems, limit);
+    const nextCursor = items.length ? `${items[items.length - 1].sort_ts}|${items[items.length - 1].id}` : null;
     return { items, nextCursor };
   } finally {
     db.close();
   }
-});
+};
+
+app.get("/api/items", handleItemsRoute);
+app.get("/api/articles", handleItemsRoute);
 
 const CountiesQuery = z.object({
   state: z.string().length(2).default("KY"),
-  hours: z.coerce.number().min(1).max(24 * 365).default(2)
+  hours: z.coerce.number().min(0).max(24 * 365).default(2)
 });
 
 app.get("/api/counties", async (req) => {
@@ -510,21 +699,29 @@ app.get("/api/counties", async (req) => {
   const db = openDb();
   try {
     ensureSchema(db);
+    const where = [
+      "il.state_code = @stateCode",
+      "il.county != ''",
+      "i.region_scope = 'ky'"
+    ];
+    const params = { stateCode: state.toUpperCase() };
+    if (hours > 0) {
+      where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', @since)");
+      params.since = `-${hours} hours`;
+    }
+
     const rows = db
       .prepare(
         `
         SELECT il.county AS county, COUNT(DISTINCT il.item_id) AS count
         FROM item_locations il
         JOIN items i ON i.id = il.item_id
-        WHERE il.state_code = @stateCode
-          AND il.county != ''
-          AND i.region_scope = 'ky'
-          AND COALESCE(i.published_at, i.fetched_at) >= datetime('now', @since)
+        WHERE ${where.join(" AND ")}
         GROUP BY il.county
         ORDER BY il.county
       `
       )
-      .all({ stateCode: state.toUpperCase(), since: `-${hours} hours` });
+      .all(params);
 
     return { state: state.toUpperCase(), hours, counties: rows };
   } finally {

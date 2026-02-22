@@ -41,10 +41,12 @@ import {
   type WeatherAlert,
   type WeatherForecast
 } from "../data/api";
-import { bulkIsRead, isSaved, listSavedItems, markRead, toggleSaved } from "../data/localDb";
+import { bulkIsRead, isSaved, isSavedPage, listSavedItems, markRead, toggleSaved, toggleSavedPage } from "../data/localDb";
 import Reader from "./Reader";
 import { IconHeart, IconMapPin, IconMenu, IconSearch, IconSettings, IconShare, IconToday } from "./icons";
 import kyCounties from "../data/ky-counties.json";
+import { countyNameToSlug, countySlugToDisplayName, countySlugToName } from "../data/countySlug";
+import { SeoMeta, StructuredData, absoluteUrl, getSiteUrl, type SeoJsonLd } from "./Seo";
 
 function sourceFromUrl(url: string) {
   try {
@@ -104,9 +106,13 @@ function truncateText(value: string, maxChars = 420): string {
 }
 
 const SPORTS_CONTENT_RE =
-  /\b(sports?|football|basketball|baseball|soccer|volleyball|wrestling|athletic(?:s)?|nfl|nba|mlb|nhl|ncaa)\b/i;
+  /\b(sports?|football|basketball|baseball|soccer|volleyball|wrestling|athletic(?:s)?|nfl|nba|mlb|nhl|ncaa|hockey|olympics?|olympic|swimming|swimmer|tennis|golf|golfer|gymnastics?|gymnast|cycling|cyclist|lacrosse|softball|rugby|rowing|track\s+and\s+field|medal|athlete|tournament|championship|semifinal|quarterfinal)\b/i;
 
 function isLikelySportsItem(item: Item): boolean {
+  // Also check URL path — many sports articles have /sports/ in the URL
+  try {
+    if (/\/sports\//.test(new URL(item.url || "").pathname)) return true;
+  } catch { /* ignore malformed URLs */ }
   const haystack = `${item.title || ""} ${item.summary || ""} ${item.content || ""}`;
   return SPORTS_CONTENT_RE.test(haystack);
 }
@@ -129,6 +135,7 @@ const OWNER_ADMIN_TOKEN_KEY = "owner_admin_token";
 const OWNER_ADMIN_ROUTE = "/owner-panel-ky-news";
 const TODAY_LOOKBACK_HOURS = 72;
 const SPORTS_LOOKBACK_HOURS = 24 * 14;
+const MIN_COUNTY_STORIES = 5;
 const OBITUARY_LOOKBACK_HOURS = 24 * 365;
 const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" OR \"visitation\" OR \"memorial service\" OR \"passed away\"";
 const SPORTS_QUERY =
@@ -288,8 +295,26 @@ function applyThemeMode(mode: ThemeMode) {
   document.documentElement.setAttribute("data-theme", mode);
 }
 
+function countyPageSaveId(slug: string) {
+  return `county-page:${slug}`;
+}
+
+function countyPageUrl(slug: string) {
+  if (typeof window === "undefined") return `/news/${slug}`;
+  return new URL(`/news/${slug}`, window.location.origin).toString();
+}
+
 export default function App() {
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => getThemeMode());
+  const siteUrl = getSiteUrl();
+
+  const organizationSchema: SeoJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Local KY News",
+    url: siteUrl,
+    logo: absoluteUrl("/logo.png")
+  };
 
   useEffect(() => {
     applyThemeMode(themeMode);
@@ -297,45 +322,63 @@ export default function App() {
   }, [themeMode]);
 
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/today" replace />} />
-      <Route path="/today" element={<TodayScreen />} />
-      <Route path="/national" element={<NationalScreen />} />
-      <Route path="/sports" element={<SportsScreen />} />
-      <Route path="/open" element={<ExternalWebViewScreen />} />
-      <Route path="/weather" element={<WeatherScreen />} />
-      <Route path="/schools" element={<SchoolsScreen />} />
-      <Route path="/obituaries" element={<ObituariesScreen />} />
-      <Route path="/lost-found" element={<LostFoundScreen />} />
-      <Route path="/my-local" element={<MyLocalScreen />} />
-      <Route path="/read-later" element={<ReadLaterScreen />} />
-      <Route path="/search" element={<SearchScreen />} />
-      <Route path="/preferences" element={<Navigate to="/settings" replace />} />
-      <Route path={OWNER_ADMIN_ROUTE} element={<OwnerAdminScreen />} />
-      <Route
-        path="/settings"
-        element={
-          <SettingsScreen
-            themeMode={themeMode}
-            onToggleDarkTheme={(enabled) => setThemeModeState(enabled ? "dark" : "light")}
-          />
-        }
-      />
-      <Route path="/local-settings" element={<Navigate to="/my-local" replace />} />
-      <Route path="/feed/:feedId" element={<FeedScreen />} />
-      <Route path="/item/:id" element={<Reader />} />
-      <Route path="*" element={<Navigate to="/today" replace />} />
-    </Routes>
+    <>
+      <StructuredData jsonLd={organizationSchema} />
+      {/* SSR priority: county listing pages and article pages should be rendered server-side first in any SSR/SSG migration. */}
+      <Routes>
+        <Route path="/" element={<Navigate to="/today" replace />} />
+        <Route path="/today" element={<TodayScreen />} />
+        <Route path="/national" element={<NationalScreen />} />
+        <Route path="/sports" element={<SportsScreen />} />
+        <Route path="/open" element={<ExternalWebViewScreen />} />
+        <Route path="/weather" element={<WeatherScreen />} />
+        <Route path="/schools" element={<SchoolsScreen />} />
+        <Route path="/obituaries" element={<ObituariesScreen />} />
+        <Route path="/lost-found" element={<LostFoundScreen />} />
+        <Route path="/my-local" element={<MyLocalScreen />} />
+        <Route path="/local" element={<Navigate to="/my-local" replace />} />
+        <Route path="/news/:countySlug" element={<CountyPage />} />
+        <Route path="/read-later" element={<ReadLaterScreen />} />
+        <Route path="/search" element={<SearchScreen />} />
+        <Route path="/preferences" element={<Navigate to="/settings" replace />} />
+        <Route path={OWNER_ADMIN_ROUTE} element={<OwnerAdminScreen />} />
+        <Route
+          path="/settings"
+          element={
+            <SettingsScreen
+              themeMode={themeMode}
+              onToggleDarkTheme={(enabled) => setThemeModeState(enabled ? "dark" : "light")}
+            />
+          }
+        />
+        <Route path="/local-settings" element={<Navigate to="/my-local" replace />} />
+        <Route path="/feed/:feedId" element={<FeedScreen />} />
+        <Route path="/item/:id" element={<Reader />} />
+        <Route path="*" element={<NotFoundScreen />} />
+      </Routes>
+    </>
   );
 }
 
 /** Shell: topbar + drawer + bottom nav */
 function AppShell({
   title,
-  children
+  children,
+  seo
 }: {
   title: string;
   children: React.ReactNode;
+  seo?: {
+    title?: string;
+    description?: string;
+    path?: string;
+    url?: string;
+    type?: "website" | "article";
+    image?: string;
+    publishedTime?: string;
+    robots?: string;
+    jsonLd?: SeoJsonLd | SeoJsonLd[];
+  };
 }) {
   const nav = useNavigate();
   const loc = useLocation();
@@ -346,6 +389,9 @@ function AppShell({
 
   const active = (path: string) => loc.pathname === path || loc.pathname.startsWith(path + "/");
   const onTodayView = loc.pathname === "/today";
+  const onLocalView = active("/my-local") || loc.pathname.startsWith("/news/");
+  const seoTitle = seo?.title || `${title} — Local KY News`;
+  const seoDescription = seo?.description || `${title} coverage from across Kentucky.`;
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -370,14 +416,17 @@ function AppShell({
     // Attempt immediately
     tryScroll();
 
-    // Re-attempt whenever the content height changes (handles async data loading)
-    // so scroll position is reliably restored even when items load after initial mount.
-    let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(() => {
+    // Re-attempt whenever the DOM inside the scroll container changes (handles async data loading).
+    // We use MutationObserver (not ResizeObserver) because the scroll container has a fixed height
+    // set by flex layout — its element dimensions don't change when children are added, only its
+    // scrollHeight does. MutationObserver fires on any child DOM mutation so scroll is reliably
+    // restored once items have actually rendered.
+    let mo: MutationObserver | null = null;
+    if (typeof MutationObserver !== "undefined") {
+      mo = new MutationObserver(() => {
         if (!cancelled && node.scrollTop < target - 2) tryScroll();
       });
-      ro.observe(node);
+      mo.observe(node, { childList: true, subtree: true });
     }
 
     // Final fallback safety net after 5 seconds
@@ -385,7 +434,7 @@ function AppShell({
 
     return () => {
       cancelled = true;
-      ro?.disconnect();
+      mo?.disconnect();
       window.clearTimeout(fallbackTimer);
     };
   }, [routeKey]);
@@ -413,6 +462,17 @@ function AppShell({
 
   return (
     <div className="app">
+      <SeoMeta
+        title={seoTitle}
+        description={seoDescription}
+        path={seo?.path || `${loc.pathname}${loc.search}`}
+        url={seo?.url}
+        type={seo?.type || "website"}
+        image={seo?.image}
+        publishedTime={seo?.publishedTime}
+        robots={seo?.robots}
+        jsonLd={seo?.jsonLd}
+      />
       <header className="topbar">
         <button className="iconBtn topMenuBtn" aria-label="Menu" onClick={() => setDrawerOpen(true)}>
           <IconMenu className="navIcon" />
@@ -454,7 +514,7 @@ function AppShell({
               </div>
 
               <div
-                className={"drawerItem " + (active("/my-local") ? "active" : "")}
+                className={"drawerItem " + (onLocalView ? "active" : "")}
                 onClick={() => open("/my-local")}
               >
                 <div className="drawerLabel">Local News</div>
@@ -500,7 +560,7 @@ function AppShell({
           <span className="navLabel">Search</span>
         </button>
         <button
-          className={"navBtn " + (active("/my-local") ? "active" : "")}
+          className={"navBtn " + (onLocalView ? "active" : "")}
           onClick={() => nav("/my-local")}
           aria-label="Local News"
         >
@@ -813,6 +873,17 @@ function TodayScreen() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [statewideFallback, setStatewideFallback] = useState(false);
+  const websiteSchema: SeoJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Local KY News",
+    url: absoluteUrl("/"),
+    potentialAction: {
+      "@type": "SearchAction",
+      target: `${getSiteUrl()}/search?q={search_term_string}`,
+      "query-input": "required name=search_term_string"
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -892,7 +963,15 @@ function TodayScreen() {
         : "";
 
   return (
-    <AppShell title="Local KY News">
+    <AppShell
+      title="Local KY News"
+      seo={{
+        title: "Kentucky News — Local KY News",
+        description: "Your source for local Kentucky news, county by county.",
+        path: "/",
+        jsonLd: websiteSchema
+      }}
+    >
       <CoverageTabs />
 
       <div className="section">
@@ -1368,20 +1447,18 @@ function SettingsScreen({
 
 function MyLocalScreen() {
   const nav = useNavigate();
-  const openItem = useOpenItemNavigation();
+  const loc = useLocation();
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loadingCounties, setLoadingCounties] = useState(true);
   const [selected, setSelected] = useState(() => getMyLocalCounty());
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [loadingFeed, setLoadingFeed] = useState(false);
+  const pickerMode = useMemo(() => new URLSearchParams(loc.search).get("picker") === "1", [loc.search]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoadingCounties(true);
       try {
-        const res = await getCounties({ state: "KY", hours: 24 * 14 });
+        const res = await getCounties({ state: "KY", hours: 0 });
         const map: Record<string, number> = {};
         for (const row of res.counties) map[row.county] = row.count;
         if (!cancelled) setCounts(map);
@@ -1397,56 +1474,28 @@ function MyLocalScreen() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    if (!selected) {
-      setItems([]);
-      setCursor(null);
-      return;
-    }
-
-    (async () => {
-      setLoadingFeed(true);
-      setItems([]);
-      setCursor(null);
-      try {
-        const res = await getItems({ state: "KY", county: selected, hours: 24 * 14, limit: 30 });
-        if (cancelled) return;
-        setItems(res.items);
-        setCursor(res.nextCursor);
-      } finally {
-        if (!cancelled) setLoadingFeed(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selected]);
+    if (!selected || pickerMode) return;
+    nav(`/news/${countyNameToSlug(selected)}`, { replace: true });
+  }, [selected, pickerMode, nav]);
 
   const all = (kyCounties as { name: string }[]).map((c) => c.name);
+  const selectedSlug = countyNameToSlug(selected);
 
   function choose(name: string) {
     setSelected(name);
     setMyLocalCounty(name);
-  }
-
-  async function loadMoreLocal() {
-    if (!selected || !cursor || loadingFeed) return;
-    setLoadingFeed(true);
-    try {
-      const res = await getItems({ state: "KY", county: selected, hours: 24 * 14, cursor, limit: 30 });
-      setItems((prev) => {
-        const seenUrls = new Set(prev.map((i) => i.url));
-        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
-      });
-      setCursor(res.nextCursor);
-    } finally {
-      setLoadingFeed(false);
-    }
+    if (name) nav(`/news/${countyNameToSlug(name)}`);
   }
 
   return (
-    <AppShell title="Local News">
+    <AppShell
+      title="Local News"
+      seo={{
+        title: "Local Counties — Local KY News",
+        description: "Explore local coverage for every Kentucky county.",
+        path: pickerMode ? "/my-local?picker=1" : "/my-local"
+      }}
+    >
       <CoverageTabs />
       <div className="section">
         <div className="card" style={{ padding: 12 }}>
@@ -1465,23 +1514,309 @@ function MyLocalScreen() {
           </select>
           {selected ? (
             <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>
-              {loadingCounties ? "Loading count..." : `${counts[selected] ?? 0} local article(s) in the last 14 days`}
+              {loadingCounties ? "Loading count..." : `${counts[selected] ?? 0} local article(s) available`}
+            </div>
+          ) : null}
+          {selectedSlug ? (
+            <div style={{ marginTop: 10 }}>
+              <button className="btn" type="button" onClick={() => nav(`/news/${selectedSlug}`)}>
+                Open {selected} County News
+              </button>
             </div>
           ) : null}
         </div>
 
         <div style={{ marginTop: 12 }}>
-          {!selected ? <div className="card emptyState">Choose a county to load your local feed.</div> : null}
-          {selected && loadingFeed && !items.length ? <div className="card emptyState">Loading local stories...</div> : null}
-          {selected ? (
-            <>
-              <StoryDeck items={items} onOpen={openItem} emptyMessage="No local stories right now." />
-              {items.length ? (
-                <InfinitePager hasMore={Boolean(cursor)} loading={loadingFeed} onLoadMore={loadMoreLocal} />
-              ) : null}
-            </>
-          ) : null}
+          {!selected ? <div className="card emptyState">Choose a county to open its dedicated local page.</div> : null}
         </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function CountyPage() {
+  const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
+  const { countySlug = "" } = useParams();
+
+  const countyName = useMemo(() => countySlugToName(countySlug), [countySlug]);
+  const displayCountyName = useMemo(
+    () => (countyName ? countyName : countySlugToDisplayName(countySlug)),
+    [countyName, countySlug]
+  );
+  const canonicalSlug = useMemo(() => (countyName ? countyNameToSlug(countyName) : ""), [countyName]);
+
+  const [items, setItems] = useState<Item[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [statewideItems, setStatewideItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [shareMessage, setShareMessage] = useState("");
+
+  const pageTitle = `${displayCountyName} County, KY News — Local KY News`;
+  const pageDescription = `The latest news from ${displayCountyName} County, Kentucky.`;
+  const countyPath = `/news/${canonicalSlug || countySlug}`;
+  const countySchema: SeoJsonLd = useMemo(
+    () => ({
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: `${displayCountyName} County, KY News`,
+      description: pageDescription,
+      url: absoluteUrl(countyPath)
+    }),
+    [displayCountyName, pageDescription, countyPath]
+  );
+
+  useEffect(() => {
+    if (!countyName || !canonicalSlug || canonicalSlug === countySlug) return;
+    nav(`/news/${canonicalSlug}`, { replace: true });
+  }, [countyName, canonicalSlug, countySlug, nav]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!canonicalSlug) {
+        setSaved(false);
+        return;
+      }
+      const next = await isSavedPage(countyPageSaveId(canonicalSlug));
+      if (mounted) setSaved(next);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [canonicalSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setShareMessage("");
+
+    (async () => {
+      setLoading(true);
+      setError("");
+      setItems([]);
+      setCursor(null);
+      setStatewideItems([]);
+
+      try {
+        if (!countyName) {
+          setError("Unknown county. Showing statewide Kentucky coverage.");
+          const fallback = await getItems({ scope: "ky", hours: 0, limit: 30 });
+          if (cancelled) return;
+          setStatewideItems(fallback.items.slice(0, MIN_COUNTY_STORIES));
+          return;
+        }
+
+        setMyLocalCounty(countyName);
+
+        const primary = await getItems({
+          state: "KY",
+          county: countySlug,
+          unfiltered: true,
+          hours: 0,
+          limit: 30
+        });
+        if (cancelled) return;
+        setItems(primary.items);
+        setCursor(primary.nextCursor);
+      } catch (err: any) {
+        if (!cancelled) setError(String(err?.message || err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [countyName, countySlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const shouldLoadFallback = !loading && !cursor && items.length < MIN_COUNTY_STORIES && countyName && !statewideItems.length;
+    if (!shouldLoadFallback) return;
+
+    (async () => {
+      const fallback = await getItems({ scope: "ky", hours: 0, limit: 30 });
+      if (cancelled) return;
+      const needed = MIN_COUNTY_STORIES - items.length;
+      const seen = new Set(items.map((item) => item.url));
+      const fillers = fallback.items.filter((item) => !seen.has(item.url)).slice(0, needed);
+      setStatewideItems(fillers);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, cursor, items, countyName, statewideItems.length]);
+
+  async function loadMoreCountyStories() {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await getItems({
+        state: "KY",
+        county: countySlug,
+        unfiltered: true,
+        hours: 0,
+        cursor,
+        limit: 30
+      });
+      setItems((prev) => {
+        const seenIds = new Set(prev.map((item) => item.id));
+        const seenUrls = new Set(prev.map((item) => item.url));
+        return [...prev, ...res.items.filter((item) => !seenIds.has(item.id) && !seenUrls.has(item.url))];
+      });
+      setCursor(res.nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  async function saveCountyPage() {
+    if (!canonicalSlug) return;
+    const next = await toggleSavedPage({
+      id: countyPageSaveId(canonicalSlug),
+      title: `${displayCountyName} County, KY News`,
+      url: countyPageUrl(canonicalSlug),
+      source: "county-page",
+      countySlug: canonicalSlug
+    });
+    setSaved(next);
+  }
+
+  async function shareCountyPage() {
+    if (!canonicalSlug || typeof window === "undefined") return;
+    setShareMessage("");
+    const url = countyPageUrl(canonicalSlug);
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: pageTitle,
+          text: pageTitle,
+          url
+        });
+        return;
+      }
+    } catch (err: any) {
+      if (String(err?.name || "") === "AbortError") return;
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setShareMessage("Link copied.");
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    setShareMessage("Share is unavailable on this device.");
+  }
+
+  return (
+    <AppShell
+      title={`${displayCountyName} County`}
+      seo={{
+        title: pageTitle,
+        description: pageDescription,
+        path: countyPath,
+        jsonLd: countySchema
+      }}
+    >
+      <CoverageTabs />
+      <div className="section">
+        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap"
+            }}
+          >
+            <button className="btn" type="button" onClick={() => nav("/my-local?picker=1")}>
+              ← All Counties
+            </button>
+            <div className="postActions">
+              <button
+                type="button"
+                className={"iconAction " + (saved ? "active" : "")}
+                onClick={saveCountyPage}
+                disabled={!canonicalSlug}
+                aria-label={saved ? "Saved county page" : "Save county page"}
+              >
+                <IconHeart className="postActionIcon" />
+              </button>
+              <button
+                type="button"
+                className="iconAction"
+                onClick={shareCountyPage}
+                disabled={!canonicalSlug}
+                aria-label="Share county page"
+              >
+                <IconShare className="postActionIcon" />
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>County Coverage</div>
+          <div style={{ marginTop: 6, fontSize: 24, fontWeight: 700 }}>{displayCountyName} County, KY</div>
+          <div style={{ marginTop: 4, color: "var(--muted)", fontSize: 13 }}>
+            The latest local reporting from {displayCountyName} County.
+          </div>
+          {shareMessage ? <div className="meta" style={{ marginTop: 8 }}>{shareMessage}</div> : null}
+        </div>
+
+        {loading ? (
+          <div className="card emptyState">Loading county stories...</div>
+        ) : (
+          <>
+            {error ? (
+              <div className="card" style={{ padding: 12, marginBottom: 12, color: "#b91c1c" }}>
+                {error}
+              </div>
+            ) : null}
+
+            <StoryDeck
+              items={items}
+              onOpen={openItem}
+              emptyMessage={`No local stories in ${displayCountyName} County right now.`}
+            />
+            {items.length ? (
+              <InfinitePager hasMore={Boolean(cursor)} loading={loadingMore} onLoadMore={loadMoreCountyStories} />
+            ) : null}
+
+            {!cursor && items.length < MIN_COUNTY_STORIES ? (
+              <div style={{ marginTop: 14 }}>
+                <div
+                  style={{
+                    marginBottom: 10,
+                    paddingTop: 10,
+                    borderTop: "1px solid var(--border)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--muted)"
+                  }}
+                >
+                  More from Kentucky
+                </div>
+                <StoryDeck
+                  items={statewideItems}
+                  onOpen={openItem}
+                  emptyMessage="No additional statewide stories right now."
+                />
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
     </AppShell>
   );
@@ -1537,7 +1872,14 @@ function WeatherScreen() {
   }, [county]);
 
   return (
-    <AppShell title="Weather">
+    <AppShell
+      title="Weather"
+      seo={{
+        title: "Kentucky Weather — Local KY News",
+        description: "Local weather forecasts for every Kentucky county.",
+        path: "/weather"
+      }}
+    >
       <CoverageTabs />
       <div className="section">
         {!county ? (
@@ -1880,6 +2222,20 @@ function LostFoundScreen() {
   const [commentDraftByPost, setCommentDraftByPost] = useState<
     Record<string, { name: string; email: string; comment: string; acceptTerms: boolean }>
   >({});
+  const lostFoundSchema = useMemo<SeoJsonLd>(
+    () => ({
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      name: "Kentucky Lost and Found Listings",
+      itemListElement: posts.map((post, idx) => ({
+        "@type": "ListItem",
+        position: idx + 1,
+        url: absoluteUrl(`/lost-found?post=${encodeURIComponent(post.id)}`),
+        name: post.title
+      }))
+    }),
+    [posts]
+  );
 
   async function refresh() {
     setLoading(true);
@@ -2077,7 +2433,15 @@ function LostFoundScreen() {
   }
 
   return (
-    <AppShell title="Lost & Found">
+    <AppShell
+      title="Lost & Found"
+      seo={{
+        title: "Lost & Found Kentucky — Local KY News",
+        description: "Post or find lost and found items across Kentucky counties.",
+        path: "/lost-found",
+        jsonLd: lostFoundSchema
+      }}
+    >
       <CoverageTabs />
       <div className="section">
         <div className="card" style={{ padding: 14, marginBottom: 12 }}>
@@ -2887,6 +3251,32 @@ function SearchScreen() {
 
           {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={() => runSearch(cursor)} /> : null}
           {!loading && q.trim() && !items.length ? <div className="listStatus">No results found</div> : null}
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function NotFoundScreen() {
+  const nav = useNavigate();
+  return (
+    <AppShell
+      title="Not Found"
+      seo={{
+        title: "Page Not Found — Local KY News",
+        description: "The page you requested could not be found.",
+        path: "/404"
+      }}
+    >
+      <div className="section">
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Page Not Found</div>
+          <div style={{ color: "var(--muted)", marginBottom: 12 }}>
+            The page you requested is unavailable or may have moved.
+          </div>
+          <button className="btn" onClick={() => nav("/today")}>
+            Return Home
+          </button>
         </div>
       </div>
     </AppShell>

@@ -81,24 +81,9 @@ function buildRssItem(row) {
 // ── Route registration ────────────────────────────────────────────────────────
 
 export function registerSeoRoutes(app, openDb) {
-  // ── 1. robots.txt ────────────────────────────────────────────────────────
-  app.get("/robots.txt", async (_req, reply) => {
-    seoHeaders(reply);
-    reply.header("Content-Type", "text/plain");
-    return reply.send(
-      [
-        "User-agent: *",
-        "Allow: /",
-        "Disallow: /api/admin/",
-        "Disallow: /api/open-proxy",
-        "Crawl-delay: 1",
-        `Sitemap: ${SITE_ORIGIN}/sitemap-index.xml`,
-        ""
-      ].join("\n")
-    );
-  });
+  // robots.txt is served centrally in server.mjs to avoid route duplication.
 
-  // ── 2. sitemap-index.xml ─────────────────────────────────────────────────
+  // ── 1. sitemap-index.xml ─────────────────────────────────────────────────
   app.get("/sitemap-index.xml", async (_req, reply) => {
     seoHeaders(reply);
     reply.header("Content-Type", "application/xml");
@@ -115,7 +100,7 @@ export function registerSeoRoutes(app, openDb) {
     return reply.send(xml);
   });
 
-  // ── 3. sitemap-news.xml (Google News format) ─────────────────────────────
+  // ── 2. sitemap-news.xml (Google News format) ─────────────────────────────
   app.get("/sitemap-news.xml", async (_req, reply) => {
     seoHeaders(reply);
     reply.header("Content-Type", "application/xml");
@@ -172,7 +157,7 @@ export function registerSeoRoutes(app, openDb) {
     }
   });
 
-  // ── 4. sitemap-counties.xml ──────────────────────────────────────────────
+  // ── 3. sitemap-counties.xml ──────────────────────────────────────────────
   app.get("/sitemap-counties.xml", async (_req, reply) => {
     seoHeaders(reply);
     reply.header("Content-Type", "application/xml");
@@ -222,7 +207,7 @@ export function registerSeoRoutes(app, openDb) {
     }
   });
 
-  // ── 5. sitemap-lost-found.xml ────────────────────────────────────────────
+  // ── 4. sitemap-lost-found.xml ────────────────────────────────────────────
   app.get("/sitemap-lost-found.xml", async (_req, reply) => {
     seoHeaders(reply);
     reply.header("Content-Type", "application/xml");
@@ -268,7 +253,7 @@ export function registerSeoRoutes(app, openDb) {
     }
   });
 
-  // ── 6. sitemap-static.xml ────────────────────────────────────────────────
+  // ── 5. sitemap-static.xml ────────────────────────────────────────────────
   app.get("/sitemap-static.xml", async (_req, reply) => {
     seoHeaders(reply);
     reply.header("Content-Type", "application/xml");
@@ -302,7 +287,7 @@ export function registerSeoRoutes(app, openDb) {
     return reply.send(xml);
   });
 
-  // ── 7. rss.xml – global KY feed ──────────────────────────────────────────
+  // ── 6. rss.xml – global KY feed ──────────────────────────────────────────
   app.get("/rss.xml", async (_req, reply) => {
     reply.header("Cache-Control", "public, max-age=300");
     reply.header("Access-Control-Allow-Origin", "*");
@@ -347,7 +332,7 @@ export function registerSeoRoutes(app, openDb) {
     }
   });
 
-  // ── 8. /rss/:county.xml – per-county RSS feed ────────────────────────────
+  // ── 7. /rss/:county.xml – per-county RSS feed ────────────────────────────
   // Fastify match: /rss/jefferson.xml → params.county = "jefferson"
   app.get("/rss/:county.xml", async (req, reply) => {
     reply.header("Cache-Control", "public, max-age=300");
@@ -411,7 +396,7 @@ export function registerSeoRoutes(app, openDb) {
     }
   });
 
-  // ── 9. GET /api/structured-data/item/:id ─────────────────────────────────
+  // ── 8. GET /api/structured-data/item/:id ─────────────────────────────────
   app.get("/api/structured-data/item/:id", async (req, reply) => {
     reply.header("Access-Control-Allow-Origin", "*");
     const id = req.params?.id;
@@ -468,7 +453,7 @@ export function registerSeoRoutes(app, openDb) {
     }
   });
 
-  // ── 10. GET /api/structured-data/county/:county ──────────────────────────
+  // ── 9. GET /api/structured-data/county/:county ──────────────────────────
   app.get("/api/structured-data/county/:county", async (req, reply) => {
     reply.header("Access-Control-Allow-Origin", "*");
     const rawCounty = decodeURIComponent(String(req.params?.county ?? ""));

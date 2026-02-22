@@ -60,6 +60,11 @@ const HOST_SCRAPER_HINTS: Array<{ host: string; kind: ScraperKind }> = [
   { host: "hazard-herald.com", kind: "townnews-article" },
   { host: "dailyindependent.com", kind: "townnews-article" },
   { host: "state-journal.com", kind: "townnews-article" },
+  // Added: additional TownNews CMS papers switched to scrape mode
+  { host: "richmondregister.com", kind: "townnews-article" },
+  { host: "floydct.com", kind: "townnews-article" },
+  { host: "news-expressky.com", kind: "townnews-article" },
+  { host: "thenewsenterprise.com", kind: "townnews-article" },
   { host: "kentucky.com", kind: "mcclatchy-article" }
 ];
 

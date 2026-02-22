@@ -378,7 +378,15 @@ async function tagItemLocations(
     );
   }
 
-  const articleText = textOnly(excerpt || seedArticleText);
+  // Limit article text used for Kentucky detection to the first 3 500 characters.
+  // News articles have their main body near the top; related-article links that appear
+  // further down the page (e.g. "Kentucky basketball…") must not incorrectly tag an
+  // article as Kentucky-relevant (e.g. an Olympic hockey story from Lex18's /sports/ path).
+  const LOCATION_TAG_CHAR_LIMIT = 3_500;
+  const rawArticleText = textOnly(excerpt || seedArticleText);
+  const articleText = rawArticleText.length > LOCATION_TAG_CHAR_LIMIT
+    ? rawArticleText.slice(0, LOCATION_TAG_CHAR_LIMIT)
+    : rawArticleText;
   const titleCounties = detectKyCounties(titleText);
   const bodyCounties = detectKyCounties(articleText);
   const taggedCounties = new Set([...titleCounties, ...bodyCounties].map((county) => normalizeCounty(county)).filter(Boolean));

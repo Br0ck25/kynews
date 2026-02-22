@@ -105,12 +105,18 @@ function normalizeSummary(text: string): string {
   const out = decodeHtmlEntities(text)
     .replace(/^\s*(here(?:'s| is)\s+(?:a|the)\s+summary[:\-\s]*)/i, "")
     .replace(/^\s*summary[:\-\s]*/i, "")
-    .replace(SUMMARY_TEMPLATE_LABEL_RE, "\n")
+    .replace(SUMMARY_TEMPLATE_LABEL_RE, " ")
     .replace(/^\s*[-*]\s+/gm, "")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/`{1,3}/g, "")
     .trim();
-  return normalizeWhitespace(out);
+  // AI summaries must be continuous prose with no paragraph breaks.
+  // Collapse ALL newlines (including double-newlines from abbreviation splits like
+  // "The U.\n\nS. team" which the model sometimes emits) into a single space.
+  return normalizeWhitespace(out)
+    .replace(/\n+/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 function isSummaryUsable(text: string, bounds?: SummaryLengthBounds): boolean {
@@ -136,7 +142,9 @@ function buildSummaryPrompt(input: { title: string; url: string; articleText: st
     "Do not use markdown formatting.",
     "Do not copy long phrases from the source text.",
     "Do not invent facts. If details are uncertain, state that clearly.",
-    "Return plain text only.",
+    "Write as a single continuous paragraph. Do NOT add line breaks, paragraph breaks, or blank lines anywhere in the output.",
+    "Write abbreviations like U.S., U.N., D.C. without any line breaks between letters.",
+    "Return plain text only. No newlines.",
     "",
     `TITLE: ${input.title}`,
     `URL: ${input.url}`,
@@ -162,7 +170,9 @@ function buildRepairPrompt(input: {
     "If the source text does not state a detail, remove it.",
     "No opinions, no bullet points, no headings, and no invented details.",
     "Do not use markdown labels such as Background, Key Points, Impact, or What's Next.",
-    "Return plain text only.",
+    "Write as a single continuous paragraph with NO line breaks or paragraph breaks anywhere.",
+    "Write abbreviations like U.S., U.N., D.C. without any line breaks between letters.",
+    "Return plain text only. No newlines.",
     "",
     `TITLE: ${input.title}`,
     `URL: ${input.url}`,
