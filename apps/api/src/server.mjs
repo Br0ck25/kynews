@@ -13,6 +13,8 @@ import { insertAdminLog, requireAdmin } from "./security.mjs";
 import { registerWeatherRoutes } from "./weather.mjs";
 import { registerLostFoundRoutes } from "./lostFound.mjs";
 import { registerSeoRoutes } from "./seo.mjs";
+import kyCounties from "../../ingester/src/ky-counties.json" with { type: "json" };
+import kyCityCounty from "../../ingester/src/ky-city-county.json" with { type: "json" };
 
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 * 1024 });
 
@@ -67,6 +69,130 @@ const HEAVY_DEPRIORITIZED_PAID_DOMAINS = ["dailyindependent.com"];
 const PAID_FALLBACK_LIMIT = 2;
 const PAID_FALLBACK_WHEN_EMPTY_LIMIT = 3;
 const MIN_ITEM_WORDS = 50;
+
+function normLocationText(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/&amp;/g, "&")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+const KY_COUNTY_PATTERNS = (() => {
+  const names = (kyCounties || []).map((c) => c.name).filter(Boolean);
+  names.sort((a, b) => b.length - a.length);
+  return names.map((name) => {
+    const n = normLocationText(name);
+    const re = new RegExp(`\\b${n.replace(/\\s+/g, "\\s+")}\\s+(county|co\\.?)(\\b|\\s|,|\\.)`, "i");
+    return { name, re };
+  });
+})();
+
+const KY_CITY_PATTERNS = (() => {
+  const rows = Array.isArray(kyCityCounty) ? kyCityCounty : [];
+  const cities = rows
+    .map((r) => ({ city: String(r.city || "").trim(), county: String(r.county || "").trim() }))
+    .filter((r) => r.city && r.county);
+  cities.sort((a, b) => b.city.length - a.city.length);
+  return cities.map(({ city, county }) => {
+    const n = normLocationText(city);
+    const re = new RegExp(`\\b${n.replace(/\\s+/g, "\\s+")}\\b`, "i");
+    return { city, county, re };
+  });
+})();
+
+const OTHER_STATE_NAME_PATTERNS = [
+  "Alabama",
+  "Alaska",
+  "Arizona",
+  "Arkansas",
+  "California",
+  "Colorado",
+  "Connecticut",
+  "Delaware",
+  "Florida",
+  "Georgia",
+  "Hawaii",
+  "Idaho",
+  "Illinois",
+  "Indiana",
+  "Iowa",
+  "Kansas",
+  "Louisiana",
+  "Maine",
+  "Maryland",
+  "Massachusetts",
+  "Michigan",
+  "Minnesota",
+  "Mississippi",
+  "Missouri",
+  "Montana",
+  "Nebraska",
+  "Nevada",
+  "New Hampshire",
+  "New Jersey",
+  "New Mexico",
+  "New York",
+  "North Carolina",
+  "North Dakota",
+  "Ohio",
+  "Oklahoma",
+  "Oregon",
+  "Pennsylvania",
+  "Rhode Island",
+  "South Carolina",
+  "South Dakota",
+  "Tennessee",
+  "Texas",
+  "Utah",
+  "Vermont",
+  "Virginia",
+  "Washington",
+  "West Virginia",
+  "Wisconsin",
+  "Wyoming",
+  "District of Columbia"
+].map((name) => ({
+  name,
+  re: new RegExp(`\\b${normLocationText(name).replace(/\\s+/g, "\\s+")}\\b`, "i")
+}));
+
+function detectOtherStateNames(text) {
+  const t = normLocationText(text);
+  if (!t) return [];
+  const out = [];
+  for (const { name, re } of OTHER_STATE_NAME_PATTERNS) {
+    if (re.test(t)) out.push(name);
+  }
+  return Array.from(new Set(out));
+}
+
+function detectKyCounties(text) {
+  const t = normLocationText(text);
+  if (!t) return [];
+
+  const out = [];
+  const raw = String(text || "");
+  const hasKyContext = /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
+
+  for (const { name, re } of KY_COUNTY_PATTERNS) {
+    if (re.test(t)) out.push(name);
+  }
+
+  if (hasKyContext) {
+    for (const { county, re } of KY_CITY_PATTERNS) {
+      if (re.test(t)) out.push(county);
+    }
+  }
+
+  return Array.from(new Set(out));
+}
+
+function hasKySignal(text, counties) {
+  if (counties.length) return true;
+  const raw = String(text || "");
+  return /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
+}
 
 function parseCountyList(input) {
   if (!input) return [];
@@ -623,6 +749,232 @@ app.post("/api/admin/feeds/reload", async (req) => {
     stdout: run.stdout,
     stderr: run.stderr
   };
+});
+
+const RevalidateItemsBody = z.object({
+  hours: z.coerce.number().min(1).max(24 * 90).default(72),
+  limit: z.coerce.number().min(1).max(3000).default(800),
+  minWords: z.coerce.number().min(1).max(1000).default(50),
+  dryRun: z.boolean().default(true),
+  includeNational: z.boolean().default(false)
+});
+
+function csvToArray(csv) {
+  return String(csv || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function locationSet(rows) {
+  return new Set(
+    rows.map((row) => `${String(row.state_code || "").toUpperCase()}|${normalizeCounty(row.county || "")}`)
+  );
+}
+
+function sameSet(a, b) {
+  if (a.size !== b.size) return false;
+  for (const value of a) {
+    if (!b.has(value)) return false;
+  }
+  return true;
+}
+
+app.post("/api/admin/items/revalidate", async (req) => {
+  const admin = requireAdmin(app, req);
+  const parsed = RevalidateItemsBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return app.httpErrors.badRequest("Invalid payload");
+  }
+
+  const options = parsed.data;
+  const db = openDb();
+  try {
+    ensureSchema(db);
+    const scopeWhere = options.includeNational ? "" : "AND i.region_scope='ky'";
+    const rows = db
+      .prepare(
+        `
+        SELECT
+          i.id,
+          i.title,
+          i.url,
+          i.summary,
+          i.content,
+          i.article_text_excerpt,
+          i.region_scope,
+          (
+            SELECT group_concat(DISTINCT f.default_county)
+            FROM feed_items fi
+            JOIN feeds f ON f.id = fi.feed_id
+            WHERE fi.item_id = i.id
+              AND COALESCE(f.default_county, '') <> ''
+          ) AS default_counties_csv
+        FROM items i
+        WHERE COALESCE(i.published_at, i.fetched_at) >= datetime('now', @window)
+          ${scopeWhere}
+        ORDER BY COALESCE(i.published_at, i.fetched_at) DESC
+        LIMIT @limit
+        `
+      )
+      .all({
+        window: `-${options.hours} hours`,
+        limit: options.limit
+      });
+
+    const summary = {
+      scanned: rows.length,
+      dryRun: options.dryRun,
+      hours: options.hours,
+      limit: options.limit,
+      minWords: options.minWords,
+      includeNational: options.includeNational,
+      unchanged: 0,
+      wouldRetag: 0,
+      retagged: 0,
+      wouldPrune: 0,
+      pruned: 0,
+      prunedFeedLinks: 0,
+      samples: []
+    };
+
+    if (!rows.length) {
+      insertAdminLog(db, admin.email, "items.revalidate", "items", "batch", summary);
+      return { ok: true, summary };
+    }
+
+    const ids = rows.map((r) => String(r.id || "")).filter(Boolean);
+    const tags = db
+      .prepare(
+        `
+        SELECT item_id, state_code, county
+        FROM item_locations
+        WHERE item_id IN (${ids.map(() => "?").join(",")})
+        `
+      )
+      .all(...ids);
+
+    const tagsByItem = new Map();
+    for (const row of tags) {
+      const id = String(row.item_id || "");
+      if (!id) continue;
+      const list = tagsByItem.get(id) || [];
+      list.push({
+        state_code: String(row.state_code || "").toUpperCase(),
+        county: normalizeCounty(row.county || "")
+      });
+      tagsByItem.set(id, list);
+    }
+
+    const countFeedRefsStmt = db.prepare("SELECT COUNT(1) AS refs FROM feed_items WHERE item_id=?");
+    const delFeedRefsStmt = db.prepare("DELETE FROM feed_items WHERE item_id=?");
+    const delTagsStmt = db.prepare("DELETE FROM item_locations WHERE item_id=?");
+    const delItemStmt = db.prepare("DELETE FROM items WHERE id=?");
+    const delKyTagsStmt = db.prepare("DELETE FROM item_locations WHERE item_id=? AND state_code='KY'");
+    const insStateStmt = db.prepare(
+      "INSERT OR IGNORE INTO item_locations (item_id, state_code, county) VALUES (?, 'KY', '')"
+    );
+    const insCountyStmt = db.prepare(
+      "INSERT OR IGNORE INTO item_locations (item_id, state_code, county) VALUES (?, 'KY', ?)"
+    );
+
+    for (const row of rows) {
+      const itemId = String(row.id || "");
+      if (!itemId) continue;
+
+      const title = String(row.title || "");
+      const summaryText = String(row.summary || "");
+      const content = String(row.content || "");
+      const excerpt = String(row.article_text_excerpt || "");
+      const qualityText = excerpt || content || summaryText || "";
+      const words = countWords(qualityText);
+
+      if (words < options.minWords) {
+        summary.wouldPrune += 1;
+        if (summary.samples.length < 20) {
+          summary.samples.push({ item_id: itemId, action: "prune", words, title });
+        }
+        if (!options.dryRun) {
+          const refs = countFeedRefsStmt.get(itemId);
+          delFeedRefsStmt.run(itemId);
+          delTagsStmt.run(itemId);
+          delItemStmt.run(itemId);
+          summary.pruned += 1;
+          summary.prunedFeedLinks += Number(refs?.refs || 0);
+        }
+        continue;
+      }
+
+      const fullText = [title, summaryText, content, excerpt].filter(Boolean).join("\n");
+      const titleCounties = detectKyCounties(title);
+      const baseCounties = detectKyCounties(fullText);
+      const taggedCounties = new Set([...titleCounties, ...baseCounties].map((x) => normalizeCounty(x)).filter(Boolean));
+      const titleKySignal = hasKySignal(title, titleCounties);
+      const baseKySignal = hasKySignal(fullText, baseCounties);
+      const hasStrongKySignal = titleKySignal || baseKySignal || taggedCounties.size > 0;
+      const otherStates = detectOtherStateNames([title, summaryText, content].filter(Boolean).join("\n"));
+      const hasOtherStateSignal = otherStates.length > 0;
+      let urlSectionLooksOutOfState = false;
+      try {
+        const pathname = new URL(String(row.url || "")).pathname.toLowerCase();
+        urlSectionLooksOutOfState = /\/(national|world|region)\//.test(pathname);
+      } catch {
+        urlSectionLooksOutOfState = false;
+      }
+      const shouldTagAsKy = hasStrongKySignal && !(urlSectionLooksOutOfState && !titleKySignal && !baseKySignal);
+
+      if (shouldTagAsKy && (taggedCounties.size > 0 || !hasOtherStateSignal)) {
+        for (const county of csvToArray(row.default_counties_csv)) {
+          const normalized = normalizeCounty(county);
+          if (normalized) taggedCounties.add(normalized);
+        }
+      }
+
+      const existing = tagsByItem.get(itemId) || [];
+      const nonKy = existing.filter((t) => t.state_code !== "KY");
+      const desired = [...nonKy];
+      if (shouldTagAsKy) {
+        desired.push({ state_code: "KY", county: "" });
+        for (const county of Array.from(taggedCounties).sort((a, b) => a.localeCompare(b))) {
+          desired.push({ state_code: "KY", county });
+        }
+      }
+
+      const currentSet = locationSet(existing);
+      const desiredSet = locationSet(desired);
+      if (sameSet(currentSet, desiredSet)) {
+        summary.unchanged += 1;
+        continue;
+      }
+
+      summary.wouldRetag += 1;
+      if (summary.samples.length < 20) {
+        summary.samples.push({
+          item_id: itemId,
+          action: "retag",
+          title,
+          counties: Array.from(taggedCounties).sort((a, b) => a.localeCompare(b)),
+          should_tag_ky: shouldTagAsKy
+        });
+      }
+
+      if (!options.dryRun) {
+        delKyTagsStmt.run(itemId);
+        if (shouldTagAsKy) {
+          insStateStmt.run(itemId);
+          for (const county of Array.from(taggedCounties)) {
+            insCountyStmt.run(itemId, county);
+          }
+        }
+        summary.retagged += 1;
+      }
+    }
+
+    insertAdminLog(db, admin.email, "items.revalidate", "items", "batch", summary);
+    return { ok: true, summary };
+  } finally {
+    db.close();
+  }
 });
 
 const port = Number(process.env.PORT || 8787);

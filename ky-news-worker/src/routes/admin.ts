@@ -7,6 +7,7 @@ import { normalizeCounty, safeJsonParse } from "../lib/utils";
 import { runManualFeedIngest, runManualIngest } from "../ingest/ingest";
 import { d1All, d1First, d1Run } from "../services/db";
 import { insertAdminLog, requireRole } from "../services/security";
+import { detectKyCounties, detectOtherStateNames, hasKySignal } from "../services/location";
 
 const IngestionLogsQuery = z.object({
   limit: z.coerce.number().min(1).max(200).default(50),
@@ -57,6 +58,14 @@ const KvLogQuery = z.object({
   cursor: z.string().optional()
 });
 
+const RevalidateItemsBody = z.object({
+  hours: z.coerce.number().min(1).max(24 * 90).default(72),
+  limit: z.coerce.number().min(1).max(3000).default(800),
+  minWords: z.coerce.number().min(1).max(1000).default(50),
+  dryRun: z.boolean().default(true),
+  includeNational: z.boolean().default(false)
+});
+
 function queryInput(c: any): Record<string, unknown> {
   const params = new URL(c.req.url).searchParams;
   return Object.fromEntries(params.entries());
@@ -67,6 +76,32 @@ function parseCompositeCursor(cursor: string | undefined): { ts: string; itemId:
   const [ts, itemId] = cursor.split("|");
   if (!ts || !itemId) return null;
   return { ts, itemId };
+}
+
+function csvToArray(csv: unknown): string[] {
+  return String(csv || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function wordCount(input: unknown): number {
+  return String(input || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+function locationSet(rows: Array<{ state_code: string; county: string }>): Set<string> {
+  return new Set(rows.map((r) => `${String(r.state_code || "").toUpperCase()}|${normalizeCounty(r.county || "")}`));
+}
+
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const v of a) {
+    if (!b.has(v)) return false;
+  }
+  return true;
 }
 
 export function registerAdminRoutes(app: Hono<AppBindings>): void {
@@ -123,6 +158,204 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
     }
 
     return c.json({ ok: true, code: run.code, feedId, feedName: feed.name, stdout: run.stdout, stderr: run.stderr });
+  });
+
+  app.post("/api/admin/items/revalidate", async (c) => {
+    const admin = requireRole(c, "editor");
+    const payload = await c.req.json().catch(() => null);
+    const parsed = RevalidateItemsBody.safeParse(payload || {});
+    if (!parsed.success) badRequest("Invalid payload");
+
+    const options = parsed.data;
+    const window = `-${options.hours} hours`;
+    const scopeWhere = options.includeNational ? "" : "AND i.region_scope='ky'";
+
+    const rows = await d1All<Record<string, unknown>>(
+      c.env.ky_news_db,
+      `
+      SELECT
+        i.id,
+        i.title,
+        i.url,
+        i.summary,
+        i.content,
+        i.article_text_excerpt,
+        i.region_scope,
+        (
+          SELECT group_concat(DISTINCT f.default_county)
+          FROM feed_items fi
+          JOIN feeds f ON f.id = fi.feed_id
+          WHERE fi.item_id = i.id
+            AND COALESCE(f.default_county, '') <> ''
+        ) AS default_counties_csv
+      FROM items i
+      WHERE COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)
+        ${scopeWhere}
+      ORDER BY COALESCE(i.published_at, i.fetched_at) DESC
+      LIMIT ?
+      `,
+      [window, options.limit]
+    );
+
+    const summary = {
+      scanned: rows.length,
+      dryRun: options.dryRun,
+      hours: options.hours,
+      limit: options.limit,
+      minWords: options.minWords,
+      includeNational: options.includeNational,
+      unchanged: 0,
+      wouldRetag: 0,
+      retagged: 0,
+      wouldPrune: 0,
+      pruned: 0,
+      prunedFeedLinks: 0,
+      samples: [] as Array<Record<string, unknown>>
+    };
+
+    if (!rows.length) {
+      await insertAdminLog(c.env, admin.email, "items.revalidate", "items", "batch", summary);
+      return c.json({ ok: true, summary });
+    }
+
+    const itemIds = rows.map((r) => String(r.id || "")).filter(Boolean);
+    const tagRows = itemIds.length
+      ? await d1All<{ item_id: string; state_code: string; county: string }>(
+          c.env.ky_news_db,
+          `
+          SELECT item_id, state_code, county
+          FROM item_locations
+          WHERE item_id IN (${itemIds.map(() => "?").join(",")})
+          `,
+          itemIds
+        )
+      : [];
+
+    const tagsByItem = new Map<string, Array<{ state_code: string; county: string }>>();
+    for (const row of tagRows) {
+      const id = String(row.item_id || "");
+      if (!id) continue;
+      const next = tagsByItem.get(id) || [];
+      next.push({
+        state_code: String(row.state_code || "").toUpperCase(),
+        county: normalizeCounty(row.county || "")
+      });
+      tagsByItem.set(id, next);
+    }
+
+    for (const row of rows) {
+      const itemId = String(row.id || "");
+      if (!itemId) continue;
+
+      const title = String(row.title || "");
+      const summaryText = String(row.summary || "");
+      const content = String(row.content || "");
+      const excerpt = String(row.article_text_excerpt || "");
+      const qualityText = excerpt || content || summaryText || "";
+      const words = wordCount(qualityText);
+
+      if (words < options.minWords) {
+        summary.wouldPrune += 1;
+        if (summary.samples.length < 20) {
+          summary.samples.push({
+            item_id: itemId,
+            action: "prune",
+            words,
+            title
+          });
+        }
+        if (!options.dryRun) {
+          const refs = await d1First<{ refs: number }>(
+            c.env.ky_news_db,
+            "SELECT COUNT(1) AS refs FROM feed_items WHERE item_id=?",
+            [itemId]
+          );
+          await d1Run(c.env.ky_news_db, "DELETE FROM feed_items WHERE item_id=?", [itemId]);
+          await d1Run(c.env.ky_news_db, "DELETE FROM item_locations WHERE item_id=?", [itemId]);
+          await d1Run(c.env.ky_news_db, "DELETE FROM items WHERE id=?", [itemId]);
+          summary.pruned += 1;
+          summary.prunedFeedLinks += Number(refs?.refs || 0);
+        }
+        continue;
+      }
+
+      const fullText = [title, summaryText, content, excerpt].filter(Boolean).join("\n");
+      const titleCounties = detectKyCounties(title);
+      const baseCounties = detectKyCounties(fullText);
+      const taggedCounties = new Set([...titleCounties, ...baseCounties].map((x) => normalizeCounty(x)).filter(Boolean));
+      const titleKySignal = hasKySignal(title, titleCounties);
+      const baseKySignal = hasKySignal(fullText, baseCounties);
+      const hasStrongKySignal = titleKySignal || baseKySignal || taggedCounties.size > 0;
+
+      const otherStates = detectOtherStateNames([title, summaryText, content].filter(Boolean).join("\n"));
+      const hasOtherStateSignal = otherStates.length > 0;
+      let urlSectionLooksOutOfState = false;
+      try {
+        const pathname = new URL(String(row.url || "")).pathname.toLowerCase();
+        urlSectionLooksOutOfState = /\/(national|world|region)\//.test(pathname);
+      } catch {
+        urlSectionLooksOutOfState = false;
+      }
+      const shouldTagAsKy = hasStrongKySignal && !(urlSectionLooksOutOfState && !titleKySignal && !baseKySignal);
+
+      if (shouldTagAsKy && (taggedCounties.size > 0 || !hasOtherStateSignal)) {
+        for (const county of csvToArray(row.default_counties_csv)) {
+          const normalized = normalizeCounty(county);
+          if (normalized) taggedCounties.add(normalized);
+        }
+      }
+
+      const existing = tagsByItem.get(itemId) || [];
+      const nonKy = existing.filter((x) => x.state_code !== "KY");
+      const desired = [...nonKy];
+
+      if (shouldTagAsKy) {
+        desired.push({ state_code: "KY", county: "" });
+        for (const county of Array.from(taggedCounties).sort((a, b) => a.localeCompare(b))) {
+          desired.push({ state_code: "KY", county });
+        }
+      }
+
+      const currentSet = locationSet(existing);
+      const desiredSet = locationSet(desired);
+      if (sameSet(currentSet, desiredSet)) {
+        summary.unchanged += 1;
+        continue;
+      }
+
+      summary.wouldRetag += 1;
+      if (summary.samples.length < 20) {
+        summary.samples.push({
+          item_id: itemId,
+          action: "retag",
+          title,
+          counties: Array.from(taggedCounties).sort((a, b) => a.localeCompare(b)),
+          should_tag_ky: shouldTagAsKy
+        });
+      }
+
+      if (!options.dryRun) {
+        await d1Run(c.env.ky_news_db, "DELETE FROM item_locations WHERE item_id=? AND state_code='KY'", [itemId]);
+        if (shouldTagAsKy) {
+          await d1Run(
+            c.env.ky_news_db,
+            "INSERT OR IGNORE INTO item_locations (item_id, state_code, county) VALUES (?, 'KY', '')",
+            [itemId]
+          );
+          for (const county of Array.from(taggedCounties)) {
+            await d1Run(
+              c.env.ky_news_db,
+              "INSERT OR IGNORE INTO item_locations (item_id, state_code, county) VALUES (?, 'KY', ?)",
+              [itemId, county]
+            );
+          }
+        }
+        summary.retagged += 1;
+      }
+    }
+
+    await insertAdminLog(c.env, admin.email, "items.revalidate", "items", "batch", summary);
+    return c.json({ ok: true, summary });
   });
 
   app.get("/api/admin/ingestion/logs", async (c) => {

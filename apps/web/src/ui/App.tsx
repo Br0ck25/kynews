@@ -22,7 +22,9 @@ import {
   getAdminIngestionLogs,
   getAdminFeedHealth,
   runAdminFeedReload,
+  runAdminItemsRevalidate,
   type AdminFeedHealth,
+  type AdminItemRevalidateSummary,
   type AdminIngestionLog,
   type Feed,
   type Item,
@@ -2163,6 +2165,10 @@ function OwnerAdminScreen() {
   const [token, setToken] = useState(() => getOwnerAdminToken());
   const [loading, setLoading] = useState(false);
   const [runningIngest, setRunningIngest] = useState(false);
+  const [runningRevalidate, setRunningRevalidate] = useState(false);
+  const [revalidateHours, setRevalidateHours] = useState(72);
+  const [revalidateLimit, setRevalidateLimit] = useState(800);
+  const [revalidateResult, setRevalidateResult] = useState<AdminItemRevalidateSummary | null>(null);
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected" | "resolved" | "all">("all");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -2237,6 +2243,41 @@ function OwnerAdminScreen() {
       setError(String(err?.message || err));
     } finally {
       setRunningIngest(false);
+    }
+  }
+
+  async function runRevalidate(dryRun: boolean) {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+
+    setRunningRevalidate(true);
+    setError("");
+    setNotice("");
+    try {
+      const res = await runAdminItemsRevalidate({
+        token,
+        hours: revalidateHours,
+        limit: revalidateLimit,
+        minWords: 50,
+        dryRun,
+        includeNational: false
+      });
+      setRevalidateResult(res.summary);
+      if (dryRun) {
+        setNotice(
+          `Dry run complete: ${res.summary.wouldRetag} items would be re-tagged, ${res.summary.wouldPrune} items would be pruned.`
+        );
+      } else {
+        setNotice(
+          `Revalidate complete: ${res.summary.retagged} items re-tagged, ${res.summary.pruned} items pruned (${res.summary.prunedFeedLinks} feed links removed).`
+        );
+      }
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    } finally {
+      setRunningRevalidate(false);
     }
   }
 
@@ -2323,6 +2364,54 @@ function OwnerAdminScreen() {
             <button className="btn" type="button" onClick={runIngestNow} disabled={runningIngest || !token.trim()}>
               {runningIngest ? "Running..." : "Run Ingestion Now"}
             </button>
+          </div>
+          <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>
+              Re-tag/revalidate recent KY items without full ingestion.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input
+                className="searchInput"
+                type="number"
+                min={1}
+                max={24 * 90}
+                value={revalidateHours}
+                onChange={(e) => setRevalidateHours(Math.max(1, Number(e.target.value || 72)))}
+                style={{ maxWidth: 120 }}
+                placeholder="Hours"
+              />
+              <input
+                className="searchInput"
+                type="number"
+                min={1}
+                max={3000}
+                value={revalidateLimit}
+                onChange={(e) => setRevalidateLimit(Math.max(1, Number(e.target.value || 800)))}
+                style={{ maxWidth: 120 }}
+                placeholder="Limit"
+              />
+              <button
+                className="btn"
+                type="button"
+                onClick={() => void runRevalidate(true)}
+                disabled={runningRevalidate || !token.trim()}
+              >
+                {runningRevalidate ? "Running..." : "Dry Run Revalidate"}
+              </button>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => void runRevalidate(false)}
+                disabled={runningRevalidate || !token.trim()}
+              >
+                {runningRevalidate ? "Running..." : "Apply Revalidate"}
+              </button>
+            </div>
+            {revalidateResult ? (
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                Last result: scanned {revalidateResult.scanned}, unchanged {revalidateResult.unchanged}, wouldRetag {revalidateResult.wouldRetag}, wouldPrune {revalidateResult.wouldPrune}.
+              </div>
+            ) : null}
           </div>
           {error ? <div style={{ color: "#b91c1c", marginTop: 8 }}>{error}</div> : null}
           {notice ? <div style={{ color: "var(--muted)", marginTop: 8 }}>{notice}</div> : null}

@@ -137,6 +137,22 @@ export type AdminFeedHealth = {
   health_status: "healthy" | "degraded" | "critical" | "unknown";
 };
 
+export type AdminItemRevalidateSummary = {
+  scanned: number;
+  dryRun: boolean;
+  hours: number;
+  limit: number;
+  minWords: number;
+  includeNational: boolean;
+  unchanged: number;
+  wouldRetag: number;
+  retagged: number;
+  wouldPrune: number;
+  pruned: number;
+  prunedFeedLinks: number;
+  samples: Array<Record<string, unknown>>;
+};
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -440,6 +456,30 @@ export async function runAdminFeedReload(input: { token?: string } = {}) {
   return fetchJson<{ ok: boolean; code: number; stdout: string; stderr: string }>("/api/admin/feeds/reload", {
     method: "POST",
     headers: adminHeaders(input.token)
+  });
+}
+
+export async function runAdminItemsRevalidate(input: {
+  token?: string;
+  hours?: number;
+  limit?: number;
+  minWords?: number;
+  dryRun?: boolean;
+  includeNational?: boolean;
+} = {}) {
+  return fetchJson<{ ok: boolean; summary: AdminItemRevalidateSummary }>("/api/admin/items/revalidate", {
+    method: "POST",
+    headers: {
+      ...adminHeaders(input.token),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      hours: input.hours ?? 72,
+      limit: input.limit ?? 800,
+      minWords: input.minWords ?? 50,
+      dryRun: input.dryRun ?? true,
+      includeNational: input.includeNational ?? false
+    })
   });
 }
 

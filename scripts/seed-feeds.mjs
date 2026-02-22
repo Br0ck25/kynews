@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 
 const root = path.resolve(process.cwd());
 const seedPath = path.join(root, "feeds.seed.json");
+const masterDbPath = path.join(root, "Kentucky News Master Database");
 const dbPath = path.join(root, "data", "dev.sqlite");
 
 if (!fs.existsSync(seedPath)) {
@@ -15,7 +16,113 @@ if (!fs.existsSync(dbPath)) {
   process.exit(1);
 }
 
-const feeds = JSON.parse(fs.readFileSync(seedPath, "utf-8"));
+const baseFeeds = JSON.parse(fs.readFileSync(seedPath, "utf-8"));
+
+function slugify(input) {
+  return String(input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96);
+}
+
+function canonicalizeSourceUrl(raw) {
+  try {
+    const u = new URL(String(raw || "").trim());
+    u.protocol = "https:";
+    u.hash = "";
+    u.search = "";
+    u.username = "";
+    u.password = "";
+    u.hostname = u.hostname.toLowerCase().replace(/^www\./, "");
+    u.pathname = (u.pathname || "/").replace(/\/+$/, "") || "/";
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+function canonicalizeFeedUrl(raw) {
+  try {
+    const u = new URL(String(raw || "").trim());
+    u.protocol = "https:";
+    u.hash = "";
+    u.username = "";
+    u.password = "";
+    u.hostname = u.hostname.toLowerCase().replace(/^www\./, "");
+    if (u.pathname.length > 1) u.pathname = u.pathname.replace(/\/+$/, "");
+    return u.toString();
+  } catch {
+    return String(raw || "").trim();
+  }
+}
+
+function extractMasterSourceUrls(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const matches = raw.match(/https?:\/\/[^\s<>"')\]]+/gi) || [];
+  const unique = new Set();
+  for (const m of matches) {
+    const cleaned = String(m || "").replace(/[),.;]+$/, "");
+    const canonical = canonicalizeSourceUrl(cleaned);
+    if (canonical) unique.add(canonical);
+  }
+  return [...unique];
+}
+
+function buildMasterWatchFeed(sourceUrl) {
+  const source = new URL(sourceUrl);
+  const host = source.hostname.replace(/^www\./, "");
+  const pathPart = source.pathname && source.pathname !== "/" ? source.pathname : "";
+  const sourceKey = `${host}${pathPart}`;
+  const id = `ky-master-${slugify(sourceKey)}`;
+  const searchQuery = `site:${sourceKey} Kentucky`;
+
+  return {
+    id,
+    name: `Master Watch: ${sourceKey}`,
+    category: "Kentucky - Master Sources",
+    url: `https://www.bing.com/news/search?q=${encodeURIComponent(searchQuery)}&format=rss`,
+    state_code: "KY",
+    region_scope: "ky",
+    enabled: 1
+  };
+}
+
+function mergeFeeds(base, masterDerived) {
+  const merged = [];
+  const seenIds = new Set();
+  const seenUrls = new Set();
+
+  function pushFeed(feed) {
+    const row = { ...feed };
+    let id = String(row.id || "").trim();
+    if (!id) return;
+
+    let counter = 2;
+    while (seenIds.has(id)) {
+      id = `${row.id}-${counter}`;
+      counter += 1;
+    }
+    row.id = id;
+
+    const canonicalUrl = canonicalizeFeedUrl(row.url);
+    if (!canonicalUrl || seenUrls.has(canonicalUrl)) return;
+    row.url = canonicalUrl;
+
+    seenIds.add(row.id);
+    seenUrls.add(canonicalUrl);
+    merged.push(row);
+  }
+
+  for (const feed of base) pushFeed(feed);
+  for (const feed of masterDerived) pushFeed(feed);
+  return merged;
+}
+
+const masterSourceUrls = extractMasterSourceUrls(masterDbPath);
+const masterDerivedFeeds = masterSourceUrls.map(buildMasterWatchFeed);
+const feeds = mergeFeeds(baseFeeds, masterDerivedFeeds);
 const db = new Database(dbPath);
 const feedCols = db.prepare("PRAGMA table_info(feeds)").all().map((r) => r.name);
 if (!feedCols.includes("default_county")) {
@@ -81,4 +188,7 @@ const tx = db.transaction((rows) => {
 tx(feeds);
 db.close();
 
-console.log("✅ Seeded feeds:", feeds.length);
+const derivedAdded = Math.max(0, feeds.length - baseFeeds.length);
+console.log(
+  `✅ Seeded feeds: ${feeds.length} total (${baseFeeds.length} base + ${derivedAdded} master-derived from ${masterSourceUrls.length} master sources)`
+);
