@@ -133,6 +133,7 @@ const OBITUARY_LOOKBACK_HOURS = 24 * 365;
 const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" OR \"visitation\" OR \"memorial service\" OR \"passed away\"";
 const SPORTS_QUERY =
   "\"sports\" OR \"sport\" OR \"football\" OR \"basketball\" OR \"baseball\" OR \"soccer\" OR \"volleyball\" OR \"wrestling\" OR \"athletics\"";
+const routeScrollPositions = new Map<string, number>();
 type ThemeMode = "light" | "dark";
 
 function getMyLocalCounty(): string {
@@ -297,6 +298,7 @@ function AppShell({
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const contentRef = useRef<HTMLElement | null>(null);
+  const routeKey = `${loc.pathname}${loc.search}`;
 
   const active = (path: string) => loc.pathname === path || loc.pathname.startsWith(path + "/");
   const onTodayView = loc.pathname === "/today";
@@ -307,8 +309,25 @@ function AppShell({
 
   useEffect(() => {
     const node = contentRef.current;
-    if (node) node.scrollTop = 0;
-  }, [loc.pathname, loc.search]);
+    if (!node) return;
+    node.scrollTop = routeScrollPositions.get(routeKey) ?? 0;
+  }, [routeKey]);
+
+  useEffect(() => {
+    const node = contentRef.current;
+    if (!node) return;
+
+    const save = () => {
+      routeScrollPositions.set(routeKey, node.scrollTop);
+    };
+
+    node.addEventListener("scroll", save, { passive: true });
+    save();
+    return () => {
+      save();
+      node.removeEventListener("scroll", save);
+    };
+  }, [routeKey]);
 
   function open(path: string) {
     setDrawerOpen(false);
@@ -1057,7 +1076,7 @@ function ExternalWebViewScreen() {
                   Back
                 </button>
                 <a className="btn" href={frameUrl} target="_blank" rel="noreferrer">
-                  Open external
+                  Open Original
                 </a>
               </div>
             </div>
@@ -1080,7 +1099,7 @@ function ExternalWebViewScreen() {
                 <div className="webviewHint">
                   {proxyError
                     ? `Proxy view unavailable: ${proxyError}. Showing direct frame when possible.`
-                    : 'Some publishers block embedded viewing. Use "Open external" if this page does not load.'}
+                    : 'Some publishers block embedded viewing. Use "Open Original" if this page does not load.'}
                 </div>
               </>
             ) : null}

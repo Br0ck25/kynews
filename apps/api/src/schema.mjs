@@ -14,6 +14,10 @@ export function ensureSchema(db) {
   if (!columnExists(db, "items", "region_scope")) {
     db.prepare("ALTER TABLE items ADD COLUMN region_scope TEXT NOT NULL DEFAULT 'ky'").run();
   }
+  if (!columnExists(db, "items", "fetched_at")) {
+    db.prepare("ALTER TABLE items ADD COLUMN fetched_at TEXT").run();
+  }
+  db.prepare("UPDATE items SET fetched_at=datetime('now') WHERE fetched_at IS NULL OR trim(fetched_at)=''").run();
   if (!columnExists(db, "items", "article_fetch_status")) {
     db.prepare("ALTER TABLE items ADD COLUMN article_fetch_status TEXT").run();
   }

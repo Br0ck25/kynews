@@ -327,9 +327,6 @@ async function tagItemLocations(
     stateCode: string;
     parts: string[];
     url: string;
-    author?: string | null;
-    defaultCounty?: string | null;
-    feedUrl?: string | null;
   }
 ): Promise<{ excerpt: string; imageCandidate: string | null; publishedAt: string | null }> {
   const st = (input.stateCode || "KY").toUpperCase();
@@ -337,33 +334,7 @@ async function tagItemLocations(
   await d1Run(env.ky_news_db, "DELETE FROM item_locations WHERE item_id=? AND state_code=?", [input.itemId, st]);
 
   const titleText = String(input.parts[0] || "");
-  const baseText = input.parts.filter(Boolean).join(" \n");
-  const titleCounties = detectKyCounties(titleText);
-  const baseCounties = detectKyCounties(baseText);
-  const strongCounties = Array.from(new Set([...titleCounties, ...baseCounties]));
-  const titleKySignal = st !== "KY" ? true : hasKySignal(titleText, titleCounties);
-  const baseKySignal = st !== "KY" ? true : hasKySignal(baseText, baseCounties);
-  const baseOtherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
-  const titleOtherStateNames = st === "KY" ? detectOtherStateNames(titleText) : [];
-
-  let counties = [...strongCounties];
-  let excerptCounties: string[] = [];
-  let otherStateNames = [...baseOtherStateNames];
-
-  let urlSectionLooksOutOfState = false;
-  if (st === "KY") {
-    try {
-      const path = new URL(input.url).pathname.toLowerCase();
-      urlSectionLooksOutOfState = /\/(national|world|region)\//.test(path);
-    } catch {
-      urlSectionLooksOutOfState = false;
-    }
-  }
-
-  const looksSyndicated =
-    /\/ap\//i.test(input.url) ||
-    /\bassociated press\b/i.test(baseText) ||
-    /^ap\b/i.test(String(input.author || "").trim().toLowerCase());
+  const seedArticleText = textOnly(input.parts.slice(1).filter(Boolean).join(" \n"));
 
   const meta = await d1First<{
     article_checked_at: string | null;
@@ -384,17 +355,11 @@ async function tagItemLocations(
   let imageCandidate: string | null = null;
   let publishedAt: string | null = null;
 
-  if ((!counties.length || needsImage || excerpt.length < 300 || needsPublishedDate) && !alreadyChecked) {
+  if ((needsImage || excerpt.length < 300 || needsPublishedDate) && !alreadyChecked) {
     const fetched = await fetchArticle(input.url);
     excerpt = fetched.text || "";
     imageCandidate = fetched.ogImage || null;
     publishedAt = fetched.publishedAt || null;
-    excerptCounties = detectKyCounties(excerpt);
-    counties = Array.from(new Set([...baseCounties, ...excerptCounties]));
-
-    if (st === "KY") {
-      otherStateNames = Array.from(new Set([...otherStateNames, ...detectOtherStateNames(excerpt)]));
-    }
 
     await d1Run(
       env.ky_news_db,
@@ -413,35 +378,30 @@ async function tagItemLocations(
     );
   }
 
-  const isKyGoogleWatchFeed =
-    /news\.google\.com\/rss\/search/i.test(String(input.feedUrl || "")) &&
-    /kentucky/i.test(decodeURIComponent(String(input.feedUrl || "")));
+  const articleText = textOnly(excerpt || seedArticleText);
+  const titleCounties = detectKyCounties(titleText);
+  const bodyCounties = detectKyCounties(articleText);
+  const taggedCounties = new Set([...titleCounties, ...bodyCounties].map((county) => normalizeCounty(county)).filter(Boolean));
+  const titleKySignal = st !== "KY" ? true : hasKySignal(titleText, titleCounties);
+  const bodyKySignal = st !== "KY" ? true : hasKySignal(articleText, bodyCounties);
 
   const hasTitleOutOfStateSignal =
     st === "KY" &&
-    titleOtherStateNames.length > 0 &&
+    detectOtherStateNames(titleText).length > 0 &&
     !titleKySignal &&
     titleCounties.length === 0;
   const hasPrimaryOutOfStateSignal =
     st === "KY" &&
-    baseOtherStateNames.length > 0 &&
-    !baseKySignal &&
-    baseCounties.length === 0;
-  if (
-    st === "KY" &&
-    (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal || (urlSectionLooksOutOfState && !baseKySignal && !titleKySignal))
-  ) {
-    return { excerpt, imageCandidate, publishedAt };
-  }
+    detectOtherStateNames(articleText).length > 0 &&
+    !bodyKySignal &&
+    bodyCounties.length === 0;
 
   const hasStrongKySignal =
     st !== "KY" ||
-    isKyGoogleWatchFeed ||
     titleKySignal ||
-    baseKySignal ||
-    strongCounties.length > 0;
-  const hasOtherStateSignal = st === "KY" && otherStateNames.length > 0;
-  if (st === "KY" && looksSyndicated && !hasStrongKySignal) {
+    bodyKySignal ||
+    taggedCounties.size > 0;
+  if (st === "KY" && (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal)) {
     return { excerpt, imageCandidate, publishedAt };
   }
 
@@ -457,13 +417,7 @@ async function tagItemLocations(
   ]);
 
   if (st === "KY") {
-    const tagged = new Set(counties.map((c) => normalizeCounty(c)).filter(Boolean));
-    const fallbackCounty = normalizeCounty(input.defaultCounty || "");
-    if (fallbackCounty && (tagged.size > 0 || (hasStrongKySignal && !hasOtherStateSignal))) {
-      tagged.add(fallbackCounty);
-    }
-
-    for (const county of tagged) {
+    for (const county of taggedCounties) {
       await d1Run(
         env.ky_news_db,
         "INSERT OR IGNORE INTO item_locations (item_id, state_code, county) VALUES (?, ?, ?)",
@@ -612,11 +566,8 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
               await tagItemLocations(env, {
                 itemId,
                 stateCode: feed.state_code || "KY",
-                parts: [title, summaryText || "", contentText || ""],
-                url: link,
-                author,
-                defaultCounty: feed.default_county,
-                feedUrl: feed.url
+                parts: [title, contentText || ""],
+                url: link
               });
             }
 
@@ -645,11 +596,8 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
             const loc = await tagItemLocations(env, {
               itemId,
               stateCode: feed.state_code || "KY",
-              parts: [title, summaryText || "", contentText || ""],
-              url: link,
-              author,
-              defaultCounty: feed.default_county,
-              feedUrl: feed.url
+              parts: [title, contentText || ""],
+              url: link
             });
 
             if (loc.excerpt && loc.excerpt.length > articleExcerpt.length) {

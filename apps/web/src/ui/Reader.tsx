@@ -1,16 +1,57 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getItem, type Item } from "../data/api";
 import { cacheLastOpened, getCachedItem, isSaved, markRead, toggleSaved } from "../data/localDb";
 
-function toText(html: string | null | undefined) {
+function htmlToText(html: string | null | undefined) {
   if (!html) return "";
-  return html
+  return String(html)
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/<\/(p|div|section|article|blockquote|h[1-6]|li)>/gi, "\n\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "\n- ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
+}
+
+function splitLongParagraph(paragraph: string): string[] {
+  const text = paragraph.trim();
+  if (!text) return [];
+  if (text.length < 420) return [text];
+
+  const sentences = (text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [])
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (sentences.length < 4) return [text];
+
+  const out: string[] = [];
+  let bucket: string[] = [];
+  for (const sentence of sentences) {
+    bucket.push(sentence);
+    const joined = bucket.join(" ").trim();
+    if (joined.length >= 320 || bucket.length >= 3) {
+      out.push(joined);
+      bucket = [];
+    }
+  }
+  if (bucket.length) out.push(bucket.join(" ").trim());
+  return out.filter(Boolean);
+}
+
+function toParagraphs(html: string | null | undefined): string[] {
+  const clean = htmlToText(html);
+  if (!clean) return [];
+  const base = clean
+    .split(/\n{2,}/)
+    .map((x) => x.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (!base.length) return [];
+  return base.flatMap((paragraph) => splitLongParagraph(paragraph));
 }
 
 function sourceFromUrl(url: string) {
@@ -30,6 +71,7 @@ export default function Reader() {
   const [saved, setSaved] = useState<boolean>(false);
   const [fromCache, setFromCache] = useState<boolean>(false);
   const [heroImageFailed, setHeroImageFailed] = useState<boolean>(false);
+  const [shareMessage, setShareMessage] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +132,7 @@ export default function Reader() {
 
   useEffect(() => {
     setHeroImageFailed(false);
+    setShareMessage("");
   }, [item?.id, item?.image_url]);
 
   async function toggle() {
@@ -108,10 +151,43 @@ export default function Reader() {
     setSaved(next);
   }
 
+  async function share() {
+    if (!item?.url) return;
+    setShareMessage("");
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: item.title,
+          text: item.title,
+          url: item.url
+        });
+        return;
+      }
+    } catch (err: any) {
+      if (String(err?.name || "") === "AbortError") return;
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(item.url);
+        setShareMessage("Link copied.");
+        return;
+      }
+    } catch {
+      // fall through to direct open
+    }
+
+    window.open(item.url, "_blank", "noopener,noreferrer");
+  }
+
   const dt = item?.published_at ? new Date(item.published_at) : null;
   const dateStr = dt ? dt.toLocaleString() : "-";
-  const summaryText = toText(item?.summary);
-  const contentText = toText(item?.content);
+  const summaryParagraphs = useMemo(() => toParagraphs(item?.summary), [item?.summary]);
+  const contentParagraphs = useMemo(() => toParagraphs(item?.content), [item?.content]);
+  const summaryFingerprint = summaryParagraphs.join(" ").toLowerCase();
+  const contentFingerprint = contentParagraphs.join(" ").toLowerCase();
+  const showContent = contentParagraphs.length > 0 && contentFingerprint !== summaryFingerprint;
 
   return (
     <div className="app">
@@ -150,34 +226,37 @@ export default function Reader() {
 
                 <div className="meta" style={{ marginTop: 12 }}>
                   <button className={"btn " + (saved ? "primary" : "")} onClick={toggle}>
-                    {saved ? "Saved" : "Read later"}
+                    {saved ? "Saved" : "Save"}
+                  </button>
+                  <button className="btn" onClick={share} disabled={!item.url}>
+                    Share
                   </button>
                   {item.url ? (
-                    <>
-                      <button className="btn" onClick={() => nav(`/open?url=${encodeURIComponent(item.url)}`)}>
-                        Open original in app
-                      </button>
-                      <a className="btn" href={item.url} target="_blank" rel="noreferrer">
-                        Open external
-                      </a>
-                    </>
+                    <a className="btn" href={item.url} target="_blank" rel="noreferrer">
+                      Open Original
+                    </a>
                   ) : null}
                 </div>
+                {shareMessage ? <div className="meta" style={{ marginTop: 8 }}>{shareMessage}</div> : null}
 
                 <div className="readerBody">
-                  {summaryText ? (
+                  {summaryParagraphs.length ? (
                     <>
                       <div style={{ fontWeight: 800, marginBottom: 6 }}>Summary</div>
-                      <p>{summaryText}</p>
+                      {summaryParagraphs.map((paragraph, idx) => (
+                        <p key={`summary-${idx}`}>{paragraph}</p>
+                      ))}
                     </>
                   ) : null}
-                  {contentText && contentText !== summaryText ? (
+                  {showContent ? (
                     <>
                       <div style={{ fontWeight: 800, marginBottom: 6, marginTop: 12 }}>Source Excerpt</div>
-                      <p>{contentText}</p>
+                      {contentParagraphs.map((paragraph, idx) => (
+                        <p key={`content-${idx}`}>{paragraph}</p>
+                      ))}
                     </>
                   ) : null}
-                  {!summaryText && !contentText ? (
+                  {!summaryParagraphs.length && !contentParagraphs.length ? (
                     <p style={{ color: "var(--muted)" }}>This feed did not provide enough text for an in-app summary yet.</p>
                   ) : null}
                 </div>

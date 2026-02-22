@@ -78,13 +78,6 @@ function parseCompositeCursor(cursor: string | undefined): { ts: string; itemId:
   return { ts, itemId };
 }
 
-function csvToArray(csv: unknown): string[] {
-  return String(csv || "")
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-
 function chunkArray<T>(values: T[], chunkSize: number): T[][] {
   const size = Math.max(1, Math.floor(chunkSize));
   const out: T[][] = [];
@@ -185,18 +178,10 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
       SELECT
         i.id,
         i.title,
-        i.url,
         i.summary,
         i.content,
         i.article_text_excerpt,
-        i.region_scope,
-        (
-          SELECT group_concat(DISTINCT f.default_county)
-          FROM feed_items fi
-          JOIN feeds f ON f.id = fi.feed_id
-          WHERE fi.item_id = i.id
-            AND COALESCE(f.default_county, '') <> ''
-        ) AS default_counties_csv
+        i.region_scope
       FROM items i
       WHERE COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)
         ${scopeWhere}
@@ -263,7 +248,8 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
       const summaryText = String(row.summary || "");
       const content = String(row.content || "");
       const excerpt = String(row.article_text_excerpt || "");
-      const qualityText = excerpt || content || summaryText || "";
+      const articleText = excerpt || content || "";
+      const qualityText = articleText || summaryText || "";
       const words = wordCount(qualityText);
 
       if (words < options.minWords) {
@@ -291,38 +277,22 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
         continue;
       }
 
-      const fullText = [title, summaryText, content, excerpt].filter(Boolean).join("\n");
+      const fullText = articleText;
       const titleCounties = detectKyCounties(title);
-      const baseCounties = detectKyCounties(fullText);
-      const taggedCounties = new Set([...titleCounties, ...baseCounties].map((x) => normalizeCounty(x)).filter(Boolean));
+      const bodyCounties = detectKyCounties(fullText);
+      const taggedCounties = new Set([...titleCounties, ...bodyCounties].map((x) => normalizeCounty(x)).filter(Boolean));
       const titleKySignal = hasKySignal(title, titleCounties);
-      const baseKySignal = hasKySignal(fullText, baseCounties);
-      const hasStrongKySignal = titleKySignal || baseKySignal || taggedCounties.size > 0;
+      const bodyKySignal = hasKySignal(fullText, bodyCounties);
+      const hasStrongKySignal = titleKySignal || bodyKySignal || taggedCounties.size > 0;
 
       const titleOtherStates = detectOtherStateNames(title);
-      const otherStates = detectOtherStateNames(fullText);
-      const hasOtherStateSignal = otherStates.length > 0;
-      let urlSectionLooksOutOfState = false;
-      try {
-        const pathname = new URL(String(row.url || "")).pathname.toLowerCase();
-        urlSectionLooksOutOfState = /\/(national|world|region)\//.test(pathname);
-      } catch {
-        urlSectionLooksOutOfState = false;
-      }
+      const bodyOtherStates = detectOtherStateNames(fullText);
       const hasTitleOutOfStateSignal = titleOtherStates.length > 0 && !titleKySignal && titleCounties.length === 0;
-      const hasPrimaryOutOfStateSignal = otherStates.length > 0 && !baseKySignal && baseCounties.length === 0;
+      const hasPrimaryOutOfStateSignal = bodyOtherStates.length > 0 && !bodyKySignal && bodyCounties.length === 0;
       const shouldTagAsKy =
         hasStrongKySignal &&
         !hasTitleOutOfStateSignal &&
-        !hasPrimaryOutOfStateSignal &&
-        !(urlSectionLooksOutOfState && !titleKySignal && !baseKySignal);
-
-      if (shouldTagAsKy && (taggedCounties.size > 0 || !hasOtherStateSignal)) {
-        for (const county of csvToArray(row.default_counties_csv)) {
-          const normalized = normalizeCounty(county);
-          if (normalized) taggedCounties.add(normalized);
-        }
-      }
+        !hasPrimaryOutOfStateSignal;
 
       const existing = tagsByItem.get(itemId) || [];
       const nonKy = existing.filter((x) => x.state_code !== "KY");

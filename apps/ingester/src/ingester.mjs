@@ -361,7 +361,7 @@ function removeLowWordItem(db, feedId, itemId) {
   }
 }
 
-async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty = "", feedUrl = "") {
+async function tagItemLocations(db, itemId, stateCode, parts, url) {
   const st = (stateCode || "KY").toUpperCase();
 
   const del = db.prepare("DELETE FROM item_locations WHERE item_id=? AND state_code=?");
@@ -372,28 +372,7 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
   del.run(itemId, st);
 
   const titleText = String(parts?.[0] || "");
-  const baseText = parts.filter(Boolean).join(" \n ");
-  const titleCounties = detectKyCounties(titleText);
-  const baseCounties = detectKyCounties(baseText);
-  const strongCounties = Array.from(new Set([...titleCounties, ...baseCounties]));
-  const titleKySignal = st !== "KY" ? true : hasKySignal(titleText, titleCounties);
-  const baseKySignal = st !== "KY" ? true : hasKySignal(baseText, baseCounties);
-  const baseOtherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
-  const titleOtherStateNames = st === "KY" ? detectOtherStateNames(titleText) : [];
-
-  let counties = [...strongCounties];
-  let excerptCounties = [];
-  let otherStateNames = [...baseOtherStateNames];
-
-  let urlSectionLooksOutOfState = false;
-  if (st === "KY") {
-    try {
-      const path = new URL(url).pathname.toLowerCase();
-      urlSectionLooksOutOfState = /\/(national|world|region)\//.test(path);
-    } catch {
-      urlSectionLooksOutOfState = false;
-    }
-  }
+  const seedArticleText = textOnly(parts.slice(1).filter(Boolean).join(" \n "));
 
   const meta = db
     .prepare("SELECT article_checked_at, article_fetch_status, image_url FROM items WHERE id=?")
@@ -402,14 +381,10 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
   const alreadyChecked = Boolean(meta?.article_checked_at);
   const needsImage = !String(meta?.image_url || "").trim();
 
-  if ((!counties.length || needsImage) && !alreadyChecked) {
+  let excerpt = "";
+  if ((needsImage || !seedArticleText) && !alreadyChecked) {
     const fetched = await fetchArticle(url);
-    const excerpt = fetched.text || "";
-    excerptCounties = detectKyCounties(excerpt);
-    counties = Array.from(new Set([...baseCounties, ...excerptCounties]));
-    if (st === "KY") {
-      otherStateNames = Array.from(new Set([...otherStateNames, ...detectOtherStateNames(excerpt)]));
-    }
+    excerpt = fetched.text || "";
 
     const update = db.prepare(`
       UPDATE items
@@ -429,35 +404,32 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
     });
   }
 
-  // Guard against false local tags on clearly out-of-state stories
-  // (e.g. "West Virginia Cash Pop" from a KY source feed).
-  const isKyGoogleWatchFeed =
-    /news\.google\.com\/rss\/search/i.test(String(feedUrl || "")) &&
-    /kentucky/i.test(decodeURIComponent(String(feedUrl || "")));
+  const articleText = textOnly(excerpt || seedArticleText);
+  const titleCounties = detectKyCounties(titleText);
+  const bodyCounties = detectKyCounties(articleText);
+  const taggedCounties = new Set([...titleCounties, ...bodyCounties].map((county) => normalizeCounty(county)).filter(Boolean));
+  const titleKySignal = st !== "KY" ? true : hasKySignal(titleText, titleCounties);
+  const bodyKySignal = st !== "KY" ? true : hasKySignal(articleText, bodyCounties);
+
   const hasTitleOutOfStateSignal =
     st === "KY" &&
-    titleOtherStateNames.length > 0 &&
+    detectOtherStateNames(titleText).length > 0 &&
     !titleKySignal &&
     titleCounties.length === 0;
   const hasPrimaryOutOfStateSignal =
     st === "KY" &&
-    baseOtherStateNames.length > 0 &&
-    !baseKySignal &&
-    baseCounties.length === 0;
-  if (
-    st === "KY" &&
-    (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal || (urlSectionLooksOutOfState && !baseKySignal && !titleKySignal))
-  ) {
+    detectOtherStateNames(articleText).length > 0 &&
+    !bodyKySignal &&
+    bodyCounties.length === 0;
+  if (st === "KY" && (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal)) {
     return;
   }
 
   const hasStrongKySignal =
     st !== "KY" ||
-    isKyGoogleWatchFeed ||
     titleKySignal ||
-    baseKySignal ||
-    strongCounties.length > 0;
-  const hasOtherStateSignal = st === "KY" && otherStateNames.length > 0;
+    bodyKySignal ||
+    taggedCounties.size > 0;
   const shouldTagAsKy = st !== "KY" || hasStrongKySignal;
   if (!shouldTagAsKy) return;
 
@@ -465,10 +437,7 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
   ins.run(itemId, st, "");
 
   if (st === "KY") {
-    const out = new Set(counties);
-    const c = String(defaultCounty || "").trim();
-    if (c && (out.size > 0 || (hasStrongKySignal && !hasOtherStateSignal))) out.add(c);
-    for (const county of out) ins.run(itemId, st, county);
+    for (const county of taggedCounties) ins.run(itemId, st, county);
   }
 }
 
@@ -537,10 +506,8 @@ async function ingestOnce() {
               db,
               id,
               f.state_code || "KY",
-              [title, summary, content],
-              url,
-              f.default_county || "",
-              f.url || ""
+              [title, content || ""],
+              url
             );
           }
 

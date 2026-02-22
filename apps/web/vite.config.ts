@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "prompt",
-      includeAssets: ["favicon.svg"],
+      includeAssets: ["favicon.svg", "logo.png"],
       manifest: {
         name: "Kentucky News",
         short_name: "Kentucky News",
@@ -17,8 +17,7 @@ export default defineConfig({
         display: "standalone",
         start_url: "/",
         icons: [
-          { src: "/pwa-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/pwa-512.png", sizes: "512x512", type: "image/png" }
+          { src: "/logo.png", sizes: "1024x1024", type: "image/png", purpose: "any maskable" }
         ]
       },
       workbox: {

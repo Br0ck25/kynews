@@ -291,7 +291,6 @@ async function createCoreSchema(env: Env): Promise<void> {
     { sql: "CREATE INDEX IF NOT EXISTS idx_items_url ON items(url)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_items_region_scope ON items(region_scope)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_items_published_id ON items(published_at, id)" },
-    { sql: "CREATE INDEX IF NOT EXISTS idx_items_fetched_id ON items(fetched_at, id)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_feed_items_feed ON feed_items(feed_id)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_feed_items_item ON feed_items(item_id)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_item_locations_state ON item_locations(state_code)" },
@@ -329,6 +328,9 @@ async function createCoreSchema(env: Env): Promise<void> {
   );
   await d1Run(db, "CREATE INDEX IF NOT EXISTS idx_feeds_fetch_mode_enabled ON feeds(fetch_mode, enabled)");
   await addColumnIfMissing(db, "items", "region_scope", "TEXT NOT NULL DEFAULT 'ky'");
+  await addColumnIfMissing(db, "items", "fetched_at", "TEXT");
+  await d1Run(db, "UPDATE items SET fetched_at=datetime('now') WHERE fetched_at IS NULL OR trim(fetched_at)=''");
+  await d1Run(db, "CREATE INDEX IF NOT EXISTS idx_items_fetched_id ON items(fetched_at, id)");
   await addColumnIfMissing(db, "items", "article_checked_at", "TEXT");
   await addColumnIfMissing(db, "items", "article_fetch_status", "TEXT");
   await addColumnIfMissing(db, "items", "article_text_excerpt", "TEXT");
