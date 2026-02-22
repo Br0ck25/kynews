@@ -134,7 +134,51 @@ const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" O
 const SPORTS_QUERY =
   "\"sports\" OR \"sport\" OR \"football\" OR \"basketball\" OR \"baseball\" OR \"soccer\" OR \"volleyball\" OR \"wrestling\" OR \"athletics\"";
 const routeScrollPositions = new Map<string, number>();
+const FEED_SCROLL_STORAGE_PREFIX = "feed_scroll_pos:";
 type ThemeMode = "light" | "dark";
+
+function persistRouteScroll(routeKey: string, scrollTop: number) {
+  routeScrollPositions.set(routeKey, scrollTop);
+  try {
+    sessionStorage.setItem(`${FEED_SCROLL_STORAGE_PREFIX}${routeKey}`, String(scrollTop));
+  } catch {
+    // ignore
+  }
+}
+
+function readRouteScroll(routeKey: string): number {
+  const inMemory = routeScrollPositions.get(routeKey);
+  if (typeof inMemory === "number" && Number.isFinite(inMemory)) return inMemory;
+  try {
+    const raw = sessionStorage.getItem(`${FEED_SCROLL_STORAGE_PREFIX}${routeKey}`);
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
+function captureActiveContentScroll(routeKey: string) {
+  if (typeof document === "undefined") return;
+  const node = document.querySelector("main.content");
+  const top =
+    node instanceof HTMLElement
+      ? node.scrollTop
+      : typeof window !== "undefined"
+        ? window.scrollY
+        : 0;
+  persistRouteScroll(routeKey, Math.max(0, top || 0));
+}
+
+function useOpenItemNavigation() {
+  const nav = useNavigate();
+  const loc = useLocation();
+  return (id: string) => {
+    captureActiveContentScroll(`${loc.pathname}${loc.search}`);
+    nav(`/item/${id}`);
+  };
+}
 
 function getMyLocalCounty(): string {
   try {
@@ -310,7 +354,7 @@ function AppShell({
   useEffect(() => {
     const node = contentRef.current;
     if (!node) return;
-    node.scrollTop = routeScrollPositions.get(routeKey) ?? 0;
+    node.scrollTop = readRouteScroll(routeKey);
   }, [routeKey]);
 
   useEffect(() => {
@@ -318,7 +362,7 @@ function AppShell({
     if (!node) return;
 
     const save = () => {
-      routeScrollPositions.set(routeKey, node.scrollTop);
+      persistRouteScroll(routeKey, node.scrollTop);
     };
 
     node.addEventListener("scroll", save, { passive: true });
@@ -723,6 +767,7 @@ function InfinitePager({
 
 function TodayScreen() {
   const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
   const loc = useLocation();
   const q = new URLSearchParams(loc.search);
   const state = (q.get("state") || "").toUpperCase();
@@ -826,7 +871,7 @@ function TodayScreen() {
           <>
             <StoryDeck
               items={items}
-              onOpen={(id) => nav(`/item/${id}`)}
+              onOpen={openItem}
               emptyMessage="No stories right now."
             />
             {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={loadMore} /> : null}
@@ -839,6 +884,7 @@ function TodayScreen() {
 
 function NationalScreen() {
   const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -881,7 +927,7 @@ function NationalScreen() {
           <div className="card emptyState">Loading stories...</div>
         ) : (
           <>
-            <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} />
+            <StoryDeck items={items} onOpen={openItem} />
             {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={loadMore} /> : null}
           </>
         )}
@@ -892,6 +938,7 @@ function NationalScreen() {
 
 function SportsScreen() {
   const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
   const selectedCounties = useSelectedCountyPreferences();
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -948,7 +995,7 @@ function SportsScreen() {
           <div className="card emptyState">Loading sports stories...</div>
         ) : (
           <>
-            <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} emptyMessage="No sports stories right now." />
+            <StoryDeck items={items} onOpen={openItem} emptyMessage="No sports stories right now." />
             {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={loadMore} /> : null}
           </>
         )}
@@ -959,6 +1006,7 @@ function SportsScreen() {
 
 function FeedScreen() {
   const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
   const { feedId } = useParams();
   const [feed, setFeed] = useState<Feed | null>(null);
   const [items, setItems] = useState<Item[]>([]);
@@ -1006,7 +1054,7 @@ function FeedScreen() {
           <div className="card emptyState">Loading stories...</div>
         ) : (
           <>
-            <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} />
+            <StoryDeck items={items} onOpen={openItem} />
             {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={loadMore} /> : null}
           </>
         )}
@@ -1112,6 +1160,7 @@ function ExternalWebViewScreen() {
 
 function ReadLaterScreen() {
   const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
   const [saved, setSaved] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [reviewedCount, setReviewedCount] = useState(0);
@@ -1162,7 +1211,7 @@ function ReadLaterScreen() {
         {loading ? (
           <div className="card emptyState">Loading saved stories...</div>
         ) : (
-          <StoryDeck items={saved} onOpen={(id) => nav(`/item/${id}`)} emptyMessage="No saved articles yet." />
+          <StoryDeck items={saved} onOpen={openItem} emptyMessage="No saved articles yet." />
         )}
 
         <button className="btn block" onClick={markAllRead} disabled={!saved.length}>
@@ -1274,6 +1323,7 @@ function SettingsScreen({
 
 function MyLocalScreen() {
   const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loadingCounties, setLoadingCounties] = useState(true);
   const [selected, setSelected] = useState(() => getMyLocalCounty());
@@ -1377,7 +1427,7 @@ function MyLocalScreen() {
           {selected && loadingFeed && !items.length ? <div className="card emptyState">Loading local stories...</div> : null}
           {selected ? (
             <>
-              <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} emptyMessage="No local stories right now." />
+              <StoryDeck items={items} onOpen={openItem} emptyMessage="No local stories right now." />
               {items.length ? (
                 <InfinitePager hasMore={Boolean(cursor)} loading={loadingFeed} onLoadMore={loadMoreLocal} />
               ) : null}
@@ -1583,6 +1633,7 @@ function WeatherScreen() {
 
 function ObituariesScreen() {
   const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
   const selectedCounties = useSelectedCountyPreferences();
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -1671,7 +1722,7 @@ function ObituariesScreen() {
           <div className="card emptyState">Loading obituary stories...</div>
         ) : (
           <>
-            <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} emptyMessage="No obituary stories right now." />
+            <StoryDeck items={items} onOpen={openItem} emptyMessage="No obituary stories right now." />
             {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={loadMore} /> : null}
           </>
         )}
@@ -1682,6 +1733,7 @@ function ObituariesScreen() {
 
 function SchoolsScreen() {
   const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
   const selectedCounties = useSelectedCountyPreferences();
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -1738,7 +1790,7 @@ function SchoolsScreen() {
           <div className="card emptyState">Loading school stories...</div>
         ) : (
           <>
-            <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} emptyMessage="No school stories right now." />
+            <StoryDeck items={items} onOpen={openItem} emptyMessage="No school stories right now." />
             {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={loadMore} /> : null}
           </>
         )}
@@ -2712,8 +2764,11 @@ function OwnerAdminScreen() {
 
 function SearchScreen() {
   const nav = useNavigate();
+  const openItem = useOpenItemNavigation();
   const [q, setQ] = useState("");
   const [scope, setScope] = useState<"ky" | "national" | "all">("ky");
+  const [rangeDays, setRangeDays] = useState<7 | 30 | 60>(7);
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2723,13 +2778,24 @@ function SearchScreen() {
     if (nextCursor && loading) return;
     setLoading(true);
     try {
-      const res = await searchItems(q.trim(), { scope, cursor: nextCursor ?? undefined, limit: 30 });
+      const res = await searchItems(q.trim(), {
+        scope,
+        hours: rangeDays * 24,
+        sort: sortOrder,
+        cursor: nextCursor ?? undefined,
+        limit: 30
+      });
       setItems((prev) => (nextCursor ? [...prev, ...res.items] : res.items));
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!q.trim()) return;
+    void runSearch(null);
+  }, [scope, rangeDays, sortOrder]);
 
   return (
     <AppShell title="Search">
@@ -2770,12 +2836,44 @@ function SearchScreen() {
         </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-          <div className="pill" style={{ flex: 1, textAlign: "center" }}>
+          <button
+            className="pill"
+            style={{ flex: 1, textAlign: "center", borderColor: rangeDays === 7 ? "var(--accent)" : undefined }}
+            onClick={() => setRangeDays(7)}
+          >
             Last 7 Days
-          </div>
-          <div className="pill" style={{ flex: 1, textAlign: "center" }}>
-            Sort by Newest
-          </div>
+          </button>
+          <button
+            className="pill"
+            style={{ flex: 1, textAlign: "center", borderColor: rangeDays === 30 ? "var(--accent)" : undefined }}
+            onClick={() => setRangeDays(30)}
+          >
+            Last 30 Days
+          </button>
+          <button
+            className="pill"
+            style={{ flex: 1, textAlign: "center", borderColor: rangeDays === 60 ? "var(--accent)" : undefined }}
+            onClick={() => setRangeDays(60)}
+          >
+            Last 60 Days
+          </button>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <button
+            className="pill"
+            style={{ flex: 1, textAlign: "center", borderColor: sortOrder === "newest" ? "var(--accent)" : undefined }}
+            onClick={() => setSortOrder("newest")}
+          >
+            Sort: Newest
+          </button>
+          <button
+            className="pill"
+            style={{ flex: 1, textAlign: "center", borderColor: sortOrder === "oldest" ? "var(--accent)" : undefined }}
+            onClick={() => setSortOrder("oldest")}
+          >
+            Sort: Oldest
+          </button>
         </div>
 
         {!q.trim() ? (
@@ -2810,7 +2908,7 @@ function SearchScreen() {
 
             <div style={{ height: 12 }} />
 
-            <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} />
+            <StoryDeck items={items} onOpen={openItem} />
 
             {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={() => runSearch(cursor)} /> : null}
             {!loading && q.trim() && !items.length ? <div className="listStatus">No results found</div> : null}

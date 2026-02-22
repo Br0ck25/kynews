@@ -101,6 +101,16 @@ const KY_CITY_PATTERNS = (() => {
   });
 })();
 
+const KY_QUERY_COUNTY_PATTERNS = (() => {
+  const names = (kyCounties || []).map((c) => c.name).filter(Boolean);
+  names.sort((a, b) => b.length - a.length);
+  return names.map((name) => {
+    const n = normLocationText(name);
+    const re = new RegExp(`\\b${n.replace(/\\s+/g, "\\s+")}(?:\\s+(?:county|co\\.?))?\\b`, "i");
+    return { name, re };
+  });
+})();
+
 const OTHER_STATE_NAME_PATTERNS = [
   "Alabama",
   "Alaska",
@@ -192,6 +202,23 @@ function hasKySignal(text, counties) {
   if (counties.length) return true;
   const raw = String(text || "");
   return /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
+}
+
+function detectKyQueryCounties(text) {
+  const t = normLocationText(text);
+  if (!t) return [];
+
+  const out = [];
+  for (const { name, re } of KY_QUERY_COUNTY_PATTERNS) {
+    if (re.test(t)) out.push(name);
+  }
+
+  for (const { city, county, re } of KY_CITY_PATTERNS) {
+    if (city.length < 4) continue;
+    if (re.test(t)) out.push(county);
+  }
+
+  return Array.from(new Set(out));
 }
 
 function parseCountyList(input) {
@@ -374,7 +401,7 @@ const ItemsQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(720).default(2),
+  hours: z.coerce.number().min(1).max(24 * 365).default(2),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
 });
@@ -470,7 +497,7 @@ app.get("/api/items", async (req) => {
 
 const CountiesQuery = z.object({
   state: z.string().length(2).default("KY"),
-  hours: z.coerce.number().min(1).max(720).default(2)
+  hours: z.coerce.number().min(1).max(24 * 365).default(2)
 });
 
 app.get("/api/counties", async (req) => {
@@ -511,7 +538,8 @@ const SearchQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(720).default(2),
+  hours: z.coerce.number().min(1).max(24 * 365).default(2),
+  sort: z.enum(["newest", "oldest"]).default("newest"),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
 });
@@ -520,7 +548,7 @@ app.get("/api/search", async (req) => {
   const parsed = SearchQuery.safeParse(req.query ?? {});
   if (!parsed.success) return app.httpErrors.badRequest("Invalid query");
 
-  const { q, scope, state, county, counties, hours, cursor, limit } = parsed.data;
+  const { q, scope, state, county, counties, hours, sort, cursor, limit } = parsed.data;
   const countyList = county ? [normalizeCounty(county)] : parseCountyList(counties);
 
   if ((state || countyList.length) && scope === "national") {
@@ -534,7 +562,26 @@ app.get("/api/search", async (req) => {
     const where = [];
     const params = { limit: Math.min(limit * 4, 400), since: `-${hours} hours` };
 
-    where.push(buildSearchClause(q, params));
+    const searchClause = buildSearchClause(q, params);
+    const hintedCounties =
+      scope === "national"
+        ? []
+        : Array.from(new Set(detectKyQueryCounties(q).map((x) => normalizeCounty(x)).filter(Boolean)));
+    if (hintedCounties.length) {
+      const hintPlaceholders = hintedCounties.map((_, idx) => `@hintCounty${idx}`);
+      where.push(`(${searchClause} OR EXISTS (
+        SELECT 1
+        FROM item_locations ilh
+        WHERE ilh.item_id = i.id
+          AND ilh.state_code = 'KY'
+          AND ilh.county IN (${hintPlaceholders.join(", ")})
+      ))`);
+      hintedCounties.forEach((countyName, idx) => {
+        params[`hintCounty${idx}`] = countyName;
+      });
+    } else {
+      where.push(searchClause);
+    }
     where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', @since)");
 
     if (scope !== "all") {
@@ -558,7 +605,7 @@ app.get("/api/search", async (req) => {
     }
 
     if (cursor) {
-      where.push("COALESCE(i.published_at, i.fetched_at) < @cursor");
+      where.push(`COALESCE(i.published_at, i.fetched_at) ${sort === "oldest" ? ">" : "<"} @cursor`);
       params.cursor = cursor;
     }
 
@@ -579,7 +626,7 @@ app.get("/api/search", async (req) => {
       FROM items i
       ${needsLoc ? "JOIN item_locations il ON il.item_id = i.id" : ""}
       WHERE ${where.join(" AND ")}
-      ORDER BY sort_ts DESC
+      ORDER BY sort_ts ${sort === "oldest" ? "ASC" : "DESC"}
       LIMIT @limit
     `;
 

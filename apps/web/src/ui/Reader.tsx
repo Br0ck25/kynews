@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getItem, type Item } from "../data/api";
 import { cacheLastOpened, getCachedItem, isSaved, markRead, toggleSaved } from "../data/localDb";
+import { IconHeart, IconShare } from "./icons";
 
 function htmlToText(html: string | null | undefined) {
   if (!html) return "";
@@ -224,21 +225,6 @@ export default function Reader() {
                   <img className="hero" src={item.image_url} alt="" onError={() => setHeroImageFailed(true)} />
                 ) : null}
 
-                <div className="meta" style={{ marginTop: 12 }}>
-                  <button className={"btn " + (saved ? "primary" : "")} onClick={toggle}>
-                    {saved ? "Saved" : "Save"}
-                  </button>
-                  <button className="btn" onClick={share} disabled={!item.url}>
-                    Share
-                  </button>
-                  {item.url ? (
-                    <a className="btn" href={item.url} target="_blank" rel="noreferrer">
-                      Open Original
-                    </a>
-                  ) : null}
-                </div>
-                {shareMessage ? <div className="meta" style={{ marginTop: 8 }}>{shareMessage}</div> : null}
-
                 <div className="readerBody">
                   {summaryParagraphs.length ? (
                     <>
@@ -260,6 +246,25 @@ export default function Reader() {
                     <p style={{ color: "var(--muted)" }}>This feed did not provide enough text for an in-app summary yet.</p>
                   ) : null}
                 </div>
+
+                <div className="readerBottomActions">
+                  <button
+                    className={"iconAction readerIconAction " + (saved ? "active" : "")}
+                    onClick={toggle}
+                    aria-label={saved ? "Saved" : "Save article"}
+                  >
+                    <IconHeart className="postActionIcon" />
+                  </button>
+                  <button className="iconAction readerIconAction" onClick={share} disabled={!item.url} aria-label="Share article">
+                    <IconShare className="postActionIcon" />
+                  </button>
+                  {item.url ? (
+                    <a className="btn readerOpenOriginalBtn" href={item.url} target="_blank" rel="noreferrer">
+                      Open Original
+                    </a>
+                  ) : null}
+                </div>
+                {shareMessage ? <div className="meta" style={{ marginTop: 8 }}>{shareMessage}</div> : null}
               </div>
             ) : (
               <div className="card" style={{ padding: 14, color: "var(--muted)" }}>

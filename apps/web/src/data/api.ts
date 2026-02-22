@@ -230,6 +230,7 @@ export async function searchItems(
     county?: string;
     counties?: string[];
     hours?: number;
+    sort?: "newest" | "oldest";
     cursor?: string | null;
     limit?: number;
   } = {}
@@ -243,6 +244,7 @@ export async function searchItems(
     for (const county of opts.counties) params.append("counties", county);
   }
   if (opts.hours != null) params.set("hours", String(opts.hours));
+  if (opts.sort) params.set("sort", opts.sort);
   if (opts.cursor) params.set("cursor", opts.cursor);
   params.set("limit", String(opts.limit ?? 30));
   return fetchJson<{ items: (Item & { sort_ts?: string })[]; nextCursor: string | null }>(`/api/search?${params.toString()}`);

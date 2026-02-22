@@ -10,6 +10,13 @@ export function ensureSchema(db) {
   if (!columnExists(db, "feeds", "default_county")) {
     db.prepare("ALTER TABLE feeds ADD COLUMN default_county TEXT").run();
   }
+  if (!columnExists(db, "feeds", "fetch_mode")) {
+    db.prepare("ALTER TABLE feeds ADD COLUMN fetch_mode TEXT NOT NULL DEFAULT 'rss'").run();
+  }
+  if (!columnExists(db, "feeds", "scraper_id")) {
+    db.prepare("ALTER TABLE feeds ADD COLUMN scraper_id TEXT").run();
+  }
+  db.prepare("UPDATE feeds SET fetch_mode='rss' WHERE fetch_mode IS NULL OR trim(fetch_mode)=''").run();
 
   if (!columnExists(db, "items", "region_scope")) {
     db.prepare("ALTER TABLE items ADD COLUMN region_scope TEXT NOT NULL DEFAULT 'ky'").run();
@@ -154,7 +161,57 @@ export function ensureSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at);
 
+    CREATE TABLE IF NOT EXISTS feed_run_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id INTEGER,
+      feed_id TEXT NOT NULL,
+      source TEXT,
+      status TEXT NOT NULL,
+      http_status INTEGER,
+      duration_ms INTEGER,
+      items_seen INTEGER NOT NULL DEFAULT 0,
+      items_upserted INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      checked_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_feed_run_metrics_feed_checked ON feed_run_metrics(feed_id, checked_at);
+    CREATE INDEX IF NOT EXISTS idx_feed_run_metrics_status_checked ON feed_run_metrics(status, checked_at);
+
     CREATE INDEX IF NOT EXISTS idx_items_region_scope ON items(region_scope);
     CREATE INDEX IF NOT EXISTS idx_feeds_region_scope ON feeds(region_scope);
+    CREATE INDEX IF NOT EXISTS idx_feeds_fetch_mode_enabled ON feeds(fetch_mode, enabled);
   `);
+
+  if (!columnExists(db, "admin_audit_log", "payload_json")) {
+    db.prepare("ALTER TABLE admin_audit_log ADD COLUMN payload_json TEXT").run();
+  }
+  if (!columnExists(db, "feed_run_metrics", "run_id")) {
+    db.prepare("ALTER TABLE feed_run_metrics ADD COLUMN run_id INTEGER").run();
+  }
+  if (!columnExists(db, "feed_run_metrics", "source")) {
+    db.prepare("ALTER TABLE feed_run_metrics ADD COLUMN source TEXT").run();
+  }
+  if (!columnExists(db, "feed_run_metrics", "status")) {
+    db.prepare("ALTER TABLE feed_run_metrics ADD COLUMN status TEXT").run();
+  }
+  if (!columnExists(db, "feed_run_metrics", "http_status")) {
+    db.prepare("ALTER TABLE feed_run_metrics ADD COLUMN http_status INTEGER").run();
+  }
+  if (!columnExists(db, "feed_run_metrics", "duration_ms")) {
+    db.prepare("ALTER TABLE feed_run_metrics ADD COLUMN duration_ms INTEGER").run();
+  }
+  if (!columnExists(db, "feed_run_metrics", "items_seen")) {
+    db.prepare("ALTER TABLE feed_run_metrics ADD COLUMN items_seen INTEGER NOT NULL DEFAULT 0").run();
+  }
+  if (!columnExists(db, "feed_run_metrics", "items_upserted")) {
+    db.prepare("ALTER TABLE feed_run_metrics ADD COLUMN items_upserted INTEGER NOT NULL DEFAULT 0").run();
+  }
+  if (!columnExists(db, "feed_run_metrics", "error_message")) {
+    db.prepare("ALTER TABLE feed_run_metrics ADD COLUMN error_message TEXT").run();
+  }
+  if (!columnExists(db, "feed_run_metrics", "checked_at")) {
+    db.prepare("ALTER TABLE feed_run_metrics ADD COLUMN checked_at TEXT").run();
+  }
+  db.prepare("UPDATE feed_run_metrics SET checked_at=datetime('now') WHERE checked_at IS NULL OR trim(checked_at)=''").run();
 }

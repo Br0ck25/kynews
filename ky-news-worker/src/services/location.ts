@@ -35,6 +35,16 @@ const KY_CITY_PATTERNS = (() => {
   });
 })();
 
+const KY_QUERY_COUNTY_PATTERNS = (() => {
+  const names = (kyCounties as Array<{ name: string }>).map((c) => c.name).filter(Boolean);
+  names.sort((a, b) => b.length - a.length);
+  return names.map((name) => {
+    const n = norm(name);
+    const re = new RegExp(`\\b${n.replace(/\s+/g, "\\s+")}(?:\\s+(?:county|co\\.?))?\\b`, "i");
+    return { name, re };
+  });
+})();
+
 const OTHER_STATE_NAME_PATTERNS = [
   "Alabama",
   "Alaska",
@@ -123,4 +133,22 @@ export function hasKySignal(text: string, counties: string[]): boolean {
   if (counties.length) return true;
   const raw = String(text || "");
   return /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
+}
+
+export function detectKyQueryCounties(text: string): string[] {
+  const t = norm(text);
+  if (!t) return [];
+
+  const out: string[] = [];
+  for (const { name, re } of KY_QUERY_COUNTY_PATTERNS) {
+    if (re.test(t)) out.push(name);
+  }
+
+  for (const { city, county, re } of KY_CITY_PATTERNS) {
+    // City name lookup for search should not require explicit KY context.
+    if (city.length < 4) continue;
+    if (re.test(t)) out.push(county);
+  }
+
+  return Array.from(new Set(out));
 }

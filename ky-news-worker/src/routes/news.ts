@@ -15,6 +15,7 @@ import {
 } from "../lib/utils";
 import { d1All, d1First } from "../services/db";
 import { respondCachedJson } from "../services/apiCache";
+import { detectKyQueryCounties } from "../services/location";
 
 const ItemsQuery = z.object({
   feedId: z.string().optional(),
@@ -35,6 +36,7 @@ const SearchQuery = z.object({
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
   hours: z.coerce.number().min(1).max(24 * 365).default(2),
+  sort: z.enum(["newest", "oldest"]).default("newest"),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
 });
@@ -221,7 +223,7 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
     const parsed = SearchQuery.safeParse(queryInput(c));
     if (!parsed.success) badRequest("Invalid query");
 
-    const { q, scope, state, county, counties, hours, cursor, limit } = parsed.data;
+    const { q, scope, state, county, counties, hours, sort, cursor, limit } = parsed.data;
     const countyList = county ? [normalizeCounty(county)] : parseCountyList(counties);
 
     if ((state || countyList.length) && scope === "national") {
@@ -232,8 +234,25 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
     const binds: unknown[] = [];
 
     const search = buildSearchClause(q);
-    where.push(search.clause);
-    binds.push(...search.binds);
+    const hintedCounties =
+      scope === "national"
+        ? []
+        : Array.from(new Set(detectKyQueryCounties(q).map((x) => normalizeCounty(x)).filter(Boolean)));
+    if (hintedCounties.length) {
+      where.push(
+        `(${search.clause} OR EXISTS (
+          SELECT 1
+          FROM item_locations ilh
+          WHERE ilh.item_id = i.id
+            AND ilh.state_code = 'KY'
+            AND ilh.county IN (${hintedCounties.map(() => "?").join(",")})
+        ))`
+      );
+      binds.push(...search.binds, ...hintedCounties);
+    } else {
+      where.push(search.clause);
+      binds.push(...search.binds);
+    }
 
     where.push("COALESCE(i.published_at, i.fetched_at) >= datetime('now', ?)");
     binds.push(`-${hours} hours`);
@@ -259,12 +278,26 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
 
     const parsedCursor = parseKeysetCursor(cursor);
     if (parsedCursor) {
-      if (parsedCursor.id) {
-        where.push("(COALESCE(i.published_at, i.fetched_at) < ? OR (COALESCE(i.published_at, i.fetched_at) = ? AND i.id < ?))");
-        binds.push(parsedCursor.ts, parsedCursor.ts, parsedCursor.id);
+      if (sort === "oldest") {
+        if (parsedCursor.id) {
+          where.push(
+            "(COALESCE(i.published_at, i.fetched_at) > ? OR (COALESCE(i.published_at, i.fetched_at) = ? AND i.id > ?))"
+          );
+          binds.push(parsedCursor.ts, parsedCursor.ts, parsedCursor.id);
+        } else {
+          where.push("COALESCE(i.published_at, i.fetched_at) > ?");
+          binds.push(parsedCursor.ts);
+        }
       } else {
-        where.push("COALESCE(i.published_at, i.fetched_at) < ?");
-        binds.push(parsedCursor.ts);
+        if (parsedCursor.id) {
+          where.push(
+            "(COALESCE(i.published_at, i.fetched_at) < ? OR (COALESCE(i.published_at, i.fetched_at) = ? AND i.id < ?))"
+          );
+          binds.push(parsedCursor.ts, parsedCursor.ts, parsedCursor.id);
+        } else {
+          where.push("COALESCE(i.published_at, i.fetched_at) < ?");
+          binds.push(parsedCursor.ts);
+        }
       }
     }
 
@@ -285,7 +318,7 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
       FROM items i
       ${needsLoc ? "JOIN item_locations il ON il.item_id = i.id" : ""}
       WHERE ${where.join(" AND ")}
-      ORDER BY sort_ts DESC, i.id DESC
+      ORDER BY sort_ts ${sort === "oldest" ? "ASC" : "DESC"}, i.id ${sort === "oldest" ? "ASC" : "DESC"}
       LIMIT ?
     `;
 

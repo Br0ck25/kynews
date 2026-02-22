@@ -334,6 +334,17 @@ async function createCoreSchema(env: Env): Promise<void> {
   await addColumnIfMissing(db, "items", "article_checked_at", "TEXT");
   await addColumnIfMissing(db, "items", "article_fetch_status", "TEXT");
   await addColumnIfMissing(db, "items", "article_text_excerpt", "TEXT");
+  await addColumnIfMissing(db, "admin_audit_log", "payload_json", "TEXT");
+  await addColumnIfMissing(db, "feed_run_metrics", "run_id", "INTEGER");
+  await addColumnIfMissing(db, "feed_run_metrics", "source", "TEXT");
+  await addColumnIfMissing(db, "feed_run_metrics", "status", "TEXT");
+  await addColumnIfMissing(db, "feed_run_metrics", "http_status", "INTEGER");
+  await addColumnIfMissing(db, "feed_run_metrics", "duration_ms", "INTEGER");
+  await addColumnIfMissing(db, "feed_run_metrics", "items_seen", "INTEGER NOT NULL DEFAULT 0");
+  await addColumnIfMissing(db, "feed_run_metrics", "items_upserted", "INTEGER NOT NULL DEFAULT 0");
+  await addColumnIfMissing(db, "feed_run_metrics", "error_message", "TEXT");
+  await addColumnIfMissing(db, "feed_run_metrics", "checked_at", "TEXT");
+  await d1Run(db, "UPDATE feed_run_metrics SET checked_at=datetime('now') WHERE checked_at IS NULL OR trim(checked_at)=''");
   await addColumnIfMissing(db, "lost_found_posts", "is_resolved", "INTEGER NOT NULL DEFAULT 0");
   await addColumnIfMissing(db, "lost_found_posts", "resolved_at", "TEXT");
   await addColumnIfMissing(db, "lost_found_posts", "resolved_note", "TEXT");
