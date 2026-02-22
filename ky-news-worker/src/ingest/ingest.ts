@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { d1All, d1First, d1Run } from "../services/db";
 import { parseFeedItems } from "../services/rss";
+import { scrapeFeedItems } from "../services/scrapers";
 import { detectKyCounties, detectOtherStateNames, hasKySignal } from "../services/location";
 import { fetchArticle } from "../services/article";
 import { getCachedSummary, generateSummaryWithAI } from "../services/summary";
@@ -18,6 +19,8 @@ type FeedRow = {
   id: string;
   name: string;
   url: string;
+  fetch_mode: string | null;
+  scraper_id: string | null;
   etag: string | null;
   last_modified: string | null;
   state_code: string | null;
@@ -309,10 +312,29 @@ async function tagItemLocations(
 
   await d1Run(env.ky_news_db, "DELETE FROM item_locations WHERE item_id=? AND state_code=?", [input.itemId, st]);
 
+  const titleText = String(input.parts[0] || "");
   const baseText = input.parts.filter(Boolean).join(" \n");
-  let signalText = baseText;
-  let counties = detectKyCounties(baseText);
-  let otherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
+  const titleCounties = detectKyCounties(titleText);
+  const baseCounties = detectKyCounties(baseText);
+  const titleKySignal = st !== "KY" ? true : hasKySignal(titleText, titleCounties);
+  const baseKySignal = st !== "KY" ? true : hasKySignal(baseText, baseCounties);
+  const baseOtherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
+  const titleOtherStateNames = st === "KY" ? detectOtherStateNames(titleText) : [];
+
+  let counties = [...baseCounties];
+  let excerptCounties: string[] = [];
+  let otherStateNames = [...baseOtherStateNames];
+
+  let urlSectionLooksOutOfState = false;
+  if (st === "KY") {
+    try {
+      const path = new URL(input.url).pathname.toLowerCase();
+      urlSectionLooksOutOfState = /\/(national|world|region)\//.test(path);
+    } catch {
+      urlSectionLooksOutOfState = false;
+    }
+  }
+
   const looksSyndicated =
     /\/ap\//i.test(input.url) ||
     /\bassociated press\b/i.test(baseText) ||
@@ -342,11 +364,11 @@ async function tagItemLocations(
     excerpt = fetched.text || "";
     imageCandidate = fetched.ogImage || null;
     publishedAt = fetched.publishedAt || null;
-    signalText = `${signalText}\n${excerpt}`;
-    counties = detectKyCounties(signalText);
+    excerptCounties = detectKyCounties(excerpt);
+    counties = Array.from(new Set([...baseCounties, ...excerptCounties]));
 
     if (st === "KY") {
-      otherStateNames = Array.from(new Set([...otherStateNames, ...detectOtherStateNames(signalText)]));
+      otherStateNames = Array.from(new Set([...otherStateNames, ...detectOtherStateNames(excerpt)]));
     }
 
     await d1Run(
@@ -370,13 +392,32 @@ async function tagItemLocations(
     /news\.google\.com\/rss\/search/i.test(String(input.feedUrl || "")) &&
     /kentucky/i.test(decodeURIComponent(String(input.feedUrl || "")));
 
-  const kySignal = st !== "KY" ? true : isKyGoogleWatchFeed || hasKySignal(signalText, counties);
+  const hasTitleOutOfStateSignal =
+    st === "KY" &&
+    titleOtherStateNames.length > 0 &&
+    !titleKySignal &&
+    titleCounties.length === 0;
+  const hasPrimaryOutOfStateSignal =
+    st === "KY" &&
+    baseOtherStateNames.length > 0 &&
+    !baseKySignal &&
+    baseCounties.length === 0;
+  if (st === "KY" && (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal || (urlSectionLooksOutOfState && !baseKySignal)) && counties.length === 0) {
+    return { excerpt, imageCandidate, publishedAt };
+  }
+
+  const kySignal =
+    st !== "KY" ||
+    isKyGoogleWatchFeed ||
+    titleKySignal ||
+    baseKySignal ||
+    counties.length > 0;
   const hasOtherStateSignal = st === "KY" && otherStateNames.length > 0;
   if (st === "KY" && looksSyndicated && !kySignal && counties.length === 0) {
     return { excerpt, imageCandidate, publishedAt };
   }
 
-  const shouldTagAsKy = st !== "KY" || kySignal || (!hasOtherStateSignal && !looksSyndicated);
+  const shouldTagAsKy = st !== "KY" || kySignal || (!hasOtherStateSignal && !looksSyndicated && !urlSectionLooksOutOfState);
 
   if (!shouldTagAsKy) {
     return { excerpt, imageCandidate, publishedAt };
@@ -432,12 +473,12 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
 
   try {
     const constrainedFeedIds = Array.isArray(options.feedIds) ? options.feedIds.filter(Boolean) : [];
-    const rssUserAgent = env.RSS_USER_AGENT || "EKY-News-Bot/1.0 (+https://kynews.pages.dev)";
+    const rssUserAgent = env.RSS_USER_AGENT || "EKY-News-Bot/1.0 (+https://localkynews.com)";
     const feeds = constrainedFeedIds.length
       ? await d1All<FeedRow>(
           env.ky_news_db,
           `
-          SELECT id, name, url, etag, last_modified, state_code, region_scope, default_county
+          SELECT id, name, url, fetch_mode, scraper_id, etag, last_modified, state_code, region_scope, default_county
           FROM feeds
           WHERE enabled=1 AND id IN (${constrainedFeedIds.map(() => "?").join(",")})
           ORDER BY name
@@ -447,7 +488,7 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
       : await d1All<FeedRow>(
           env.ky_news_db,
           `
-          SELECT id, name, url, etag, last_modified, state_code, region_scope, default_county
+          SELECT id, name, url, fetch_mode, scraper_id, etag, last_modified, state_code, region_scope, default_county
           FROM feeds
           WHERE enabled=1
           ORDER BY COALESCE(last_checked_at, '1970-01-01 00:00:00') ASC, name
@@ -465,29 +506,47 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
       let feedStatus: "ok" | "error" | "not_modified" = "ok";
       let feedErrorMessage: string | undefined;
       try {
-        const fetched = await fetchWithConditional(
-          feed.url,
-          feed.etag,
-          feed.last_modified,
-          Boolean(options.force),
-          rssUserAgent
-        );
-        feedHttpStatus = fetched.status;
+        const fetchMode = String(feed.fetch_mode || "rss").trim().toLowerCase();
+        const safeMaxItems = Number.isFinite(maxItemsPerFeed) ? maxItemsPerFeed : 60;
+        let parsedItems: ReturnType<typeof parseFeedItems> = [];
 
-        await d1Run(
-          env.ky_news_db,
-          "UPDATE feeds SET etag=?, last_modified=?, last_checked_at=datetime('now') WHERE id=?",
-          [fetched.etag, fetched.lastModified, feed.id]
-        );
+        if (fetchMode === "scrape") {
+          const scraped = await scrapeFeedItems({
+            feedId: feed.id,
+            url: feed.url,
+            scraperId: feed.scraper_id,
+            maxItems: safeMaxItems,
+            userAgent: rssUserAgent
+          });
+          feedHttpStatus = scraped.status;
+          parsedItems = scraped.items.slice(0, safeMaxItems);
+          if (parsedItems.length > 0) {
+            summary.feedsUpdated += 1;
+          }
+        } else {
+          const fetched = await fetchWithConditional(
+            feed.url,
+            feed.etag,
+            feed.last_modified,
+            Boolean(options.force),
+            rssUserAgent
+          );
+          feedHttpStatus = fetched.status;
 
-        if (fetched.status === 304 || !fetched.text) {
-          feedStatus = "not_modified";
-          continue;
+          await d1Run(
+            env.ky_news_db,
+            "UPDATE feeds SET etag=?, last_modified=?, last_checked_at=datetime('now') WHERE id=?",
+            [fetched.etag, fetched.lastModified, feed.id]
+          );
+
+          if (fetched.status === 304 || !fetched.text) {
+            feedStatus = "not_modified";
+            continue;
+          }
+
+          summary.feedsUpdated += 1;
+          parsedItems = parseFeedItems(fetched.text).slice(0, safeMaxItems);
         }
-
-        summary.feedsUpdated += 1;
-
-        const parsedItems = parseFeedItems(fetched.text).slice(0, Number.isFinite(maxItemsPerFeed) ? maxItemsPerFeed : 60);
 
         for (const it of parsedItems) {
           summary.itemsSeen += 1;

@@ -4,7 +4,25 @@ export const NEWS_SCOPES = ["ky", "national", "all"] as const;
 export const LOST_FOUND_TYPES = ["lost", "found"] as const;
 export const LOST_FOUND_STATUSES = ["pending", "approved", "rejected", "published", "resolved"] as const;
 
-const PAID_SOURCE_DOMAINS = ["kentucky.com", "courier-journal.com", "bizjournals.com"];
+const PAID_SOURCE_DOMAINS = [
+  "bizjournals.com",
+  "courier-journal.com",
+  "dailyindependent.com",
+  "franklinfavorite.com",
+  "kentucky.com",
+  "kentuckynewera.com",
+  "messenger-inquirer.com",
+  "news-expressky.com",
+  "paducahsun.com",
+  "richmondregister.com",
+  "salyersvilleindependent.com",
+  "state-journal.com",
+  "thenewsenterprise.com",
+  "timesleader.net"
+];
+const HEAVY_DEPRIORITIZED_PAID_DOMAINS = ["dailyindependent.com"];
+const PAID_FALLBACK_LIMIT = 2;
+const PAID_FALLBACK_WHEN_EMPTY_LIMIT = 3;
 const OUTPUT_SUMMARY_LABEL_RE =
   /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*|__)?\s*(?:background|summary|key points?|key people|impact|impacts|what'?s next|what to watch next|overview|bottom line|main takeaways?|takeaways?|places|timeline|causes?)\s*:?\s*(?:\*\*|__)?\s*/gi;
 const OUTPUT_NAV_CLUSTER_RE =
@@ -155,6 +173,12 @@ export function isPaidSource(url: unknown): boolean {
   return PAID_SOURCE_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
+function isHeavyDeprioritizedPaidSource(url: unknown): boolean {
+  const host = sourceHost(url);
+  if (!host) return false;
+  return HEAVY_DEPRIORITIZED_PAID_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+}
+
 type RankedItem = Record<string, unknown> & {
   id: string;
   title: string;
@@ -166,6 +190,7 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
   const ranked = items.map((item) => ({
     ...item,
     _isPaid: isPaidSource(item.url),
+    _isHeavyPaid: isHeavyDeprioritizedPaidSource(item.url),
     _fp: titleFingerprint(item.title),
     _canonicalUrl: canonicalUrl(item.url),
     _source: sourceHost(item.url),
@@ -174,6 +199,7 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
 
   ranked.sort((a, b) => {
     if (a._isPaid !== b._isPaid) return a._isPaid ? 1 : -1;
+    if (a._isHeavyPaid !== b._isHeavyPaid) return a._isHeavyPaid ? 1 : -1;
     return b._sortTs.localeCompare(a._sortTs);
   });
 
@@ -195,9 +221,18 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
     filtered.push(item);
   }
 
-  return filtered
+  const nonPaid = filtered.filter((item) => !item._isPaid);
+  const paid = filtered.filter((item) => item._isPaid);
+  const pickedNonPaid = nonPaid.slice(0, limit);
+  const paidAllowance =
+    pickedNonPaid.length === 0
+      ? Math.min(limit, PAID_FALLBACK_WHEN_EMPTY_LIMIT)
+      : Math.min(PAID_FALLBACK_LIMIT, Math.max(1, Math.floor(limit * 0.1)));
+  const pickedPaid = paid.slice(0, paidAllowance);
+
+  return [...pickedNonPaid, ...pickedPaid]
     .slice(0, limit)
-    .map(({ _isPaid, _fp, _canonicalUrl, _source, _sortTs, ...rest }) => rest as RankedItem);
+    .map(({ _isPaid, _isHeavyPaid, _fp, _canonicalUrl, _source, _sortTs, ...rest }) => rest as RankedItem);
 }
 
 export function isPrivateHost(hostname: unknown): boolean {

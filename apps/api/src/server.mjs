@@ -12,6 +12,7 @@ import { buildSearchClause, isKy, mapItemRow, normalizeCounty } from "./search.m
 import { insertAdminLog, requireAdmin } from "./security.mjs";
 import { registerWeatherRoutes } from "./weather.mjs";
 import { registerLostFoundRoutes } from "./lostFound.mjs";
+import { registerSeoRoutes } from "./seo.mjs";
 
 const app = Fastify({ logger: true, bodyLimit: 10 * 1024 * 1024 });
 
@@ -46,7 +47,25 @@ await fs.mkdir(uploadDir, { recursive: true });
 app.get("/api/health", async () => ({ ok: true, now: new Date().toISOString() }));
 
 const NEWS_SCOPES = ["ky", "national", "all"];
-const PAID_SOURCE_DOMAINS = ["kentucky.com", "courier-journal.com", "bizjournals.com"];
+const PAID_SOURCE_DOMAINS = [
+  "bizjournals.com",
+  "courier-journal.com",
+  "dailyindependent.com",
+  "franklinfavorite.com",
+  "kentucky.com",
+  "kentuckynewera.com",
+  "messenger-inquirer.com",
+  "news-expressky.com",
+  "paducahsun.com",
+  "richmondregister.com",
+  "salyersvilleindependent.com",
+  "state-journal.com",
+  "thenewsenterprise.com",
+  "timesleader.net"
+];
+const HEAVY_DEPRIORITIZED_PAID_DOMAINS = ["dailyindependent.com"];
+const PAID_FALLBACK_LIMIT = 2;
+const PAID_FALLBACK_WHEN_EMPTY_LIMIT = 3;
 
 function parseCountyList(input) {
   if (!input) return [];
@@ -91,6 +110,12 @@ function isPaidSource(url) {
   return PAID_SOURCE_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
+function isHeavyDeprioritizedPaidSource(url) {
+  const host = sourceHost(url);
+  if (!host) return false;
+  return HEAVY_DEPRIORITIZED_PAID_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+}
+
 function titleFingerprint(title) {
   return String(title || "")
     .toLowerCase()
@@ -104,6 +129,7 @@ function rankAndFilterItems(items, limit) {
   const ranked = items.map((item) => ({
     ...item,
     _isPaid: isPaidSource(item.url),
+    _isHeavyPaid: isHeavyDeprioritizedPaidSource(item.url),
     _fp: titleFingerprint(item.title),
     _canonicalUrl: canonicalUrl(item.url),
     _source: sourceHost(item.url),
@@ -112,6 +138,7 @@ function rankAndFilterItems(items, limit) {
 
   ranked.sort((a, b) => {
     if (a._isPaid !== b._isPaid) return a._isPaid ? 1 : -1;
+    if (a._isHeavyPaid !== b._isHeavyPaid) return a._isHeavyPaid ? 1 : -1;
     return b._sortTs.localeCompare(a._sortTs);
   });
 
@@ -131,8 +158,18 @@ function rankAndFilterItems(items, limit) {
     seenSourceTitle.add(sourceTitleKey);
     filtered.push(item);
   }
-  const trimmed = filtered.slice(0, limit);
-  return trimmed.map(({ _isPaid, _fp, _canonicalUrl, _source, _sortTs, ...rest }) => rest);
+  const nonPaid = filtered.filter((item) => !item._isPaid);
+  const paid = filtered.filter((item) => item._isPaid);
+  const pickedNonPaid = nonPaid.slice(0, limit);
+  const paidAllowance =
+    pickedNonPaid.length === 0
+      ? Math.min(limit, PAID_FALLBACK_WHEN_EMPTY_LIMIT)
+      : Math.min(PAID_FALLBACK_LIMIT, Math.max(1, Math.floor(limit * 0.1)));
+  const pickedPaid = paid.slice(0, paidAllowance);
+
+  return [...pickedNonPaid, ...pickedPaid]
+    .slice(0, limit)
+    .map(({ _isPaid, _isHeavyPaid, _fp, _canonicalUrl, _source, _sortTs, ...rest }) => rest);
 }
 
 function isPrivateHost(hostname) {
@@ -502,6 +539,7 @@ app.get("/api/open-proxy", async (req) => {
 
 registerWeatherRoutes(app, openDb);
 registerLostFoundRoutes(app, openDb, uploadDir);
+registerSeoRoutes(app, openDb);
 
 async function runIngestOnce() {
   return new Promise((resolve, reject) => {

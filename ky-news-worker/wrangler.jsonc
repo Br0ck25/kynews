@@ -41,7 +41,7 @@
 	"vars": {
 		"APP_NAME": "EKY News",
 		"NWS_USER_AGENT": "EKY-News-Worker/1.0 (ops@example.com)",
-		"RSS_USER_AGENT": "EKY-News-Bot/1.0 (+https://kynews.pages.dev)",
+		"RSS_USER_AGENT": "EKY-News-Bot/1.0 (+https://localkynews.com)",
 		"AI_MODEL": "@cf/meta/llama-3.1-8b-instruct",
 		"SUMMARY_CACHE_TTL_SECONDS": "2592000",
 		"MAX_INGEST_ITEMS_PER_FEED": "60",

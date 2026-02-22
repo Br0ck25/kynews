@@ -29,7 +29,7 @@ lines.push("BEGIN TRANSACTION;");
 
 for (const feed of feeds) {
   lines.push(`
-INSERT INTO feeds (id, name, category, url, state_code, default_county, region_scope, enabled)
+INSERT INTO feeds (id, name, category, url, state_code, default_county, region_scope, fetch_mode, scraper_id, enabled)
 VALUES (
   ${q(feed.id)},
   ${q(feed.name)},
@@ -38,6 +38,8 @@ VALUES (
   ${q(feed.state_code || "KY")},
   ${q(feed.default_county ?? null)},
   ${q(feed.region_scope || "ky")},
+  ${q(feed.fetch_mode || "rss")},
+  ${q(feed.scraper_id ?? null)},
   ${Number(feed.enabled ?? 1)}
 )
 ON CONFLICT(id) DO UPDATE SET
@@ -47,6 +49,8 @@ ON CONFLICT(id) DO UPDATE SET
   state_code=excluded.state_code,
   default_county=excluded.default_county,
   region_scope=excluded.region_scope,
+  fetch_mode=excluded.fetch_mode,
+  scraper_id=excluded.scraper_id,
   enabled=excluded.enabled;`);
 }
 

@@ -184,6 +184,8 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
         f.url,
         f.category,
         f.region_scope,
+        f.fetch_mode,
+        f.scraper_id,
         f.enabled,
         f.last_checked_at,
         (
@@ -253,6 +255,8 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
         url: row.url,
         category: row.category,
         region_scope: row.region_scope,
+        fetch_mode: row.fetch_mode,
+        scraper_id: row.scraper_id,
         enabled: Number(row.enabled) === 1,
         last_checked_at: row.last_checked_at,
         last_metric_at: row.last_metric_at,

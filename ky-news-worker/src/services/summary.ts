@@ -4,13 +4,22 @@ import { sha256Hex } from "../lib/crypto";
 import { decodeHtmlEntities, normalizeWhitespace } from "../lib/text";
 import type { Env } from "../types";
 
-const SUMMARY_PROMPT_VERSION = "v2";
-const SUMMARY_MIN_WORDS = 200;
-const SUMMARY_MAX_WORDS = 400;
+const SUMMARY_PROMPT_VERSION = "v3";
+const SUMMARY_TARGET_MIN_RATIO = 0.8;
+const SUMMARY_TARGET_MAX_RATIO = 0.9;
+const SUMMARY_ABSOLUTE_MIN_WORDS = 40;
+const SUMMARY_ABSOLUTE_MAX_WORDS = 420;
 const SUMMARY_TEMPLATE_LABEL_RE =
   /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*|__)?\s*(?:background|key points?|impact|what'?s next|overview|bottom line|main takeaways?|takeaways?)\s*:?\s*(?:\*\*|__)?\s*/gi;
 const SUMMARY_BOILERPLATE_RE =
   /you are using an outdated browser|subscribe home news sports opinion obituaries features|submit an obituary|engagement announcement|wedding announcement/i;
+
+type SummaryLengthBounds = {
+  sourceWords: number;
+  minWords: number;
+  maxWords: number;
+  targetWords: number;
+};
 
 function summaryCacheKey(itemId: string): string {
   return `summary:${SUMMARY_PROMPT_VERSION}:${itemId}`;
@@ -63,6 +72,28 @@ function wordCount(input: string): number {
   return splitWords(input).length;
 }
 
+function summaryLengthBounds(articleText: string): SummaryLengthBounds {
+  const sourceWords = Math.max(1, wordCount(normalizeWhitespace(articleText)));
+  const ratioMin = Math.floor(sourceWords * SUMMARY_TARGET_MIN_RATIO);
+  const ratioMax = Math.ceil(sourceWords * SUMMARY_TARGET_MAX_RATIO);
+
+  let maxWords = Math.max(SUMMARY_ABSOLUTE_MIN_WORDS + 4, Math.min(SUMMARY_ABSOLUTE_MAX_WORDS, ratioMax));
+  let minWords = Math.max(SUMMARY_ABSOLUTE_MIN_WORDS, ratioMin);
+
+  if (minWords > maxWords) {
+    minWords = Math.max(SUMMARY_ABSOLUTE_MIN_WORDS, Math.min(maxWords - 4, Math.floor(maxWords * 0.9)));
+  }
+  if (maxWords <= minWords) {
+    maxWords = Math.min(SUMMARY_ABSOLUTE_MAX_WORDS, minWords + 4);
+  }
+  if (maxWords <= minWords) {
+    minWords = Math.max(SUMMARY_ABSOLUTE_MIN_WORDS, maxWords - 1);
+  }
+
+  const targetWords = Math.max(minWords, Math.min(maxWords, Math.round((minWords + maxWords) / 2)));
+  return { sourceWords, minWords, maxWords, targetWords };
+}
+
 function trimToMaxWords(input: string, maxWords: number): string {
   const words = splitWords(input);
   if (words.length <= maxWords) return input.trim();
@@ -82,19 +113,24 @@ function normalizeSummary(text: string): string {
   return normalizeWhitespace(out);
 }
 
-function isSummaryUsable(text: string): boolean {
+function isSummaryUsable(text: string, bounds?: SummaryLengthBounds): boolean {
   if (!text) return false;
   if (SUMMARY_BOILERPLATE_RE.test(text)) return false;
   const words = wordCount(text);
-  return words >= SUMMARY_MIN_WORDS && words <= SUMMARY_MAX_WORDS;
+  const minWords = bounds?.minWords ?? SUMMARY_ABSOLUTE_MIN_WORDS;
+  const maxWords = bounds?.maxWords ?? SUMMARY_ABSOLUTE_MAX_WORDS;
+  return words >= minWords && words <= maxWords;
 }
 
-function buildSummaryPrompt(input: { title: string; url: string; articleText: string }): string {
+function buildSummaryPrompt(input: { title: string; url: string; articleText: string }, bounds: SummaryLengthBounds): string {
   return [
     "You are a professional local news editor.",
-    `Write a factual summary between ${SUMMARY_MIN_WORDS} and ${SUMMARY_MAX_WORDS} words.`,
+    `Source text is about ${bounds.sourceWords} words.`,
+    `Write a factual summary between ${bounds.minWords} and ${bounds.maxWords} words (target about ${bounds.targetWords} words, roughly ${Math.round(SUMMARY_TARGET_MIN_RATIO * 100)}-${Math.round(SUMMARY_TARGET_MAX_RATIO * 100)}% of the source).`,
     "Always write in your own words.",
     "Focus on the main ideas, key facts, and concrete outcomes.",
+    "Use only facts explicitly stated in the source text.",
+    "If a detail is missing from the source text, omit it.",
     "Do not include personal opinions, filler, bullet lists, or headings.",
     "Never output labels such as Background, Key Points, Impact, or What's Next.",
     "Do not use markdown formatting.",
@@ -115,12 +151,15 @@ function buildRepairPrompt(input: {
   url: string;
   articleText: string;
   currentSummary: string;
+  bounds: SummaryLengthBounds;
 }): string {
   return [
     "Rewrite this summary to meet strict constraints.",
-    `Required length: ${SUMMARY_MIN_WORDS}-${SUMMARY_MAX_WORDS} words.`,
+    `Required length: ${input.bounds.minWords}-${input.bounds.maxWords} words.`,
+    `Target about ${input.bounds.targetWords} words.`,
     "Use your own wording only.",
-    "Keep only factual, relevant information from the source text.",
+    "Keep only factual information that is explicitly present in the source text.",
+    "If the source text does not state a detail, remove it.",
     "No opinions, no bullet points, no headings, and no invented details.",
     "Do not use markdown labels such as Background, Key Points, Impact, or What's Next.",
     "Return plain text only.",
@@ -170,6 +209,7 @@ export async function generateSummaryWithAI(env: Env, input: {
   articleText: string;
 }): Promise<string | null> {
   if (!input.articleText || input.articleText.trim().length < 300) return null;
+  const bounds = summaryLengthBounds(input.articleText);
 
   const sourceHash = await sha256Hex(`${SUMMARY_PROMPT_VERSION}:${input.articleText.slice(0, 20_000)}`);
   const existing = await d1First<{ summary: string }>(
@@ -179,7 +219,7 @@ export async function generateSummaryWithAI(env: Env, input: {
   );
   if (existing?.summary) {
     const cleaned = normalizeSummary(existing.summary);
-    if (isSummaryUsable(cleaned)) {
+    if (isSummaryUsable(cleaned, bounds)) {
       if (cleaned !== existing.summary) {
         await d1Run(
           env.ky_news_db,
@@ -195,11 +235,11 @@ export async function generateSummaryWithAI(env: Env, input: {
   const model = env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
 
   try {
-    let summary = await runAiSummary(env, model, buildSummaryPrompt(input), 900);
+    let summary = await runAiSummary(env, model, buildSummaryPrompt(input, bounds), 900);
     if (!summary) return null;
 
     let words = wordCount(summary);
-    if (!isSummaryUsable(summary)) {
+    if (!isSummaryUsable(summary, bounds)) {
       const repaired = await runAiSummary(
         env,
         model,
@@ -207,7 +247,8 @@ export async function generateSummaryWithAI(env: Env, input: {
           title: input.title,
           url: input.url,
           articleText: input.articleText,
-          currentSummary: summary
+          currentSummary: summary,
+          bounds
         }),
         900
       );
@@ -217,12 +258,12 @@ export async function generateSummaryWithAI(env: Env, input: {
       }
     }
 
-    if (words > SUMMARY_MAX_WORDS) {
-      summary = normalizeSummary(trimToMaxWords(summary, SUMMARY_MAX_WORDS));
+    if (words > bounds.maxWords) {
+      summary = normalizeSummary(trimToMaxWords(summary, bounds.maxWords));
       words = wordCount(summary);
     }
 
-    if (!isSummaryUsable(summary)) {
+    if (!isSummaryUsable(summary, bounds)) {
       return null;
     }
 
@@ -261,7 +302,7 @@ export async function generateSummaryWithAI(env: Env, input: {
       `,
       [
         input.itemId,
-        words < SUMMARY_MIN_WORDS ? "summary_too_short" : words > SUMMARY_MAX_WORDS ? "summary_too_long" : "auto_generated"
+        words < bounds.minWords ? "summary_too_short" : words > bounds.maxWords ? "summary_too_long" : "auto_generated"
       ]
     );
 

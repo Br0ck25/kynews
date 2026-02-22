@@ -21,9 +21,15 @@ const feedCols = db.prepare("PRAGMA table_info(feeds)").all().map((r) => r.name)
 if (!feedCols.includes("default_county")) {
   db.prepare("ALTER TABLE feeds ADD COLUMN default_county TEXT").run();
 }
+if (!feedCols.includes("fetch_mode")) {
+  db.prepare("ALTER TABLE feeds ADD COLUMN fetch_mode TEXT NOT NULL DEFAULT 'rss'").run();
+}
+if (!feedCols.includes("scraper_id")) {
+  db.prepare("ALTER TABLE feeds ADD COLUMN scraper_id TEXT").run();
+}
 
 const upsert = db.prepare(`
-INSERT INTO feeds (id, name, category, url, state_code, default_county, region_scope, enabled)
+INSERT INTO feeds (id, name, category, url, state_code, default_county, region_scope, fetch_mode, scraper_id, enabled)
 VALUES (
   @id,
   @name,
@@ -32,6 +38,8 @@ VALUES (
   COALESCE(@state_code, 'KY'),
   @default_county,
   COALESCE(@region_scope, 'ky'),
+  COALESCE(@fetch_mode, 'rss'),
+  @scraper_id,
   COALESCE(@enabled, 1)
 )
 ON CONFLICT(id) DO UPDATE SET
@@ -41,6 +49,8 @@ ON CONFLICT(id) DO UPDATE SET
   state_code=excluded.state_code,
   default_county=excluded.default_county,
   region_scope=excluded.region_scope,
+  fetch_mode=excluded.fetch_mode,
+  scraper_id=excluded.scraper_id,
   enabled=excluded.enabled
 `);
 
@@ -53,7 +63,14 @@ const deleteStale =
     : db.prepare("DELETE FROM feeds");
 
 const tx = db.transaction((rows) => {
-  for (const f of rows) upsert.run({ default_county: null, ...f });
+  for (const f of rows) {
+    upsert.run({
+      default_county: null,
+      fetch_mode: "rss",
+      scraper_id: null,
+      ...f
+    });
+  }
   const staleParams = {};
   seedIds.forEach((id, idx) => {
     staleParams[`id${idx}`] = id;

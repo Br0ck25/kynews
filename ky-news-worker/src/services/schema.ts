@@ -23,6 +23,8 @@ async function createCoreSchema(env: Env): Promise<void> {
         state_code TEXT NOT NULL DEFAULT 'KY',
         default_county TEXT,
         region_scope TEXT NOT NULL DEFAULT 'ky',
+        fetch_mode TEXT NOT NULL DEFAULT 'rss',
+        scraper_id TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
         etag TEXT,
         last_modified TEXT,
@@ -289,6 +291,13 @@ async function createCoreSchema(env: Env): Promise<void> {
 
   await addColumnIfMissing(db, "feeds", "region_scope", "TEXT NOT NULL DEFAULT 'ky'");
   await addColumnIfMissing(db, "feeds", "default_county", "TEXT");
+  await addColumnIfMissing(db, "feeds", "fetch_mode", "TEXT NOT NULL DEFAULT 'rss'");
+  await addColumnIfMissing(db, "feeds", "scraper_id", "TEXT");
+  await d1Run(
+    db,
+    "UPDATE feeds SET fetch_mode='rss' WHERE fetch_mode IS NULL OR trim(fetch_mode)=''"
+  );
+  await d1Run(db, "CREATE INDEX IF NOT EXISTS idx_feeds_fetch_mode_enabled ON feeds(fetch_mode, enabled)");
   await addColumnIfMissing(db, "items", "region_scope", "TEXT NOT NULL DEFAULT 'ky'");
   await addColumnIfMissing(db, "items", "article_checked_at", "TEXT");
   await addColumnIfMissing(db, "items", "article_fetch_status", "TEXT");

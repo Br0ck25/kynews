@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS feeds (
   state_code TEXT NOT NULL DEFAULT 'KY',
   default_county TEXT,
   region_scope TEXT NOT NULL DEFAULT 'ky',
+  fetch_mode TEXT NOT NULL DEFAULT 'rss',
+  scraper_id TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
   etag TEXT,
   last_modified TEXT,
@@ -71,6 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_item_locations_state ON item_locations(state_code
 CREATE INDEX IF NOT EXISTS idx_item_locations_county ON item_locations(state_code, county);
 CREATE INDEX IF NOT EXISTS idx_feed_items_feed ON feed_items(feed_id);
 CREATE INDEX IF NOT EXISTS idx_feeds_region_scope ON feeds(region_scope);
+CREATE INDEX IF NOT EXISTS idx_feeds_fetch_mode_enabled ON feeds(fetch_mode, enabled);
 
 CREATE TABLE IF NOT EXISTS fetch_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

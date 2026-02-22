@@ -355,10 +355,28 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
 
   del.run(itemId, st);
 
+  const titleText = String(parts?.[0] || "");
   const baseText = parts.filter(Boolean).join(" \n ");
-  let signalText = baseText;
-  let counties = detectKyCounties(baseText);
-  let otherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
+  const titleCounties = detectKyCounties(titleText);
+  const baseCounties = detectKyCounties(baseText);
+  const titleKySignal = st !== "KY" ? true : hasKySignal(titleText, titleCounties);
+  const baseKySignal = st !== "KY" ? true : hasKySignal(baseText, baseCounties);
+  const baseOtherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
+  const titleOtherStateNames = st === "KY" ? detectOtherStateNames(titleText) : [];
+
+  let counties = [...baseCounties];
+  let excerptCounties = [];
+  let otherStateNames = [...baseOtherStateNames];
+
+  let urlSectionLooksOutOfState = false;
+  if (st === "KY") {
+    try {
+      const path = new URL(url).pathname.toLowerCase();
+      urlSectionLooksOutOfState = /\/(national|world|region)\//.test(path);
+    } catch {
+      urlSectionLooksOutOfState = false;
+    }
+  }
 
   const meta = db
     .prepare("SELECT article_checked_at, article_fetch_status, image_url FROM items WHERE id=?")
@@ -370,8 +388,8 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
   if ((!counties.length || needsImage) && !alreadyChecked) {
     const fetched = await fetchArticle(url);
     const excerpt = fetched.text || "";
-    signalText = `${signalText}\n${excerpt}`;
-    counties = detectKyCounties(excerpt);
+    excerptCounties = detectKyCounties(excerpt);
+    counties = Array.from(new Set([...baseCounties, ...excerptCounties]));
     if (st === "KY") {
       otherStateNames = Array.from(new Set([...otherStateNames, ...detectOtherStateNames(excerpt)]));
     }
@@ -399,9 +417,29 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
   const isKyGoogleWatchFeed =
     /news\.google\.com\/rss\/search/i.test(String(feedUrl || "")) &&
     /kentucky/i.test(decodeURIComponent(String(feedUrl || "")));
-  const kySignal = st !== "KY" ? true : isKyGoogleWatchFeed || hasKySignal(signalText, counties);
+  const hasTitleOutOfStateSignal =
+    st === "KY" &&
+    titleOtherStateNames.length > 0 &&
+    !titleKySignal &&
+    titleCounties.length === 0;
+  const hasPrimaryOutOfStateSignal =
+    st === "KY" &&
+    baseOtherStateNames.length > 0 &&
+    !baseKySignal &&
+    baseCounties.length === 0;
+  if (st === "KY" && (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal || (urlSectionLooksOutOfState && !baseKySignal)) && counties.length === 0) {
+    return;
+  }
+
+  const kySignal =
+    st !== "KY" ||
+    isKyGoogleWatchFeed ||
+    titleKySignal ||
+    baseKySignal ||
+    excerptCounties.length > 0 ||
+    counties.length > 0;
   const hasOtherStateSignal = st === "KY" && otherStateNames.length > 0;
-  const shouldTagAsKy = st !== "KY" || !hasOtherStateSignal || kySignal;
+  const shouldTagAsKy = st !== "KY" || !hasOtherStateSignal || (kySignal && !urlSectionLooksOutOfState);
   if (!shouldTagAsKy) return;
 
   // Keep a state-level marker for valid in-state content.

@@ -14,6 +14,15 @@ export function ensureSchema(db) {
   if (!columnExists(db, "items", "region_scope")) {
     db.prepare("ALTER TABLE items ADD COLUMN region_scope TEXT NOT NULL DEFAULT 'ky'").run();
   }
+  if (!columnExists(db, "items", "article_fetch_status")) {
+    db.prepare("ALTER TABLE items ADD COLUMN article_fetch_status TEXT").run();
+  }
+  if (!columnExists(db, "items", "article_text_excerpt")) {
+    db.prepare("ALTER TABLE items ADD COLUMN article_text_excerpt TEXT").run();
+  }
+  if (!columnExists(db, "items", "ai_summary")) {
+    db.prepare("ALTER TABLE items ADD COLUMN ai_summary TEXT").run();
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS weather_forecasts (

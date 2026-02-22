@@ -248,12 +248,18 @@ function AppShell({
   const loc = useLocation();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const contentRef = useRef<HTMLElement | null>(null);
 
   const active = (path: string) => loc.pathname === path || loc.pathname.startsWith(path + "/");
   const onTodayView = loc.pathname === "/today";
 
   useEffect(() => {
     setDrawerOpen(false);
+  }, [loc.pathname, loc.search]);
+
+  useEffect(() => {
+    const node = contentRef.current;
+    if (node) node.scrollTop = 0;
   }, [loc.pathname, loc.search]);
 
   function open(path: string) {
@@ -333,7 +339,7 @@ function AppShell({
       ) : null}
 
       <div className="appFrame">
-        <main className="content">{children}</main>
+        <main className="content" ref={contentRef}>{children}</main>
       </div>
 
       <div className="bottomNav">

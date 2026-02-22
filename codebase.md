@@ -3308,7 +3308,7 @@ export async function onRequest(context) {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#ffffff" />
     <title>Kentucky News</title>
   </head>
@@ -3446,14 +3446,54 @@ export type LostFoundPost = {
   county: string;
   state_code: string;
   status: "pending" | "approved" | "rejected";
+  is_resolved?: boolean;
   show_contact: boolean;
   contact_email?: string | null;
   submitted_at: string;
   approved_at?: string | null;
   rejected_at?: string | null;
+  resolved_at?: string | null;
+  resolved_note?: string | null;
   expires_at: string;
   moderation_note?: string | null;
   images: string[];
+};
+
+export type AdminIngestionLog = {
+  id: number;
+  started_at: string;
+  finished_at?: string | null;
+  status: string;
+  source?: string | null;
+  feed_errors: number;
+  details?: {
+    feedsProcessed?: number;
+    feedsUpdated?: number;
+    itemsSeen?: number;
+    itemsUpserted?: number;
+    summariesGenerated?: number;
+    imagesMirrored?: number;
+    errors?: number;
+  } | null;
+};
+
+export type AdminFeedHealth = {
+  id: string;
+  name: string;
+  url: string;
+  category: string;
+  region_scope?: string | null;
+  enabled: boolean;
+  last_checked_at?: string | null;
+  last_metric_at?: string | null;
+  last_status?: string | null;
+  last_duration_ms: number;
+  last_items_upserted: number;
+  recent_items: number;
+  checks_window: number;
+  errors_window: number;
+  error_rate: number;
+  health_status: "healthy" | "degraded" | "critical" | "unknown";
 };
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -3564,13 +3604,19 @@ export async function getWeatherAlerts(opts: { county?: string; state?: string }
   );
 }
 
-export async function listLostFound(opts: { type?: LostFoundType; county?: string; status?: "published" | "pending" | "approved" | "rejected"; limit?: number } = {}) {
+export async function listLostFound(opts: { type?: LostFoundType; county?: string; status?: "published" | "pending" | "approved" | "rejected" | "resolved"; limit?: number } = {}) {
   const params = new URLSearchParams();
   if (opts.type) params.set("type", opts.type);
   if (opts.county) params.set("county", opts.county);
   if (opts.status) params.set("status", opts.status);
   if (opts.limit != null) params.set("limit", String(opts.limit));
   return fetchJson<{ posts: LostFoundPost[]; status: string; county?: string | null }>(`/api/lost-found?${params.toString()}`);
+}
+
+function adminHeaders(token?: string): HeadersInit {
+  const headers: Record<string, string> = {};
+  if (token?.trim()) headers["x-admin-token"] = token.trim();
+  return headers;
 }
 
 export async function getLostFoundUploadUrl(filename: string, mimeType: string) {
@@ -3613,6 +3659,116 @@ export async function submitLostFound(input: {
       showContact: input.showContact ?? false,
       imageKeys: input.imageKeys ?? []
     })
+  });
+}
+
+export async function markLostFoundAsFound(input: {
+  id: string;
+  contactEmail: string;
+  note?: string;
+}) {
+  return fetchJson<{ ok: boolean; id: string; status: string }>(`/api/lost-found/${encodeURIComponent(input.id)}/mark-found`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contactEmail: input.contactEmail,
+      note: input.note?.trim() || undefined
+    })
+  });
+}
+
+export async function listAdminLostFound(input: {
+  token?: string;
+  status?: "pending" | "approved" | "rejected" | "resolved" | "all";
+  limit?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  params.set("status", input.status || "all");
+  params.set("limit", String(input.limit ?? 120));
+  return fetchJson<{ admin: string; posts: LostFoundPost[] }>(`/api/admin/lost-found?${params.toString()}`, {
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function deleteAdminLostFound(input: { token?: string; id: string }) {
+  return fetchJson<{ ok: boolean; id: string; deletedImages: number }>(`/api/admin/lost-found/${encodeURIComponent(input.id)}`, {
+    method: "DELETE",
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function approveAdminLostFound(input: {
+  token?: string;
+  id: string;
+  showContact?: boolean;
+  note?: string;
+}) {
+  return fetchJson<{ ok: boolean; id: string; status: string }>(
+    `/api/admin/lost-found/${encodeURIComponent(input.id)}/approve`,
+    {
+      method: "POST",
+      headers: {
+        ...adminHeaders(input.token),
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        showContact: input.showContact,
+        note: input.note?.trim() || undefined
+      })
+    }
+  );
+}
+
+export async function rejectAdminLostFound(input: {
+  token?: string;
+  id: string;
+  reason: string;
+}) {
+  return fetchJson<{ ok: boolean; id: string; status: string }>(
+    `/api/admin/lost-found/${encodeURIComponent(input.id)}/reject`,
+    {
+      method: "POST",
+      headers: {
+        ...adminHeaders(input.token),
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        reason: input.reason
+      })
+    }
+  );
+}
+
+export async function getAdminIngestionLogs(input: {
+  token?: string;
+  limit?: number;
+  cursor?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(input.limit ?? 20));
+  if (input.cursor) params.set("cursor", String(input.cursor));
+  return fetchJson<{ logs: AdminIngestionLog[]; nextCursor: number | null }>(`/api/admin/ingestion/logs?${params.toString()}`, {
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function getAdminFeedHealth(input: {
+  token?: string;
+  hours?: number;
+  limit?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  params.set("hours", String(input.hours ?? 48));
+  params.set("limit", String(input.limit ?? 300));
+  return fetchJson<{ hours: number; feeds: AdminFeedHealth[] }>(`/api/admin/feeds/health?${params.toString()}`, {
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function runAdminFeedReload(input: { token?: string } = {}) {
+  return fetchJson<{ ok: boolean; code: number; stdout: string; stderr: string }>("/api/admin/feeds/reload", {
+    method: "POST",
+    headers: adminHeaders(input.token)
   });
 }
 
@@ -4682,6 +4838,16 @@ import {
   submitLostFound,
   getLostFoundUploadUrl,
   uploadLostFoundImage,
+  markLostFoundAsFound,
+  listAdminLostFound,
+  deleteAdminLostFound,
+  approveAdminLostFound,
+  rejectAdminLostFound,
+  getAdminIngestionLogs,
+  getAdminFeedHealth,
+  runAdminFeedReload,
+  type AdminFeedHealth,
+  type AdminIngestionLog,
   type Feed,
   type Item,
   type LostFoundPost,
@@ -4744,9 +4910,17 @@ function formatFromNow(iso?: string | null) {
   return formatPublishedDate(iso);
 }
 
+function truncateText(value: string, maxChars = 420): string {
+  const text = stripHtml(value).trim();
+  if (!text) return "";
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`;
+}
+
 const COVERAGE_TABS = [
   { id: "today", label: "TODAY", path: "/today" },
   { id: "national", label: "NATIONAL", path: "/national" },
+  { id: "sports", label: "SPORTS", path: "/sports" },
   { id: "weather", label: "WEATHER", path: "/weather" },
   { id: "schools", label: "SCHOOLS", path: "/schools" },
   { id: "obituaries", label: "OBITUARIES", path: "/obituaries" },
@@ -4756,6 +4930,14 @@ const COVERAGE_TABS = [
 const LOCAL_PREF_KEY = "my_local_county";
 const SELECTED_COUNTIES_PREF_KEY = "selected_counties";
 const THEME_PREF_KEY = "ui_theme";
+const OWNER_ADMIN_TOKEN_KEY = "owner_admin_token";
+const OWNER_ADMIN_ROUTE = "/owner-panel-ky-news";
+const TODAY_LOOKBACK_HOURS = 72;
+const SPORTS_LOOKBACK_HOURS = 24 * 14;
+const OBITUARY_LOOKBACK_HOURS = 24 * 365;
+const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" OR \"visitation\" OR \"memorial service\" OR \"passed away\"";
+const SPORTS_QUERY =
+  "\"sports\" OR \"sport\" OR \"football\" OR \"basketball\" OR \"baseball\" OR \"soccer\" OR \"volleyball\" OR \"wrestling\" OR \"athletics\"";
 type ThemeMode = "light" | "dark";
 
 function getMyLocalCounty(): string {
@@ -4813,6 +4995,27 @@ function setThemeMode(mode: ThemeMode) {
   }
 }
 
+function getOwnerAdminToken(): string {
+  try {
+    return (localStorage.getItem(OWNER_ADMIN_TOKEN_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function setOwnerAdminToken(token: string) {
+  try {
+    const normalized = token.trim();
+    if (normalized) {
+      localStorage.setItem(OWNER_ADMIN_TOKEN_KEY, normalized);
+    } else {
+      localStorage.removeItem(OWNER_ADMIN_TOKEN_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function applyThemeMode(mode: ThemeMode) {
   if (typeof document === "undefined") return;
   document.documentElement.setAttribute("data-theme", mode);
@@ -4831,6 +5034,7 @@ export default function App() {
       <Route path="/" element={<Navigate to="/today" replace />} />
       <Route path="/today" element={<TodayScreen />} />
       <Route path="/national" element={<NationalScreen />} />
+      <Route path="/sports" element={<SportsScreen />} />
       <Route path="/open" element={<ExternalWebViewScreen />} />
       <Route path="/weather" element={<WeatherScreen />} />
       <Route path="/schools" element={<SchoolsScreen />} />
@@ -4840,6 +5044,7 @@ export default function App() {
       <Route path="/read-later" element={<ReadLaterScreen />} />
       <Route path="/search" element={<SearchScreen />} />
       <Route path="/preferences" element={<PreferencesScreen />} />
+      <Route path={OWNER_ADMIN_ROUTE} element={<OwnerAdminScreen />} />
       <Route
         path="/settings"
         element={
@@ -5296,21 +5501,39 @@ function TodayScreen() {
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statewideFallback, setStatewideFallback] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const res = await getItems({
+        const primary = await getItems({
           state: state || undefined,
           county: county || undefined,
           counties: !county ? selectedCounties : undefined,
+          hours: TODAY_LOOKBACK_HOURS,
           limit: 30
         });
+
         if (cancelled) return;
-        setItems(res.items);
-        setCursor(res.nextCursor);
+        const shouldFallback = !state && !county && selectedCounties.length > 0 && !primary.items.length;
+
+        if (shouldFallback) {
+          const fallback = await getItems({
+            scope: "ky",
+            hours: TODAY_LOOKBACK_HOURS,
+            limit: 30
+          });
+          if (cancelled) return;
+          setItems(fallback.items);
+          setCursor(fallback.nextCursor);
+          setStatewideFallback(true);
+        } else {
+          setItems(primary.items);
+          setCursor(primary.nextCursor);
+          setStatewideFallback(false);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -5324,13 +5547,21 @@ function TodayScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await getItems({
-        state: state || undefined,
-        county: county || undefined,
-        counties: !county ? selectedCounties : undefined,
-        cursor,
-        limit: 30
-      });
+      const res = statewideFallback
+        ? await getItems({
+            scope: "ky",
+            hours: TODAY_LOOKBACK_HOURS,
+            cursor,
+            limit: 30
+          })
+        : await getItems({
+            state: state || undefined,
+            county: county || undefined,
+            counties: !county ? selectedCounties : undefined,
+            hours: TODAY_LOOKBACK_HOURS,
+            cursor,
+            limit: 30
+          });
       setItems((prev) => [...prev, ...res.items]);
       setCursor(res.nextCursor);
     } finally {
@@ -5351,6 +5582,9 @@ function TodayScreen() {
       <CoverageTabs />
 
       <div className="section">
+        {statewideFallback ? (
+          <div className="locationBanner">No recent stories in your selected counties. Showing statewide coverage.</div>
+        ) : null}
         {locationLabel ? <div className="locationBanner">Coverage: {locationLabel}</div> : null}
 
         {loading && !items.length ? (
@@ -5415,6 +5649,68 @@ function NationalScreen() {
         ) : (
           <>
             <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} />
+            {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={loadMore} /> : null}
+          </>
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
+function SportsScreen() {
+  const nav = useNavigate();
+  const [items, setItems] = useState<Item[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await searchItems(SPORTS_QUERY, {
+          scope: "all",
+          hours: SPORTS_LOOKBACK_HOURS,
+          limit: 30
+        });
+        if (cancelled) return;
+        setItems(res.items);
+        setCursor(res.nextCursor);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function loadMore() {
+    if (!cursor || loading) return;
+    setLoading(true);
+    try {
+      const res = await searchItems(SPORTS_QUERY, {
+        scope: "all",
+        hours: SPORTS_LOOKBACK_HOURS,
+        cursor,
+        limit: 30
+      });
+      setItems((prev) => [...prev, ...res.items]);
+      setCursor(res.nextCursor);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AppShell title="Sports">
+      <CoverageTabs />
+      <div className="section">
+        {loading && !items.length ? (
+          <div className="card emptyState">Loading sports stories...</div>
+        ) : (
+          <>
+            <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} emptyMessage="No sports stories right now." />
             {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={loadMore} /> : null}
           </>
         )}
@@ -5904,6 +6200,7 @@ function WeatherScreen() {
   const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const allCounties = useMemo(() => (kyCounties as { name: string }[]).map((c) => c.name), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -5942,9 +6239,26 @@ function WeatherScreen() {
         {!county ? (
           <div className="card" style={{ padding: 14 }}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>Choose your county first</div>
-            <button className="btn primary" onClick={() => nav("/my-local")}>
-              Set My County
-            </button>
+            <select
+              className="searchInput"
+              value={county}
+              onChange={(e) => {
+                const next = e.target.value;
+                setCounty(next);
+                if (next) setMyLocalCounty(next);
+              }}
+              style={{ marginBottom: 8 }}
+            >
+              <option value="">Select county...</option>
+              {allCounties.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>
+              Weather updates stay on this page. Selecting a county does not redirect you.
+            </div>
           </div>
         ) : null}
 
@@ -5962,9 +6276,22 @@ function WeatherScreen() {
             </div>
             <div className="weatherSummary">{forecast?.periods?.[0]?.shortForecast || "Forecast loading..."}</div>
             <div className="weatherActions">
-              <button className="btn" onClick={() => nav("/my-local")}>
-                Change County
-              </button>
+              <select
+                className="searchInput"
+                value={county}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setCounty(next);
+                  if (next) setMyLocalCounty(next);
+                }}
+                style={{ maxWidth: 200 }}
+              >
+                {allCounties.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
               <button className="btn" onClick={() => setCounty(getMyLocalCounty())}>
                 Refresh
               </button>
@@ -5990,7 +6317,40 @@ function WeatherScreen() {
             {alerts.map((a) => (
               <div key={a.id} style={{ marginBottom: 12 }}>
                 <div style={{ fontWeight: 800 }}>{a.headline}</div>
-                <div style={{ fontSize: 13, color: "var(--muted)" }}>{a.event} • {a.severity}</div>
+                <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>
+                  {a.event} • {a.severity}
+                  {a.starts_at || a.ends_at ? (
+                    <>
+                      {" "}
+                      •{" "}
+                      {a.starts_at ? `Starts ${formatPublishedDate(a.starts_at)}` : "In effect now"}
+                      {a.ends_at ? ` | Ends ${formatPublishedDate(a.ends_at)}` : ""}
+                    </>
+                  ) : null}
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.45, marginBottom: a.instruction ? 6 : 0 }}>
+                  {truncateText(
+                    a.description ||
+                      a.instruction ||
+                      "The National Weather Service has not published additional narrative text for this alert yet. Stay weather-aware and monitor updates.",
+                    500
+                  )}
+                </div>
+                {a.instruction ? (
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#92400e" }}>
+                    Action: {truncateText(a.instruction, 320)}
+                  </div>
+                ) : null}
+                {a.url ? (
+                  <a
+                    href={a.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: "inline-block", marginTop: 6, fontSize: 12, color: "#92400e", fontWeight: 700 }}
+                  >
+                    Read full NWS alert
+                  </a>
+                ) : null}
               </div>
             ))}
           </div>
@@ -6000,7 +6360,7 @@ function WeatherScreen() {
           <div className="card" style={{ padding: 14 }}>
             <div style={{ fontWeight: 900, marginBottom: 10 }}>Forecast</div>
             <div className="weatherPeriodGrid">
-              {forecast.periods.slice(0, 8).map((p) => (
+              {forecast.periods.slice(0, 14).map((p) => (
                 <div key={p.name + p.startTime} className="weatherPeriodCard">
                   <div className="weatherPeriodHead">{p.name}</div>
                   <div className="weatherPeriodTemp">{p.temperature}°{p.temperatureUnit}</div>
@@ -6017,26 +6377,41 @@ function WeatherScreen() {
 
 function ObituariesScreen() {
   const nav = useNavigate();
-  const selectedCounties = useMemo(() => getSelectedCounties(), []);
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fallbackSearch, setFallbackSearch] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const res = await getItems({
+        const categoryFeed = await getItems({
           scope: "ky",
           category: "Kentucky - Obituaries",
-          counties: selectedCounties.length ? selectedCounties : undefined,
-          hours: 24 * 14,
+          hours: OBITUARY_LOOKBACK_HOURS,
           limit: 30
         });
         if (cancelled) return;
-        setItems(res.items);
-        setCursor(res.nextCursor);
+
+        if (categoryFeed.items.length) {
+          setItems(categoryFeed.items);
+          setCursor(categoryFeed.nextCursor);
+          setFallbackSearch(false);
+          return;
+        }
+
+        const fallback = await searchItems(OBITUARY_FALLBACK_QUERY, {
+          scope: "ky",
+          hours: OBITUARY_LOOKBACK_HOURS,
+          limit: 30
+        });
+        if (cancelled) return;
+
+        setItems(fallback.items);
+        setCursor(fallback.nextCursor);
+        setFallbackSearch(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -6044,20 +6419,26 @@ function ObituariesScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCounties]);
+  }, []);
 
   async function loadMore() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await getItems({
-        scope: "ky",
-        category: "Kentucky - Obituaries",
-        counties: selectedCounties.length ? selectedCounties : undefined,
-        hours: 24 * 14,
-        cursor,
-        limit: 30
-      });
+      const res = fallbackSearch
+        ? await searchItems(OBITUARY_FALLBACK_QUERY, {
+            scope: "ky",
+            hours: OBITUARY_LOOKBACK_HOURS,
+            cursor,
+            limit: 30
+          })
+        : await getItems({
+            scope: "ky",
+            category: "Kentucky - Obituaries",
+            hours: OBITUARY_LOOKBACK_HOURS,
+            cursor,
+            limit: 30
+          });
       setItems((prev) => [...prev, ...res.items]);
       setCursor(res.nextCursor);
     } finally {
@@ -6069,6 +6450,9 @@ function ObituariesScreen() {
     <AppShell title="Obituaries">
       <CoverageTabs />
       <div className="section">
+        {fallbackSearch ? (
+          <div className="locationBanner">Showing obituary keyword matches from Kentucky sources.</div>
+        ) : null}
         {loading && !items.length ? (
           <div className="card emptyState">Loading obituary stories...</div>
         ) : (
@@ -6156,16 +6540,22 @@ function LostFoundScreen() {
   const [type, setType] = useState<LostFoundType>("lost");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [county, setCounty] = useState(() => getMyLocalCounty());
+  const [formCounty, setFormCounty] = useState(() => getMyLocalCounty());
+  const [listCounty, setListCounty] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [showContact, setShowContact] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
+  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [markEmail, setMarkEmail] = useState("");
+  const [markNote, setMarkNote] = useState("");
+  const [markSubmitting, setMarkSubmitting] = useState(false);
+  const [markMessage, setMarkMessage] = useState("");
 
   async function refresh() {
     setLoading(true);
     try {
-      const res = await listLostFound({ status: "published", county: county || undefined, limit: 50 });
+      const res = await listLostFound({ status: "published", county: listCounty || undefined, limit: 80 });
       setPosts(res.posts);
     } catch {
       setPosts([]);
@@ -6176,10 +6566,10 @@ function LostFoundScreen() {
 
   useEffect(() => {
     void refresh();
-  }, [county]);
+  }, [listCounty]);
 
   async function submit() {
-    if (!title.trim() || !description.trim() || !county.trim() || !contactEmail.trim()) {
+    if (!title.trim() || !description.trim() || !formCounty.trim() || !contactEmail.trim()) {
       setMessage("Please complete all required fields.");
       return;
     }
@@ -6194,11 +6584,11 @@ function LostFoundScreen() {
         imageKeys.push(upload.objectKey);
       }
 
-      await submitLostFound({
+      const submitted = await submitLostFound({
         type,
         title: title.trim(),
         description: description.trim(),
-        county: county.trim(),
+        county: formCounty.trim(),
         contactEmail: contactEmail.trim(),
         showContact,
         imageKeys
@@ -6209,12 +6599,43 @@ function LostFoundScreen() {
       setContactEmail("");
       setShowContact(false);
       setFile(null);
-      setMessage("Submission received and pending moderation.");
+      setMessage(submitted.status === "approved" ? "Listing published." : "Submission received and pending moderation.");
       await refresh();
     } catch (err: any) {
       setMessage(String(err?.message || err));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function startMarkFound(postId: string) {
+    setMarkingId(postId);
+    setMarkEmail("");
+    setMarkNote("");
+    setMarkMessage("");
+  }
+
+  async function submitMarkFound(postId: string) {
+    if (!markEmail.trim()) {
+      setMarkMessage("Enter the same contact email used when you created this listing.");
+      return;
+    }
+
+    setMarkSubmitting(true);
+    setMarkMessage("");
+    try {
+      await markLostFoundAsFound({
+        id: postId,
+        contactEmail: markEmail.trim(),
+        note: markNote.trim() || undefined
+      });
+      setMarkMessage("Listing marked as found.");
+      setMarkingId(null);
+      await refresh();
+    } catch (err: any) {
+      setMarkMessage(String(err?.message || err));
+    } finally {
+      setMarkSubmitting(false);
     }
   }
 
@@ -6250,8 +6671,8 @@ function LostFoundScreen() {
             className="searchInput"
             style={{ marginBottom: 8 }}
             placeholder="County"
-            value={county}
-            onChange={(e) => setCounty(e.target.value)}
+            value={formCounty}
+            onChange={(e) => setFormCounty(e.target.value)}
           />
           <input
             className="searchInput"
@@ -6278,7 +6699,22 @@ function LostFoundScreen() {
         </div>
 
         <div className="card" style={{ padding: 14 }}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>Published Listings</div>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Published Listings</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <input
+              className="searchInput"
+              placeholder="Filter listings by county (optional)"
+              value={listCounty}
+              onChange={(e) => setListCounty(e.target.value)}
+            />
+            <button className="btn" onClick={() => setListCounty("")} type="button">
+              Clear
+            </button>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+            New submissions may remain hidden until approved.
+          </div>
+          {markMessage ? <div style={{ marginBottom: 10, color: "var(--muted)" }}>{markMessage}</div> : null}
           {loading ? <div style={{ color: "var(--muted)" }}>Loading...</div> : null}
           {!loading && !posts.length ? <div style={{ color: "var(--muted)" }}>No listings found.</div> : null}
           {posts.map((p) => (
@@ -6301,8 +6737,327 @@ function LostFoundScreen() {
                   style={{ marginTop: 8, maxHeight: 220 }}
                 />
               ) : null}
+              {p.type === "lost" && !p.is_resolved ? (
+                <div style={{ marginTop: 8 }}>
+                  {markingId === p.id ? (
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                        Confirm with the contact email used at submit time.
+                      </div>
+                      <input
+                        className="searchInput"
+                        type="email"
+                        placeholder="Contact email"
+                        value={markEmail}
+                        onChange={(e) => setMarkEmail(e.target.value)}
+                        style={{ marginBottom: 8 }}
+                      />
+                      <textarea
+                        className="searchInput"
+                        placeholder="Optional note"
+                        value={markNote}
+                        onChange={(e) => setMarkNote(e.target.value)}
+                        style={{ marginBottom: 8, minHeight: 72 }}
+                      />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          className="btn primary"
+                          type="button"
+                          disabled={markSubmitting}
+                          onClick={() => submitMarkFound(p.id)}
+                        >
+                          {markSubmitting ? "Updating..." : "Mark Found"}
+                        </button>
+                        <button
+                          className="btn"
+                          type="button"
+                          disabled={markSubmitting}
+                          onClick={() => setMarkingId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button className="btn" type="button" onClick={() => startMarkFound(p.id)}>
+                      I found this item
+                    </button>
+                  )}
+                </div>
+              ) : null}
             </div>
           ))}
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function OwnerAdminScreen() {
+  const [tokenInput, setTokenInput] = useState(() => getOwnerAdminToken());
+  const [token, setToken] = useState(() => getOwnerAdminToken());
+  const [loading, setLoading] = useState(false);
+  const [runningIngest, setRunningIngest] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected" | "resolved" | "all">("all");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [logs, setLogs] = useState<AdminIngestionLog[]>([]);
+  const [feedHealth, setFeedHealth] = useState<AdminFeedHealth[]>([]);
+  const [posts, setPosts] = useState<LostFoundPost[]>([]);
+
+  async function refreshAll(activeToken = token) {
+    if (!activeToken.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const [logRes, healthRes, lostRes] = await Promise.all([
+        getAdminIngestionLogs({ token: activeToken, limit: 15 }),
+        getAdminFeedHealth({ token: activeToken, hours: 48, limit: 200 }),
+        listAdminLostFound({ token: activeToken, status: statusFilter, limit: 200 })
+      ]);
+      setLogs(logRes.logs || []);
+      setFeedHealth(healthRes.feeds || []);
+      setPosts(lostRes.posts || []);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+      setLogs([]);
+      setFeedHealth([]);
+      setPosts([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!token.trim()) return;
+    void refreshAll(token);
+  }, [token, statusFilter]);
+
+  async function saveTokenAndLoad() {
+    const normalized = tokenInput.trim();
+    setOwnerAdminToken(normalized);
+    setToken(normalized);
+    if (normalized) {
+      await refreshAll(normalized);
+    } else {
+      setLogs([]);
+      setFeedHealth([]);
+      setPosts([]);
+    }
+  }
+
+  async function runIngestNow() {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+
+    setRunningIngest(true);
+    setNotice("");
+    setError("");
+    try {
+      const res = await runAdminFeedReload({ token });
+      if (!res.ok) {
+        setError(res.stderr || "Manual ingestion failed");
+      } else {
+        setNotice("Manual ingestion triggered successfully.");
+      }
+      await refreshAll(token);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    } finally {
+      setRunningIngest(false);
+    }
+  }
+
+  async function deletePost(postId: string) {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+    const confirmed = window.confirm("Delete this listing permanently?");
+    if (!confirmed) return;
+
+    setNotice("");
+    setError("");
+    try {
+      await deleteAdminLostFound({ token, id: postId });
+      setPosts((prev) => prev.filter((post) => post.id !== postId));
+      setNotice("Listing deleted.");
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    }
+  }
+
+  async function approvePost(postId: string) {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+    setNotice("");
+    setError("");
+    try {
+      await approveAdminLostFound({ token, id: postId });
+      setNotice("Listing approved.");
+      await refreshAll(token);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    }
+  }
+
+  async function rejectPost(postId: string) {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+    const reason = window.prompt("Reason for rejection (required):", "Policy violation");
+    if (!reason || !reason.trim()) return;
+
+    setNotice("");
+    setError("");
+    try {
+      await rejectAdminLostFound({ token, id: postId, reason: reason.trim() });
+      setNotice("Listing rejected.");
+      await refreshAll(token);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    }
+  }
+
+  const criticalFeeds = feedHealth.filter((f) => f.health_status === "critical");
+  const degradedFeeds = feedHealth.filter((f) => f.health_status === "degraded");
+
+  return (
+    <AppShell title="Owner Admin">
+      <div className="section">
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Private Owner Panel</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
+            This route is not linked in the app. Keep the URL and token private.
+          </div>
+          <input
+            className="searchInput"
+            type="password"
+            placeholder="Admin token"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            style={{ marginBottom: 8 }}
+          />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="btn primary" type="button" onClick={saveTokenAndLoad} disabled={loading}>
+              Save Token + Load
+            </button>
+            <button className="btn" type="button" onClick={() => void refreshAll(token)} disabled={loading || !token.trim()}>
+              Refresh
+            </button>
+            <button className="btn" type="button" onClick={runIngestNow} disabled={runningIngest || !token.trim()}>
+              {runningIngest ? "Running..." : "Run Ingestion Now"}
+            </button>
+          </div>
+          {error ? <div style={{ color: "#b91c1c", marginTop: 8 }}>{error}</div> : null}
+          {notice ? <div style={{ color: "var(--muted)", marginTop: 8 }}>{notice}</div> : null}
+        </div>
+
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Ingestion Status</div>
+          <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
+            Critical feeds: {criticalFeeds.length} | Degraded feeds: {degradedFeeds.length} | Total checked: {feedHealth.length}
+          </div>
+          {!logs.length ? (
+            <div style={{ color: "var(--muted)" }}>No ingestion logs loaded yet.</div>
+          ) : (
+            logs.slice(0, 8).map((log) => (
+              <div key={log.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+                <div style={{ fontWeight: 700 }}>
+                  Run #{log.id} • {log.status} • {log.source || "cron/manual"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  Started {formatPublishedDate(log.started_at)} | Finished {log.finished_at ? formatPublishedDate(log.finished_at) : "running"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  Feeds {log.details?.feedsProcessed ?? 0}, New items {log.details?.itemsUpserted ?? 0}, Summaries {log.details?.summariesGenerated ?? 0}, Errors {log.feed_errors}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Feed Health (48h)</div>
+          {!feedHealth.length ? (
+            <div style={{ color: "var(--muted)" }}>No feed health data loaded yet.</div>
+          ) : (
+            feedHealth
+              .sort((a, b) => {
+                const rank = (x: string) => (x === "critical" ? 0 : x === "degraded" ? 1 : x === "healthy" ? 2 : 3);
+                return rank(a.health_status) - rank(b.health_status);
+              })
+              .slice(0, 25)
+              .map((feed) => (
+                <div key={feed.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+                  <div style={{ fontWeight: 700 }}>
+                    {feed.name} ({feed.health_status})
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                    {feed.category} | Last check {feed.last_metric_at ? formatPublishedDate(feed.last_metric_at) : "never"} | Recent items {feed.recent_items} | Error rate {(feed.error_rate * 100).toFixed(0)}%
+                  </div>
+                </div>
+              ))
+          )}
+        </div>
+
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <div style={{ fontWeight: 900 }}>Lost & Found Listings</div>
+            <select
+              className="searchInput"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+              style={{ maxWidth: 180 }}
+            >
+              <option value="all">All</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+          {!posts.length ? (
+            <div style={{ color: "var(--muted)" }}>No listings found for this filter.</div>
+          ) : (
+            posts.map((post) => (
+              <div key={post.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+                <div style={{ fontWeight: 700 }}>
+                  {post.type.toUpperCase()} • {post.status}
+                  {post.is_resolved ? " • resolved" : ""}
+                </div>
+                <div>{post.title}</div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  {post.county}, {post.state_code} | Submitted {formatPublishedDate(post.submitted_at)}
+                </div>
+                <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {post.status === "pending" ? (
+                    <>
+                      <button className="btn primary" type="button" onClick={() => void approvePost(post.id)}>
+                        Approve
+                      </button>
+                      <button className="btn" type="button" onClick={() => void rejectPost(post.id)}>
+                        Reject
+                      </button>
+                    </>
+                  ) : null}
+                  <button className="btn" type="button" onClick={() => void deletePost(post.id)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </AppShell>
@@ -6669,6 +7424,8 @@ export default function Reader() {
 
   const dt = item?.published_at ? new Date(item.published_at) : null;
   const dateStr = dt ? dt.toLocaleString() : "-";
+  const summaryText = toText(item?.summary);
+  const contentText = toText(item?.content);
 
   return (
     <div className="app">
@@ -6722,13 +7479,21 @@ export default function Reader() {
                 </div>
 
                 <div className="readerBody">
-                  {toText(item.content || item.summary) ? (
-                    <p>{toText(item.content || item.summary)}</p>
-                  ) : (
-                    <p style={{ color: "var(--muted)" }}>
-                      This feed did not provide content. Use "Open original in app".
-                    </p>
-                  )}
+                  {summaryText ? (
+                    <>
+                      <div style={{ fontWeight: 800, marginBottom: 6 }}>Summary</div>
+                      <p>{summaryText}</p>
+                    </>
+                  ) : null}
+                  {contentText && contentText !== summaryText ? (
+                    <>
+                      <div style={{ fontWeight: 800, marginBottom: 6, marginTop: 12 }}>Source Excerpt</div>
+                      <p>{contentText}</p>
+                    </>
+                  ) : null}
+                  {!summaryText && !contentText ? (
+                    <p style={{ color: "var(--muted)" }}>This feed did not provide enough text for an in-app summary yet.</p>
+                  ) : null}
                 </div>
               </div>
             ) : (
@@ -6750,6 +7515,8 @@ export default function Reader() {
 ```css
 :root {
   color-scheme: light;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --bg: #f3f4f6;
   --surface: #ffffff;
   --surface-soft: #f9fafb;
@@ -6826,11 +7593,11 @@ select {
   position: sticky;
   top: 0;
   z-index: 30;
-  height: 56px;
+  min-height: calc(56px + var(--safe-top));
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 14px;
+  padding: calc(var(--safe-top) + 2px) 14px 0;
   background: linear-gradient(90deg, var(--nav-bg) 0%, var(--nav-bg-soft) 55%, var(--nav-bg) 100%);
   border-bottom: 1px solid var(--border);
 }
@@ -6878,7 +7645,8 @@ select {
 .content {
   width: 100%;
   overflow: auto;
-  padding-bottom: 84px;
+  padding-top: 8px;
+  padding-bottom: calc(84px + var(--safe-bottom));
 }
 
 .section {
@@ -7135,6 +7903,7 @@ select {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center top;
 }
 
 .featuredFallback {
@@ -7413,7 +8182,8 @@ select {
   right: 0;
   bottom: 0;
   z-index: 45;
-  height: 72px;
+  height: calc(72px + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   background: var(--nav-bg);
@@ -7708,6 +8478,10 @@ select {
 
   .featuredTitle {
     font-size: clamp(26px, 9.2vw, 40px);
+  }
+
+  .featuredCard {
+    min-height: clamp(220px, 48vh, 340px);
   }
 
   .featuredSummary {
@@ -8465,6 +9239,14 @@ bucket_name = "ekn-lost-found-prod"
 ```
 
 # data\dev.sqlite
+
+This is a binary file of the type: Binary
+
+# data\dev.sqlite-shm
+
+This is a binary file of the type: Binary
+
+# data\dev.sqlite-wal
 
 This is a binary file of the type: Binary
 
@@ -11902,6 +12684,106 @@ Authentication:
     "url": "https://smileypete.com/business/index.rss",
     "state_code": "KY",
     "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-leo-weekly",
+    "name": "LEO Weekly",
+    "category": "Kentucky - Culture",
+    "url": "https://www.leoweekly.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-hazard-herald",
+    "name": "Hazard Herald",
+    "category": "Kentucky - Local",
+    "url": "https://www.hazard-herald.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc&k%5B%5D=%23topstory",
+    "state_code": "KY",
+    "default_county": "Perry",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-weku-news",
+    "name": "WEKU News",
+    "category": "Kentucky - Radio",
+    "url": "https://www.weku.org/news.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wnky-news",
+    "name": "WNKY News",
+    "category": "Kentucky - TV",
+    "url": "https://www.wnky.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-sports-lex18",
+    "name": "LEX18 Sports",
+    "category": "Kentucky - Sports",
+    "url": "https://www.lex18.com/sports.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-sports-abc36",
+    "name": "ABC36 Sports",
+    "category": "Kentucky - Sports",
+    "url": "https://www.wtvq.com/category/sports/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-sports-ukathletics",
+    "name": "UK Athletics",
+    "category": "Kentucky - Sports",
+    "url": "https://ukathletics.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-sports-gocards",
+    "name": "Louisville Cardinals Athletics",
+    "category": "Kentucky - Sports",
+    "url": "https://gocards.com/rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "nat-sports-espn",
+    "name": "ESPN Headlines",
+    "category": "National - Sports",
+    "url": "https://www.espn.com/espn/rss/news",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
+  },
+  {
+    "id": "nat-sports-cbssports",
+    "name": "CBS Sports Headlines",
+    "category": "National - Sports",
+    "url": "https://www.cbssports.com/rss/headlines/",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
+  },
+  {
+    "id": "nat-sports-yahoo",
+    "name": "Yahoo Sports",
+    "category": "National - Sports",
+    "url": "https://sports.yahoo.com/rss/",
+    "state_code": "US",
+    "region_scope": "national",
     "enabled": 1
   }
 ]
@@ -17080,6 +17962,76 @@ CREATE TABLE IF NOT EXISTS admins (
 );
 ```
 
+# ky-news-worker\migrations\0005_feed_quality_and_direct_sources.sql
+
+```sql
+-- Disable aggregator-based feeds so ingestion prefers direct publisher/government sources.
+UPDATE feeds
+SET enabled = 0
+WHERE url LIKE 'https://www.bing.com/news/search%'
+   OR url LIKE 'https://news.google.com/rss/search%';
+
+-- Add high-signal direct national, government, and Kentucky sources.
+INSERT INTO feeds (id, name, category, url, state_code, default_county, region_scope, enabled)
+VALUES
+  ('nat-pbs-politics', 'PBS NewsHour Politics', 'National - Politics', 'https://www.pbs.org/newshour/feeds/rss/politics', 'US', NULL, 'national', 1),
+  ('nat-abc-topstories', 'ABC News Top Stories', 'National - General', 'https://abcnews.go.com/abcnews/topstories', 'US', NULL, 'national', 1),
+  ('nat-nbc-topstories', 'NBC News Top Stories', 'National - General', 'https://feeds.nbcnews.com/nbcnews/public/news', 'US', NULL, 'national', 1),
+  ('nat-propublica-main', 'ProPublica Main Feed', 'National - Investigative', 'https://www.propublica.org/feeds/propublica/main', 'US', NULL, 'national', 1),
+  ('nat-guardian-us', 'The Guardian US News', 'National - General', 'https://www.theguardian.com/us-news/rss', 'US', NULL, 'national', 1),
+  ('nat-aljazeera-all', 'Al Jazeera - All News', 'National - World', 'https://www.aljazeera.com/xml/rss/all.xml', 'US', NULL, 'national', 1),
+  ('nat-atlantic-all', 'The Atlantic - All Stories', 'National - Analysis', 'https://www.theatlantic.com/feed/all/', 'US', NULL, 'national', 1),
+  ('nat-thehill', 'The Hill', 'National - Politics', 'https://thehill.com/feed/', 'US', NULL, 'national', 1),
+  ('gov-doj-news', 'U.S. Department of Justice News', 'Government - Justice', 'https://www.justice.gov/feeds/justice-news.xml', 'US', NULL, 'national', 1),
+  ('gov-doe-news', 'U.S. Department of Energy News', 'Government - Energy', 'https://www.energy.gov/rss.xml', 'US', NULL, 'national', 1),
+  ('gov-fda-press', 'FDA Press Releases', 'Government - Health', 'https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml', 'US', NULL, 'national', 1),
+  ('gov-fda-recalls', 'FDA Recalls', 'Government - Public Safety', 'https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/recalls/rss.xml', 'US', NULL, 'national', 1),
+  ('gov-sec-press', 'SEC Press Releases', 'Government - Markets', 'https://www.sec.gov/news/pressreleases.rss', 'US', NULL, 'national', 1),
+  ('gov-nasa-breaking', 'NASA Breaking News', 'Government - Science', 'https://www.nasa.gov/rss/dyn/breaking_news.rss', 'US', NULL, 'national', 1),
+  ('gov-fed-press', 'Federal Reserve Press Releases', 'Government - Economy', 'https://www.federalreserve.gov/feeds/press_all.xml', 'US', NULL, 'national', 1),
+  ('gov-nist-news', 'NIST News', 'Government - Science', 'https://www.nist.gov/news-events/news/rss.xml', 'US', NULL, 'national', 1),
+  ('gov-cdc-travel-notices', 'CDC Travel Health Notices', 'Government - Health', 'https://wwwnc.cdc.gov/travel/rss/notices.xml', 'US', NULL, 'national', 1),
+  ('ky-weku-news', 'WEKU News', 'Kentucky - Radio', 'https://www.weku.org/news.rss', 'KY', NULL, 'ky', 1),
+  ('ky-wuky-news', 'WUKY News', 'Kentucky - Radio', 'https://www.wuky.org/wuky-news.rss', 'KY', NULL, 'ky', 1)
+ON CONFLICT(id) DO UPDATE SET
+  name = excluded.name,
+  category = excluded.category,
+  url = excluded.url,
+  state_code = excluded.state_code,
+  default_county = excluded.default_county,
+  region_scope = excluded.region_scope,
+  enabled = excluded.enabled;
+
+```
+
+# ky-news-worker\migrations\0006_sports_and_source_expansion.sql
+
+```sql
+-- Add missing direct Kentucky sources and sports-focused feeds.
+INSERT INTO feeds (id, name, category, url, state_code, default_county, region_scope, enabled)
+VALUES
+  ('ky-leo-weekly', 'LEO Weekly', 'Kentucky - Culture', 'https://www.leoweekly.com/feed/', 'KY', NULL, 'ky', 1),
+  ('ky-hazard-herald', 'Hazard Herald', 'Kentucky - Local', 'https://www.hazard-herald.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc&k%5B%5D=%23topstory', 'KY', 'Perry', 'ky', 1),
+  ('ky-weku-news', 'WEKU News', 'Kentucky - Radio', 'https://www.weku.org/news.rss', 'KY', NULL, 'ky', 1),
+  ('ky-wnky-news', 'WNKY News', 'Kentucky - TV', 'https://www.wnky.com/feed/', 'KY', NULL, 'ky', 1),
+  ('ky-sports-lex18', 'LEX18 Sports', 'Kentucky - Sports', 'https://www.lex18.com/sports.rss', 'KY', NULL, 'ky', 1),
+  ('ky-sports-abc36', 'ABC36 Sports', 'Kentucky - Sports', 'https://www.wtvq.com/category/sports/feed/', 'KY', NULL, 'ky', 1),
+  ('ky-sports-ukathletics', 'UK Athletics', 'Kentucky - Sports', 'https://ukathletics.com/feed/', 'KY', NULL, 'ky', 1),
+  ('ky-sports-gocards', 'Louisville Cardinals Athletics', 'Kentucky - Sports', 'https://gocards.com/rss', 'KY', NULL, 'ky', 1),
+  ('nat-sports-espn', 'ESPN Headlines', 'National - Sports', 'https://www.espn.com/espn/rss/news', 'US', NULL, 'national', 1),
+  ('nat-sports-cbssports', 'CBS Sports Headlines', 'National - Sports', 'https://www.cbssports.com/rss/headlines/', 'US', NULL, 'national', 1),
+  ('nat-sports-yahoo', 'Yahoo Sports', 'National - Sports', 'https://sports.yahoo.com/rss/', 'US', NULL, 'national', 1)
+ON CONFLICT(id) DO UPDATE SET
+  name = excluded.name,
+  category = excluded.category,
+  url = excluded.url,
+  state_code = excluded.state_code,
+  default_county = excluded.default_county,
+  region_scope = excluded.region_scope,
+  enabled = excluded.enabled;
+
+```
+
 # ky-news-worker\package.json
 
 ```json
@@ -18294,7 +19246,7 @@ app.use("*", async (c, next) => {
       if (!origin) return origins[0] || "*";
       return origins.includes(origin) ? origin : origins[0] || "*";
     },
-    allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["content-type", "x-admin-token", "cf-access-authenticated-user-email"],
     exposeHeaders: ["x-request-id"],
     maxAge: 86400
@@ -18422,12 +19374,14 @@ export default {
 import { randomUUID } from "node:crypto";
 import { d1All, d1First, d1Run } from "../services/db";
 import { parseFeedItems } from "../services/rss";
+import { scrapeFeedItems } from "../services/scrapers";
 import { detectKyCounties, detectOtherStateNames, hasKySignal } from "../services/location";
 import { fetchArticle } from "../services/article";
 import { getCachedSummary, generateSummaryWithAI } from "../services/summary";
 import { mirrorArticleImageToR2 } from "../services/media";
 import { makeItemId, stableHash } from "../lib/crypto";
 import { normalizeCounty } from "../lib/utils";
+import { decodeHtmlEntities, toHttpsUrl } from "../lib/text";
 import { logError, logInfo, logWarn } from "../lib/logger";
 import type { Env } from "../types";
 import { incrementMetricGroup, writeStructuredLog } from "../services/observability";
@@ -18438,6 +19392,8 @@ type FeedRow = {
   id: string;
   name: string;
   url: string;
+  fetch_mode: string | null;
+  scraper_id: string | null;
   etag: string | null;
   last_modified: string | null;
   state_code: string | null;
@@ -18503,7 +19459,7 @@ function canonicalUrl(url: string): string {
 }
 
 function textOnly(input: string | null | undefined): string {
-  return String(input || "")
+  return decodeHtmlEntities(String(input || ""))
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
@@ -18515,9 +19471,12 @@ async function fetchWithConditional(
   url: string,
   etag: string | null,
   lastModified: string | null,
-  force: boolean
+  force: boolean,
+  userAgent: string
 ): Promise<{ status: number; etag: string | null; lastModified: string | null; text: string | null }> {
   const headers = new Headers();
+  headers.set("accept", "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8");
+  headers.set("user-agent", userAgent);
 
   if (!force) {
     if (etag) headers.set("If-None-Match", etag);
@@ -18668,7 +19627,14 @@ async function upsertItemAndLink(
     image_url: string | null;
     hash: string;
   }
-): Promise<void> {
+): Promise<"inserted" | "updated" | "unchanged"> {
+  const existing = await d1First<{ hash: string | null }>(env.ky_news_db, "SELECT hash FROM items WHERE id=?", [row.id]);
+
+  if (existing?.hash && existing.hash === row.hash) {
+    await d1Run(env.ky_news_db, "INSERT OR IGNORE INTO feed_items (feed_id, item_id) VALUES (?, ?)", [feedId, row.id]);
+    return "unchanged";
+  }
+
   await d1Run(
     env.ky_news_db,
     `
@@ -18700,6 +19666,7 @@ async function upsertItemAndLink(
   );
 
   await d1Run(env.ky_news_db, "INSERT OR IGNORE INTO feed_items (feed_id, item_id) VALUES (?, ?)", [feedId, row.id]);
+  return existing ? "updated" : "inserted";
 }
 
 async function tagItemLocations(
@@ -18709,10 +19676,11 @@ async function tagItemLocations(
     stateCode: string;
     parts: string[];
     url: string;
+    author?: string | null;
     defaultCounty?: string | null;
     feedUrl?: string | null;
   }
-): Promise<{ excerpt: string; imageCandidate: string | null }> {
+): Promise<{ excerpt: string; imageCandidate: string | null; publishedAt: string | null }> {
   const st = (input.stateCode || "KY").toUpperCase();
 
   await d1Run(env.ky_news_db, "DELETE FROM item_locations WHERE item_id=? AND state_code=?", [input.itemId, st]);
@@ -18721,27 +19689,35 @@ async function tagItemLocations(
   let signalText = baseText;
   let counties = detectKyCounties(baseText);
   let otherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
+  const looksSyndicated =
+    /\/ap\//i.test(input.url) ||
+    /\bassociated press\b/i.test(baseText) ||
+    /^ap\b/i.test(String(input.author || "").trim().toLowerCase());
 
   const meta = await d1First<{
     article_checked_at: string | null;
     article_fetch_status: string | null;
     article_text_excerpt: string | null;
     image_url: string | null;
+    published_at: string | null;
   }>(
     env.ky_news_db,
-    "SELECT article_checked_at, article_fetch_status, article_text_excerpt, image_url FROM items WHERE id=?",
+    "SELECT article_checked_at, article_fetch_status, article_text_excerpt, image_url, published_at FROM items WHERE id=?",
     [input.itemId]
   );
 
   const alreadyChecked = Boolean(meta?.article_checked_at);
   const needsImage = !String(meta?.image_url || "").trim() || /^https?:\/\//i.test(String(meta?.image_url || ""));
+  const needsPublishedDate = !String(meta?.published_at || "").trim();
   let excerpt = textOnly(meta?.article_text_excerpt || "");
   let imageCandidate: string | null = null;
+  let publishedAt: string | null = null;
 
-  if ((!counties.length || needsImage || excerpt.length < 300) && !alreadyChecked) {
+  if ((!counties.length || needsImage || excerpt.length < 300 || needsPublishedDate) && !alreadyChecked) {
     const fetched = await fetchArticle(input.url);
     excerpt = fetched.text || "";
     imageCandidate = fetched.ogImage || null;
+    publishedAt = fetched.publishedAt || null;
     signalText = `${signalText}\n${excerpt}`;
     counties = detectKyCounties(signalText);
 
@@ -18757,11 +19733,12 @@ async function tagItemLocations(
         article_checked_at = datetime('now'),
         article_fetch_status = ?,
         article_text_excerpt = ?,
+        published_at = COALESCE(published_at, ?),
         content = COALESCE(content, ?),
         image_url = COALESCE(image_url, ?)
       WHERE id=?
       `,
-      [fetched.status, excerpt || null, excerpt || null, fetched.ogImage || null, input.itemId]
+      [fetched.status, excerpt || null, fetched.publishedAt || null, excerpt || null, fetched.ogImage || null, input.itemId]
     );
   }
 
@@ -18771,10 +19748,14 @@ async function tagItemLocations(
 
   const kySignal = st !== "KY" ? true : isKyGoogleWatchFeed || hasKySignal(signalText, counties);
   const hasOtherStateSignal = st === "KY" && otherStateNames.length > 0;
-  const shouldTagAsKy = st !== "KY" || !hasOtherStateSignal || kySignal;
+  if (st === "KY" && looksSyndicated && !kySignal && counties.length === 0) {
+    return { excerpt, imageCandidate, publishedAt };
+  }
+
+  const shouldTagAsKy = st !== "KY" || kySignal || (!hasOtherStateSignal && !looksSyndicated);
 
   if (!shouldTagAsKy) {
-    return { excerpt, imageCandidate };
+    return { excerpt, imageCandidate, publishedAt };
   }
 
   await d1Run(env.ky_news_db, "INSERT OR IGNORE INTO item_locations (item_id, state_code, county) VALUES (?, ?, '')", [
@@ -18785,7 +19766,7 @@ async function tagItemLocations(
   if (st === "KY") {
     const tagged = new Set(counties.map((c) => normalizeCounty(c)).filter(Boolean));
     const fallbackCounty = normalizeCounty(input.defaultCounty || "");
-    if (fallbackCounty && kySignal && (!hasOtherStateSignal || tagged.size > 0)) {
+    if (fallbackCounty && (kySignal || (!hasOtherStateSignal && !looksSyndicated || tagged.size > 0))) {
       tagged.add(fallbackCounty);
     }
 
@@ -18798,7 +19779,7 @@ async function tagItemLocations(
     }
   }
 
-  return { excerpt, imageCandidate };
+  return { excerpt, imageCandidate, publishedAt };
 }
 
 export async function ingestFeeds(env: Env, options: IngestOptions): Promise<IngestRunResult> {
@@ -18827,11 +19808,12 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
 
   try {
     const constrainedFeedIds = Array.isArray(options.feedIds) ? options.feedIds.filter(Boolean) : [];
+    const rssUserAgent = env.RSS_USER_AGENT || "EKY-News-Bot/1.0 (+https://kynews.pages.dev)";
     const feeds = constrainedFeedIds.length
       ? await d1All<FeedRow>(
           env.ky_news_db,
           `
-          SELECT id, name, url, etag, last_modified, state_code, region_scope, default_county
+          SELECT id, name, url, fetch_mode, scraper_id, etag, last_modified, state_code, region_scope, default_county
           FROM feeds
           WHERE enabled=1 AND id IN (${constrainedFeedIds.map(() => "?").join(",")})
           ORDER BY name
@@ -18841,10 +19823,10 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
       : await d1All<FeedRow>(
           env.ky_news_db,
           `
-          SELECT id, name, url, etag, last_modified, state_code, region_scope, default_county
+          SELECT id, name, url, fetch_mode, scraper_id, etag, last_modified, state_code, region_scope, default_county
           FROM feeds
           WHERE enabled=1
-          ORDER BY name
+          ORDER BY COALESCE(last_checked_at, '1970-01-01 00:00:00') ASC, name
           LIMIT ?
           `,
           [Number.isFinite(maxFeeds) ? maxFeeds : 200]
@@ -18859,23 +19841,47 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
       let feedStatus: "ok" | "error" | "not_modified" = "ok";
       let feedErrorMessage: string | undefined;
       try {
-        const fetched = await fetchWithConditional(feed.url, feed.etag, feed.last_modified, Boolean(options.force));
-        feedHttpStatus = fetched.status;
+        const fetchMode = String(feed.fetch_mode || "rss").trim().toLowerCase();
+        const safeMaxItems = Number.isFinite(maxItemsPerFeed) ? maxItemsPerFeed : 60;
+        let parsedItems: ReturnType<typeof parseFeedItems> = [];
 
-        await d1Run(
-          env.ky_news_db,
-          "UPDATE feeds SET etag=?, last_modified=?, last_checked_at=datetime('now') WHERE id=?",
-          [fetched.etag, fetched.lastModified, feed.id]
-        );
+        if (fetchMode === "scrape") {
+          const scraped = await scrapeFeedItems({
+            feedId: feed.id,
+            url: feed.url,
+            scraperId: feed.scraper_id,
+            maxItems: safeMaxItems,
+            userAgent: rssUserAgent
+          });
+          feedHttpStatus = scraped.status;
+          parsedItems = scraped.items.slice(0, safeMaxItems);
+          if (parsedItems.length > 0) {
+            summary.feedsUpdated += 1;
+          }
+        } else {
+          const fetched = await fetchWithConditional(
+            feed.url,
+            feed.etag,
+            feed.last_modified,
+            Boolean(options.force),
+            rssUserAgent
+          );
+          feedHttpStatus = fetched.status;
 
-        if (fetched.status === 304 || !fetched.text) {
-          feedStatus = "not_modified";
-          continue;
+          await d1Run(
+            env.ky_news_db,
+            "UPDATE feeds SET etag=?, last_modified=?, last_checked_at=datetime('now') WHERE id=?",
+            [fetched.etag, fetched.lastModified, feed.id]
+          );
+
+          if (fetched.status === 304 || !fetched.text) {
+            feedStatus = "not_modified";
+            continue;
+          }
+
+          summary.feedsUpdated += 1;
+          parsedItems = parseFeedItems(fetched.text).slice(0, safeMaxItems);
         }
-
-        summary.feedsUpdated += 1;
-
-        const parsedItems = parseFeedItems(fetched.text).slice(0, Number.isFinite(maxItemsPerFeed) ? maxItemsPerFeed : 60);
 
         for (const it of parsedItems) {
           summary.itemsSeen += 1;
@@ -18887,14 +19893,14 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
           const summaryText = textOnly(it.contentSnippet || "") || null;
           const contentText = textOnly(it.content || "") || null;
           const author = (it.author || "").trim() || null;
-          const imageUrl = it.imageUrl && /^https?:\/\//i.test(it.imageUrl) ? it.imageUrl : null;
+          const imageUrl = toHttpsUrl(it.imageUrl);
 
           const itemId = await makeItemId({ url: link, guid: it.guid, title, published_at: publishedAt });
           const hash = await stableHash(
             [title, link, summaryText || "", contentText || "", author || "", publishedAt || ""].join("|")
           );
 
-          await upsertItemAndLink(env, feed.id, {
+          const upserted = await upsertItemAndLink(env, feed.id, {
             id: itemId,
             title,
             url: link,
@@ -18908,11 +19914,16 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
             hash
           });
 
+          if (upserted === "unchanged") {
+            continue;
+          }
+
           summary.itemsUpserted += 1;
           feedItemsUpserted += 1;
 
           let articleExcerpt = contentText || "";
           let articleImageCandidate = imageUrl;
+          let articlePublishedAt = publishedAt;
 
           if ((feed.region_scope || "ky") === "ky") {
             const loc = await tagItemLocations(env, {
@@ -18920,6 +19931,7 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
               stateCode: feed.state_code || "KY",
               parts: [title, summaryText || "", contentText || ""],
               url: link,
+              author,
               defaultCounty: feed.default_county,
               feedUrl: feed.url
             });
@@ -18929,6 +19941,13 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
             }
             if (loc.imageCandidate) {
               articleImageCandidate = loc.imageCandidate;
+            }
+            if (!articlePublishedAt && loc.publishedAt) {
+              articlePublishedAt = loc.publishedAt;
+              await d1Run(env.ky_news_db, "UPDATE items SET published_at=COALESCE(published_at, ?) WHERE id=?", [
+                loc.publishedAt,
+                itemId
+              ]);
             }
           }
 
@@ -18972,6 +19991,8 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
           error: feedErrorMessage
         });
       } finally {
+        await d1Run(env.ky_news_db, "UPDATE feeds SET last_checked_at=datetime('now') WHERE id=?", [feed.id]);
+
         const feedMetric = {
           feedId: feed.id,
           status: feedStatus,
@@ -19379,14 +20400,130 @@ export function buildSearchClause(rawQuery: unknown): { clause: string; binds: s
 
 ```
 
+# ky-news-worker\src\lib\text.ts
+
+```ts
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: "\"",
+  apos: "'",
+  nbsp: " ",
+  ndash: "-",
+  mdash: "-",
+  hellip: "...",
+  rsquo: "'",
+  lsquo: "'",
+  rdquo: "\"",
+  ldquo: "\""
+};
+
+function decodeNumericEntity(raw: string): string | null {
+  const value = raw.trim().toLowerCase();
+  const isHex = value.startsWith("x");
+  const num = Number.parseInt(isHex ? value.slice(1) : value, isHex ? 16 : 10);
+  if (!Number.isFinite(num) || num <= 0 || num > 0x10ffff) return null;
+  try {
+    return String.fromCodePoint(num);
+  } catch {
+    return null;
+  }
+}
+
+export function decodeHtmlEntities(input: string): string {
+  if (!input) return "";
+  return input.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]{2,16});/g, (match, inner) => {
+    const key = String(inner || "");
+    if (!key) return match;
+    if (key.startsWith("#")) {
+      const decoded = decodeNumericEntity(key.slice(1));
+      return decoded ?? match;
+    }
+    const named = NAMED_HTML_ENTITIES[key.toLowerCase()];
+    return named ?? match;
+  });
+}
+
+export function normalizeWhitespace(input: string): string {
+  return String(input || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+export function toHttpsUrl(input: string | null | undefined): string | null {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("//")) return `https:${raw}`;
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "http:") url.protocol = "https:";
+    if (url.protocol !== "https:") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+```
+
 # ky-news-worker\src\lib\utils.ts
 
 ```ts
+import { decodeHtmlEntities, normalizeWhitespace, toHttpsUrl } from "./text";
+
 export const NEWS_SCOPES = ["ky", "national", "all"] as const;
 export const LOST_FOUND_TYPES = ["lost", "found"] as const;
-export const LOST_FOUND_STATUSES = ["pending", "approved", "rejected", "published"] as const;
+export const LOST_FOUND_STATUSES = ["pending", "approved", "rejected", "published", "resolved"] as const;
 
 const PAID_SOURCE_DOMAINS = ["kentucky.com", "courier-journal.com", "bizjournals.com"];
+const OUTPUT_SUMMARY_LABEL_RE =
+  /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*|__)?\s*(?:background|summary|key points?|key people|impact|impacts|what'?s next|what to watch next|overview|bottom line|main takeaways?|takeaways?|places|timeline|causes?)\s*:?\s*(?:\*\*|__)?\s*/gi;
+const OUTPUT_NAV_CLUSTER_RE =
+  /\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)(?:\s+\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)\b){4,}/gi;
+
+function sanitizeSummaryForOutput(input: unknown): string | null {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+  let cleaned = normalizeWhitespace(
+    decodeHtmlEntities(raw)
+      .replace(OUTPUT_SUMMARY_LABEL_RE, "\n")
+      .replace(/(?:^|\n)\s*[A-Z][A-Za-z ]{2,28}\s*:\s*(?=\n|$)/g, "\n")
+      .replace(/(?:^|\n)\s*[a-z]\s*:\*+\s*(?=\n|$)/g, "\n")
+      .replace(/^\s*[-*]\s+/gm, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/`{1,3}/g, "")
+  );
+  const lines = cleaned
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const shortLines = lines.filter((line) => line.length < 90);
+  const appearsListHeavy = lines.length >= 8 && shortLines.length >= Math.ceil(lines.length * 0.45);
+  if (appearsListHeavy) {
+    const compactSource = lines.slice(0, Math.min(2, lines.length)).join(" ");
+    const words = compactSource.split(/\s+/).filter(Boolean);
+    const clipped = words.slice(0, 220).join(" ").trim();
+    cleaned = normalizeWhitespace(/[.!?]$/.test(clipped) ? clipped : `${clipped}.`);
+  }
+  return cleaned || null;
+}
+
+function sanitizeExcerptForOutput(input: unknown): string | null {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+  const cleaned = normalizeWhitespace(
+    decodeHtmlEntities(raw)
+      .replace(/\bYou are using an outdated browser[\s\S]{0,260}?experience\.\s*/gi, " ")
+      .replace(/\bSubscribe\b[\s\S]{0,500}?\bE-Edition\b/gi, " ")
+      .replace(OUTPUT_NAV_CLUSTER_RE, " ")
+  );
+  return cleaned || null;
+}
 
 export function csvToArray(csv: unknown): string[] {
   if (!csv) return [];
@@ -19402,6 +20539,23 @@ export function mapItemRow<T extends Record<string, unknown>>(row: T): T & { sta
   const next = { ...row } as Record<string, unknown>;
   delete next.states_csv;
   delete next.counties_csv;
+  const rawImageUrl = String(next.image_url || "").trim();
+  if (rawImageUrl.startsWith("http://") || rawImageUrl.startsWith("//")) {
+    next.image_url = toHttpsUrl(rawImageUrl);
+  }
+  if ("title" in next) {
+    next.title = decodeHtmlEntities(String(next.title || "")).trim();
+  }
+  if ("author" in next) {
+    const author = decodeHtmlEntities(String(next.author || "")).trim();
+    next.author = author || null;
+  }
+  if ("summary" in next) {
+    next.summary = sanitizeSummaryForOutput(next.summary);
+  }
+  if ("content" in next) {
+    next.content = sanitizeExcerptForOutput(next.content);
+  }
   return { ...(next as T), states, counties };
 }
 
@@ -19947,9 +21101,15 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
         `,
         [itemId, reviewedSummary]
       );
-      await c.env.CACHE.put(`summary:v1:${itemId}`, reviewedSummary, {
-        expirationTtl: Number(c.env.SUMMARY_CACHE_TTL_SECONDS || 30 * 24 * 60 * 60)
-      });
+      const ttl = Number(c.env.SUMMARY_CACHE_TTL_SECONDS || 30 * 24 * 60 * 60);
+      await Promise.all([
+        c.env.CACHE.put(`summary:v2:${itemId}`, reviewedSummary, {
+          expirationTtl: ttl
+        }),
+        c.env.CACHE.put(`summary:v1:${itemId}`, reviewedSummary, {
+          expirationTtl: ttl
+        })
+      ]);
     }
 
     await d1Run(
@@ -20226,6 +21386,7 @@ import { LOST_FOUND_STATUSES, LOST_FOUND_TYPES, normalizeCounty } from "../lib/u
 import { d1All, d1First, d1Run } from "../services/db";
 import { decryptText, encryptText, hashIp } from "../lib/crypto";
 import {
+  enforceRateLimit,
   enforceSubmissionRateLimit,
   getAdminIdentity,
   getClientIp,
@@ -20283,6 +21444,9 @@ async function mapLostFoundRow(
     submitted_at: row.submitted_at,
     approved_at: row.approved_at,
     rejected_at: row.rejected_at,
+    is_resolved: Number(row.is_resolved) === 1,
+    resolved_at: row.resolved_at,
+    resolved_note: row.resolved_note,
     expires_at: row.expires_at,
     moderation_note: row.moderation_note,
     images
@@ -20372,11 +21536,18 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     const where = ["datetime(p.expires_at) > datetime('now')"];
     const binds: unknown[] = [];
 
-    const status = parsed.data.status === "published" ? "approved" : parsed.data.status;
-    if (!admin && status !== "approved") unauthorized("Only published lost-and-found posts are public");
+    if (!admin && parsed.data.status !== "published") unauthorized("Only published lost-and-found posts are public");
 
-    where.push("p.status = ?");
-    binds.push(status);
+    if (parsed.data.status === "published") {
+      where.push("p.status = 'approved'");
+      where.push("COALESCE(p.is_resolved, 0) = 0");
+    } else if (parsed.data.status === "resolved") {
+      where.push("p.status = 'approved'");
+      where.push("COALESCE(p.is_resolved, 0) = 1");
+    } else {
+      where.push("p.status = ?");
+      binds.push(parsed.data.status);
+    }
 
     if (parsed.data.type) {
       where.push("p.type = ?");
@@ -20410,7 +21581,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     c.header("Cache-Control", "public, max-age=30, s-maxage=60, stale-while-revalidate=120");
     return c.json({
       posts,
-      status,
+      status: parsed.data.status,
       county: parsed.data.county ? normalizeCounty(parsed.data.county) : null
     });
   });
@@ -20455,6 +21626,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     const id = randomUUID();
     const county = normalizeCounty(parsed.data.county);
     const encryptedContact = await encryptText(c.env, parsed.data.contactEmail.trim().toLowerCase());
+    const initialStatus = c.env.LOST_FOUND_AUTO_APPROVE === "1" ? "approved" : "pending";
 
     await d1Run(
       c.env.ky_news_db,
@@ -20462,7 +21634,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
       INSERT INTO lost_found_posts (
         id, type, title, description, county, state_code,
         contact_email_encrypted, show_contact, status, expires_at
-      ) VALUES (?, ?, ?, ?, ?, 'KY', ?, ?, 'pending', datetime('now', '+30 days'))
+      ) VALUES (?, ?, ?, ?, ?, 'KY', ?, ?, ?, datetime('now', '+30 days'))
       `,
       [
         id,
@@ -20471,9 +21643,14 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
         parsed.data.description.trim(),
         county,
         encryptedContact,
-        parsed.data.showContact ? 1 : 0
+        parsed.data.showContact ? 1 : 0,
+        initialStatus
       ]
     );
+
+    if (initialStatus === "approved") {
+      await d1Run(c.env.ky_news_db, "UPDATE lost_found_posts SET approved_at=datetime('now') WHERE id=?", [id]);
+    }
 
     for (const imageKey of parsed.data.imageKeys) {
       await d1Run(c.env.ky_news_db, "INSERT INTO lost_found_images (id, post_id, r2_key) VALUES (?, ?, ?)", [
@@ -20483,7 +21660,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
       ]);
     }
 
-    return c.json({ ok: true, id, status: "pending" });
+    return c.json({ ok: true, id, status: initialStatus });
   });
 
   const ReportBody = z.object({
@@ -20509,8 +21686,81 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     return c.json({ ok: true });
   });
 
+  const MarkFoundBody = z.object({
+    contactEmail: z.string().email(),
+    note: z.string().max(500).optional()
+  });
+
+  app.post("/api/lost-found/:id/mark-found", async (c) => {
+    const id = String(c.req.param("id") || "");
+    const body = await c.req.json().catch(() => null);
+    const parsed = MarkFoundBody.safeParse(body || {});
+    if (!parsed.success) badRequest("Invalid payload");
+
+    const ip = getClientIp(c);
+    const rl = await enforceRateLimit(c.env, `lf-mark-found:${ip}`, 12, 60 * 60);
+    if (!rl.allowed) tooManyRequests("Rate limit exceeded. Try again later.");
+
+    const post = await d1First<{
+      id: string;
+      type: string;
+      status: string;
+      is_resolved: number;
+      contact_email_encrypted: string;
+    }>(
+      c.env.ky_news_db,
+      `
+      SELECT id, type, status, is_resolved, contact_email_encrypted
+      FROM lost_found_posts
+      WHERE id=? AND datetime(expires_at) > datetime('now')
+      LIMIT 1
+      `,
+      [id]
+    );
+    if (!post) {
+      const exists = await d1First<{ id: string }>(c.env.ky_news_db, "SELECT id FROM lost_found_posts WHERE id=?", [id]);
+      if (!exists) notFound("Post not found");
+      badRequest("This listing has expired");
+    }
+
+    if (post.type !== "lost" || post.status !== "approved") {
+      badRequest("Only active lost posts can be marked found");
+    }
+    if (Number(post.is_resolved || 0) === 1) {
+      return c.json({ ok: true, id, status: "resolved" });
+    }
+
+    const submittedEmail = parsed.data.contactEmail.trim().toLowerCase();
+    const ownerEmail = String((await decryptText(c.env, post.contact_email_encrypted)) || "")
+      .trim()
+      .toLowerCase();
+    if (!ownerEmail || ownerEmail !== submittedEmail) {
+      unauthorized("Contact email verification failed");
+    }
+
+    const info = await d1Run(
+      c.env.ky_news_db,
+      `
+      UPDATE lost_found_posts
+      SET
+        is_resolved=1,
+        resolved_at=datetime('now'),
+        resolved_note=?
+      WHERE id=? AND status='approved' AND COALESCE(is_resolved, 0)=0
+      `,
+      [parsed.data.note || null, id]
+    );
+
+    const changed = Number((info.meta as any)?.changes || 0);
+    if (!changed) {
+      return c.json({ ok: true, id, status: "resolved" });
+    }
+
+    return c.json({ ok: true, id, status: "resolved" });
+  });
+
   const AdminListQuery = z.object({
-    status: z.enum(["pending", "approved", "rejected"]).default("pending"),
+    status: z.enum(["pending", "approved", "rejected", "resolved", "all"]).default("pending"),
     limit: z.coerce.number().min(1).max(200).default(100)
   });
 
@@ -20518,6 +21768,17 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     const admin = requireAdmin(c);
     const parsed = AdminListQuery.safeParse(queryInput(c));
     if (!parsed.success) badRequest("Invalid query");
+
+    const where: string[] = [];
+    const binds: unknown[] = [];
+
+    if (parsed.data.status === "resolved") {
+      where.push("p.status = 'approved'");
+      where.push("COALESCE(p.is_resolved, 0) = 1");
+    } else if (parsed.data.status !== "all") {
+      where.push("p.status = ?");
+      binds.push(parsed.data.status);
+    }
 
     const rows = await d1All<Record<string, unknown>>(
       c.env.ky_news_db,
@@ -20530,11 +21791,11 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
           WHERE i.post_id = p.id
         ) AS images_csv
       FROM lost_found_posts p
-      WHERE p.status = ?
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY p.submitted_at DESC
       LIMIT ?
       `,
-      [parsed.data.status, parsed.data.limit]
+      [...binds, parsed.data.limit]
     );
 
     const posts = await Promise.all(rows.map((r) => mapLostFoundRow(c.env, r, true)));
@@ -20605,6 +21866,54 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     await insertAdminLog(c.env, admin.email, "lost_found.reject", "lost_found_post", id, parsed.data);
     return c.json({ ok: true, id, status: "rejected" });
   });
+
+  app.delete("/api/admin/lost-found/:id", async (c) => {
+    const admin = requireAdmin(c);
+    const id = String(c.req.param("id") || "");
+
+    const row = await d1First<{ id: string; images_csv: string | null }>(
+      c.env.ky_news_db,
+      `
+      SELECT
+        p.id,
+        (
+          SELECT group_concat(i.r2_key)
+          FROM lost_found_images i
+          WHERE i.post_id = p.id
+        ) AS images_csv
+      FROM lost_found_posts p
+      WHERE p.id=?
+      LIMIT 1
+      `,
+      [id]
+    );
+    if (!row) notFound("Post not found");
+
+    const imageKeys = String(row.images_csv || "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_images WHERE post_id=?", [id]);
+    await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_reports WHERE post_id=?", [id]);
+    await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_posts WHERE id=?", [id]);
+
+    await Promise.all(
+      imageKeys.map(async (key) => {
+        try {
+          await c.env.ky_news_media.delete(`lost-found/${key}`);
+        } catch {
+          // Ignore media delete failures; DB record is source of truth for visibility.
+        }
+      })
+    );
+
+    await insertAdminLog(c.env, admin.email, "lost_found.delete", "lost_found_post", id, {
+      deleted_images: imageKeys.length
+    });
+
+    return c.json({ ok: true, id, deletedImages: imageKeys.length });
+  });
 }
 
 ```
@@ -20637,7 +21946,7 @@ const ItemsQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(720).default(2),
+  hours: z.coerce.number().min(1).max(24 * 365).default(2),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
 });
@@ -20648,14 +21957,14 @@ const SearchQuery = z.object({
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
-  hours: z.coerce.number().min(1).max(720).default(2),
+  hours: z.coerce.number().min(1).max(24 * 365).default(2),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
 });
 
 const CountiesQuery = z.object({
   state: z.string().length(2).default("KY"),
-  hours: z.coerce.number().min(1).max(720).default(2)
+  hours: z.coerce.number().min(1).max(24 * 365).default(2)
 });
 
 const OpenProxyQuery = z.object({
@@ -21017,13 +22326,32 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
   });
 
   app.get("/api/media/:key{.+}", async (c) => {
-    const key = decodeURIComponent(c.req.param("key") || "");
+    const rawKey = c.req.param("key") || "";
+    let key = "";
+    try {
+      key = decodeURIComponent(rawKey);
+    } catch {
+      badRequest("Invalid object key");
+    }
     if (!/^[a-zA-Z0-9/_\-.]+$/.test(key) || key.includes("..")) {
       badRequest("Invalid object key");
     }
 
-    const obj = await c.env.ky_news_media.get(key);
-    if (!obj) notFound("Media not found");
+    let obj = await c.env.ky_news_media.get(key);
+    if (!obj) {
+      const keyMatch = key.match(/^news\/([a-f0-9]{24})\.[a-z0-9]+$/i);
+      if (keyMatch) {
+        const mapped = await d1First<{ r2_key: string }>(
+          c.env.ky_news_db,
+          "SELECT r2_key FROM item_media WHERE item_id=? LIMIT 1",
+          [keyMatch[1]]
+        );
+        if (mapped?.r2_key && mapped.r2_key !== key) {
+          return c.redirect(`/api/media/${encodeURIComponent(mapped.r2_key)}`, 302);
+        }
+      }
+      notFound("Media not found");
+    }
 
     const headers = new Headers();
     obj.writeHttpMetadata(headers);
@@ -21032,6 +22360,9 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
       headers.set("cache-control", "public, max-age=2592000, immutable");
     }
 
+    if (c.req.method === "HEAD") {
+      return new Response(null, { headers });
+    }
     return new Response(obj.body, { headers });
   });
 }
@@ -21179,28 +22510,29 @@ export async function respondCachedJson(
 # ky-news-worker\src\services\article.ts
 
 ```ts
+import { decodeHtmlEntities, normalizeWhitespace, toHttpsUrl } from "../lib/text";
+
 export interface ArticleFetchResult {
   status: string;
   text: string;
   ogImage: string | null;
+  publishedAt: string | null;
 }
 
 const ARTICLE_TIMEOUT_MS = 12_000;
 const ARTICLE_MAX_CHARS = 2_000_000;
 const EXCERPT_MAX_CHARS = 10_000;
+const NAV_CLUSTER_RE =
+  /\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)(?:\s+\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)\b){4,}/gi;
 
 function stripTags(input: string): string {
-  return input
+  return decodeHtmlEntities(input)
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, " ")
     .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -21213,16 +22545,20 @@ function firstMatch(html: string, re: RegExp): string | null {
 
 function pickOgImage(html: string): string | null {
   const fromOg = firstMatch(html, /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i);
-  if (fromOg && /^https?:\/\//i.test(fromOg)) return fromOg;
+  const ogUrl = toHttpsUrl(fromOg);
+  if (ogUrl) return ogUrl;
 
   const fromOgName = firstMatch(html, /<meta[^>]+name=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i);
-  if (fromOgName && /^https?:\/\//i.test(fromOgName)) return fromOgName;
+  const ogNameUrl = toHttpsUrl(fromOgName);
+  if (ogNameUrl) return ogNameUrl;
 
   const fromTw = firstMatch(html, /<meta[^>]+property=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i);
-  if (fromTw && /^https?:\/\//i.test(fromTw)) return fromTw;
+  const twUrl = toHttpsUrl(fromTw);
+  if (twUrl) return twUrl;
 
   const fromTwName = firstMatch(html, /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i);
-  if (fromTwName && /^https?:\/\//i.test(fromTwName)) return fromTwName;
+  const twNameUrl = toHttpsUrl(fromTwName);
+  if (twNameUrl) return twNameUrl;
 
   return null;
 }
@@ -21238,7 +22574,8 @@ function pickInlineImage(html: string, pageUrl: string): string | null {
 
     try {
       const abs = new URL(src, pageUrl).toString();
-      if (/^https?:\/\//i.test(abs)) return abs;
+      const https = toHttpsUrl(abs);
+      if (https) return https;
     } catch {
       // continue
     }
@@ -21247,16 +22584,90 @@ function pickInlineImage(html: string, pageUrl: string): string | null {
   return null;
 }
 
+function toIsoOrNull(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const dt = new Date(input);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+}
+
+function pickPublishedAt(html: string): string | null {
+  const fields = [
+    /<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+name=["']article:published_time["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+property=["']og:article:published_time["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+name=["']parsely-pub-date["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+itemprop=["']datePublished["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<time[^>]+datetime=["']([^"']+)["'][^>]*>/i
+  ];
+  for (const pattern of fields) {
+    const value = firstMatch(html, pattern);
+    const iso = toIsoOrNull(value);
+    if (iso) return iso;
+  }
+  return null;
+}
+
+function cleanExtractedText(input: string): string {
+  return normalizeWhitespace(
+    decodeHtmlEntities(input)
+      .replace(/\bYou are using an outdated browser[\s\S]{0,260}?experience\.\s*/gi, " ")
+      .replace(/\bSubscribe\b[\s\S]{0,500}?\bE-Edition\b/gi, " ")
+      .replace(NAV_CLUSTER_RE, " ")
+      .replace(/\s+/g, " ")
+  );
+}
+
 function extractReadableText(html: string): string {
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  const source = bodyMatch?.[1] || html;
-  const text = stripTags(source);
+  const cleaned = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<aside[\s\S]*?<\/aside>/gi, " ");
+
+  const candidates: RegExp[] = [
+    /<article[^>]*>([\s\S]*?)<\/article>/gi,
+    /<main[^>]*>([\s\S]*?)<\/main>/gi,
+    /<section[^>]+(?:id|class)=["'][^"']*(?:article|story|post|entry|content-body|article-body|story-body|entry-content)[^"']*["'][^>]*>([\s\S]*?)<\/section>/gi,
+    /<div[^>]+(?:id|class)=["'][^"']*(?:article|story|post|entry|content-body|article-body|story-body|entry-content)[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi
+  ];
+
+  let bestText = "";
+  let bestScore = -1;
+  for (const re of candidates) {
+    re.lastIndex = 0;
+    let match: RegExpExecArray | null = null;
+    while ((match = re.exec(cleaned))) {
+      const block = match[1] || "";
+      if (!block) continue;
+      const paragraphCount = (block.match(/<p\b/gi) || []).length;
+      const text = cleanExtractedText(stripTags(block));
+      if (!text) continue;
+      const navHits = (text.match(/\b(home|subscribe|classifieds|public notices|calendar|services)\b/gi) || []).length;
+      const score = text.length + paragraphCount * 120 - navHits * 45;
+      if (score > bestScore) {
+        bestScore = score;
+        bestText = text;
+      }
+    }
+  }
+
+  if (!bestText || bestText.length < 220) {
+    const bodyMatch = cleaned.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    bestText = cleanExtractedText(stripTags(bodyMatch?.[1] || cleaned));
+  }
+
+  const text = cleanExtractedText(bestText);
   return text.length > EXCERPT_MAX_CHARS ? text.slice(0, EXCERPT_MAX_CHARS) : text;
 }
 
 export async function fetchArticle(url: string): Promise<ArticleFetchResult> {
   if (!url || !/^https?:\/\//i.test(url)) {
-    return { status: "skip", text: "", ogImage: null };
+    return { status: "skip", text: "", ogImage: null, publishedAt: null };
   }
 
   const ctrl = new AbortController();
@@ -21273,22 +22684,23 @@ export async function fetchArticle(url: string): Promise<ArticleFetchResult> {
     });
 
     if (res.status < 200 || res.status >= 300) {
-      return { status: `http_${res.status}`, text: "", ogImage: null };
+      return { status: `http_${res.status}`, text: "", ogImage: null, publishedAt: null };
     }
 
     const contentType = (res.headers.get("content-type") || "").toLowerCase();
     if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
-      return { status: "non_html", text: "", ogImage: null };
+      return { status: "non_html", text: "", ogImage: null, publishedAt: null };
     }
 
     let html = await res.text();
     if (html.length > ARTICLE_MAX_CHARS) html = html.slice(0, ARTICLE_MAX_CHARS);
 
     const ogImage = pickOgImage(html) || pickInlineImage(html, url);
+    const publishedAt = pickPublishedAt(html);
     const text = extractReadableText(html);
-    return { status: "ok", text, ogImage };
+    return { status: "ok", text, ogImage, publishedAt };
   } catch {
-    return { status: "error", text: "", ogImage: null };
+    return { status: "error", text: "", ogImage: null, publishedAt: null };
   } finally {
     clearTimeout(timeout);
   }
@@ -21471,6 +22883,7 @@ export function hasKySignal(text: string, counties: string[]): boolean {
 import { d1First, d1Run } from "./db";
 import { badRequest } from "../lib/errors";
 import { logWarn } from "../lib/logger";
+import { toHttpsUrl } from "../lib/text";
 import type { Env } from "../types";
 
 const IMAGE_TIMEOUT_MS = 12_000;
@@ -21504,8 +22917,8 @@ export async function mirrorArticleImageToR2(
   env: Env,
   input: { itemId: string; sourceUrl: string | null | undefined }
 ): Promise<string | null> {
-  const sourceUrl = String(input.sourceUrl || "").trim();
-  if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) return null;
+  const sourceUrl = toHttpsUrl(input.sourceUrl);
+  if (!sourceUrl) return null;
 
   const existing = await d1First<{ source_url: string; r2_key: string }>(
     env.ky_news_db,
@@ -21720,6 +23133,7 @@ export async function purgeExpiredErrorEvents(env: Env): Promise<void> {
 
 ```ts
 import { XMLParser } from "fast-xml-parser";
+import { toHttpsUrl } from "../lib/text";
 
 export interface ParsedFeedItem {
   title: string;
@@ -21783,7 +23197,7 @@ function extractImageFromHtml(html: string): string | null {
   const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
   const src = match?.[1]?.trim();
   if (!src) return null;
-  return /^https?:\/\//i.test(src) ? src : null;
+  return toHttpsUrl(src);
 }
 
 function stripHtml(html: string): string {
@@ -21802,30 +23216,38 @@ function normalizeDate(value: string | null): string | null {
   return d.toISOString();
 }
 
+function pickDate(values: Array<string | null | undefined>): { iso: string | null; raw: string | null } {
+  for (const value of values) {
+    const raw = String(value || "").trim();
+    if (!raw) continue;
+    const iso = normalizeDate(raw);
+    if (iso) return { iso, raw };
+  }
+  return { iso: null, raw: null };
+}
+
 function pickImage(item: Record<string, unknown>): string | null {
-  const enclosure = item.enclosure as Record<string, unknown> | undefined;
-  if (enclosure?.url && /^https?:\/\//i.test(String(enclosure.url))) {
-    return String(enclosure.url);
+  const enclosures = toArray(item.enclosure as Record<string, unknown> | Array<Record<string, unknown>> | undefined);
+  for (const enclosure of enclosures) {
+    const mediaUrl = toHttpsUrl(String(enclosure?.url || ""));
+    if (mediaUrl) return mediaUrl;
   }
 
   const mediaContent = item["media:content"] as Record<string, unknown> | Array<Record<string, unknown>> | undefined;
   for (const media of toArray(mediaContent)) {
-    if (media?.url && /^https?:\/\//i.test(String(media.url))) {
-      return String(media.url);
-    }
+    const mediaUrl = toHttpsUrl(String(media?.url || ""));
+    if (mediaUrl) return mediaUrl;
   }
 
   const mediaThumb = item["media:thumbnail"] as Record<string, unknown> | Array<Record<string, unknown>> | undefined;
   for (const media of toArray(mediaThumb)) {
-    if (media?.url && /^https?:\/\//i.test(String(media.url))) {
-      return String(media.url);
-    }
+    const mediaUrl = toHttpsUrl(String(media?.url || ""));
+    if (mediaUrl) return mediaUrl;
   }
 
   const itunes = item["itunes:image"] as Record<string, unknown> | undefined;
-  if (itunes?.href && /^https?:\/\//i.test(String(itunes.href))) {
-    return String(itunes.href);
-  }
+  const itunesUrl = toHttpsUrl(String(itunes?.href || ""));
+  if (itunesUrl) return itunesUrl;
 
   const content = textOf(item["content:encoded"] || item.content || item.description || "");
   return extractImageFromHtml(content);
@@ -21834,13 +23256,21 @@ function pickImage(item: Record<string, unknown>): string | null {
 function mapRssItem(item: Record<string, unknown>): ParsedFeedItem {
   const content = textOf(item["content:encoded"] || item.content || item.description || "") || null;
   const snippet = textOf(item.description || item.summary || item.contentSnippet || "") || null;
+  const date = pickDate([
+    textOf(item.isoDate),
+    textOf(item.pubDate),
+    textOf(item["dc:date"]),
+    textOf(item.published),
+    textOf(item.updated),
+    textOf(item.date)
+  ]);
 
   return {
     title: textOf(item.title) || "(untitled)",
     link: pickLink(item.link || item.guid),
     guid: textOf(item.guid) || null,
-    isoDate: normalizeDate(textOf(item.isoDate) || textOf(item.pubDate) || null),
-    pubDate: textOf(item.pubDate) || null,
+    isoDate: date.iso,
+    pubDate: date.raw,
     contentSnippet: snippet ? stripHtml(snippet).slice(0, 2000) : null,
     content: content ? content.slice(0, 50_000) : null,
     author: textOf(item["dc:creator"] || item.creator || item.author) || null,
@@ -21851,13 +23281,19 @@ function mapRssItem(item: Record<string, unknown>): ParsedFeedItem {
 function mapAtomItem(entry: Record<string, unknown>): ParsedFeedItem {
   const content = textOf(entry.content || "") || null;
   const summary = textOf(entry.summary || "") || null;
+  const date = pickDate([
+    textOf(entry.updated),
+    textOf(entry.published),
+    textOf(entry["dc:date"]),
+    textOf(entry.date)
+  ]);
 
   return {
     title: textOf(entry.title) || "(untitled)",
     link: pickLink(entry.link || entry.id),
     guid: textOf(entry.id) || null,
-    isoDate: normalizeDate(textOf(entry.updated) || textOf(entry.published) || null),
-    pubDate: textOf(entry.published) || textOf(entry.updated) || null,
+    isoDate: date.iso,
+    pubDate: date.raw,
     contentSnippet: summary ? stripHtml(summary).slice(0, 2000) : null,
     content: content ? content.slice(0, 50_000) : summary,
     author: textOf((entry.author as any)?.name || entry.author) || null,
@@ -21915,6 +23351,8 @@ async function createCoreSchema(env: Env): Promise<void> {
         state_code TEXT NOT NULL DEFAULT 'KY',
         default_county TEXT,
         region_scope TEXT NOT NULL DEFAULT 'ky',
+        fetch_mode TEXT NOT NULL DEFAULT 'rss',
+        scraper_id TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
         etag TEXT,
         last_modified TEXT,
@@ -22016,6 +23454,9 @@ async function createCoreSchema(env: Env): Promise<void> {
         submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
         approved_at TEXT,
         rejected_at TEXT,
+        is_resolved INTEGER NOT NULL DEFAULT 0,
+        resolved_at TEXT,
+        resolved_note TEXT,
         expires_at TEXT NOT NULL,
         moderation_note TEXT
       )`
@@ -22158,6 +23599,7 @@ async function createCoreSchema(env: Env): Promise<void> {
     { sql: "CREATE INDEX IF NOT EXISTS idx_item_locations_county ON item_locations(state_code, county)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_item_locations_item ON item_locations(item_id)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_feeds_region_scope ON feeds(region_scope)" },
+    { sql: "CREATE INDEX IF NOT EXISTS idx_feeds_fetch_mode_enabled ON feeds(fetch_mode, enabled)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_weather_forecasts_county ON weather_forecasts(state_code, county, fetched_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_weather_alerts_state_county ON weather_alerts(state_code, county, fetched_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_weather_alerts_alert_id ON weather_alerts(alert_id)" },
@@ -22178,10 +23620,20 @@ async function createCoreSchema(env: Env): Promise<void> {
 
   await addColumnIfMissing(db, "feeds", "region_scope", "TEXT NOT NULL DEFAULT 'ky'");
   await addColumnIfMissing(db, "feeds", "default_county", "TEXT");
+  await addColumnIfMissing(db, "feeds", "fetch_mode", "TEXT NOT NULL DEFAULT 'rss'");
+  await addColumnIfMissing(db, "feeds", "scraper_id", "TEXT");
+  await d1Run(
+    db,
+    "UPDATE feeds SET fetch_mode='rss' WHERE fetch_mode IS NULL OR trim(fetch_mode)=''"
+  );
   await addColumnIfMissing(db, "items", "region_scope", "TEXT NOT NULL DEFAULT 'ky'");
   await addColumnIfMissing(db, "items", "article_checked_at", "TEXT");
   await addColumnIfMissing(db, "items", "article_fetch_status", "TEXT");
   await addColumnIfMissing(db, "items", "article_text_excerpt", "TEXT");
+  await addColumnIfMissing(db, "lost_found_posts", "is_resolved", "INTEGER NOT NULL DEFAULT 0");
+  await addColumnIfMissing(db, "lost_found_posts", "resolved_at", "TEXT");
+  await addColumnIfMissing(db, "lost_found_posts", "resolved_note", "TEXT");
+  await d1Run(db, "CREATE INDEX IF NOT EXISTS idx_lost_found_posts_resolved ON lost_found_posts(is_resolved, submitted_at)");
 }
 
 export function ensureSchema(env: Env): Promise<void> {
@@ -22198,6 +23650,715 @@ export function ensureSchema(env: Env): Promise<void> {
 export async function ensureSchemaFresh(env: Env): Promise<void> {
   schemaReady = null;
   await ensureSchema(env);
+}
+
+```
+
+# ky-news-worker\src\services\scrapers.ts
+
+```ts
+import type { ParsedFeedItem } from "./rss";
+import { decodeHtmlEntities, normalizeWhitespace, toHttpsUrl } from "../lib/text";
+import { logWarn } from "../lib/logger";
+
+const LIST_TIMEOUT_MS = 15_000;
+const META_TIMEOUT_MS = 9_000;
+const LIST_MAX_CHARS = 2_000_000;
+const META_MAX_CHARS = 1_200_000;
+const MAX_META_FETCHES = 16;
+const META_CONCURRENCY = 4;
+const MIN_TITLE_CHARS = 12;
+
+type ScraperKind = "generic-news" | "gannett-story" | "townnews-article" | "mcclatchy-article";
+
+export type ScrapeFeedInput = {
+  feedId: string;
+  url: string;
+  scraperId: string | null;
+  maxItems: number;
+  userAgent: string;
+};
+
+export type ScrapeFeedResult = {
+  status: number;
+  items: ParsedFeedItem[];
+};
+
+type Candidate = {
+  link: string;
+  title: string;
+  isoDate: string | null;
+  snippet: string | null;
+  imageUrl: string | null;
+  author: string | null;
+  score: number;
+};
+
+type ArticleMeta = {
+  title: string | null;
+  snippet: string | null;
+  isoDate: string | null;
+  author: string | null;
+  imageUrl: string | null;
+  canonicalUrl: string | null;
+};
+
+const SCRAPER_BY_ID: Record<string, ScraperKind> = {
+  "generic-news": "generic-news",
+  "gannett-story": "gannett-story",
+  "townnews-article": "townnews-article",
+  "mcclatchy-article": "mcclatchy-article"
+};
+
+const HOST_SCRAPER_HINTS: Array<{ host: string; kind: ScraperKind }> = [
+  { host: "courier-journal.com", kind: "gannett-story" },
+  { host: "cincinnati.com", kind: "gannett-story" },
+  { host: "messenger-inquirer.com", kind: "townnews-article" },
+  { host: "paducahsun.com", kind: "townnews-article" },
+  { host: "kentuckynewera.com", kind: "townnews-article" },
+  { host: "hazard-herald.com", kind: "townnews-article" },
+  { host: "dailyindependent.com", kind: "townnews-article" },
+  { host: "state-journal.com", kind: "townnews-article" },
+  { host: "kentucky.com", kind: "mcclatchy-article" }
+];
+
+const META_PATTERNS = {
+  ogTitle: /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+  twTitle: /<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+  description: /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+  ogDescription: /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+  author: /<meta[^>]+name=["']author["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+  articleAuthor: /<meta[^>]+property=["']article:author["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+  published: /<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+  ogImage: /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+  canonical: /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["'][^>]*>/i,
+  title: /<title[^>]*>([\s\S]*?)<\/title>/i,
+  timeTag: /<time[^>]+datetime=["']([^"']+)["'][^>]*>/i
+};
+
+const LINK_ATTR_RE = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+const LINK_URL_RE = /https?:\/\/[^\s"'<>]+/gi;
+const SCRIPT_JSONLD_RE = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+
+function toIsoOrNull(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const dt = new Date(input);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+}
+
+function cleanText(input: string | null | undefined): string {
+  return normalizeWhitespace(
+    decodeHtmlEntities(String(input || ""))
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+  );
+}
+
+function cleanTitle(input: string | null | undefined): string {
+  return cleanText(input).replace(/\s+\|\s+.*$/, "").trim();
+}
+
+function extractFirst(html: string, pattern: RegExp): string | null {
+  const match = html.match(pattern);
+  const raw = match?.[1]?.trim();
+  if (!raw) return null;
+  return decodeHtmlEntities(raw).trim() || null;
+}
+
+function decodePossiblyEscaped(input: string): string {
+  const decoded = decodeHtmlEntities(input);
+  try {
+    return JSON.parse(`"${decoded.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+  } catch {
+    return decoded;
+  }
+}
+
+function canonicalizeUrl(rawUrl: string, baseUrl: string): string | null {
+  try {
+    const absolute = new URL(rawUrl, baseUrl);
+    if (absolute.protocol === "http:") absolute.protocol = "https:";
+    if (absolute.protocol !== "https:") return null;
+    absolute.hash = "";
+    for (const key of [...absolute.searchParams.keys()]) {
+      if (/^(utm_|gclid$|fbclid$|mc_eid$|mkt_tok$|outputType$|output$)/i.test(key)) {
+        absolute.searchParams.delete(key);
+      }
+    }
+    const path = absolute.pathname.replace(/\/+$/, "");
+    absolute.pathname = path || "/";
+    return absolute.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHost(host: string): string {
+  return host.trim().toLowerCase().replace(/^www\./, "");
+}
+
+function hostMatches(urlHost: string, sourceHost: string): boolean {
+  const a = normalizeHost(urlHost);
+  const b = normalizeHost(sourceHost);
+  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
+function resolveScraperKind(feedUrl: string, scraperId: string | null): ScraperKind {
+  const explicit = scraperId ? SCRAPER_BY_ID[scraperId.trim().toLowerCase()] : null;
+  if (explicit) return explicit;
+
+  try {
+    const host = normalizeHost(new URL(feedUrl).hostname);
+    const matched = HOST_SCRAPER_HINTS.find((entry) => host === entry.host || host.endsWith(`.${entry.host}`));
+    if (matched) return matched.kind;
+  } catch {
+    // Ignore and use generic fallback.
+  }
+
+  return "generic-news";
+}
+
+function scoreCandidate(kind: ScraperKind, url: URL, title: string): number {
+  const path = `${url.pathname}${url.search}`.toLowerCase();
+  let score = 0;
+
+  if (title.length >= MIN_TITLE_CHARS) score += Math.min(20, Math.floor(title.length / 8));
+  if (/\/20\d{2}\/\d{2}\/\d{2}\//.test(path)) score += 20;
+  if (/\/(news|local|state|politics|business|education|sports|weather|obituaries|crime|government)\//.test(path)) {
+    score += 24;
+  }
+  if ((path.match(/\//g) || []).length >= 4) score += 10;
+
+  if (kind === "gannett-story") {
+    if (/\/story\//.test(path)) score += 80;
+    else score -= 35;
+  } else if (kind === "townnews-article") {
+    if (/article_[a-z0-9-]+\.html/.test(path)) score += 85;
+    else score -= 30;
+  } else if (kind === "mcclatchy-article") {
+    if (/\/article\d+\.html/.test(path)) score += 85;
+    else if (/\/news\//.test(path) && /\.html/.test(path)) score += 40;
+    else score -= 25;
+  } else {
+    if (/\/story\//.test(path) || /article_[a-z0-9-]+\.html/.test(path) || /\/article\d+\.html/.test(path)) {
+      score += 55;
+    }
+  }
+
+  if (/\.(jpg|jpeg|png|gif|svg|webp|pdf)$/i.test(path)) score -= 250;
+  if (/\/(video|videos|photos?|galleries?|podcasts?)\//.test(path)) score -= 35;
+  if (/\/(tag|tags|topic|topics|author|authors|about|contact|privacy|terms|sitemap|account|subscribe)\b/.test(path)) {
+    score -= 140;
+  }
+  if (/\/ap\//.test(path)) score -= 25;
+  if (/\/search\//.test(path)) score -= 60;
+  if (url.searchParams.has("output") || url.searchParams.has("outputType")) score -= 20;
+
+  return score;
+}
+
+function isLikelyArticleCandidate(kind: ScraperKind, url: URL, sourceHost: string): boolean {
+  if (!hostMatches(url.hostname, sourceHost)) return false;
+  const path = `${url.pathname}${url.search}`.toLowerCase();
+  if (!path || path === "/" || path.length < 8) return false;
+  if (/\.(jpg|jpeg|png|gif|svg|webp|pdf)$/i.test(path)) return false;
+  if (/#/.test(path)) return false;
+  if (/\/(subscribe|account|login|privacy|terms|contact|about|staff|sitemap)\b/.test(path)) return false;
+
+  if (kind === "gannett-story") return /\/story\//.test(path);
+  if (kind === "townnews-article") return /article_[a-z0-9-]+\.html/.test(path);
+  if (kind === "mcclatchy-article") return /\/article\d+\.html/.test(path) || (/\/news\//.test(path) && /\.html/.test(path));
+
+  return /\/story\//.test(path) || /article_[a-z0-9-]+\.html/.test(path) || /\/article\d+\.html/.test(path) || /\/20\d{2}\//.test(path);
+}
+
+function parseJsonLdBlock(raw: string): unknown | null {
+  const stripped = raw.trim().replace(/^<!--/, "").replace(/-->$/, "").trim();
+  if (!stripped) return null;
+  try {
+    return JSON.parse(stripped);
+  } catch {
+    try {
+      return JSON.parse(decodePossiblyEscaped(stripped));
+    } catch {
+      return null;
+    }
+  }
+}
+
+function walkJson(value: unknown, fn: (node: Record<string, unknown>) => void, depth = 0): void {
+  if (depth > 8 || value == null) return;
+  if (Array.isArray(value)) {
+    for (const item of value) walkJson(item, fn, depth + 1);
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  const node = value as Record<string, unknown>;
+  fn(node);
+
+  for (const key of ["@graph", "mainEntity", "mainEntityOfPage", "itemListElement", "hasPart", "about"]) {
+    if (key in node) walkJson(node[key], fn, depth + 1);
+  }
+}
+
+function readJsonUrl(node: Record<string, unknown>): string | null {
+  const direct = node.url;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  const id = node["@id"];
+  if (typeof id === "string" && id.trim()) return id.trim();
+
+  const mainEntity = node.mainEntity as Record<string, unknown> | undefined;
+  if (mainEntity && typeof mainEntity === "object") {
+    const nested = readJsonUrl(mainEntity);
+    if (nested) return nested;
+  }
+
+  const item = node.item as Record<string, unknown> | undefined;
+  if (item && typeof item === "object") {
+    const nested = readJsonUrl(item);
+    if (nested) return nested;
+  }
+
+  return null;
+}
+
+function readJsonImage(node: Record<string, unknown>): string | null {
+  const image = node.image;
+  if (typeof image === "string") return image;
+  if (Array.isArray(image)) {
+    const first = image.find((entry) => typeof entry === "string") as string | undefined;
+    if (first) return first;
+    const obj = image.find((entry) => entry && typeof entry === "object") as Record<string, unknown> | undefined;
+    if (obj && typeof obj.url === "string") return obj.url;
+  }
+  if (image && typeof image === "object" && typeof (image as Record<string, unknown>).url === "string") {
+    return String((image as Record<string, unknown>).url);
+  }
+  return null;
+}
+
+function readJsonAuthor(node: Record<string, unknown>): string | null {
+  const author = node.author;
+  if (typeof author === "string") return cleanText(author);
+  if (Array.isArray(author)) {
+    for (const entry of author) {
+      if (typeof entry === "string") {
+        const cleaned = cleanText(entry);
+        if (cleaned) return cleaned;
+      }
+      if (entry && typeof entry === "object" && typeof (entry as Record<string, unknown>).name === "string") {
+        const cleaned = cleanText(String((entry as Record<string, unknown>).name));
+        if (cleaned) return cleaned;
+      }
+    }
+  }
+  if (author && typeof author === "object" && typeof (author as Record<string, unknown>).name === "string") {
+    return cleanText(String((author as Record<string, unknown>).name));
+  }
+  return null;
+}
+
+function candidateFromJsonLd(node: Record<string, unknown>, baseUrl: string, kind: ScraperKind, sourceHost: string): Candidate | null {
+  const typeRaw = node["@type"];
+  const types = Array.isArray(typeRaw) ? typeRaw.map((v) => String(v || "").toLowerCase()) : [String(typeRaw || "").toLowerCase()];
+
+  const isArticle =
+    types.some((t) =>
+      [
+        "newsarticle",
+        "article",
+        "reportagenewsarticle",
+        "blogposting",
+        "liveblogposting",
+        "analysisnewsarticle"
+      ].includes(t)
+    ) || types.some((t) => t.includes("article"));
+
+  if (!isArticle && !types.includes("itemlist")) return null;
+
+  if (types.includes("itemlist")) {
+    return null;
+  }
+
+  const linkRaw = readJsonUrl(node);
+  if (!linkRaw) return null;
+  const link = canonicalizeUrl(linkRaw, baseUrl);
+  if (!link) return null;
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(link);
+  } catch {
+    return null;
+  }
+
+  if (!isLikelyArticleCandidate(kind, parsedUrl, sourceHost)) return null;
+
+  const title = cleanTitle(String(node.headline || node.name || ""));
+  if (title.length < MIN_TITLE_CHARS) return null;
+
+  return {
+    link,
+    title,
+    isoDate: toIsoOrNull(String(node.datePublished || node.dateCreated || node.dateModified || "")),
+    snippet: cleanText(String(node.description || "")) || null,
+    imageUrl: toHttpsUrl(readJsonImage(node)),
+    author: readJsonAuthor(node),
+    score: scoreCandidate(kind, parsedUrl, title) + 15
+  };
+}
+
+function extractJsonLdCandidates(html: string, baseUrl: string, kind: ScraperKind, sourceHost: string): Candidate[] {
+  const out: Candidate[] = [];
+
+  for (const match of html.matchAll(SCRIPT_JSONLD_RE)) {
+    const raw = String(match[1] || "").trim();
+    if (!raw) continue;
+
+    const parsed = parseJsonLdBlock(raw);
+    if (!parsed) continue;
+
+    walkJson(parsed, (node) => {
+      const candidate = candidateFromJsonLd(node, baseUrl, kind, sourceHost);
+      if (candidate) out.push(candidate);
+
+      const typeRaw = node["@type"];
+      const types = Array.isArray(typeRaw) ? typeRaw.map((v) => String(v || "").toLowerCase()) : [String(typeRaw || "").toLowerCase()];
+      if (!types.includes("itemlist")) return;
+
+      const items = node.itemListElement;
+      if (!Array.isArray(items)) return;
+      for (const item of items) {
+        if (!item || typeof item !== "object") continue;
+        const entry = item as Record<string, unknown>;
+        const urlRaw = readJsonUrl(entry);
+        if (!urlRaw) continue;
+        const link = canonicalizeUrl(urlRaw, baseUrl);
+        if (!link) continue;
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(link);
+        } catch {
+          continue;
+        }
+        if (!isLikelyArticleCandidate(kind, parsedUrl, sourceHost)) continue;
+
+        const title = cleanTitle(String(entry.name || entry.headline || ""));
+        if (title.length < MIN_TITLE_CHARS) continue;
+
+        out.push({
+          link,
+          title,
+          isoDate: toIsoOrNull(String(entry.datePublished || entry.dateCreated || "")),
+          snippet: cleanText(String(entry.description || "")) || null,
+          imageUrl: toHttpsUrl(readJsonImage(entry)),
+          author: readJsonAuthor(entry),
+          score: scoreCandidate(kind, parsedUrl, title) + 10
+        });
+      }
+    });
+  }
+
+  return out;
+}
+
+function extractAnchorCandidates(html: string, baseUrl: string, kind: ScraperKind, sourceHost: string): Candidate[] {
+  const out: Candidate[] = [];
+
+  for (const match of html.matchAll(LINK_ATTR_RE)) {
+    const href = String(match[1] || match[2] || match[3] || "").trim();
+    const link = canonicalizeUrl(href, baseUrl);
+    if (!link) continue;
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(link);
+    } catch {
+      continue;
+    }
+
+    if (!isLikelyArticleCandidate(kind, parsedUrl, sourceHost)) continue;
+
+    const title = cleanTitle(String(match[4] || ""));
+    if (title.length < MIN_TITLE_CHARS) continue;
+
+    const score = scoreCandidate(kind, parsedUrl, title);
+    if (score < 30) continue;
+
+    out.push({
+      link,
+      title,
+      isoDate: null,
+      snippet: null,
+      imageUrl: null,
+      author: null,
+      score
+    });
+  }
+
+  return out;
+}
+
+function extractLooseUrlCandidates(html: string, baseUrl: string, kind: ScraperKind, sourceHost: string): Candidate[] {
+  const out: Candidate[] = [];
+  for (const match of html.matchAll(LINK_URL_RE)) {
+    const link = canonicalizeUrl(match[0], baseUrl);
+    if (!link) continue;
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(link);
+    } catch {
+      continue;
+    }
+
+    if (!isLikelyArticleCandidate(kind, parsedUrl, sourceHost)) continue;
+
+    const derivedTitle = cleanTitle(
+      parsedUrl.pathname
+        .split("/")
+        .filter(Boolean)
+        .slice(-2)
+        .join(" ")
+        .replace(/[-_]/g, " ")
+    );
+    if (derivedTitle.length < MIN_TITLE_CHARS) continue;
+
+    const score = scoreCandidate(kind, parsedUrl, derivedTitle) - 8;
+    if (score < 30) continue;
+
+    out.push({
+      link,
+      title: derivedTitle,
+      isoDate: null,
+      snippet: null,
+      imageUrl: null,
+      author: null,
+      score
+    });
+  }
+  return out;
+}
+
+function mergeCandidates(candidates: Candidate[]): Candidate[] {
+  const map = new Map<string, Candidate>();
+  for (const candidate of candidates) {
+    const key = candidate.link;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, candidate);
+      continue;
+    }
+
+    map.set(key, {
+      link: key,
+      title: prev.title.length >= candidate.title.length ? prev.title : candidate.title,
+      isoDate: prev.isoDate || candidate.isoDate,
+      snippet: prev.snippet || candidate.snippet,
+      imageUrl: prev.imageUrl || candidate.imageUrl,
+      author: prev.author || candidate.author,
+      score: Math.max(prev.score, candidate.score)
+    });
+  }
+
+  return [...map.values()].sort((a, b) => b.score - a.score);
+}
+
+function listingFallbackPaths(kind: ScraperKind): string[] {
+  if (kind === "gannett-story") return ["/news/", "/news/local/", "/news/politics/"];
+  if (kind === "townnews-article") return ["/news/", "/sports/", "/obituaries/"];
+  if (kind === "mcclatchy-article") return ["/news/", "/news/politics-government/"];
+  return ["/news/"];
+}
+
+function buildListingUrls(feedUrl: string, kind: ScraperKind): string[] {
+  const out = new Set<string>();
+  const primary = canonicalizeUrl(feedUrl, feedUrl);
+  if (primary) out.add(primary);
+
+  let origin: string | null = null;
+  try {
+    const base = new URL(feedUrl);
+    origin = `${base.protocol}//${base.host}`;
+  } catch {
+    origin = null;
+  }
+
+  if (origin) {
+    for (const path of listingFallbackPaths(kind)) {
+      const combined = canonicalizeUrl(path, origin);
+      if (combined) out.add(combined);
+      if (out.size >= 3) break;
+    }
+  }
+
+  return [...out];
+}
+
+async function fetchHtml(
+  url: string,
+  userAgent: string,
+  timeoutMs: number,
+  maxChars: number
+): Promise<{ status: number; html: string; finalUrl: string }> {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      redirect: "follow",
+      signal: ctrl.signal,
+      headers: {
+        "user-agent": userAgent,
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "no-cache",
+        pragma: "no-cache"
+      },
+      cf: { cacheTtl: 0 }
+    });
+
+    const status = response.status;
+    if (status < 200 || status >= 300) {
+      throw new Error(`HTTP ${status} from ${url}`);
+    }
+
+    let html = await response.text();
+    if (html.length > maxChars) html = html.slice(0, maxChars);
+    return { status, html, finalUrl: response.url || url };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchArticleMeta(url: string, userAgent: string): Promise<ArticleMeta | null> {
+  try {
+    const fetched = await fetchHtml(url, userAgent, META_TIMEOUT_MS, META_MAX_CHARS);
+    const html = fetched.html;
+
+    const title = cleanTitle(extractFirst(html, META_PATTERNS.ogTitle) || extractFirst(html, META_PATTERNS.twTitle) || extractFirst(html, META_PATTERNS.title) || "");
+    const snippet =
+      cleanText(extractFirst(html, META_PATTERNS.ogDescription) || extractFirst(html, META_PATTERNS.description) || "") ||
+      null;
+    const isoDate = toIsoOrNull(extractFirst(html, META_PATTERNS.published) || extractFirst(html, META_PATTERNS.timeTag) || "");
+    const author = cleanText(extractFirst(html, META_PATTERNS.author) || extractFirst(html, META_PATTERNS.articleAuthor) || "") || null;
+    const imageUrl = toHttpsUrl(extractFirst(html, META_PATTERNS.ogImage));
+    const canonicalUrl = canonicalizeUrl(extractFirst(html, META_PATTERNS.canonical) || fetched.finalUrl, fetched.finalUrl);
+
+    return {
+      title: title || null,
+      snippet,
+      isoDate,
+      author,
+      imageUrl,
+      canonicalUrl
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const max = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: max }, () => worker()));
+  return results;
+}
+
+function toParsedFeedItem(candidate: Candidate): ParsedFeedItem {
+  return {
+    title: candidate.title || "(untitled)",
+    link: candidate.link,
+    guid: candidate.link,
+    isoDate: candidate.isoDate,
+    pubDate: candidate.isoDate,
+    contentSnippet: candidate.snippet,
+    content: candidate.snippet,
+    author: candidate.author,
+    imageUrl: candidate.imageUrl
+  };
+}
+
+export async function scrapeFeedItems(input: ScrapeFeedInput): Promise<ScrapeFeedResult> {
+  const kind = resolveScraperKind(input.url, input.scraperId);
+  const maxItems = Number.isFinite(input.maxItems) ? Math.max(1, Math.min(input.maxItems, 120)) : 60;
+  const listingUrls = buildListingUrls(input.url, kind);
+
+  let bestStatus = 200;
+  const discovered: Candidate[] = [];
+
+  for (const listUrl of listingUrls) {
+    try {
+      const fetched = await fetchHtml(listUrl, input.userAgent, LIST_TIMEOUT_MS, LIST_MAX_CHARS);
+      bestStatus = fetched.status;
+      const sourceHost = new URL(fetched.finalUrl).hostname;
+
+      const fromJsonLd = extractJsonLdCandidates(fetched.html, fetched.finalUrl, kind, sourceHost);
+      const fromAnchors = extractAnchorCandidates(fetched.html, fetched.finalUrl, kind, sourceHost);
+      const fromLoose = extractLooseUrlCandidates(fetched.html, fetched.finalUrl, kind, sourceHost);
+      discovered.push(...fromJsonLd, ...fromAnchors, ...fromLoose);
+
+      if (discovered.length >= maxItems * 3) break;
+    } catch (err) {
+      logWarn("ingest.scrape.list.fetch_failed", {
+        feedId: input.feedId,
+        scraper: kind,
+        listUrl,
+        error: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
+  const merged = mergeCandidates(discovered).slice(0, Math.max(maxItems * 3, 48));
+  if (!merged.length) {
+    throw new Error(`Scraper ${kind} found no candidates for ${input.url}`);
+  }
+
+  const metaTargets = merged.slice(0, Math.min(MAX_META_FETCHES, Math.max(maxItems, 8)));
+  const metaResults = await mapWithConcurrency(metaTargets, META_CONCURRENCY, async (candidate) => {
+    const meta = await fetchArticleMeta(candidate.link, input.userAgent);
+    return { candidate, meta };
+  });
+
+  const metaByLink = new Map<string, ArticleMeta>();
+  for (const entry of metaResults) {
+    if (entry.meta) metaByLink.set(entry.candidate.link, entry.meta);
+  }
+
+  const normalized = merged.map((candidate) => {
+    const meta = metaByLink.get(candidate.link);
+    const canonical = meta?.canonicalUrl ? canonicalizeUrl(meta.canonicalUrl, candidate.link) : null;
+    const link = canonical || candidate.link;
+    return {
+      link,
+      title: cleanTitle(candidate.title || meta?.title || "(untitled)"),
+      isoDate: candidate.isoDate || meta?.isoDate || null,
+      snippet: candidate.snippet || meta?.snippet || null,
+      imageUrl: candidate.imageUrl || meta?.imageUrl || null,
+      author: candidate.author || meta?.author || null,
+      score: candidate.score
+    } satisfies Candidate;
+  });
+
+  const finalCandidates = mergeCandidates(normalized).slice(0, maxItems);
+  const items = finalCandidates.map(toParsedFeedItem);
+  return { status: bestStatus, items };
 }
 
 ```
@@ -22380,10 +24541,19 @@ export async function enforceSubmissionRateLimit(env: Env, ip: string): Promise<
 import { d1First, d1Run } from "./db";
 import { logError } from "../lib/logger";
 import { sha256Hex } from "../lib/crypto";
+import { decodeHtmlEntities, normalizeWhitespace } from "../lib/text";
 import type { Env } from "../types";
 
+const SUMMARY_PROMPT_VERSION = "v2";
+const SUMMARY_MIN_WORDS = 200;
+const SUMMARY_MAX_WORDS = 400;
+const SUMMARY_TEMPLATE_LABEL_RE =
+  /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*|__)?\s*(?:background|key points?|impact|what'?s next|overview|bottom line|main takeaways?|takeaways?)\s*:?\s*(?:\*\*|__)?\s*/gi;
+const SUMMARY_BOILERPLATE_RE =
+  /you are using an outdated browser|subscribe home news sports opinion obituaries features|submit an obituary|engagement announcement|wedding announcement/i;
+
 function summaryCacheKey(itemId: string): string {
-  return `summary:v1:${itemId}`;
+  return `summary:${SUMMARY_PROMPT_VERSION}:${itemId}`;
 }
 
 function parseAiText(response: unknown): string {
@@ -22421,27 +24591,116 @@ function parseAiText(response: unknown): string {
   return "";
 }
 
+function splitWords(input: string): string[] {
+  return input
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter(Boolean);
+}
+
+function wordCount(input: string): number {
+  return splitWords(input).length;
+}
+
+function trimToMaxWords(input: string, maxWords: number): string {
+  const words = splitWords(input);
+  if (words.length <= maxWords) return input.trim();
+  const clipped = words.slice(0, maxWords).join(" ").trim();
+  return /[.!?]$/.test(clipped) ? clipped : `${clipped}.`;
+}
+
+function normalizeSummary(text: string): string {
+  const out = decodeHtmlEntities(text)
+    .replace(/^\s*(here(?:'s| is)\s+(?:a|the)\s+summary[:\-\s]*)/i, "")
+    .replace(/^\s*summary[:\-\s]*/i, "")
+    .replace(SUMMARY_TEMPLATE_LABEL_RE, "\n")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`{1,3}/g, "")
+    .trim();
+  return normalizeWhitespace(out);
+}
+
+function isSummaryUsable(text: string): boolean {
+  if (!text) return false;
+  if (SUMMARY_BOILERPLATE_RE.test(text)) return false;
+  const words = wordCount(text);
+  return words >= SUMMARY_MIN_WORDS && words <= SUMMARY_MAX_WORDS;
+}
+
 function buildSummaryPrompt(input: { title: string; url: string; articleText: string }): string {
   return [
     "You are a professional local news editor.",
-    "Write a comprehensive, factual news summary in at least 5 paragraphs.",
-    "Include key people, places, timeline, causes, impacts, and what readers should watch next.",
-    "Do not invent facts. If information is missing, state uncertainty clearly.",
+    `Write a factual summary between ${SUMMARY_MIN_WORDS} and ${SUMMARY_MAX_WORDS} words.`,
+    "Always write in your own words.",
+    "Focus on the main ideas, key facts, and concrete outcomes.",
+    "Do not include personal opinions, filler, bullet lists, or headings.",
+    "Never output labels such as Background, Key Points, Impact, or What's Next.",
+    "Do not use markdown formatting.",
+    "Do not copy long phrases from the source text.",
+    "Do not invent facts. If details are uncertain, state that clearly.",
     "Return plain text only.",
     "",
     `TITLE: ${input.title}`,
     `URL: ${input.url}`,
     "",
-    "ARTICLE TEXT:",
+    "SOURCE TEXT:",
     input.articleText.slice(0, 20_000)
   ].join("\n");
+}
+
+function buildRepairPrompt(input: {
+  title: string;
+  url: string;
+  articleText: string;
+  currentSummary: string;
+}): string {
+  return [
+    "Rewrite this summary to meet strict constraints.",
+    `Required length: ${SUMMARY_MIN_WORDS}-${SUMMARY_MAX_WORDS} words.`,
+    "Use your own wording only.",
+    "Keep only factual, relevant information from the source text.",
+    "No opinions, no bullet points, no headings, and no invented details.",
+    "Do not use markdown labels such as Background, Key Points, Impact, or What's Next.",
+    "Return plain text only.",
+    "",
+    `TITLE: ${input.title}`,
+    `URL: ${input.url}`,
+    "",
+    "CURRENT SUMMARY:",
+    input.currentSummary.slice(0, 10_000),
+    "",
+    "SOURCE TEXT:",
+    input.articleText.slice(0, 20_000)
+  ].join("\n");
+}
+
+async function runAiSummary(env: Env, model: string, prompt: string, maxTokens = 900): Promise<string | null> {
+  const aiResponse = await env.AI.run(model, {
+    prompt,
+    max_tokens: maxTokens,
+    temperature: 0.2
+  });
+
+  const parsed = normalizeSummary(parseAiText(aiResponse));
+  return parsed || null;
 }
 
 export async function getCachedSummary(env: Env, itemId: string): Promise<string | null> {
   const cached = await env.CACHE.get(summaryCacheKey(itemId));
   if (!cached) return null;
-  const out = cached.trim();
-  return out || null;
+  const out = normalizeSummary(cached);
+  if (!out) return null;
+
+  if (!isSummaryUsable(out)) return null;
+  if (out !== cached.trim()) {
+    const ttl = Number(env.SUMMARY_CACHE_TTL_SECONDS || 30 * 24 * 60 * 60);
+    await env.CACHE.put(summaryCacheKey(itemId), out, {
+      expirationTtl: Number.isFinite(ttl) ? ttl : 30 * 24 * 60 * 60
+    });
+  }
+  return out;
 }
 
 export async function generateSummaryWithAI(env: Env, input: {
@@ -22452,30 +24711,60 @@ export async function generateSummaryWithAI(env: Env, input: {
 }): Promise<string | null> {
   if (!input.articleText || input.articleText.trim().length < 300) return null;
 
-  const sourceHash = await sha256Hex(input.articleText.slice(0, 20_000));
+  const sourceHash = await sha256Hex(`${SUMMARY_PROMPT_VERSION}:${input.articleText.slice(0, 20_000)}`);
   const existing = await d1First<{ summary: string }>(
     env.ky_news_db,
     "SELECT summary FROM item_ai_summaries WHERE item_id=? AND source_hash=? LIMIT 1",
     [input.itemId, sourceHash]
   );
   if (existing?.summary) {
-    return existing.summary;
+    const cleaned = normalizeSummary(existing.summary);
+    if (isSummaryUsable(cleaned)) {
+      if (cleaned !== existing.summary) {
+        await d1Run(
+          env.ky_news_db,
+          "UPDATE item_ai_summaries SET summary=?, generated_at=datetime('now') WHERE item_id=?",
+          [cleaned, input.itemId]
+        );
+        await d1Run(env.ky_news_db, "UPDATE items SET summary=? WHERE id=?", [cleaned, input.itemId]);
+      }
+      return cleaned;
+    }
   }
 
   const model = env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
 
   try {
-    const aiResponse = await env.AI.run(model, {
-      prompt: buildSummaryPrompt(input),
-      max_tokens: 900,
-      temperature: 0.2
-    });
-
-    let summary = parseAiText(aiResponse);
+    let summary = await runAiSummary(env, model, buildSummaryPrompt(input), 900);
     if (!summary) return null;
 
-    summary = summary.replace(/\s+\n/g, "\n").trim();
-    if (summary.length > 12_000) summary = summary.slice(0, 12_000);
+    let words = wordCount(summary);
+    if (!isSummaryUsable(summary)) {
+      const repaired = await runAiSummary(
+        env,
+        model,
+        buildRepairPrompt({
+          title: input.title,
+          url: input.url,
+          articleText: input.articleText,
+          currentSummary: summary
+        }),
+        900
+      );
+      if (repaired) {
+        summary = repaired;
+        words = wordCount(summary);
+      }
+    }
+
+    if (words > SUMMARY_MAX_WORDS) {
+      summary = normalizeSummary(trimToMaxWords(summary, SUMMARY_MAX_WORDS));
+      words = wordCount(summary);
+    }
+
+    if (!isSummaryUsable(summary)) {
+      return null;
+    }
 
     const ttl = Number(env.SUMMARY_CACHE_TTL_SECONDS || 30 * 24 * 60 * 60);
     await env.CACHE.put(summaryCacheKey(input.itemId), summary, {
@@ -22512,7 +24801,7 @@ export async function generateSummaryWithAI(env: Env, input: {
       `,
       [
         input.itemId,
-        summary.length < 600 ? "summary_too_short" : summary.length > 6000 ? "summary_too_long" : "auto_generated"
+        words < SUMMARY_MIN_WORDS ? "summary_too_short" : words > SUMMARY_MAX_WORDS ? "summary_too_long" : "auto_generated"
       ]
     );
 
@@ -22869,6 +25158,8 @@ export interface Env {
   ADMIN_EMAIL?: string;
   DATA_ENCRYPTION_KEY?: string;
   REQUIRE_TURNSTILE?: string;
+  LOST_FOUND_AUTO_APPROVE?: string;
+  RSS_USER_AGENT?: string;
   AI_MODEL?: string;
   SUMMARY_CACHE_TTL_SECONDS?: string;
   MAX_INGEST_ITEMS_PER_FEED?: string;
@@ -34025,10 +36316,12 @@ declare abstract class WorkflowInstance {
 	"vars": {
 		"APP_NAME": "EKY News",
 		"NWS_USER_AGENT": "EKY-News-Worker/1.0 (ops@example.com)",
+		"RSS_USER_AGENT": "EKY-News-Bot/1.0 (+https://kynews.pages.dev)",
 		"AI_MODEL": "@cf/meta/llama-3.1-8b-instruct",
 		"SUMMARY_CACHE_TTL_SECONDS": "2592000",
 		"MAX_INGEST_ITEMS_PER_FEED": "60",
 		"MAX_FEEDS_PER_RUN": "200",
+		"LOST_FOUND_AUTO_APPROVE": "1",
 		"API_CACHE_TTL_SECONDS": "120",
 		"LOG_TTL_SECONDS": "1209600",
 		"ERROR_EVENT_TTL_DAYS": "30",
@@ -34100,6 +36393,7 @@ Current behavior:
     "feeds:seed": "node scripts/seed-feeds.mjs",
     "seed:feeds": "npm run feeds:seed",
     "ingest:once": "node apps/ingester/src/ingester.mjs --once",
+    "prod:smoke": "node scripts/prod-smoke-test.mjs",
     "dev:setup": "npm run db:reset && npm run feeds:seed",
     "lint": "echo \"(optional) add eslint later\""
   },
@@ -34261,6 +36555,136 @@ This project now uses the canonical documentation set in `docs/`.
 - Information architecture: `docs/02_INFORMATION_ARCHITECTURE.md`
 - Data model: `docs/03_DATA_MODEL.md`
 - Roadmap: `docs/10_ROADMAP.md`
+
+```
+
+# scripts\prod-smoke-test.mjs
+
+```mjs
+#!/usr/bin/env node
+
+const workerUrl = String(process.env.WORKER_URL || "https://ky-news-worker.jamesbrock25.workers.dev").replace(/\/+$/, "");
+const lookbackHours = Number(process.env.LOOKBACK_HOURS || "168");
+const maxFreshnessMinutes = Number(process.env.MAX_FRESHNESS_MINUTES || "240");
+const adminToken = process.env.ADMIN_TOKEN || "";
+
+function minutesSince(iso) {
+  if (!iso) return Number.POSITIVE_INFINITY;
+  const ts = new Date(iso).getTime();
+  if (!Number.isFinite(ts)) return Number.POSITIVE_INFINITY;
+  return Math.floor((Date.now() - ts) / 60000);
+}
+
+async function fetchJson(path, init = {}) {
+  const res = await fetch(`${workerUrl}${path}`, init);
+  const bodyText = await res.text();
+  let body;
+  try {
+    body = bodyText ? JSON.parse(bodyText) : {};
+  } catch {
+    body = { raw: bodyText };
+  }
+
+  if (!res.ok) {
+    const message = typeof body?.error === "string" ? body.error : `${res.status} ${res.statusText}`;
+    const err = new Error(`${path} failed: ${message}`);
+    err.details = body;
+    throw err;
+  }
+  return body;
+}
+
+function newestPublishedAt(items) {
+  if (!Array.isArray(items) || !items.length) return null;
+  const sorted = [...items].sort((a, b) => String(b?.published_at || "").localeCompare(String(a?.published_at || "")));
+  return sorted[0]?.published_at || null;
+}
+
+function printCheck(name, ok, details) {
+  const mark = ok ? "PASS" : "FAIL";
+  console.log(`${mark}  ${name} - ${details}`);
+}
+
+async function run() {
+  let failures = 0;
+
+  const health = await fetchJson("/api/health");
+  printCheck("Health", Boolean(health?.ok), `ok=${String(Boolean(health?.ok))}`);
+  if (!health?.ok) failures += 1;
+
+  const ky = await fetchJson(`/api/items?scope=ky&limit=10&hours=${lookbackHours}`);
+  const nat = await fetchJson(`/api/items?scope=national&limit=10&hours=${lookbackHours}`);
+  const feeds = await fetchJson("/api/feeds?scope=ky");
+
+  const newestKy = newestPublishedAt(ky.items);
+  const newestNat = newestPublishedAt(nat.items);
+  const kyMinutes = minutesSince(newestKy);
+  const natMinutes = minutesSince(newestNat);
+
+  const kyFresh = Array.isArray(ky.items) && ky.items.length > 0 && kyMinutes <= maxFreshnessMinutes;
+  const natFresh = Array.isArray(nat.items) && nat.items.length > 0 && natMinutes <= maxFreshnessMinutes * 3;
+  const feedCount = Array.isArray(feeds.feeds) ? feeds.feeds.length : 0;
+
+  printCheck(
+    "KY Articles",
+    kyFresh,
+    `count=${Array.isArray(ky.items) ? ky.items.length : 0}, newest=${newestKy || "none"}, lag=${Number.isFinite(kyMinutes) ? kyMinutes : "n/a"}m`
+  );
+  if (!kyFresh) failures += 1;
+
+  printCheck(
+    "National Articles",
+    natFresh,
+    `count=${Array.isArray(nat.items) ? nat.items.length : 0}, newest=${newestNat || "none"}, lag=${Number.isFinite(natMinutes) ? natMinutes : "n/a"}m`
+  );
+  if (!natFresh) failures += 1;
+
+  printCheck("Feed Seed Coverage", feedCount > 0, `enabled_feeds=${feedCount}`);
+  if (feedCount <= 0) failures += 1;
+
+  if (adminToken) {
+    const headers = { "x-admin-token": adminToken };
+    const logs = await fetchJson("/api/admin/ingestion/logs?limit=1", { headers });
+    const latest = Array.isArray(logs.logs) ? logs.logs[0] : null;
+    const lastRunAt = latest?.finished_at || latest?.started_at || null;
+    const runLag = minutesSince(lastRunAt);
+    const runHealthy = Boolean(latest) && runLag <= 30;
+    printCheck(
+      "Scheduler Freshness",
+      runHealthy,
+      `last_run=${lastRunAt || "none"}, lag=${Number.isFinite(runLag) ? runLag : "n/a"}m, status=${latest?.status || "unknown"}`
+    );
+    if (!runHealthy) failures += 1;
+
+    const healthRes = await fetchJson("/api/admin/feeds/health?hours=48&limit=500", { headers });
+    const list = Array.isArray(healthRes.feeds) ? healthRes.feeds : [];
+    const critical = list.filter((f) => f.health_status === "critical");
+    const stale = list.filter((f) => Number(f.recent_items || 0) === 0);
+    printCheck(
+      "Feed Health",
+      critical.length === 0,
+      `critical=${critical.length}, stale_48h=${stale.length}, checked=${list.length}`
+    );
+    if (critical.length > 0) failures += 1;
+  } else {
+    console.log("INFO  Admin checks skipped (set ADMIN_TOKEN env var to enable feed health and scheduler checks).");
+  }
+
+  if (failures > 0) {
+    console.error(`\nSmoke test failed with ${failures} failing check(s).`);
+    process.exit(1);
+  }
+
+  console.log("\nSmoke test passed.");
+}
+
+run().catch((err) => {
+  console.error("Smoke test crashed:", err?.message || err);
+  if (err?.details) {
+    console.error("Details:", JSON.stringify(err.details));
+  }
+  process.exit(1);
+});
 
 ```
 

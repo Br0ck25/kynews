@@ -2306,5 +2306,62 @@
     "state_code": "US",
     "region_scope": "national",
     "enabled": 1
+  },
+  {
+    "id": "ky-courier-journal-news-scrape",
+    "name": "Courier Journal News (Scrape)",
+    "category": "Kentucky - Statewide",
+    "url": "https://www.courier-journal.com/news/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "fetch_mode": "scrape",
+    "scraper_id": "gannett-story",
+    "enabled": 1
+  },
+  {
+    "id": "ky-courier-journal-politics-scrape",
+    "name": "Courier Journal Politics (Scrape)",
+    "category": "Kentucky - Politics",
+    "url": "https://www.courier-journal.com/news/politics/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "fetch_mode": "scrape",
+    "scraper_id": "gannett-story",
+    "enabled": 1
+  },
+  {
+    "id": "ky-commonwealth-journal-scrape",
+    "name": "Commonwealth Journal (Scrape)",
+    "category": "Kentucky - Local",
+    "url": "https://www.somerset-kentucky.com/news/",
+    "state_code": "KY",
+    "default_county": "Pulaski",
+    "region_scope": "ky",
+    "fetch_mode": "scrape",
+    "scraper_id": "townnews-article",
+    "enabled": 1
+  },
+  {
+    "id": "ky-kentucky-standard-scrape",
+    "name": "Kentucky Standard (Scrape)",
+    "category": "Kentucky - Local",
+    "url": "https://www.kystandard.com/news/",
+    "state_code": "KY",
+    "default_county": "Nelson",
+    "region_scope": "ky",
+    "fetch_mode": "scrape",
+    "scraper_id": "townnews-article",
+    "enabled": 1
+  },
+  {
+    "id": "ky-kentuckycom-news-scrape",
+    "name": "Kentucky.com News (Scrape)",
+    "category": "Kentucky - Statewide",
+    "url": "https://www.kentucky.com/news/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "fetch_mode": "scrape",
+    "scraper_id": "mcclatchy-article",
+    "enabled": 0
   }
 ]
