@@ -1,5 +1,5 @@
 {
-  "name": "feedly-clone-local",
+  "name": "local-ky-news",
   "private": true,
   "workspaces": [
     "apps/*"

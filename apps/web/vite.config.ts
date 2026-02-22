@@ -11,7 +11,7 @@ export default defineConfig({
       manifest: {
         name: "Kentucky News",
         short_name: "Kentucky News",
-        description: "Curated RSS reader (Feedly-style) — local device state, no accounts.",
+        description: "Local KY News — fast, mobile-first Kentucky news, county-level coverage, weather, sports, obituaries, and more. No accounts required.",
         theme_color: "#ffffff",
         background_color: "#f3f4f6",
         display: "standalone",

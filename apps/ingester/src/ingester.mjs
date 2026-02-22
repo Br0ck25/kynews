@@ -242,7 +242,7 @@ async function fetchArticle(url) {
       signal: ctrl.signal,
       headers: {
         // Gentle headers; many sites respond better with a UA.
-        "user-agent": "Mozilla/5.0 (compatible; FeedlyCloneLocal/1.0; +https://localhost)",
+        "user-agent": "Mozilla/5.0 (compatible; LocalKYNews/1.0; +https://localkynews.com)",
         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
       }
     });

@@ -143,6 +143,13 @@ registerAdminRoutes(app);
 
 app.get("/", (c) => c.json({ ok: true, service: c.env.APP_NAME || "EKY News Worker" }));
 
+// Serve robots.txt so crawlers receive valid directives instead of HTML from the SPA
+app.get("/robots.txt", (c) => {
+  c.header("Content-Type", "text/plain; charset=utf-8");
+  c.header("Cache-Control", "public, max-age=86400");
+  return c.text("User-agent: *\nAllow: /\n");
+});
+
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
   scheduled: async (_event: ScheduledController, env: Env, ctx: ExecutionContext) => {

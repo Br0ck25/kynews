@@ -220,7 +220,8 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
 
     const itemIds = rows.map((r) => String(r.id || "")).filter(Boolean);
     const tagRows: Array<{ item_id: string; state_code: string; county: string }> = [];
-    for (const batch of chunkArray(itemIds, 200)) {
+    // D1 limits bind parameters to ~100 per statement; use 99 to stay safely under the limit
+    for (const batch of chunkArray(itemIds, 99)) {
       if (!batch.length) continue;
       const partial = await d1All<{ item_id: string; state_code: string; county: string }>(
         c.env.ky_news_db,

@@ -361,23 +361,32 @@ function AppShell({
     }
 
     let cancelled = false;
-    let attempts = 0;
-    const maxAttempts = 180;
-    let rafId = 0;
 
-    const restore = () => {
+    const tryScroll = () => {
       if (cancelled) return;
       node.scrollTop = target;
-      attempts += 1;
-      if (node.scrollTop >= target - 2) return;
-      if (attempts >= maxAttempts) return;
-      rafId = window.requestAnimationFrame(restore);
     };
 
-    restore();
+    // Attempt immediately
+    tryScroll();
+
+    // Re-attempt whenever the content height changes (handles async data loading)
+    // so scroll position is reliably restored even when items load after initial mount.
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => {
+        if (!cancelled && node.scrollTop < target - 2) tryScroll();
+      });
+      ro.observe(node);
+    }
+
+    // Final fallback safety net after 5 seconds
+    const fallbackTimer = window.setTimeout(() => { if (!cancelled) tryScroll(); }, 5000);
+
     return () => {
       cancelled = true;
-      if (rafId) window.cancelAnimationFrame(rafId);
+      ro?.disconnect();
+      window.clearTimeout(fallbackTimer);
     };
   }, [routeKey]);
 
@@ -864,7 +873,10 @@ function TodayScreen() {
             cursor,
             limit: 30
           });
-      setItems((prev) => [...prev, ...res.items]);
+      setItems((prev) => {
+        const seenUrls = new Set(prev.map((i) => i.url));
+        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
+      });
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -936,7 +948,10 @@ function NationalScreen() {
     setLoading(true);
     try {
       const res = await getItems({ scope: "national", cursor, limit: 30 });
-      setItems((prev) => [...prev, ...res.items.filter((item) => !isLikelySportsItem(item))]);
+      setItems((prev) => {
+        const seenUrls = new Set(prev.map((i) => i.url));
+        return [...prev, ...res.items.filter((item) => !isLikelySportsItem(item) && !seenUrls.has(item.url))];
+      });
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -1004,7 +1019,10 @@ function SportsScreen() {
         cursor,
         limit: 30
       });
-      setItems((prev) => [...prev, ...res.items]);
+      setItems((prev) => {
+        const seenUrls = new Set(prev.map((i) => i.url));
+        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
+      });
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -1064,7 +1082,10 @@ function FeedScreen() {
     setLoading(true);
     try {
       const res = await getItems({ feedId: feedId || undefined, cursor, limit: 30 });
-      setItems((prev) => [...prev, ...res.items]);
+      setItems((prev) => {
+        const seenUrls = new Set(prev.map((i) => i.url));
+        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
+      });
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -1414,7 +1435,10 @@ function MyLocalScreen() {
     setLoadingFeed(true);
     try {
       const res = await getItems({ state: "KY", county: selected, hours: 24 * 14, cursor, limit: 30 });
-      setItems((prev) => [...prev, ...res.items]);
+      setItems((prev) => {
+        const seenUrls = new Set(prev.map((i) => i.url));
+        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
+      });
       setCursor(res.nextCursor);
     } finally {
       setLoadingFeed(false);
@@ -1725,7 +1749,10 @@ function ObituariesScreen() {
             cursor,
             limit: 30
           });
-      setItems((prev) => [...prev, ...res.items]);
+      setItems((prev) => {
+        const seenUrls = new Set(prev.map((i) => i.url));
+        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
+      });
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -1799,7 +1826,10 @@ function SchoolsScreen() {
         cursor,
         limit: 30
       });
-      setItems((prev) => [...prev, ...res.items]);
+      setItems((prev) => {
+        const seenUrls = new Set(prev.map((i) => i.url));
+        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
+      });
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -2823,7 +2853,7 @@ function SearchScreen() {
         <input
           className="pill"
           style={{ width: "100%", padding: "12px 12px", borderRadius: 12, border: "1px solid var(--border)" }}
-          placeholder="Find specific articles in your Feedly"
+          placeholder="Search Local KY News stories..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -2846,44 +2876,18 @@ function SearchScreen() {
           </select>
         </div>
 
-        {!q.trim() ? (
-          <div style={{ marginTop: 18, color: "var(--muted)" }}>
-            <div style={{ fontWeight: 800, color: "#2563eb", marginBottom: 10 }}>Learn By Example</div>
+        <div style={{ marginTop: 14 }}>
+          <button className="btn block primary" onClick={() => runSearch(null)} disabled={loading || !q.trim()}>
+            {loading ? "Searching…" : "Search"}
+          </button>
 
-            <div className="card" style={{ padding: 14 }}>
-              <div className="pill" style={{ display: "inline-block", marginBottom: 10 }}>"Roger Federer"</div>
-              <div>Put phrase inside <span style={{ color: "var(--accent)", fontWeight: 900 }}>quotes</span> for an exact match</div>
+          <div style={{ height: 12 }} />
 
-              <div style={{ height: 12 }} />
+          <StoryDeck items={items} onOpen={openItem} />
 
-              <div className="pill" style={{ display: "inline-block", marginBottom: 10 }}>"Roger Federer" -tennis</div>
-              <div>Use the <span style={{ color: "var(--accent)", fontWeight: 900 }}>minus (-)</span> operator to exclude results</div>
-
-              <div style={{ height: 12 }} />
-
-              <div className="pill" style={{ display: "inline-block", marginBottom: 10 }}>"Roger Federer" AND philanthropy</div>
-              <div>Use <span style={{ color: "var(--accent)", fontWeight: 900 }}>AND</span> to search for multiple keywords</div>
-
-              <div style={{ height: 12 }} />
-
-              <div className="pill" style={{ display: "inline-block", marginBottom: 10 }}>"Roger Federer" OR "Rafael Nadal"</div>
-              <div>Combine searches with <span style={{ color: "var(--accent)", fontWeight: 900 }}>OR</span></div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ marginTop: 14 }}>
-            <button className="btn block primary" onClick={() => runSearch(null)} disabled={loading}>
-              {loading ? "Searching…" : "Search"}
-            </button>
-
-            <div style={{ height: 12 }} />
-
-            <StoryDeck items={items} onOpen={openItem} />
-
-            {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={() => runSearch(cursor)} /> : null}
-            {!loading && q.trim() && !items.length ? <div className="listStatus">No results found</div> : null}
-          </div>
-        )}
+          {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={() => runSearch(cursor)} /> : null}
+          {!loading && q.trim() && !items.length ? <div className="listStatus">No results found</div> : null}
+        </div>
       </div>
     </AppShell>
   );
