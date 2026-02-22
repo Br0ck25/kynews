@@ -9,7 +9,9 @@ import {
   getWeatherForecast,
   getWeatherAlerts,
   listLostFound,
+  listLostFoundComments,
   submitLostFound,
+  submitLostFoundComment,
   getLostFoundUploadUrl,
   uploadLostFoundImage,
   markLostFoundAsFound,
@@ -25,13 +27,14 @@ import {
   type Feed,
   type Item,
   type LostFoundPost,
+  type LostFoundComment,
   type LostFoundType,
   type WeatherAlert,
   type WeatherForecast
 } from "../data/api";
 import { bulkIsRead, isSaved, listSavedItems, markRead, toggleSaved } from "../data/localDb";
 import Reader from "./Reader";
-import { IconBookmark, IconHeart, IconMapPin, IconMenu, IconSearch, IconSettings, IconShare, IconToday } from "./icons";
+import { IconHeart, IconMapPin, IconMenu, IconSearch, IconSettings, IconShare, IconToday } from "./icons";
 import kyCounties from "../data/ky-counties.json";
 
 function sourceFromUrl(url: string) {
@@ -89,6 +92,14 @@ function truncateText(value: string, maxChars = 420): string {
   if (!text) return "";
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`;
+}
+
+const SPORTS_CONTENT_RE =
+  /\b(sports?|football|basketball|baseball|soccer|volleyball|wrestling|athletic(?:s)?|nfl|nba|mlb|nhl|ncaa)\b/i;
+
+function isLikelySportsItem(item: Item): boolean {
+  const haystack = `${item.title || ""} ${item.summary || ""} ${item.content || ""}`;
+  return SPORTS_CONTENT_RE.test(haystack);
 }
 
 const COVERAGE_TABS = [
@@ -217,7 +228,7 @@ export default function App() {
       <Route path="/my-local" element={<MyLocalScreen />} />
       <Route path="/read-later" element={<ReadLaterScreen />} />
       <Route path="/search" element={<SearchScreen />} />
-      <Route path="/preferences" element={<PreferencesScreen />} />
+      <Route path="/preferences" element={<Navigate to="/settings" replace />} />
       <Route path={OWNER_ADMIN_ROUTE} element={<OwnerAdminScreen />} />
       <Route
         path="/settings"
@@ -274,7 +285,10 @@ function AppShell({
           <IconMenu className="navIcon" />
         </button>
 
-        <div className="title">{title}</div>
+        <div className="title brandTitle">
+          <img className="brandLogo" src="/logo.png" alt="Local KY News" />
+          <span>{title}</span>
+        </div>
         <div className="topbarSpacer" />
       </header>
 
@@ -311,13 +325,6 @@ function AppShell({
                 onClick={() => open("/my-local")}
               >
                 <div className="drawerLabel">Local News</div>
-              </div>
-
-              <div
-                className={"drawerItem " + (active("/preferences") ? "active" : "")}
-                onClick={() => open("/preferences")}
-              >
-                <div className="drawerLabel">Preferences</div>
               </div>
 
               <div
@@ -366,14 +373,6 @@ function AppShell({
         >
           <IconMapPin className="navIcon" />
           <span className="navLabel">Local</span>
-        </button>
-        <button
-          className={"navBtn " + (active("/preferences") ? "active" : "")}
-          onClick={() => nav("/preferences")}
-          aria-label="Preferences"
-        >
-          <IconBookmark className="navIcon" />
-          <span className="navLabel">Preferences</span>
         </button>
         <button
           className={"navBtn " + (active("/read-later") ? "active" : "")}
@@ -797,7 +796,7 @@ function NationalScreen() {
       try {
         const res = await getItems({ scope: "national", limit: 30 });
         if (cancelled) return;
-        setItems(res.items);
+        setItems(res.items.filter((item) => !isLikelySportsItem(item)));
         setCursor(res.nextCursor);
       } finally {
         if (!cancelled) setLoading(false);
@@ -813,7 +812,7 @@ function NationalScreen() {
     setLoading(true);
     try {
       const res = await getItems({ scope: "national", cursor, limit: 30 });
-      setItems((prev) => [...prev, ...res.items]);
+      setItems((prev) => [...prev, ...res.items.filter((item) => !isLikelySportsItem(item))]);
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -1115,7 +1114,13 @@ function ReadLaterScreen() {
   );
 }
 
-function PreferencesScreen() {
+function SettingsScreen({
+  themeMode,
+  onToggleDarkTheme
+}: {
+  themeMode: ThemeMode;
+  onToggleDarkTheme: (enabled: boolean) => void;
+}) {
   const nav = useNavigate();
   const [selectedCounties, setSelectedCountiesState] = useState<string[]>(() => getSelectedCounties());
   const allCounties = useMemo(() => (kyCounties as { name: string }[]).map((c) => c.name), []);
@@ -1132,74 +1137,6 @@ function PreferencesScreen() {
     setSelectedCountiesState([]);
     setSelectedCounties([]);
   }
-
-  return (
-    <AppShell title="Preferences">
-      <div className="section">
-        <div className="card prefCard">
-          <div className="prefHeading">App</div>
-          <div className="prefRow" onClick={() => nav("/settings")}>
-            <div className="prefRowMeta">
-              <div className="drawerLabel">Settings</div>
-              <div className="prefHint">Theme and app options</div>
-            </div>
-          </div>
-          <div className="prefRow" onClick={() => nav("/my-local")}>
-            <div className="prefRowMeta">
-              <div className="drawerLabel">Local News</div>
-              <div className="prefHint">Set your county and local feed</div>
-            </div>
-          </div>
-          <div className="prefRow" onClick={() => nav("/weather")}>
-            <div className="prefRowMeta">
-              <div className="drawerLabel">Weather</div>
-              <div className="prefHint">County forecast and alerts</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="card prefCard">
-          <div className="prefHeading">County Feed Filters</div>
-          <div className="prefHint" style={{ marginBottom: 10 }}>
-            Select one or more counties. Home feed will show only matching county stories.
-          </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <button className="btn" onClick={clearCountyPrefs} disabled={!selectedCounties.length}>
-              Clear Selection
-            </button>
-            <button className="btn" onClick={() => nav("/today")}>
-              View Home Feed
-            </button>
-          </div>
-          <div className="countyPills">
-            {allCounties.map((name) => {
-              const active = selectedCounties.includes(name);
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  className={"countyPill " + (active ? "active" : "")}
-                  onClick={() => toggleCounty(name)}
-                >
-                  {name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </AppShell>
-  );
-}
-
-function SettingsScreen({
-  themeMode,
-  onToggleDarkTheme
-}: {
-  themeMode: ThemeMode;
-  onToggleDarkTheme: (enabled: boolean) => void;
-}) {
-  const nav = useNavigate();
 
   return (
     <AppShell title="Settings">
@@ -1231,14 +1168,44 @@ function SettingsScreen({
               <div className="prefHint">Set your local county</div>
             </div>
           </div>
-          <div className="prefRow" onClick={() => nav("/preferences")}>
+          <div className="prefRow" onClick={() => nav("/today")}>
             <div className="prefRowMeta">
-              <div className="drawerLabel">Open Preferences</div>
-              <div className="prefHint">Manage app shortcuts</div>
+              <div className="drawerLabel">Home Feed</div>
+              <div className="prefHint">View Today with current filters</div>
             </div>
           </div>
           <div className="prefRow" onClick={() => nav("/read-later")}>
             <div className="drawerLabel">Saved Articles</div>
+          </div>
+        </div>
+
+        <div className="card prefCard">
+          <div className="prefHeading">County Feed Filters</div>
+          <div className="prefHint" style={{ marginBottom: 10 }}>
+            Select one or more counties. Home feed will show only matching county stories.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button className="btn" onClick={clearCountyPrefs} disabled={!selectedCounties.length}>
+              Clear Selection
+            </button>
+            <button className="btn" onClick={() => nav("/today")}>
+              View Home Feed
+            </button>
+          </div>
+          <div className="countyPills">
+            {allCounties.map((name) => {
+              const active = selectedCounties.includes(name);
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  className={"countyPill " + (active ? "active" : "")}
+                  onClick={() => toggleCounty(name)}
+                >
+                  {name}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -1725,12 +1692,21 @@ function LostFoundScreen() {
   const [contactEmail, setContactEmail] = useState("");
   const [showContact, setShowContact] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState("");
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [markEmail, setMarkEmail] = useState("");
   const [markNote, setMarkNote] = useState("");
   const [markSubmitting, setMarkSubmitting] = useState(false);
   const [markMessage, setMarkMessage] = useState("");
+  const [commentOpenByPost, setCommentOpenByPost] = useState<Record<string, boolean>>({});
+  const [commentLoadingByPost, setCommentLoadingByPost] = useState<Record<string, boolean>>({});
+  const [commentSubmittingByPost, setCommentSubmittingByPost] = useState<Record<string, boolean>>({});
+  const [commentMessagesByPost, setCommentMessagesByPost] = useState<Record<string, string>>({});
+  const [commentListByPost, setCommentListByPost] = useState<Record<string, LostFoundComment[]>>({});
+  const [commentDraftByPost, setCommentDraftByPost] = useState<
+    Record<string, { name: string; email: string; comment: string; acceptTerms: boolean }>
+  >({});
 
   async function refresh() {
     setLoading(true);
@@ -1747,6 +1723,113 @@ function LostFoundScreen() {
   useEffect(() => {
     void refresh();
   }, [listCounty]);
+
+  function getCommentDraft(postId: string) {
+    return (
+      commentDraftByPost[postId] || {
+        name: "",
+        email: "",
+        comment: "",
+        acceptTerms: false
+      }
+    );
+  }
+
+  function updateCommentDraft(
+    postId: string,
+    patch: Partial<{ name: string; email: string; comment: string; acceptTerms: boolean }>
+  ) {
+    setCommentDraftByPost((prev) => {
+      const current = prev[postId] || {
+        name: "",
+        email: "",
+        comment: "",
+        acceptTerms: false
+      };
+      return {
+        ...prev,
+        [postId]: { ...current, ...patch }
+      };
+    });
+  }
+
+  async function loadComments(postId: string, force = false) {
+    if (commentLoadingByPost[postId]) return;
+    if (!force && commentListByPost[postId]) return;
+    setCommentLoadingByPost((prev) => ({ ...prev, [postId]: true }));
+    setCommentMessagesByPost((prev) => ({ ...prev, [postId]: "" }));
+    try {
+      const res = await listLostFoundComments(postId, 100);
+      setCommentListByPost((prev) => ({ ...prev, [postId]: res.comments || [] }));
+    } catch (err: any) {
+      setCommentMessagesByPost((prev) => ({ ...prev, [postId]: String(err?.message || err) }));
+    } finally {
+      setCommentLoadingByPost((prev) => ({ ...prev, [postId]: false }));
+    }
+  }
+
+  async function toggleComments(postId: string) {
+    const opening = !commentOpenByPost[postId];
+    setCommentOpenByPost((prev) => ({ ...prev, [postId]: opening }));
+    if (opening) {
+      await loadComments(postId);
+    }
+  }
+
+  async function submitComment(postId: string) {
+    const draft = getCommentDraft(postId);
+    if (!draft.name.trim() || !draft.email.trim() || !draft.comment.trim()) {
+      setCommentMessagesByPost((prev) => ({ ...prev, [postId]: "Name, email, and comment are required." }));
+      return;
+    }
+    if (!draft.acceptTerms) {
+      setCommentMessagesByPost((prev) => ({
+        ...prev,
+        [postId]: "You must accept the Terms of Use and Comment Policy."
+      }));
+      return;
+    }
+
+    setCommentSubmittingByPost((prev) => ({ ...prev, [postId]: true }));
+    setCommentMessagesByPost((prev) => ({ ...prev, [postId]: "" }));
+    try {
+      const res = await submitLostFoundComment({
+        postId,
+        name: draft.name.trim(),
+        email: draft.email.trim(),
+        comment: draft.comment.trim(),
+        acceptTerms: true
+      });
+      const inserted = res.comment;
+      setCommentListByPost((prev) => ({
+        ...prev,
+        [postId]: [...(prev[postId] || []), inserted]
+      }));
+      setCommentDraftByPost((prev) => ({
+        ...prev,
+        [postId]: {
+          ...draft,
+          comment: "",
+          acceptTerms: false
+        }
+      }));
+      setPosts((prev) =>
+        prev.map((post) =>
+          post.id === postId
+            ? {
+                ...post,
+                comment_count: Number(post.comment_count || 0) + 1
+              }
+            : post
+        )
+      );
+      setCommentMessagesByPost((prev) => ({ ...prev, [postId]: "Comment posted." }));
+    } catch (err: any) {
+      setCommentMessagesByPost((prev) => ({ ...prev, [postId]: String(err?.message || err) }));
+    } finally {
+      setCommentSubmittingByPost((prev) => ({ ...prev, [postId]: false }));
+    }
+  }
 
   async function submit() {
     if (!title.trim() || !description.trim() || !formCounty.trim() || !contactEmail.trim()) {
@@ -1779,6 +1862,7 @@ function LostFoundScreen() {
       setContactEmail("");
       setShowContact(false);
       setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       setMessage(submitted.status === "approved" ? "Listing published." : "Submission received and pending moderation.");
       await refresh();
     } catch (err: any) {
@@ -1867,15 +1951,50 @@ function LostFoundScreen() {
             Show contact email after approval
           </label>
           <input
+            ref={fileInputRef}
+            className="hiddenFileInput"
             type="file"
             accept="image/*"
             onChange={(e) => setFile(e.target.files?.[0] || null)}
-            style={{ marginBottom: 10 }}
           />
-          <button className="btn primary" onClick={submit} disabled={submitting}>
+          <div className="filePickerRow">
+            <button className="btn" type="button" onClick={() => fileInputRef.current?.click()}>
+              Choose Screenshot
+            </button>
+            <div className="filePickerName">{file ? file.name : "No screenshot selected"}</div>
+            {file ? (
+              <button
+                className="btn"
+                type="button"
+                onClick={() => {
+                  setFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+              >
+                Remove
+              </button>
+            ) : null}
+          </div>
+          <button className="btn primary" type="button" onClick={submit} disabled={submitting}>
             {submitting ? "Submitting..." : "Submit"}
           </button>
           {message ? <div style={{ marginTop: 10, color: "var(--muted)" }}>{message}</div> : null}
+        </div>
+
+        <div className="card lostFoundPolicyCard">
+          <div className="lostFoundPolicyHeading">Terms of Use</div>
+          <div className="lostFoundPolicyText">
+            By submitting or commenting in Lost &amp; Found, you confirm your post is truthful, lawful, and does not
+            violate anyone&apos;s rights.
+          </div>
+          <div className="lostFoundPolicyHeading" style={{ marginTop: 12 }}>Comment Policy</div>
+          <ul className="lostFoundPolicyList">
+            <li>No hate speech.</li>
+            <li>No defamation.</li>
+            <li>No threats.</li>
+            <li>Comments may be removed at any time for policy violations or moderation concerns.</li>
+            <li>Publishing defamatory comments can create legal liability depending on jurisdiction.</li>
+          </ul>
         </div>
 
         <div className="card" style={{ padding: 14 }}>
@@ -1898,7 +2017,7 @@ function LostFoundScreen() {
           {loading ? <div style={{ color: "var(--muted)" }}>Loading...</div> : null}
           {!loading && !posts.length ? <div style={{ color: "var(--muted)" }}>No listings found.</div> : null}
           {posts.map((p) => (
-            <div key={p.id} style={{ marginBottom: 14 }}>
+            <div key={p.id} className="lostFoundPostCard">
               <div style={{ fontWeight: 800 }}>
                 {p.type === "lost" ? "Lost" : "Found"}: {p.title}
               </div>
@@ -1913,8 +2032,7 @@ function LostFoundScreen() {
                 <img
                   src={`/api/uploads/lost-found/${encodeURIComponent(p.images[0])}`}
                   alt=""
-                  className="hero"
-                  style={{ marginTop: 8, maxHeight: 220 }}
+                  className="lostFoundImage"
                 />
               ) : null}
               {p.type === "lost" && !p.is_resolved ? (
@@ -1963,6 +2081,73 @@ function LostFoundScreen() {
                       I found this item
                     </button>
                   )}
+                </div>
+              ) : null}
+              <div className="lostFoundCommentHeader">
+                <div className="lostFoundCommentCount">
+                  {Number(commentListByPost[p.id]?.length ?? p.comment_count ?? 0)} comment
+                  {Number(commentListByPost[p.id]?.length ?? p.comment_count ?? 0) === 1 ? "" : "s"}
+                </div>
+                <button className="btn" type="button" onClick={() => void toggleComments(p.id)}>
+                  {commentOpenByPost[p.id] ? "Hide Comments" : "Show Comments"}
+                </button>
+              </div>
+              {commentOpenByPost[p.id] ? (
+                <div className="lostFoundComments">
+                  {commentLoadingByPost[p.id] ? <div className="lostFoundCommentMuted">Loading comments...</div> : null}
+                  {!commentLoadingByPost[p.id] && !(commentListByPost[p.id] || []).length ? (
+                    <div className="lostFoundCommentMuted">No comments yet.</div>
+                  ) : null}
+                  {(commentListByPost[p.id] || []).map((comment) => (
+                    <div key={comment.id} className="lostFoundCommentItem">
+                      <div className="lostFoundCommentMeta">
+                        <span className="lostFoundCommentAuthor">{comment.name}</span>
+                        <span>{formatFromNow(comment.created_at)}</span>
+                      </div>
+                      <div className="lostFoundCommentBody">{comment.comment}</div>
+                    </div>
+                  ))}
+                  <div className="lostFoundCommentForm">
+                    <input
+                      className="searchInput"
+                      placeholder="Your name"
+                      value={getCommentDraft(p.id).name}
+                      onChange={(e) => updateCommentDraft(p.id, { name: e.target.value })}
+                    />
+                    <input
+                      className="searchInput"
+                      type="email"
+                      placeholder="Your email"
+                      value={getCommentDraft(p.id).email}
+                      onChange={(e) => updateCommentDraft(p.id, { email: e.target.value })}
+                    />
+                    <textarea
+                      className="searchInput"
+                      placeholder="Write your comment"
+                      value={getCommentDraft(p.id).comment}
+                      onChange={(e) => updateCommentDraft(p.id, { comment: e.target.value })}
+                      style={{ minHeight: 80 }}
+                    />
+                    <label className="lostFoundCommentTerms">
+                      <input
+                        type="checkbox"
+                        checked={getCommentDraft(p.id).acceptTerms}
+                        onChange={(e) => updateCommentDraft(p.id, { acceptTerms: e.target.checked })}
+                      />
+                      I agree to the Terms of Use and Comment Policy.
+                    </label>
+                    <button
+                      className="btn primary"
+                      type="button"
+                      disabled={Boolean(commentSubmittingByPost[p.id])}
+                      onClick={() => void submitComment(p.id)}
+                    >
+                      {commentSubmittingByPost[p.id] ? "Posting..." : "Post Comment"}
+                    </button>
+                    {commentMessagesByPost[p.id] ? (
+                      <div className="lostFoundCommentMuted">{commentMessagesByPost[p.id]}</div>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
             </div>

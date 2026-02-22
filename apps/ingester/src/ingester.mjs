@@ -22,6 +22,7 @@ const FEED_TIMEOUT_MS = Number(process.env.FEED_TIMEOUT_MS || 15000);
 const ARTICLE_TIMEOUT_MS = Number(process.env.ARTICLE_TIMEOUT_MS || 12000);
 const ARTICLE_MAX_CHARS = Number(process.env.ARTICLE_MAX_CHARS || 2_000_000); // HTML chars
 const EXCERPT_MAX_CHARS = Number(process.env.ARTICLE_EXCERPT_MAX_CHARS || 10_000);
+const MIN_ARTICLE_WORDS = Number(process.env.MIN_ARTICLE_WORDS || 50);
 
 // Simple text normalization for matching
 function norm(s) {
@@ -30,6 +31,13 @@ function norm(s) {
     .replace(/&amp;/g, "&")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function textWordCount(input) {
+  return String(input || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
 }
 
 const KY_COUNTY_PATTERNS = (() => {
@@ -345,6 +353,14 @@ function upsertItemAndLink(db, feedId, row) {
   linkFeedItem.run(feedId, row.id);
 }
 
+function removeLowWordItem(db, feedId, itemId) {
+  db.prepare("DELETE FROM feed_items WHERE feed_id=? AND item_id=?").run(feedId, itemId);
+  const refs = db.prepare("SELECT COUNT(1) AS refs FROM feed_items WHERE item_id=?").get(itemId);
+  if (Number(refs?.refs || 0) <= 0) {
+    db.prepare("DELETE FROM items WHERE id=?").run(itemId);
+  }
+}
+
 async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty = "", feedUrl = "") {
   const st = (stateCode || "KY").toUpperCase();
 
@@ -359,12 +375,13 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
   const baseText = parts.filter(Boolean).join(" \n ");
   const titleCounties = detectKyCounties(titleText);
   const baseCounties = detectKyCounties(baseText);
+  const strongCounties = Array.from(new Set([...titleCounties, ...baseCounties]));
   const titleKySignal = st !== "KY" ? true : hasKySignal(titleText, titleCounties);
   const baseKySignal = st !== "KY" ? true : hasKySignal(baseText, baseCounties);
   const baseOtherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
   const titleOtherStateNames = st === "KY" ? detectOtherStateNames(titleText) : [];
 
-  let counties = [...baseCounties];
+  let counties = [...strongCounties];
   let excerptCounties = [];
   let otherStateNames = [...baseOtherStateNames];
 
@@ -427,19 +444,21 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
     baseOtherStateNames.length > 0 &&
     !baseKySignal &&
     baseCounties.length === 0;
-  if (st === "KY" && (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal || (urlSectionLooksOutOfState && !baseKySignal)) && counties.length === 0) {
+  if (
+    st === "KY" &&
+    (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal || (urlSectionLooksOutOfState && !baseKySignal && !titleKySignal))
+  ) {
     return;
   }
 
-  const kySignal =
+  const hasStrongKySignal =
     st !== "KY" ||
     isKyGoogleWatchFeed ||
     titleKySignal ||
     baseKySignal ||
-    excerptCounties.length > 0 ||
-    counties.length > 0;
+    strongCounties.length > 0;
   const hasOtherStateSignal = st === "KY" && otherStateNames.length > 0;
-  const shouldTagAsKy = st !== "KY" || !hasOtherStateSignal || (kySignal && !urlSectionLooksOutOfState);
+  const shouldTagAsKy = st !== "KY" || hasStrongKySignal;
   if (!shouldTagAsKy) return;
 
   // Keep a state-level marker for valid in-state content.
@@ -448,7 +467,7 @@ async function tagItemLocations(db, itemId, stateCode, parts, url, defaultCounty
   if (st === "KY") {
     const out = new Set(counties);
     const c = String(defaultCounty || "").trim();
-    if (c && kySignal && (!hasOtherStateSignal || counties.length > 0)) out.add(c);
+    if (c && (out.size > 0 || (hasStrongKySignal && !hasOtherStateSignal))) out.add(c);
     for (const county of out) ins.run(itemId, st, county);
   }
 }
@@ -523,6 +542,14 @@ async function ingestOnce() {
               f.default_county || "",
               f.url || ""
             );
+          }
+
+          const quality = db
+            .prepare("SELECT article_text_excerpt, content, summary FROM items WHERE id=? LIMIT 1")
+            .get(id);
+          const qualityText = String(quality?.article_text_excerpt || quality?.content || quality?.summary || "");
+          if (textWordCount(qualityText) < MIN_ARTICLE_WORDS) {
+            removeLowWordItem(db, f.id, id);
           }
         }
       } catch (err) {

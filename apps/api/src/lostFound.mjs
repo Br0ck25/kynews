@@ -15,7 +15,24 @@ import {
 } from "./security.mjs";
 
 const LOST_FOUND_TYPES = ["lost", "found"];
-const LOST_FOUND_STATUSES = ["pending", "approved", "rejected", "published"];
+const LOST_FOUND_STATUSES = ["pending", "approved", "rejected", "published", "resolved"];
+const COMMENT_URL_RE = /(?:https?:\/\/|www\.)\S+/gi;
+const COMMENT_MAX_URLS = 1;
+const COMMENT_RATE_LIMIT = 8;
+const COMMENT_RATE_WINDOW_MS = 60 * 60 * 1000;
+const MARK_FOUND_RATE_LIMIT = 12;
+const MARK_FOUND_RATE_WINDOW_MS = 60 * 60 * 1000;
+const COMMENT_BLOCKLIST = [
+  /\bfuck(?:ing|ed|er|s)?\b/i,
+  /\bshit(?:ty|ting|ted|s)?\b/i,
+  /\basshole(?:s)?\b/i,
+  /\bbitch(?:es|y)?\b/i,
+  /\bbastard(?:s)?\b/i,
+  /\bkill\s+yourself\b/i,
+  /\bi\s+will\s+kill\s+you\b/i
+];
+const commentRate = new Map();
+const markFoundRate = new Map();
 
 function deriveExt(mimeType) {
   const map = {
@@ -49,10 +66,66 @@ function mapLostFoundRow(row, { includeContact = false } = {}) {
     submitted_at: row.submitted_at,
     approved_at: row.approved_at,
     rejected_at: row.rejected_at,
+    is_resolved: Number(row.is_resolved) === 1,
+    resolved_at: row.resolved_at,
+    resolved_note: row.resolved_note,
+    comment_count: Number(row.comment_count || 0),
     expires_at: row.expires_at,
     moderation_note: row.moderation_note,
     images
   };
+}
+
+function mapCommentRow(row) {
+  return {
+    id: row.id,
+    post_id: row.post_id,
+    name: row.commenter_name,
+    comment: row.comment_text,
+    created_at: row.created_at
+  };
+}
+
+function normalizeCommentText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function countCommentUrls(text) {
+  const matches = String(text || "").match(COMMENT_URL_RE);
+  return matches ? matches.length : 0;
+}
+
+function hasBlockedCommentLanguage(text) {
+  const value = String(text || "");
+  return COMMENT_BLOCKLIST.some((re) => re.test(value));
+}
+
+function enforceCommentRateLimit(ip) {
+  const key = String(ip || "unknown");
+  const now = Date.now();
+  const existing = commentRate.get(key) || [];
+  const next = existing.filter((ts) => now - ts < COMMENT_RATE_WINDOW_MS);
+  if (next.length >= COMMENT_RATE_LIMIT) {
+    commentRate.set(key, next);
+    return false;
+  }
+  next.push(now);
+  commentRate.set(key, next);
+  return true;
+}
+
+function enforceMarkFoundRateLimit(ip) {
+  const key = String(ip || "unknown");
+  const now = Date.now();
+  const existing = markFoundRate.get(key) || [];
+  const next = existing.filter((ts) => now - ts < MARK_FOUND_RATE_WINDOW_MS);
+  if (next.length >= MARK_FOUND_RATE_LIMIT) {
+    markFoundRate.set(key, next);
+    return false;
+  }
+  next.push(now);
+  markFoundRate.set(key, next);
+  return true;
 }
 
 export function registerLostFoundRoutes(app, openDb, uploadDir) {
@@ -146,13 +219,20 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
       const where = ["datetime(p.expires_at) > datetime('now')"];
       const params = { limit: parsed.data.limit };
 
-      const status = parsed.data.status === "published" ? "approved" : parsed.data.status;
-      if (!admin && status !== "approved") {
+      if (!admin && parsed.data.status !== "published") {
         return app.httpErrors.unauthorized("Only published lost-and-found posts are public");
       }
 
-      where.push("p.status = @status");
-      params.status = status;
+      if (parsed.data.status === "published") {
+        where.push("p.status = 'approved'");
+        where.push("COALESCE(p.is_resolved, 0) = 0");
+      } else if (parsed.data.status === "resolved") {
+        where.push("p.status = 'approved'");
+        where.push("COALESCE(p.is_resolved, 0) = 1");
+      } else {
+        where.push("p.status = @status");
+        params.status = parsed.data.status;
+      }
 
       if (parsed.data.type) {
         where.push("p.type = @type");
@@ -173,7 +253,12 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
               SELECT group_concat(i.r2_key)
               FROM lost_found_images i
               WHERE i.post_id = p.id
-            ) AS images_csv
+            ) AS images_csv,
+            (
+              SELECT COUNT(1)
+              FROM lost_found_comments c
+              WHERE c.post_id = p.id
+            ) AS comment_count
           FROM lost_found_posts p
           WHERE ${where.join(" AND ")}
           ORDER BY p.submitted_at DESC
@@ -184,9 +269,123 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
 
       return {
         posts: rows.map((r) => mapLostFoundRow(r, { includeContact: Boolean(admin) })),
-        status,
+        status: parsed.data.status,
         county: parsed.data.county ? normalizeCounty(parsed.data.county) : null
       };
+    } finally {
+      db.close();
+    }
+  });
+
+  const LostFoundCommentListQuery = z.object({
+    limit: z.coerce.number().min(1).max(200).default(80)
+  });
+
+  app.get("/api/lost-found/:id/comments", async (req) => {
+    const id = String(req.params?.id || "");
+    const parsed = LostFoundCommentListQuery.safeParse(req.query ?? {});
+    if (!parsed.success) return app.httpErrors.badRequest("Invalid query");
+
+    const db = openDb();
+    try {
+      ensureSchema(db);
+      const post = db
+        .prepare(
+          `
+          SELECT id
+          FROM lost_found_posts
+          WHERE id=? AND status='approved' AND datetime(expires_at) > datetime('now')
+          LIMIT 1
+          `
+        )
+        .get(id);
+      if (!post) return app.httpErrors.notFound("Post not found");
+
+      const rows = db
+        .prepare(
+          `
+          SELECT id, post_id, commenter_name, comment_text, created_at
+          FROM lost_found_comments
+          WHERE post_id=@postId
+          ORDER BY created_at ASC
+          LIMIT @limit
+          `
+        )
+        .all({ postId: id, limit: parsed.data.limit });
+
+      return { comments: rows.map((row) => mapCommentRow(row)) };
+    } finally {
+      db.close();
+    }
+  });
+
+  const LostFoundCommentBody = z.object({
+    name: z.string().min(2).max(80),
+    email: z.string().email(),
+    comment: z.string().min(2).max(1500),
+    acceptTerms: z.literal(true)
+  });
+
+  app.post("/api/lost-found/:id/comments", async (req) => {
+    const id = String(req.params?.id || "");
+    const parsed = LostFoundCommentBody.safeParse(req.body ?? {});
+    if (!parsed.success) return app.httpErrors.badRequest("Invalid payload");
+
+    if (!enforceCommentRateLimit(req.ip)) {
+      return app.httpErrors.tooManyRequests("Comment rate limit exceeded. Try again later.");
+    }
+
+    const name = normalizeCommentText(parsed.data.name);
+    const comment = normalizeCommentText(parsed.data.comment);
+    if (!name || !comment) {
+      return app.httpErrors.badRequest("Name and comment are required");
+    }
+    if (hasBlockedCommentLanguage(name) || hasBlockedCommentLanguage(comment)) {
+      return app.httpErrors.badRequest("Comment violates the community policy.");
+    }
+
+    const urlCount = countCommentUrls(comment);
+    if (urlCount > COMMENT_MAX_URLS) {
+      return app.httpErrors.badRequest(`Comments are limited to ${COMMENT_MAX_URLS} URL.`);
+    }
+
+    const db = openDb();
+    try {
+      ensureSchema(db);
+      const post = db
+        .prepare(
+          `
+          SELECT id
+          FROM lost_found_posts
+          WHERE id=? AND status='approved' AND datetime(expires_at) > datetime('now')
+          LIMIT 1
+          `
+        )
+        .get(id);
+      if (!post) return app.httpErrors.notFound("Post not found");
+
+      const email = parsed.data.email.trim().toLowerCase();
+      const commentId = randomUUID();
+      db.prepare(
+        `
+        INSERT INTO lost_found_comments (
+          id, post_id, commenter_name, commenter_email_encrypted, commenter_email_hash,
+          comment_text, url_count, commenter_ip_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `
+      ).run(commentId, id, name, encryptText(email), hashIp(email), comment, urlCount, hashIp(req.ip));
+
+      const row = db
+        .prepare(
+          `
+          SELECT id, post_id, commenter_name, comment_text, created_at
+          FROM lost_found_comments
+          WHERE id=?
+          LIMIT 1
+          `
+        )
+        .get(commentId);
+      return { ok: true, comment: mapCommentRow(row) };
     } finally {
       db.close();
     }
@@ -289,8 +488,79 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
     }
   });
 
+  const LostFoundMarkFoundBody = z.object({
+    contactEmail: z.string().email(),
+    note: z.string().max(500).optional()
+  });
+
+  app.post("/api/lost-found/:id/mark-found", async (req) => {
+    const id = String(req.params?.id || "");
+    const parsed = LostFoundMarkFoundBody.safeParse(req.body ?? {});
+    if (!parsed.success) return app.httpErrors.badRequest("Invalid payload");
+
+    if (!enforceMarkFoundRateLimit(req.ip)) {
+      return app.httpErrors.tooManyRequests("Rate limit exceeded. Try again later.");
+    }
+
+    const db = openDb();
+    try {
+      ensureSchema(db);
+      const post = db
+        .prepare(
+          `
+          SELECT id, type, status, is_resolved, contact_email_encrypted
+          FROM lost_found_posts
+          WHERE id=? AND datetime(expires_at) > datetime('now')
+          LIMIT 1
+          `
+        )
+        .get(id);
+
+      if (!post) {
+        const exists = db.prepare("SELECT id FROM lost_found_posts WHERE id=?").get(id);
+        if (!exists) return app.httpErrors.notFound("Post not found");
+        return app.httpErrors.badRequest("This listing has expired");
+      }
+
+      if (post.type !== "lost" || post.status !== "approved") {
+        return app.httpErrors.badRequest("Only active lost posts can be marked found");
+      }
+      if (Number(post.is_resolved || 0) === 1) {
+        return { ok: true, id, status: "resolved" };
+      }
+
+      const submittedEmail = parsed.data.contactEmail.trim().toLowerCase();
+      const ownerEmail = String(decryptText(post.contact_email_encrypted) || "")
+        .trim()
+        .toLowerCase();
+      if (!ownerEmail || ownerEmail !== submittedEmail) {
+        return app.httpErrors.unauthorized("Contact email verification failed");
+      }
+
+      const info = db
+        .prepare(
+          `
+          UPDATE lost_found_posts
+          SET
+            is_resolved=1,
+            resolved_at=datetime('now'),
+            resolved_note=?
+          WHERE id=? AND status='approved' AND COALESCE(is_resolved, 0)=0
+          `
+        )
+        .run(parsed.data.note || null, id);
+
+      if (!info.changes) {
+        return { ok: true, id, status: "resolved" };
+      }
+      return { ok: true, id, status: "resolved" };
+    } finally {
+      db.close();
+    }
+  });
+
   const AdminLostFoundQuery = z.object({
-    status: z.enum(["pending", "approved", "rejected"]).default("pending"),
+    status: z.enum(["pending", "approved", "rejected", "resolved", "all"]).default("pending"),
     limit: z.coerce.number().min(1).max(200).default(100)
   });
 
@@ -302,6 +572,16 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
     const db = openDb();
     try {
       ensureSchema(db);
+      const where = [];
+      const params = { limit: parsed.data.limit };
+
+      if (parsed.data.status === "resolved") {
+        where.push("p.status = 'approved'");
+        where.push("COALESCE(p.is_resolved, 0) = 1");
+      } else if (parsed.data.status !== "all") {
+        where.push("p.status = @status");
+        params.status = parsed.data.status;
+      }
 
       const rows = db
         .prepare(
@@ -312,14 +592,19 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
               SELECT group_concat(i.r2_key)
               FROM lost_found_images i
               WHERE i.post_id = p.id
-            ) AS images_csv
+            ) AS images_csv,
+            (
+              SELECT COUNT(1)
+              FROM lost_found_comments c
+              WHERE c.post_id = p.id
+            ) AS comment_count
           FROM lost_found_posts p
-          WHERE p.status = @status
+          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
           ORDER BY p.submitted_at DESC
           LIMIT @limit
         `
         )
-        .all({ status: parsed.data.status, limit: parsed.data.limit });
+        .all(params);
 
       return {
         admin: admin.email,
@@ -404,6 +689,80 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
 
       insertAdminLog(db, admin.email, "lost_found.reject", "lost_found_post", id, parsed.data);
       return { ok: true, id, status: "rejected" };
+    } finally {
+      db.close();
+    }
+  });
+
+  app.delete("/api/admin/lost-found/:id", async (req) => {
+    const admin = requireAdmin(app, req);
+    const id = String(req.params?.id || "");
+
+    const db = openDb();
+    try {
+      ensureSchema(db);
+      const row = db
+        .prepare(
+          `
+          SELECT
+            p.id,
+            (
+              SELECT group_concat(i.r2_key)
+              FROM lost_found_images i
+              WHERE i.post_id = p.id
+            ) AS images_csv
+          FROM lost_found_posts p
+          WHERE p.id=?
+          LIMIT 1
+          `
+        )
+        .get(id);
+      if (!row) return app.httpErrors.notFound("Post not found");
+
+      const imageKeys = String(row.images_csv || "")
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+
+      db.prepare("DELETE FROM lost_found_images WHERE post_id=?").run(id);
+      db.prepare("DELETE FROM lost_found_reports WHERE post_id=?").run(id);
+      db.prepare("DELETE FROM lost_found_comments WHERE post_id=?").run(id);
+      db.prepare("DELETE FROM lost_found_posts WHERE id=?").run(id);
+
+      let deletedImages = 0;
+      for (const key of imageKeys) {
+        try {
+          await fs.unlink(path.join(uploadDir, key));
+          deletedImages += 1;
+        } catch {
+          // ignore missing local files
+        }
+      }
+
+      insertAdminLog(db, admin.email, "lost_found.delete", "lost_found_post", id, {
+        deleted_images: deletedImages
+      });
+      return { ok: true, id, deletedImages };
+    } finally {
+      db.close();
+    }
+  });
+
+  app.delete("/api/admin/lost-found/comments/:commentId", async (req) => {
+    const admin = requireAdmin(app, req);
+    const commentId = String(req.params?.commentId || "");
+
+    const db = openDb();
+    try {
+      ensureSchema(db);
+      const row = db.prepare("SELECT id, post_id FROM lost_found_comments WHERE id=? LIMIT 1").get(commentId);
+      if (!row) return app.httpErrors.notFound("Comment not found");
+
+      db.prepare("DELETE FROM lost_found_comments WHERE id=?").run(commentId);
+      insertAdminLog(db, admin.email, "lost_found.comment.delete", "lost_found_comment", commentId, {
+        post_id: row.post_id
+      });
+      return { ok: true, id: commentId };
     } finally {
       db.close();
     }

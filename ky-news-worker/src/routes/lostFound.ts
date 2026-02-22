@@ -15,6 +15,20 @@ import {
   requireAdmin
 } from "../services/security";
 
+const COMMENT_URL_RE = /(?:https?:\/\/|www\.)\S+/gi;
+const COMMENT_MAX_URLS = 1;
+const COMMENT_RATE_LIMIT = 8;
+const COMMENT_RATE_WINDOW_SECONDS = 60 * 60;
+const COMMENT_BLOCKLIST = [
+  /\bfuck(?:ing|ed|er|s)?\b/i,
+  /\bshit(?:ty|ting|ted|s)?\b/i,
+  /\basshole(?:s)?\b/i,
+  /\bbitch(?:es|y)?\b/i,
+  /\bbastard(?:s)?\b/i,
+  /\bkill\s+yourself\b/i,
+  /\bi\s+will\s+kill\s+you\b/i
+];
+
 function deriveExt(mimeType: string): string | null {
   const map: Record<string, string> = {
     "image/jpeg": "jpg",
@@ -38,6 +52,20 @@ function assertSafeKey(raw: string): string {
 function queryInput(c: any): Record<string, unknown> {
   const params = new URL(c.req.url).searchParams;
   return Object.fromEntries(params.entries());
+}
+
+function countCommentUrls(text: string): number {
+  const matches = String(text || "").match(COMMENT_URL_RE);
+  return matches ? matches.length : 0;
+}
+
+function hasBlockedCommentLanguage(text: string): boolean {
+  const value = String(text || "");
+  return COMMENT_BLOCKLIST.some((re) => re.test(value));
+}
+
+function normalizeCommentText(text: string): string {
+  return String(text || "").replace(/\s+/g, " ").trim();
 }
 
 async function mapLostFoundRow(
@@ -68,9 +96,20 @@ async function mapLostFoundRow(
     is_resolved: Number(row.is_resolved) === 1,
     resolved_at: row.resolved_at,
     resolved_note: row.resolved_note,
+    comment_count: Number(row.comment_count || 0),
     expires_at: row.expires_at,
     moderation_note: row.moderation_note,
     images
+  };
+}
+
+function mapCommentRow(row: Record<string, any>): Record<string, unknown> {
+  return {
+    id: row.id,
+    post_id: row.post_id,
+    name: row.commenter_name,
+    comment: row.comment_text,
+    created_at: row.created_at
   };
 }
 
@@ -189,7 +228,12 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
           SELECT group_concat(i.r2_key)
           FROM lost_found_images i
           WHERE i.post_id = p.id
-        ) AS images_csv
+        ) AS images_csv,
+        (
+          SELECT COUNT(1)
+          FROM lost_found_comments c
+          WHERE c.post_id = p.id
+        ) AS comment_count
       FROM lost_found_posts p
       WHERE ${where.join(" AND ")}
       ORDER BY p.submitted_at DESC
@@ -205,6 +249,116 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
       status: parsed.data.status,
       county: parsed.data.county ? normalizeCounty(parsed.data.county) : null
     });
+  });
+
+  const CommentListQuery = z.object({
+    limit: z.coerce.number().min(1).max(200).default(80)
+  });
+
+  app.get("/api/lost-found/:id/comments", async (c) => {
+    const id = String(c.req.param("id") || "");
+    const parsed = CommentListQuery.safeParse(queryInput(c));
+    if (!parsed.success) badRequest("Invalid query");
+
+    const post = await d1First<{ id: string }>(
+      c.env.ky_news_db,
+      `
+      SELECT id
+      FROM lost_found_posts
+      WHERE id=? AND status='approved' AND datetime(expires_at) > datetime('now')
+      LIMIT 1
+      `,
+      [id]
+    );
+    if (!post) notFound("Post not found");
+
+    const rows = await d1All<Record<string, unknown>>(
+      c.env.ky_news_db,
+      `
+      SELECT id, post_id, commenter_name, comment_text, created_at
+      FROM lost_found_comments
+      WHERE post_id=?
+      ORDER BY created_at ASC
+      LIMIT ?
+      `,
+      [id, parsed.data.limit]
+    );
+
+    return c.json({ comments: rows.map((row) => mapCommentRow(row)) });
+  });
+
+  const CommentBody = z.object({
+    name: z.string().min(2).max(80),
+    email: z.string().email(),
+    comment: z.string().min(2).max(1500),
+    acceptTerms: z.literal(true)
+  });
+
+  app.post("/api/lost-found/:id/comments", async (c) => {
+    const id = String(c.req.param("id") || "");
+    const body = await c.req.json().catch(() => null);
+    const parsed = CommentBody.safeParse(body || {});
+    if (!parsed.success) badRequest("Invalid payload");
+
+    const ip = getClientIp(c);
+    const rl = await enforceRateLimit(c.env, `lf-comment:${ip}`, COMMENT_RATE_LIMIT, COMMENT_RATE_WINDOW_SECONDS);
+    if (!rl.allowed) tooManyRequests("Comment rate limit exceeded. Try again later.");
+
+    const post = await d1First<{ id: string }>(
+      c.env.ky_news_db,
+      `
+      SELECT id
+      FROM lost_found_posts
+      WHERE id=? AND status='approved' AND datetime(expires_at) > datetime('now')
+      LIMIT 1
+      `,
+      [id]
+    );
+    if (!post) notFound("Post not found");
+
+    const name = normalizeCommentText(parsed.data.name);
+    const comment = normalizeCommentText(parsed.data.comment);
+    if (!name || !comment) badRequest("Name and comment are required");
+
+    if (hasBlockedCommentLanguage(name) || hasBlockedCommentLanguage(comment)) {
+      badRequest("Comment violates the community policy.");
+    }
+
+    const urlCount = countCommentUrls(comment);
+    if (urlCount > COMMENT_MAX_URLS) {
+      badRequest(`Comments are limited to ${COMMENT_MAX_URLS} URL.`);
+    }
+
+    const email = parsed.data.email.trim().toLowerCase();
+    const commentId = randomUUID();
+    const emailEncrypted = await encryptText(c.env, email);
+    const emailHash = await hashIp(email);
+    const ipHash = await hashIp(ip);
+
+    await d1Run(
+      c.env.ky_news_db,
+      `
+      INSERT INTO lost_found_comments (
+        id, post_id, commenter_name, commenter_email_encrypted, commenter_email_hash,
+        comment_text, url_count, commenter_ip_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [commentId, id, name, emailEncrypted, emailHash, comment, urlCount, ipHash]
+    );
+
+    const inserted = await d1First<Record<string, unknown>>(
+      c.env.ky_news_db,
+      `
+      SELECT id, post_id, commenter_name, comment_text, created_at
+      FROM lost_found_comments
+      WHERE id=?
+      LIMIT 1
+      `,
+      [commentId]
+    );
+    if (!inserted) notFound("Comment not found after insert");
+
+    return c.json({ ok: true, comment: mapCommentRow(inserted) });
   });
 
   const SubmissionBody = z.object({
@@ -410,7 +564,12 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
           SELECT group_concat(i.r2_key)
           FROM lost_found_images i
           WHERE i.post_id = p.id
-        ) AS images_csv
+        ) AS images_csv,
+        (
+          SELECT COUNT(1)
+          FROM lost_found_comments c
+          WHERE c.post_id = p.id
+        ) AS comment_count
       FROM lost_found_posts p
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY p.submitted_at DESC
@@ -517,6 +676,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
 
     await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_images WHERE post_id=?", [id]);
     await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_reports WHERE post_id=?", [id]);
+    await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_comments WHERE post_id=?", [id]);
     await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_posts WHERE id=?", [id]);
 
     await Promise.all(
@@ -534,5 +694,24 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     });
 
     return c.json({ ok: true, id, deletedImages: imageKeys.length });
+  });
+
+  app.delete("/api/admin/lost-found/comments/:commentId", async (c) => {
+    const admin = requireAdmin(c);
+    const commentId = String(c.req.param("commentId") || "");
+
+    const row = await d1First<{ id: string; post_id: string }>(
+      c.env.ky_news_db,
+      "SELECT id, post_id FROM lost_found_comments WHERE id=? LIMIT 1",
+      [commentId]
+    );
+    if (!row) notFound("Comment not found");
+
+    await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_comments WHERE id=?", [commentId]);
+    await insertAdminLog(c.env, admin.email, "lost_found.comment.delete", "lost_found_comment", commentId, {
+      post_id: row.post_id
+    });
+
+    return c.json({ ok: true, id: commentId });
   });
 }

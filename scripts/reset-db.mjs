@@ -130,6 +130,9 @@ CREATE TABLE IF NOT EXISTS lost_found_posts (
   submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
   approved_at TEXT,
   rejected_at TEXT,
+  is_resolved INTEGER NOT NULL DEFAULT 0,
+  resolved_at TEXT,
+  resolved_note TEXT,
   expires_at TEXT NOT NULL,
   moderation_note TEXT
 );
@@ -159,6 +162,22 @@ CREATE TABLE IF NOT EXISTS lost_found_reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_lost_found_reports_post_id ON lost_found_reports(post_id, created_at);
+
+CREATE TABLE IF NOT EXISTS lost_found_comments (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  commenter_name TEXT NOT NULL,
+  commenter_email_encrypted TEXT NOT NULL,
+  commenter_email_hash TEXT NOT NULL,
+  comment_text TEXT NOT NULL,
+  url_count INTEGER NOT NULL DEFAULT 0,
+  commenter_ip_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (post_id) REFERENCES lost_found_posts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_lost_found_comments_post_created ON lost_found_comments(post_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_lost_found_comments_ip_created ON lost_found_comments(commenter_ip_hash, created_at);
 
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id TEXT PRIMARY KEY,

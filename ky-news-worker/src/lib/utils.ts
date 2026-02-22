@@ -23,6 +23,7 @@ const PAID_SOURCE_DOMAINS = [
 const HEAVY_DEPRIORITIZED_PAID_DOMAINS = ["dailyindependent.com"];
 const PAID_FALLBACK_LIMIT = 2;
 const PAID_FALLBACK_WHEN_EMPTY_LIMIT = 3;
+const MIN_ITEM_WORDS = 50;
 const OUTPUT_SUMMARY_LABEL_RE =
   /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*|__)?\s*(?:background|summary|key points?|key people|impact|impacts|what'?s next|what to watch next|overview|bottom line|main takeaways?|takeaways?|places|timeline|causes?)\s*:?\s*(?:\*\*|__)?\s*/gi;
 const OUTPUT_NAV_CLUSTER_RE =
@@ -173,6 +174,19 @@ export function isPaidSource(url: unknown): boolean {
   return PAID_SOURCE_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
+function countWords(input: unknown): number {
+  return String(input || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+function itemHasMinimumWords(item: Record<string, unknown>): boolean {
+  const summaryWords = countWords(item.summary);
+  const contentWords = countWords(item.content);
+  return Math.max(summaryWords, contentWords) >= MIN_ITEM_WORDS;
+}
+
 function isHeavyDeprioritizedPaidSource(url: unknown): boolean {
   const host = sourceHost(url);
   if (!host) return false;
@@ -210,6 +224,7 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
   const filtered: typeof ranked = [];
 
   for (const item of ranked) {
+    if (!itemHasMinimumWords(item)) continue;
     if (item._isPaid && item._fp && nonPaidFingerprints.has(item._fp)) continue;
     if (item._canonicalUrl && seenCanonicalUrl.has(item._canonicalUrl)) continue;
     if (item._fp && seenTitle.has(item._fp)) continue;
@@ -222,15 +237,18 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
   }
 
   const nonPaid = filtered.filter((item) => !item._isPaid);
-  const paid = filtered.filter((item) => item._isPaid);
+  const paid = filtered.filter((item) => item._isPaid && !item._isHeavyPaid);
+  const heavyPaid = filtered.filter((item) => item._isHeavyPaid);
   const pickedNonPaid = nonPaid.slice(0, limit);
   const paidAllowance =
     pickedNonPaid.length === 0
       ? Math.min(limit, PAID_FALLBACK_WHEN_EMPTY_LIMIT)
       : Math.min(PAID_FALLBACK_LIMIT, Math.max(1, Math.floor(limit * 0.1)));
   const pickedPaid = paid.slice(0, paidAllowance);
+  const heavyPaidAllowance = pickedNonPaid.length === 0 && pickedPaid.length === 0 ? Math.min(1, limit) : 0;
+  const pickedHeavyPaid = heavyPaid.slice(0, heavyPaidAllowance);
 
-  return [...pickedNonPaid, ...pickedPaid]
+  return [...pickedNonPaid, ...pickedPaid, ...pickedHeavyPaid]
     .slice(0, limit)
     .map(({ _isPaid, _isHeavyPaid, _fp, _canonicalUrl, _source, _sortTs, ...rest }) => rest as RankedItem);
 }

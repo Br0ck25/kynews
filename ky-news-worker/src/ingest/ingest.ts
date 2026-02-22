@@ -14,6 +14,7 @@ import type { Env } from "../types";
 import { incrementMetricGroup, writeStructuredLog } from "../services/observability";
 
 const FEED_TIMEOUT_MS = 15_000;
+const MIN_ARTICLE_WORDS = 50;
 
 type FeedRow = {
   id: string;
@@ -92,6 +93,29 @@ function textOnly(input: string | null | undefined): string {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function textWordCount(input: string | null | undefined): number {
+  return String(input || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+async function removeLowWordItem(
+  env: Env,
+  feedId: string,
+  itemId: string
+): Promise<void> {
+  await d1Run(env.ky_news_db, "DELETE FROM feed_items WHERE feed_id=? AND item_id=?", [feedId, itemId]);
+  const remaining = await d1First<{ refs: number }>(
+    env.ky_news_db,
+    "SELECT COUNT(1) AS refs FROM feed_items WHERE item_id=?",
+    [itemId]
+  );
+  if (Number(remaining?.refs || 0) <= 0) {
+    await d1Run(env.ky_news_db, "DELETE FROM items WHERE id=?", [itemId]);
+  }
 }
 
 async function fetchWithConditional(
@@ -316,12 +340,13 @@ async function tagItemLocations(
   const baseText = input.parts.filter(Boolean).join(" \n");
   const titleCounties = detectKyCounties(titleText);
   const baseCounties = detectKyCounties(baseText);
+  const strongCounties = Array.from(new Set([...titleCounties, ...baseCounties]));
   const titleKySignal = st !== "KY" ? true : hasKySignal(titleText, titleCounties);
   const baseKySignal = st !== "KY" ? true : hasKySignal(baseText, baseCounties);
   const baseOtherStateNames = st === "KY" ? detectOtherStateNames(baseText) : [];
   const titleOtherStateNames = st === "KY" ? detectOtherStateNames(titleText) : [];
 
-  let counties = [...baseCounties];
+  let counties = [...strongCounties];
   let excerptCounties: string[] = [];
   let otherStateNames = [...baseOtherStateNames];
 
@@ -402,22 +427,25 @@ async function tagItemLocations(
     baseOtherStateNames.length > 0 &&
     !baseKySignal &&
     baseCounties.length === 0;
-  if (st === "KY" && (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal || (urlSectionLooksOutOfState && !baseKySignal)) && counties.length === 0) {
+  if (
+    st === "KY" &&
+    (hasTitleOutOfStateSignal || hasPrimaryOutOfStateSignal || (urlSectionLooksOutOfState && !baseKySignal && !titleKySignal))
+  ) {
     return { excerpt, imageCandidate, publishedAt };
   }
 
-  const kySignal =
+  const hasStrongKySignal =
     st !== "KY" ||
     isKyGoogleWatchFeed ||
     titleKySignal ||
     baseKySignal ||
-    counties.length > 0;
+    strongCounties.length > 0;
   const hasOtherStateSignal = st === "KY" && otherStateNames.length > 0;
-  if (st === "KY" && looksSyndicated && !kySignal && counties.length === 0) {
+  if (st === "KY" && looksSyndicated && !hasStrongKySignal) {
     return { excerpt, imageCandidate, publishedAt };
   }
 
-  const shouldTagAsKy = st !== "KY" || kySignal || (!hasOtherStateSignal && !looksSyndicated && !urlSectionLooksOutOfState);
+  const shouldTagAsKy = st !== "KY" || hasStrongKySignal;
 
   if (!shouldTagAsKy) {
     return { excerpt, imageCandidate, publishedAt };
@@ -431,7 +459,7 @@ async function tagItemLocations(
   if (st === "KY") {
     const tagged = new Set(counties.map((c) => normalizeCounty(c)).filter(Boolean));
     const fallbackCounty = normalizeCounty(input.defaultCounty || "");
-    if (fallbackCounty && (kySignal || (!hasOtherStateSignal && !looksSyndicated || tagged.size > 0))) {
+    if (fallbackCounty && (tagged.size > 0 || (hasStrongKySignal && !hasOtherStateSignal))) {
       tagged.add(fallbackCounty);
     }
 
@@ -580,11 +608,34 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
           });
 
           if (upserted === "unchanged") {
+            if ((feed.region_scope || "ky") === "ky") {
+              await tagItemLocations(env, {
+                itemId,
+                stateCode: feed.state_code || "KY",
+                parts: [title, summaryText || "", contentText || ""],
+                url: link,
+                author,
+                defaultCounty: feed.default_county,
+                feedUrl: feed.url
+              });
+            }
+
+            const existingQuality = await d1First<{
+              article_text_excerpt: string | null;
+              content: string | null;
+              summary: string | null;
+            }>(
+              env.ky_news_db,
+              "SELECT article_text_excerpt, content, summary FROM items WHERE id=? LIMIT 1",
+              [itemId]
+            );
+            const existingQualityText =
+              existingQuality?.article_text_excerpt || existingQuality?.content || existingQuality?.summary || "";
+            if (textWordCount(existingQualityText) < MIN_ARTICLE_WORDS) {
+              await removeLowWordItem(env, feed.id, itemId);
+            }
             continue;
           }
-
-          summary.itemsUpserted += 1;
-          feedItemsUpserted += 1;
 
           let articleExcerpt = contentText || "";
           let articleImageCandidate = imageUrl;
@@ -615,6 +666,15 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
               ]);
             }
           }
+
+          const qualityText = articleExcerpt || contentText || summaryText || "";
+          if (textWordCount(qualityText) < MIN_ARTICLE_WORDS) {
+            await removeLowWordItem(env, feed.id, itemId);
+            continue;
+          }
+
+          summary.itemsUpserted += 1;
+          feedItemsUpserted += 1;
 
           const cachedSummary = await getCachedSummary(env, itemId);
           if (cachedSummary) {

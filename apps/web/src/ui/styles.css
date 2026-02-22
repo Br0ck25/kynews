@@ -89,10 +89,32 @@ select {
 
 .topbar .title {
   flex: 1;
+  min-width: 0;
   text-align: center;
   color: var(--nav-text);
   font-size: 28px;
   font-weight: 500;
+}
+
+.brandTitle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.brandTitle span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brandLogo {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  flex: 0 0 auto;
 }
 
 .topbarSpacer {
@@ -408,6 +430,11 @@ select {
   bottom: clamp(16px, 3.3vw, 38px);
   z-index: 2;
   max-width: 760px;
+  max-height: calc(100% - 28px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
 .featuredSource {
@@ -425,6 +452,10 @@ select {
   font-size: clamp(31px, 4.3vw, 56px);
   line-height: 1.04;
   font-weight: 500;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .featuredSummary {
@@ -434,6 +465,10 @@ select {
   font-size: clamp(19px, 2vw, 32px);
   line-height: 1.2;
   font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .featuredReadMore {
@@ -654,6 +689,144 @@ select {
   color: #9ca3af;
 }
 
+.hiddenFileInput {
+  display: none;
+}
+
+.filePickerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.filePickerName {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.lostFoundPolicyCard {
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.lostFoundPolicyHeading {
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #4b5563;
+}
+
+.lostFoundPolicyText {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.lostFoundPolicyList {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.lostFoundPostCard {
+  margin-bottom: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.lostFoundImage {
+  width: 100%;
+  max-height: 420px;
+  margin-top: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #f9fafb;
+  object-fit: contain;
+}
+
+.lostFoundCommentHeader {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lostFoundCommentCount {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lostFoundComments {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.lostFoundCommentItem {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.lostFoundCommentItem:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.lostFoundCommentMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.lostFoundCommentAuthor {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.lostFoundCommentBody {
+  font-size: 14px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lostFoundCommentForm {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.lostFoundCommentTerms {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lostFoundCommentMuted {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .listStatus {
   text-align: center;
   color: var(--muted);
@@ -670,7 +843,7 @@ select {
   height: calc(72px + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: var(--nav-bg);
   border-top: 1px solid var(--border);
 }
@@ -957,6 +1130,11 @@ select {
     font-size: 21px;
   }
 
+  .brandLogo {
+    width: 26px;
+    height: 26px;
+  }
+
   .section {
     padding: 10px;
   }
@@ -971,6 +1149,7 @@ select {
 
   .featuredSummary {
     font-size: clamp(17px, 5vw, 25px);
+    -webkit-line-clamp: 3;
   }
 
   .featuredReadMore {

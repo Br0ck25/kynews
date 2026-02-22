@@ -86,9 +86,18 @@ export type LostFoundPost = {
   rejected_at?: string | null;
   resolved_at?: string | null;
   resolved_note?: string | null;
+  comment_count?: number;
   expires_at: string;
   moderation_note?: string | null;
   images: string[];
+};
+
+export type LostFoundComment = {
+  id: string;
+  post_id: string;
+  name: string;
+  comment: string;
+  created_at: string;
 };
 
 export type AdminIngestionLog = {
@@ -243,6 +252,36 @@ export async function listLostFound(opts: { type?: LostFoundType; county?: strin
   if (opts.status) params.set("status", opts.status);
   if (opts.limit != null) params.set("limit", String(opts.limit));
   return fetchJson<{ posts: LostFoundPost[]; status: string; county?: string | null }>(`/api/lost-found?${params.toString()}`);
+}
+
+export async function listLostFoundComments(postId: string, limit = 80) {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  return fetchJson<{ comments: LostFoundComment[] }>(
+    `/api/lost-found/${encodeURIComponent(postId)}/comments?${params.toString()}`
+  );
+}
+
+export async function submitLostFoundComment(input: {
+  postId: string;
+  name: string;
+  email: string;
+  comment: string;
+  acceptTerms: boolean;
+}) {
+  return fetchJson<{ ok: boolean; comment: LostFoundComment }>(
+    `/api/lost-found/${encodeURIComponent(input.postId)}/comments`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: input.name,
+        email: input.email,
+        comment: input.comment,
+        acceptTerms: Boolean(input.acceptTerms)
+      })
+    }
+  );
 }
 
 function adminHeaders(token?: string): HeadersInit {
