@@ -16,7 +16,12 @@ import {
   uploadLostFoundImage,
   markLostFoundAsFound,
   listAdminLostFound,
+  listAdminLostFoundComments,
+  listAdminLostFoundCommentBans,
   deleteAdminLostFound,
+  deleteAdminLostFoundComment,
+  deleteAdminLostFoundCommentBan,
+  banAdminLostFoundComment,
   approveAdminLostFound,
   rejectAdminLostFound,
   getAdminIngestionLogs,
@@ -24,6 +29,8 @@ import {
   runAdminFeedReload,
   runAdminItemsRevalidate,
   type AdminFeedHealth,
+  type AdminLostFoundComment,
+  type AdminLostFoundCommentBan,
   type AdminItemRevalidateSummary,
   type AdminIngestionLog,
   type Feed,
@@ -116,6 +123,7 @@ const COVERAGE_TABS = [
 
 const LOCAL_PREF_KEY = "my_local_county";
 const SELECTED_COUNTIES_PREF_KEY = "selected_counties";
+const SELECTED_COUNTIES_CHANGED_EVENT = "selected-counties:changed";
 const THEME_PREF_KEY = "ui_theme";
 const OWNER_ADMIN_TOKEN_KEY = "owner_admin_token";
 const OWNER_ADMIN_ROUTE = "/owner-panel-ky-news";
@@ -161,9 +169,36 @@ function getSelectedCounties(): string[] {
 function setSelectedCounties(counties: string[]) {
   try {
     localStorage.setItem(SELECTED_COUNTIES_PREF_KEY, JSON.stringify(counties));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SELECTED_COUNTIES_CHANGED_EVENT));
+    }
   } catch {
     // ignore
   }
+}
+
+function useSelectedCountyPreferences(): string[] {
+  const [selected, setSelected] = useState<string[]>(() => getSelectedCounties());
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const refresh = () => setSelected(getSelectedCounties());
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === SELECTED_COUNTIES_PREF_KEY) {
+        refresh();
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(SELECTED_COUNTIES_CHANGED_EVENT, refresh);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(SELECTED_COUNTIES_CHANGED_EVENT, refresh);
+    };
+  }, []);
+
+  return selected;
 }
 
 function getThemeMode(): ThemeMode {
@@ -299,7 +334,7 @@ function AppShell({
           <div className="drawerOverlay" onClick={() => setDrawerOpen(false)} />
           <div className="drawer" role="dialog" aria-label="Navigation">
             <div className="drawerHeader">
-              Kentucky News
+              Local KY News
               <div style={{ marginLeft: "auto" }}>
                 <button className="iconBtn closeBtn" onClick={() => setDrawerOpen(false)} aria-label="Close">
                   ✕
@@ -673,10 +708,8 @@ function TodayScreen() {
   const q = new URLSearchParams(loc.search);
   const state = (q.get("state") || "").toUpperCase();
   const county = q.get("county") || "";
-  const selectedCounties = useMemo(
-    () => (state || county ? [] : getSelectedCounties()),
-    [state, county]
-  );
+  const selectedCountyPrefs = useSelectedCountyPreferences();
+  const selectedCounties = state || county ? [] : selectedCountyPrefs;
   const countyFilter = county ? [county] : selectedCounties;
 
   const [items, setItems] = useState<Item[]>([]);
@@ -759,7 +792,7 @@ function TodayScreen() {
         : "";
 
   return (
-    <AppShell title="Kentucky News">
+    <AppShell title="Local KY News">
       <CoverageTabs />
 
       <div className="section">
@@ -840,6 +873,7 @@ function NationalScreen() {
 
 function SportsScreen() {
   const nav = useNavigate();
+  const selectedCounties = useSelectedCountyPreferences();
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -850,7 +884,9 @@ function SportsScreen() {
       setLoading(true);
       try {
         const res = await searchItems(SPORTS_QUERY, {
-          scope: "all",
+          scope: selectedCounties.length ? "ky" : "all",
+          state: selectedCounties.length ? "KY" : undefined,
+          counties: selectedCounties.length ? selectedCounties : undefined,
           hours: SPORTS_LOOKBACK_HOURS,
           limit: 30
         });
@@ -864,14 +900,16 @@ function SportsScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedCounties]);
 
   async function loadMore() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
       const res = await searchItems(SPORTS_QUERY, {
-        scope: "all",
+        scope: selectedCounties.length ? "ky" : "all",
+        state: selectedCounties.length ? "KY" : undefined,
+        counties: selectedCounties.length ? selectedCounties : undefined,
         hours: SPORTS_LOOKBACK_HOURS,
         cursor,
         limit: 30
@@ -1526,6 +1564,7 @@ function WeatherScreen() {
 
 function ObituariesScreen() {
   const nav = useNavigate();
+  const selectedCounties = useSelectedCountyPreferences();
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1539,6 +1578,7 @@ function ObituariesScreen() {
         const categoryFeed = await getItems({
           scope: "ky",
           category: "Kentucky - Obituaries",
+          counties: selectedCounties.length ? selectedCounties : undefined,
           hours: OBITUARY_LOOKBACK_HOURS,
           limit: 30
         });
@@ -1553,6 +1593,7 @@ function ObituariesScreen() {
 
         const fallback = await searchItems(OBITUARY_FALLBACK_QUERY, {
           scope: "ky",
+          counties: selectedCounties.length ? selectedCounties : undefined,
           hours: OBITUARY_LOOKBACK_HOURS,
           limit: 30
         });
@@ -1568,7 +1609,7 @@ function ObituariesScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedCounties]);
 
   async function loadMore() {
     if (!cursor || loading) return;
@@ -1577,6 +1618,7 @@ function ObituariesScreen() {
       const res = fallbackSearch
         ? await searchItems(OBITUARY_FALLBACK_QUERY, {
             scope: "ky",
+            counties: selectedCounties.length ? selectedCounties : undefined,
             hours: OBITUARY_LOOKBACK_HOURS,
             cursor,
             limit: 30
@@ -1584,6 +1626,7 @@ function ObituariesScreen() {
         : await getItems({
             scope: "ky",
             category: "Kentucky - Obituaries",
+            counties: selectedCounties.length ? selectedCounties : undefined,
             hours: OBITUARY_LOOKBACK_HOURS,
             cursor,
             limit: 30
@@ -1602,6 +1645,9 @@ function ObituariesScreen() {
         {fallbackSearch ? (
           <div className="locationBanner">Showing obituary keyword matches from Kentucky sources.</div>
         ) : null}
+        {selectedCounties.length ? (
+          <div className="locationBanner">Filtered to My Counties ({selectedCounties.length}).</div>
+        ) : null}
         {loading && !items.length ? (
           <div className="card emptyState">Loading obituary stories...</div>
         ) : (
@@ -1617,7 +1663,7 @@ function ObituariesScreen() {
 
 function SchoolsScreen() {
   const nav = useNavigate();
-  const selectedCounties = useMemo(() => getSelectedCounties(), []);
+  const selectedCounties = useSelectedCountyPreferences();
   const [items, setItems] = useState<Item[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2175,6 +2221,8 @@ function OwnerAdminScreen() {
   const [logs, setLogs] = useState<AdminIngestionLog[]>([]);
   const [feedHealth, setFeedHealth] = useState<AdminFeedHealth[]>([]);
   const [posts, setPosts] = useState<LostFoundPost[]>([]);
+  const [comments, setComments] = useState<AdminLostFoundComment[]>([]);
+  const [bans, setBans] = useState<AdminLostFoundCommentBan[]>([]);
 
   async function refreshAll(activeToken = token) {
     if (!activeToken.trim()) {
@@ -2186,19 +2234,25 @@ function OwnerAdminScreen() {
     setError("");
     setNotice("");
     try {
-      const [logRes, healthRes, lostRes] = await Promise.all([
+      const [logRes, healthRes, lostRes, commentRes, banRes] = await Promise.all([
         getAdminIngestionLogs({ token: activeToken, limit: 15 }),
         getAdminFeedHealth({ token: activeToken, hours: 48, limit: 200 }),
-        listAdminLostFound({ token: activeToken, status: statusFilter, limit: 200 })
+        listAdminLostFound({ token: activeToken, status: statusFilter, limit: 200 }),
+        listAdminLostFoundComments({ token: activeToken, limit: 200 }),
+        listAdminLostFoundCommentBans({ token: activeToken, limit: 200 })
       ]);
       setLogs(logRes.logs || []);
       setFeedHealth(healthRes.feeds || []);
       setPosts(lostRes.posts || []);
+      setComments(commentRes.comments || []);
+      setBans(banRes.bans || []);
     } catch (err: any) {
       setError(String(err?.message || err));
       setLogs([]);
       setFeedHealth([]);
       setPosts([]);
+      setComments([]);
+      setBans([]);
     } finally {
       setLoading(false);
     }
@@ -2219,6 +2273,8 @@ function OwnerAdminScreen() {
       setLogs([]);
       setFeedHealth([]);
       setPosts([]);
+      setComments([]);
+      setBans([]);
     }
   }
 
@@ -2330,6 +2386,68 @@ function OwnerAdminScreen() {
       await rejectAdminLostFound({ token, id: postId, reason: reason.trim() });
       setNotice("Listing rejected.");
       await refreshAll(token);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    }
+  }
+
+  async function deleteComment(commentId: string) {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+    const confirmed = window.confirm("Delete this comment?");
+    if (!confirmed) return;
+
+    setNotice("");
+    setError("");
+    try {
+      await deleteAdminLostFoundComment({ token, id: commentId });
+      setComments((prev) => prev.filter((comment) => comment.id !== commentId));
+      setNotice("Comment deleted.");
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    }
+  }
+
+  async function banComment(commentId: string, mode: "user" | "ip" | "both") {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+
+    const reasonInput = window.prompt("Optional ban reason:", "Policy violation");
+    if (reasonInput === null) return;
+
+    setNotice("");
+    setError("");
+    try {
+      await banAdminLostFoundComment({
+        token,
+        commentId,
+        banUser: mode === "user" || mode === "both",
+        banIp: mode === "ip" || mode === "both",
+        reason: reasonInput.trim() || undefined
+      });
+      setNotice("Ban applied.");
+      await refreshAll(token);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    }
+  }
+
+  async function unbanEntry(banId: string) {
+    if (!token.trim()) {
+      setError("Enter your admin token.");
+      return;
+    }
+
+    setNotice("");
+    setError("");
+    try {
+      await deleteAdminLostFoundCommentBan({ token, id: banId });
+      setBans((prev) => prev.filter((ban) => ban.id !== banId));
+      setNotice("Ban removed.");
     } catch (err: any) {
       setError(String(err?.message || err));
     }
@@ -2507,6 +2625,61 @@ function OwnerAdminScreen() {
                   ) : null}
                   <button className="btn" type="button" onClick={() => void deletePost(post.id)}>
                     Delete
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="card" style={{ padding: 14, marginTop: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Lost & Found Comments</div>
+          {!comments.length ? (
+            <div style={{ color: "var(--muted)" }}>No comments loaded.</div>
+          ) : (
+            comments.map((comment) => (
+              <div key={comment.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+                <div style={{ fontWeight: 700 }}>{comment.name}</div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  {comment.post_title || "Post"} | {formatPublishedDate(comment.created_at)}
+                </div>
+                <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{comment.comment}</div>
+                <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button className="btn" type="button" onClick={() => void deleteComment(comment.id)}>
+                    Delete Comment
+                  </button>
+                  <button className="btn" type="button" onClick={() => void banComment(comment.id, "user")}>
+                    Ban User
+                  </button>
+                  <button className="btn" type="button" onClick={() => void banComment(comment.id, "ip")}>
+                    Ban IP
+                  </button>
+                  <button className="btn" type="button" onClick={() => void banComment(comment.id, "both")}>
+                    Ban Both
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="card" style={{ padding: 14, marginTop: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Banned Users/IPs</div>
+          {!bans.length ? (
+            <div style={{ color: "var(--muted)" }}>No bans configured.</div>
+          ) : (
+            bans.map((ban) => (
+              <div key={ban.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+                <div style={{ fontWeight: 700 }}>
+                  {ban.target_type === "email" ? "User (email hash)" : "IP address"} ban
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  Added by {ban.banned_by_email} on {formatPublishedDate(ban.created_at)}
+                </div>
+                {ban.reason ? <div style={{ marginTop: 4 }}>{ban.reason}</div> : null}
+                <div style={{ marginTop: 6 }}>
+                  <button className="btn" type="button" onClick={() => void unbanEntry(ban.id)}>
+                    Remove Ban
                   </button>
                 </div>
               </div>

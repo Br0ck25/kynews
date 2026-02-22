@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppBindings } from "../types";
-import { badRequest, notFound, tooManyRequests, unauthorized } from "../lib/errors";
+import { badRequest, forbidden, notFound, tooManyRequests, unauthorized } from "../lib/errors";
 import { LOST_FOUND_STATUSES, LOST_FOUND_TYPES, normalizeCounty } from "../lib/utils";
 import { d1All, d1First, d1Run } from "../services/db";
 import { decryptText, encryptText, hashIp } from "../lib/crypto";
@@ -111,6 +111,49 @@ function mapCommentRow(row: Record<string, any>): Record<string, unknown> {
     comment: row.comment_text,
     created_at: row.created_at
   };
+}
+
+function mapAdminCommentRow(row: Record<string, any>): Record<string, unknown> {
+  return {
+    id: row.id,
+    post_id: row.post_id,
+    post_title: row.post_title || null,
+    name: row.commenter_name,
+    comment: row.comment_text,
+    created_at: row.created_at,
+    commenter_email_hash: row.commenter_email_hash,
+    commenter_ip_hash: row.commenter_ip_hash
+  };
+}
+
+function mapCommentBanRow(row: Record<string, any>): Record<string, unknown> {
+  return {
+    id: row.id,
+    target_type: row.target_type,
+    reason: row.reason || null,
+    banned_by_email: row.banned_by_email,
+    source_comment_id: row.source_comment_id || null,
+    created_at: row.created_at
+  };
+}
+
+async function findLostFoundCommentBan(
+  env: AppBindings["Bindings"],
+  emailHash: string,
+  ipHash: string
+): Promise<{ id: string; target_type: string; reason: string | null } | null> {
+  return d1First<{ id: string; target_type: string; reason: string | null }>(
+    env.ky_news_db,
+    `
+    SELECT id, target_type, reason
+    FROM lost_found_comment_bans
+    WHERE (target_type='email' AND target_hash=?)
+       OR (target_type='ip' AND target_hash=?)
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [emailHash, ipHash]
+  );
 }
 
 export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
@@ -301,6 +344,15 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     if (!parsed.success) badRequest("Invalid payload");
 
     const ip = getClientIp(c);
+    const email = parsed.data.email.trim().toLowerCase();
+    const emailHash = await hashIp(email);
+    const ipHash = await hashIp(ip);
+
+    const ban = await findLostFoundCommentBan(c.env, emailHash, ipHash);
+    if (ban) {
+      forbidden("You are not allowed to comment at this time.");
+    }
+
     const rl = await enforceRateLimit(c.env, `lf-comment:${ip}`, COMMENT_RATE_LIMIT, COMMENT_RATE_WINDOW_SECONDS);
     if (!rl.allowed) tooManyRequests("Comment rate limit exceeded. Try again later.");
 
@@ -329,11 +381,8 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
       badRequest(`Comments are limited to ${COMMENT_MAX_URLS} URL.`);
     }
 
-    const email = parsed.data.email.trim().toLowerCase();
     const commentId = randomUUID();
     const emailEncrypted = await encryptText(c.env, email);
-    const emailHash = await hashIp(email);
-    const ipHash = await hashIp(ip);
 
     await d1Run(
       c.env.ky_news_db,
@@ -391,6 +440,14 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     }
 
     const ip = getClientIp(c);
+    const contactEmail = parsed.data.contactEmail.trim().toLowerCase();
+    const emailHash = await hashIp(contactEmail);
+    const ipHash = await hashIp(ip);
+    const ban = await findLostFoundCommentBan(c.env, emailHash, ipHash);
+    if (ban) {
+      forbidden("You are not allowed to submit listings at this time.");
+    }
+
     const allowed = await enforceSubmissionRateLimit(c.env, ip);
     if (!allowed) tooManyRequests("Rate limit exceeded. Try again later.");
 
@@ -400,7 +457,7 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
 
     const id = randomUUID();
     const county = normalizeCounty(parsed.data.county);
-    const encryptedContact = await encryptText(c.env, parsed.data.contactEmail.trim().toLowerCase());
+    const encryptedContact = await encryptText(c.env, contactEmail);
     const initialStatus = c.env.LOST_FOUND_AUTO_APPROVE === "1" ? "approved" : "pending";
 
     await d1Run(
@@ -537,6 +594,18 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
   const AdminListQuery = z.object({
     status: z.enum(["pending", "approved", "rejected", "resolved", "all"]).default("pending"),
     limit: z.coerce.number().min(1).max(200).default(100)
+  });
+  const AdminCommentListQuery = z.object({
+    postId: z.string().min(1).optional(),
+    limit: z.coerce.number().min(1).max(300).default(200)
+  });
+  const AdminBanBody = z.object({
+    banUser: z.boolean().default(true),
+    banIp: z.boolean().default(true),
+    reason: z.string().max(300).optional()
+  });
+  const AdminBanListQuery = z.object({
+    limit: z.coerce.number().min(1).max(300).default(200)
   });
 
   app.get("/api/admin/lost-found", async (c) => {
@@ -694,6 +763,145 @@ export function registerLostFoundRoutes(app: Hono<AppBindings>): void {
     });
 
     return c.json({ ok: true, id, deletedImages: imageKeys.length });
+  });
+
+  app.get("/api/admin/lost-found/comments", async (c) => {
+    requireAdmin(c);
+    const parsed = AdminCommentListQuery.safeParse(queryInput(c));
+    if (!parsed.success) badRequest("Invalid query");
+
+    const where: string[] = [];
+    const binds: unknown[] = [];
+    if (parsed.data.postId) {
+      where.push("c.post_id=?");
+      binds.push(parsed.data.postId);
+    }
+
+    const rows = await d1All<Record<string, unknown>>(
+      c.env.ky_news_db,
+      `
+      SELECT
+        c.id,
+        c.post_id,
+        c.commenter_name,
+        c.comment_text,
+        c.commenter_email_hash,
+        c.commenter_ip_hash,
+        c.created_at,
+        p.title AS post_title
+      FROM lost_found_comments c
+      JOIN lost_found_posts p ON p.id = c.post_id
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY c.created_at DESC
+      LIMIT ?
+      `,
+      [...binds, parsed.data.limit]
+    );
+
+    return c.json({ comments: rows.map((row) => mapAdminCommentRow(row)) });
+  });
+
+  app.post("/api/admin/lost-found/comments/:commentId/ban", async (c) => {
+    const admin = requireAdmin(c);
+    const commentId = String(c.req.param("commentId") || "");
+    const body = await c.req.json().catch(() => null);
+    const parsed = AdminBanBody.safeParse(body || {});
+    if (!parsed.success) badRequest("Invalid payload");
+
+    if (!parsed.data.banUser && !parsed.data.banIp) {
+      badRequest("At least one ban target is required");
+    }
+
+    const row = await d1First<{
+      id: string;
+      post_id: string;
+      commenter_email_hash: string;
+      commenter_ip_hash: string;
+    }>(
+      c.env.ky_news_db,
+      `
+      SELECT id, post_id, commenter_email_hash, commenter_ip_hash
+      FROM lost_found_comments
+      WHERE id=?
+      LIMIT 1
+      `,
+      [commentId]
+    );
+    if (!row) notFound("Comment not found");
+
+    const targets: Array<{ targetType: "email" | "ip"; targetHash: string }> = [];
+    if (parsed.data.banUser && String(row.commenter_email_hash || "").trim()) {
+      targets.push({ targetType: "email", targetHash: String(row.commenter_email_hash) });
+    }
+    if (parsed.data.banIp && String(row.commenter_ip_hash || "").trim()) {
+      targets.push({ targetType: "ip", targetHash: String(row.commenter_ip_hash) });
+    }
+    if (!targets.length) badRequest("Unable to derive ban target from this comment");
+
+    const reason = parsed.data.reason?.trim() || null;
+    for (const target of targets) {
+      await d1Run(
+        c.env.ky_news_db,
+        `
+        INSERT INTO lost_found_comment_bans (
+          id, target_type, target_hash, reason, banned_by_email, source_comment_id
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(target_type, target_hash) DO UPDATE SET
+          reason=excluded.reason,
+          banned_by_email=excluded.banned_by_email,
+          source_comment_id=excluded.source_comment_id,
+          created_at=datetime('now')
+        `,
+        [randomUUID(), target.targetType, target.targetHash, reason, admin.email, commentId]
+      );
+    }
+
+    await insertAdminLog(c.env, admin.email, "lost_found.comment.ban", "lost_found_comment", commentId, {
+      banUser: parsed.data.banUser,
+      banIp: parsed.data.banIp,
+      reason
+    });
+
+    return c.json({ ok: true, id: commentId, bansApplied: targets.length });
+  });
+
+  app.get("/api/admin/lost-found/bans", async (c) => {
+    requireAdmin(c);
+    const parsed = AdminBanListQuery.safeParse(queryInput(c));
+    if (!parsed.success) badRequest("Invalid query");
+
+    const rows = await d1All<Record<string, unknown>>(
+      c.env.ky_news_db,
+      `
+      SELECT id, target_type, reason, banned_by_email, source_comment_id, created_at
+      FROM lost_found_comment_bans
+      ORDER BY created_at DESC
+      LIMIT ?
+      `,
+      [parsed.data.limit]
+    );
+
+    return c.json({ bans: rows.map((row) => mapCommentBanRow(row)) });
+  });
+
+  app.delete("/api/admin/lost-found/bans/:banId", async (c) => {
+    const admin = requireAdmin(c);
+    const banId = String(c.req.param("banId") || "");
+
+    const row = await d1First<{ id: string; target_type: string; source_comment_id: string | null }>(
+      c.env.ky_news_db,
+      "SELECT id, target_type, source_comment_id FROM lost_found_comment_bans WHERE id=? LIMIT 1",
+      [banId]
+    );
+    if (!row) notFound("Ban not found");
+
+    await d1Run(c.env.ky_news_db, "DELETE FROM lost_found_comment_bans WHERE id=?", [banId]);
+    await insertAdminLog(c.env, admin.email, "lost_found.comment.unban", "lost_found_comment_ban", banId, {
+      target_type: row.target_type,
+      source_comment_id: row.source_comment_id
+    });
+
+    return c.json({ ok: true, id: banId });
   });
 
   app.delete("/api/admin/lost-found/comments/:commentId", async (c) => {

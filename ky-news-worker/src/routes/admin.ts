@@ -85,6 +85,15 @@ function csvToArray(csv: unknown): string[] {
     .filter(Boolean);
 }
 
+function chunkArray<T>(values: T[], chunkSize: number): T[][] {
+  const size = Math.max(1, Math.floor(chunkSize));
+  const out: T[][] = [];
+  for (let i = 0; i < values.length; i += size) {
+    out.push(values.slice(i, i + size));
+  }
+  return out;
+}
+
 function wordCount(input: unknown): number {
   return String(input || "")
     .trim()
@@ -219,17 +228,20 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
     }
 
     const itemIds = rows.map((r) => String(r.id || "")).filter(Boolean);
-    const tagRows = itemIds.length
-      ? await d1All<{ item_id: string; state_code: string; county: string }>(
-          c.env.ky_news_db,
-          `
-          SELECT item_id, state_code, county
-          FROM item_locations
-          WHERE item_id IN (${itemIds.map(() => "?").join(",")})
-          `,
-          itemIds
-        )
-      : [];
+    const tagRows: Array<{ item_id: string; state_code: string; county: string }> = [];
+    for (const batch of chunkArray(itemIds, 200)) {
+      if (!batch.length) continue;
+      const partial = await d1All<{ item_id: string; state_code: string; county: string }>(
+        c.env.ky_news_db,
+        `
+        SELECT item_id, state_code, county
+        FROM item_locations
+        WHERE item_id IN (${batch.map(() => "?").join(",")})
+        `,
+        batch
+      );
+      tagRows.push(...partial);
+    }
 
     const tagsByItem = new Map<string, Array<{ state_code: string; county: string }>>();
     for (const row of tagRows) {
@@ -287,7 +299,8 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
       const baseKySignal = hasKySignal(fullText, baseCounties);
       const hasStrongKySignal = titleKySignal || baseKySignal || taggedCounties.size > 0;
 
-      const otherStates = detectOtherStateNames([title, summaryText, content].filter(Boolean).join("\n"));
+      const titleOtherStates = detectOtherStateNames(title);
+      const otherStates = detectOtherStateNames(fullText);
       const hasOtherStateSignal = otherStates.length > 0;
       let urlSectionLooksOutOfState = false;
       try {
@@ -296,7 +309,13 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
       } catch {
         urlSectionLooksOutOfState = false;
       }
-      const shouldTagAsKy = hasStrongKySignal && !(urlSectionLooksOutOfState && !titleKySignal && !baseKySignal);
+      const hasTitleOutOfStateSignal = titleOtherStates.length > 0 && !titleKySignal && titleCounties.length === 0;
+      const hasPrimaryOutOfStateSignal = otherStates.length > 0 && !baseKySignal && baseCounties.length === 0;
+      const shouldTagAsKy =
+        hasStrongKySignal &&
+        !hasTitleOutOfStateSignal &&
+        !hasPrimaryOutOfStateSignal &&
+        !(urlSectionLooksOutOfState && !titleKySignal && !baseKySignal);
 
       if (shouldTagAsKy && (taggedCounties.size > 0 || !hasOtherStateSignal)) {
         for (const county of csvToArray(row.default_counties_csv)) {

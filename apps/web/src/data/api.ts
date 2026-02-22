@@ -100,6 +100,21 @@ export type LostFoundComment = {
   created_at: string;
 };
 
+export type AdminLostFoundComment = LostFoundComment & {
+  post_title?: string | null;
+  commenter_email_hash?: string;
+  commenter_ip_hash?: string;
+};
+
+export type AdminLostFoundCommentBan = {
+  id: string;
+  target_type: "email" | "ip";
+  reason?: string | null;
+  banned_by_email: string;
+  source_comment_id?: string | null;
+  created_at: string;
+};
+
 export type AdminIngestionLog = {
   id: number;
   started_at: string;
@@ -379,6 +394,61 @@ export async function listAdminLostFound(input: {
 
 export async function deleteAdminLostFound(input: { token?: string; id: string }) {
   return fetchJson<{ ok: boolean; id: string; deletedImages: number }>(`/api/admin/lost-found/${encodeURIComponent(input.id)}`, {
+    method: "DELETE",
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function listAdminLostFoundComments(input: { token?: string; postId?: string; limit?: number } = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(input.limit ?? 200));
+  if (input.postId) params.set("postId", input.postId);
+  return fetchJson<{ comments: AdminLostFoundComment[] }>(`/api/admin/lost-found/comments?${params.toString()}`, {
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function deleteAdminLostFoundComment(input: { token?: string; id: string }) {
+  return fetchJson<{ ok: boolean; id: string }>(`/api/admin/lost-found/comments/${encodeURIComponent(input.id)}`, {
+    method: "DELETE",
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function banAdminLostFoundComment(input: {
+  token?: string;
+  commentId: string;
+  banUser?: boolean;
+  banIp?: boolean;
+  reason?: string;
+}) {
+  return fetchJson<{ ok: boolean; id: string; bansApplied: number }>(
+    `/api/admin/lost-found/comments/${encodeURIComponent(input.commentId)}/ban`,
+    {
+      method: "POST",
+      headers: {
+        ...adminHeaders(input.token),
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        banUser: input.banUser ?? true,
+        banIp: input.banIp ?? true,
+        reason: input.reason?.trim() || undefined
+      })
+    }
+  );
+}
+
+export async function listAdminLostFoundCommentBans(input: { token?: string; limit?: number } = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(input.limit ?? 200));
+  return fetchJson<{ bans: AdminLostFoundCommentBan[] }>(`/api/admin/lost-found/bans?${params.toString()}`, {
+    headers: adminHeaders(input.token)
+  });
+}
+
+export async function deleteAdminLostFoundCommentBan(input: { token?: string; id: string }) {
+  return fetchJson<{ ok: boolean; id: string }>(`/api/admin/lost-found/bans/${encodeURIComponent(input.id)}`, {
     method: "DELETE",
     headers: adminHeaders(input.token)
   });

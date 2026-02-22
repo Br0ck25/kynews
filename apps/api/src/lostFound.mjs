@@ -86,6 +86,45 @@ function mapCommentRow(row) {
   };
 }
 
+function mapAdminCommentRow(row) {
+  return {
+    id: row.id,
+    post_id: row.post_id,
+    post_title: row.post_title || null,
+    name: row.commenter_name,
+    comment: row.comment_text,
+    created_at: row.created_at,
+    commenter_email_hash: row.commenter_email_hash,
+    commenter_ip_hash: row.commenter_ip_hash
+  };
+}
+
+function mapCommentBanRow(row) {
+  return {
+    id: row.id,
+    target_type: row.target_type,
+    reason: row.reason || null,
+    banned_by_email: row.banned_by_email,
+    source_comment_id: row.source_comment_id || null,
+    created_at: row.created_at
+  };
+}
+
+function findLostFoundCommentBan(db, emailHash, ipHash) {
+  return db
+    .prepare(
+      `
+      SELECT id, target_type, reason
+      FROM lost_found_comment_bans
+      WHERE (target_type='email' AND target_hash=@emailHash)
+         OR (target_type='ip' AND target_hash=@ipHash)
+      ORDER BY created_at DESC
+      LIMIT 1
+      `
+    )
+    .get({ emailHash, ipHash });
+}
+
 function normalizeCommentText(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
@@ -331,6 +370,10 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
     const parsed = LostFoundCommentBody.safeParse(req.body ?? {});
     if (!parsed.success) return app.httpErrors.badRequest("Invalid payload");
 
+    const email = parsed.data.email.trim().toLowerCase();
+    const emailHash = hashIp(email);
+    const ipHash = hashIp(req.ip);
+
     if (!enforceCommentRateLimit(req.ip)) {
       return app.httpErrors.tooManyRequests("Comment rate limit exceeded. Try again later.");
     }
@@ -352,6 +395,9 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
     const db = openDb();
     try {
       ensureSchema(db);
+      const ban = findLostFoundCommentBan(db, emailHash, ipHash);
+      if (ban) return app.httpErrors.forbidden("You are not allowed to comment at this time.");
+
       const post = db
         .prepare(
           `
@@ -364,7 +410,6 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
         .get(id);
       if (!post) return app.httpErrors.notFound("Post not found");
 
-      const email = parsed.data.email.trim().toLowerCase();
       const commentId = randomUUID();
       db.prepare(
         `
@@ -373,7 +418,7 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
           comment_text, url_count, commenter_ip_hash
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `
-      ).run(commentId, id, name, encryptText(email), hashIp(email), comment, urlCount, hashIp(req.ip));
+      ).run(commentId, id, name, encryptText(email), emailHash, comment, urlCount, ipHash);
 
       const row = db
         .prepare(
@@ -416,6 +461,10 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
       return app.httpErrors.badRequest("Turnstile token is required");
     }
 
+    const contactEmail = parsed.data.contactEmail.trim().toLowerCase();
+    const emailHash = hashIp(contactEmail);
+    const ipHash = hashIp(req.ip);
+
     if (!enforceSubmissionRateLimit(req.ip)) {
       return app.httpErrors.tooManyRequests("Rate limit exceeded. Try again later.");
     }
@@ -427,6 +476,8 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
     const db = openDb();
     try {
       ensureSchema(db);
+      const ban = findLostFoundCommentBan(db, emailHash, ipHash);
+      if (ban) return app.httpErrors.forbidden("You are not allowed to submit listings at this time.");
 
       const id = randomUUID();
       const county = normalizeCounty(parsed.data.county);
@@ -447,7 +498,7 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
         title: parsed.data.title.trim(),
         description: parsed.data.description.trim(),
         county,
-        contact: encryptText(parsed.data.contactEmail.trim().toLowerCase()),
+        contact: encryptText(contactEmail),
         showContact: parsed.data.showContact ? 1 : 0
       });
 
@@ -562,6 +613,18 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
   const AdminLostFoundQuery = z.object({
     status: z.enum(["pending", "approved", "rejected", "resolved", "all"]).default("pending"),
     limit: z.coerce.number().min(1).max(200).default(100)
+  });
+  const AdminCommentListQuery = z.object({
+    postId: z.string().min(1).optional(),
+    limit: z.coerce.number().min(1).max(300).default(200)
+  });
+  const AdminBanBody = z.object({
+    banUser: z.boolean().default(true),
+    banIp: z.boolean().default(true),
+    reason: z.string().max(300).optional()
+  });
+  const AdminBanListQuery = z.object({
+    limit: z.coerce.number().min(1).max(300).default(200)
   });
 
   app.get("/api/admin/lost-found", async (req) => {
@@ -743,6 +806,157 @@ export function registerLostFoundRoutes(app, openDb, uploadDir) {
         deleted_images: deletedImages
       });
       return { ok: true, id, deletedImages };
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get("/api/admin/lost-found/comments", async (req) => {
+    requireAdmin(app, req);
+    const parsed = AdminCommentListQuery.safeParse(req.query ?? {});
+    if (!parsed.success) return app.httpErrors.badRequest("Invalid query");
+
+    const db = openDb();
+    try {
+      ensureSchema(db);
+      const where = [];
+      const params = { limit: parsed.data.limit };
+      if (parsed.data.postId) {
+        where.push("c.post_id = @postId");
+        params.postId = parsed.data.postId;
+      }
+
+      const rows = db
+        .prepare(
+          `
+          SELECT
+            c.id,
+            c.post_id,
+            c.commenter_name,
+            c.comment_text,
+            c.commenter_email_hash,
+            c.commenter_ip_hash,
+            c.created_at,
+            p.title AS post_title
+          FROM lost_found_comments c
+          JOIN lost_found_posts p ON p.id = c.post_id
+          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+          ORDER BY c.created_at DESC
+          LIMIT @limit
+          `
+        )
+        .all(params);
+
+      return { comments: rows.map((row) => mapAdminCommentRow(row)) };
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post("/api/admin/lost-found/comments/:commentId/ban", async (req) => {
+    const admin = requireAdmin(app, req);
+    const commentId = String(req.params?.commentId || "");
+    const parsed = AdminBanBody.safeParse(req.body ?? {});
+    if (!parsed.success) return app.httpErrors.badRequest("Invalid payload");
+    if (!parsed.data.banUser && !parsed.data.banIp) {
+      return app.httpErrors.badRequest("At least one ban target is required");
+    }
+
+    const db = openDb();
+    try {
+      ensureSchema(db);
+      const comment = db
+        .prepare(
+          `
+          SELECT id, post_id, commenter_email_hash, commenter_ip_hash
+          FROM lost_found_comments
+          WHERE id=?
+          LIMIT 1
+          `
+        )
+        .get(commentId);
+      if (!comment) return app.httpErrors.notFound("Comment not found");
+
+      const targets = [];
+      if (parsed.data.banUser && String(comment.commenter_email_hash || "").trim()) {
+        targets.push({ targetType: "email", targetHash: String(comment.commenter_email_hash) });
+      }
+      if (parsed.data.banIp && String(comment.commenter_ip_hash || "").trim()) {
+        targets.push({ targetType: "ip", targetHash: String(comment.commenter_ip_hash) });
+      }
+      if (!targets.length) return app.httpErrors.badRequest("Unable to derive ban target from this comment");
+
+      const reason = parsed.data.reason?.trim() || null;
+      const upsert = db.prepare(
+        `
+        INSERT INTO lost_found_comment_bans (
+          id, target_type, target_hash, reason, banned_by_email, source_comment_id
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(target_type, target_hash) DO UPDATE SET
+          reason=excluded.reason,
+          banned_by_email=excluded.banned_by_email,
+          source_comment_id=excluded.source_comment_id,
+          created_at=datetime('now')
+        `
+      );
+      for (const target of targets) {
+        upsert.run(randomUUID(), target.targetType, target.targetHash, reason, admin.email, commentId);
+      }
+
+      insertAdminLog(db, admin.email, "lost_found.comment.ban", "lost_found_comment", commentId, {
+        banUser: parsed.data.banUser,
+        banIp: parsed.data.banIp,
+        reason
+      });
+      return { ok: true, id: commentId, bansApplied: targets.length };
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get("/api/admin/lost-found/bans", async (req) => {
+    requireAdmin(app, req);
+    const parsed = AdminBanListQuery.safeParse(req.query ?? {});
+    if (!parsed.success) return app.httpErrors.badRequest("Invalid query");
+
+    const db = openDb();
+    try {
+      ensureSchema(db);
+      const rows = db
+        .prepare(
+          `
+          SELECT id, target_type, reason, banned_by_email, source_comment_id, created_at
+          FROM lost_found_comment_bans
+          ORDER BY created_at DESC
+          LIMIT @limit
+          `
+        )
+        .all({ limit: parsed.data.limit });
+
+      return { bans: rows.map((row) => mapCommentBanRow(row)) };
+    } finally {
+      db.close();
+    }
+  });
+
+  app.delete("/api/admin/lost-found/bans/:banId", async (req) => {
+    const admin = requireAdmin(app, req);
+    const banId = String(req.params?.banId || "");
+
+    const db = openDb();
+    try {
+      ensureSchema(db);
+      const row = db
+        .prepare("SELECT id, target_type, source_comment_id FROM lost_found_comment_bans WHERE id=? LIMIT 1")
+        .get(banId);
+      if (!row) return app.httpErrors.notFound("Ban not found");
+
+      db.prepare("DELETE FROM lost_found_comment_bans WHERE id=?").run(banId);
+      insertAdminLog(db, admin.email, "lost_found.comment.unban", "lost_found_comment_ban", banId, {
+        target_type: row.target_type,
+        source_comment_id: row.source_comment_id
+      });
+      return { ok: true, id: banId };
     } finally {
       db.close();
     }

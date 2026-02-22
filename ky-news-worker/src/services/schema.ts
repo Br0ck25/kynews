@@ -169,6 +169,19 @@ async function createCoreSchema(env: Env): Promise<void> {
       )`
     },
     {
+      sql: `CREATE TABLE IF NOT EXISTS lost_found_comment_bans (
+        id TEXT PRIMARY KEY,
+        target_type TEXT NOT NULL CHECK (target_type IN ('email', 'ip')),
+        target_hash TEXT NOT NULL,
+        reason TEXT,
+        banned_by_email TEXT NOT NULL,
+        source_comment_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(target_type, target_hash),
+        FOREIGN KEY (source_comment_id) REFERENCES lost_found_comments(id) ON DELETE SET NULL
+      )`
+    },
+    {
       sql: `CREATE TABLE IF NOT EXISTS admin_audit_log (
         id TEXT PRIMARY KEY,
         actor_email TEXT NOT NULL,
@@ -294,6 +307,7 @@ async function createCoreSchema(env: Env): Promise<void> {
     { sql: "CREATE INDEX IF NOT EXISTS idx_lost_found_reports_post_id ON lost_found_reports(post_id, created_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_lost_found_comments_post_created ON lost_found_comments(post_id, created_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_lost_found_comments_ip_created ON lost_found_comments(commenter_ip_hash, created_at)" },
+    { sql: "CREATE INDEX IF NOT EXISTS idx_lost_found_comment_bans_created ON lost_found_comment_bans(created_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_item_ai_generated ON item_ai_summaries(generated_at)" },
     { sql: "CREATE INDEX IF NOT EXISTS idx_summary_review_status_created ON summary_review_queue(status, created_at)" },

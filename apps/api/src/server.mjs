@@ -766,6 +766,15 @@ function csvToArray(csv) {
     .filter(Boolean);
 }
 
+function chunkArray(values, chunkSize) {
+  const size = Math.max(1, Math.floor(Number(chunkSize) || 1));
+  const out = [];
+  for (let i = 0; i < values.length; i += size) {
+    out.push(values.slice(i, i + size));
+  }
+  return out;
+}
+
 function locationSet(rows) {
   return new Set(
     rows.map((row) => `${String(row.state_code || "").toUpperCase()}|${normalizeCounty(row.county || "")}`)
@@ -844,15 +853,20 @@ app.post("/api/admin/items/revalidate", async (req) => {
     }
 
     const ids = rows.map((r) => String(r.id || "")).filter(Boolean);
-    const tags = db
-      .prepare(
-        `
-        SELECT item_id, state_code, county
-        FROM item_locations
-        WHERE item_id IN (${ids.map(() => "?").join(",")})
-        `
-      )
-      .all(...ids);
+    const tags = [];
+    for (const batch of chunkArray(ids, 200)) {
+      if (!batch.length) continue;
+      const partial = db
+        .prepare(
+          `
+          SELECT item_id, state_code, county
+          FROM item_locations
+          WHERE item_id IN (${batch.map(() => "?").join(",")})
+          `
+        )
+        .all(...batch);
+      tags.push(...partial);
+    }
 
     const tagsByItem = new Map();
     for (const row of tags) {
@@ -912,7 +926,8 @@ app.post("/api/admin/items/revalidate", async (req) => {
       const titleKySignal = hasKySignal(title, titleCounties);
       const baseKySignal = hasKySignal(fullText, baseCounties);
       const hasStrongKySignal = titleKySignal || baseKySignal || taggedCounties.size > 0;
-      const otherStates = detectOtherStateNames([title, summaryText, content].filter(Boolean).join("\n"));
+      const titleOtherStates = detectOtherStateNames(title);
+      const otherStates = detectOtherStateNames(fullText);
       const hasOtherStateSignal = otherStates.length > 0;
       let urlSectionLooksOutOfState = false;
       try {
@@ -921,7 +936,13 @@ app.post("/api/admin/items/revalidate", async (req) => {
       } catch {
         urlSectionLooksOutOfState = false;
       }
-      const shouldTagAsKy = hasStrongKySignal && !(urlSectionLooksOutOfState && !titleKySignal && !baseKySignal);
+      const hasTitleOutOfStateSignal = titleOtherStates.length > 0 && !titleKySignal && titleCounties.length === 0;
+      const hasPrimaryOutOfStateSignal = otherStates.length > 0 && !baseKySignal && baseCounties.length === 0;
+      const shouldTagAsKy =
+        hasStrongKySignal &&
+        !hasTitleOutOfStateSignal &&
+        !hasPrimaryOutOfStateSignal &&
+        !(urlSectionLooksOutOfState && !titleKySignal && !baseKySignal);
 
       if (shouldTagAsKy && (taggedCounties.size > 0 || !hasOtherStateSignal)) {
         for (const county of csvToArray(row.default_counties_csv)) {
