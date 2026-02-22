@@ -2206,5 +2206,105 @@
     "state_code": "KY",
     "region_scope": "ky",
     "enabled": 1
+  },
+  {
+    "id": "ky-leo-weekly",
+    "name": "LEO Weekly",
+    "category": "Kentucky - Culture",
+    "url": "https://www.leoweekly.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-hazard-herald",
+    "name": "Hazard Herald",
+    "category": "Kentucky - Local",
+    "url": "https://www.hazard-herald.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc&k%5B%5D=%23topstory",
+    "state_code": "KY",
+    "default_county": "Perry",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-weku-news",
+    "name": "WEKU News",
+    "category": "Kentucky - Radio",
+    "url": "https://www.weku.org/news.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-wnky-news",
+    "name": "WNKY News",
+    "category": "Kentucky - TV",
+    "url": "https://www.wnky.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-sports-lex18",
+    "name": "LEX18 Sports",
+    "category": "Kentucky - Sports",
+    "url": "https://www.lex18.com/sports.rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-sports-abc36",
+    "name": "ABC36 Sports",
+    "category": "Kentucky - Sports",
+    "url": "https://www.wtvq.com/category/sports/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-sports-ukathletics",
+    "name": "UK Athletics",
+    "category": "Kentucky - Sports",
+    "url": "https://ukathletics.com/feed/",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "ky-sports-gocards",
+    "name": "Louisville Cardinals Athletics",
+    "category": "Kentucky - Sports",
+    "url": "https://gocards.com/rss",
+    "state_code": "KY",
+    "region_scope": "ky",
+    "enabled": 1
+  },
+  {
+    "id": "nat-sports-espn",
+    "name": "ESPN Headlines",
+    "category": "National - Sports",
+    "url": "https://www.espn.com/espn/rss/news",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
+  },
+  {
+    "id": "nat-sports-cbssports",
+    "name": "CBS Sports Headlines",
+    "category": "National - Sports",
+    "url": "https://www.cbssports.com/rss/headlines/",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
+  },
+  {
+    "id": "nat-sports-yahoo",
+    "name": "Yahoo Sports",
+    "category": "National - Sports",
+    "url": "https://sports.yahoo.com/rss/",
+    "state_code": "US",
+    "region_scope": "national",
+    "enabled": 1
   }
 ]

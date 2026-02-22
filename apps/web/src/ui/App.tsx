@@ -94,6 +94,7 @@ function truncateText(value: string, maxChars = 420): string {
 const COVERAGE_TABS = [
   { id: "today", label: "TODAY", path: "/today" },
   { id: "national", label: "NATIONAL", path: "/national" },
+  { id: "sports", label: "SPORTS", path: "/sports" },
   { id: "weather", label: "WEATHER", path: "/weather" },
   { id: "schools", label: "SCHOOLS", path: "/schools" },
   { id: "obituaries", label: "OBITUARIES", path: "/obituaries" },
@@ -106,8 +107,11 @@ const THEME_PREF_KEY = "ui_theme";
 const OWNER_ADMIN_TOKEN_KEY = "owner_admin_token";
 const OWNER_ADMIN_ROUTE = "/owner-panel-ky-news";
 const TODAY_LOOKBACK_HOURS = 72;
+const SPORTS_LOOKBACK_HOURS = 24 * 14;
 const OBITUARY_LOOKBACK_HOURS = 24 * 365;
 const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" OR \"visitation\" OR \"memorial service\" OR \"passed away\"";
+const SPORTS_QUERY =
+  "\"sports\" OR \"sport\" OR \"football\" OR \"basketball\" OR \"baseball\" OR \"soccer\" OR \"volleyball\" OR \"wrestling\" OR \"athletics\"";
 type ThemeMode = "light" | "dark";
 
 function getMyLocalCounty(): string {
@@ -204,6 +208,7 @@ export default function App() {
       <Route path="/" element={<Navigate to="/today" replace />} />
       <Route path="/today" element={<TodayScreen />} />
       <Route path="/national" element={<NationalScreen />} />
+      <Route path="/sports" element={<SportsScreen />} />
       <Route path="/open" element={<ExternalWebViewScreen />} />
       <Route path="/weather" element={<WeatherScreen />} />
       <Route path="/schools" element={<SchoolsScreen />} />
@@ -826,6 +831,68 @@ function NationalScreen() {
   );
 }
 
+function SportsScreen() {
+  const nav = useNavigate();
+  const [items, setItems] = useState<Item[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await searchItems(SPORTS_QUERY, {
+          scope: "all",
+          hours: SPORTS_LOOKBACK_HOURS,
+          limit: 30
+        });
+        if (cancelled) return;
+        setItems(res.items);
+        setCursor(res.nextCursor);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function loadMore() {
+    if (!cursor || loading) return;
+    setLoading(true);
+    try {
+      const res = await searchItems(SPORTS_QUERY, {
+        scope: "all",
+        hours: SPORTS_LOOKBACK_HOURS,
+        cursor,
+        limit: 30
+      });
+      setItems((prev) => [...prev, ...res.items]);
+      setCursor(res.nextCursor);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AppShell title="Sports">
+      <CoverageTabs />
+      <div className="section">
+        {loading && !items.length ? (
+          <div className="card emptyState">Loading sports stories...</div>
+        ) : (
+          <>
+            <StoryDeck items={items} onOpen={(id) => nav(`/item/${id}`)} emptyMessage="No sports stories right now." />
+            {items.length ? <InfinitePager hasMore={Boolean(cursor)} loading={loading} onLoadMore={loadMore} /> : null}
+          </>
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
 function FeedScreen() {
   const nav = useNavigate();
   const { feedId } = useParams();
@@ -1363,9 +1430,9 @@ function WeatherScreen() {
                 </option>
               ))}
             </select>
-            <button className="btn" onClick={() => nav("/my-local")}>
-              Open Local News Settings
-            </button>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>
+              Weather updates stay on this page. Selecting a county does not redirect you.
+            </div>
           </div>
         ) : null}
 
@@ -1383,9 +1450,6 @@ function WeatherScreen() {
             </div>
             <div className="weatherSummary">{forecast?.periods?.[0]?.shortForecast || "Forecast loading..."}</div>
             <div className="weatherActions">
-              <button className="btn" onClick={() => nav("/my-local")}>
-                Local News Settings
-              </button>
               <select
                 className="searchInput"
                 value={county}

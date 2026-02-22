@@ -130,7 +130,7 @@ select {
 .content {
   width: 100%;
   overflow: auto;
-  padding-top: 2px;
+  padding-top: 8px;
   padding-bottom: calc(84px + var(--safe-bottom));
 }
 
@@ -966,7 +966,7 @@ select {
   }
 
   .featuredCard {
-    min-height: clamp(230px, 54vh, 360px);
+    min-height: clamp(220px, 48vh, 340px);
   }
 
   .featuredSummary {

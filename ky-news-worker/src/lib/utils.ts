@@ -1,8 +1,39 @@
+import { decodeHtmlEntities, normalizeWhitespace, toHttpsUrl } from "./text";
+
 export const NEWS_SCOPES = ["ky", "national", "all"] as const;
 export const LOST_FOUND_TYPES = ["lost", "found"] as const;
 export const LOST_FOUND_STATUSES = ["pending", "approved", "rejected", "published", "resolved"] as const;
 
 const PAID_SOURCE_DOMAINS = ["kentucky.com", "courier-journal.com", "bizjournals.com"];
+const OUTPUT_SUMMARY_LABEL_RE =
+  /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*|__)?\s*(?:background|key points?|impact|what'?s next|overview|bottom line|main takeaways?|takeaways?)\s*:?\s*(?:\*\*|__)?\s*/gi;
+const OUTPUT_NAV_CLUSTER_RE =
+  /\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)(?:\s+\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)\b){4,}/gi;
+
+function sanitizeSummaryForOutput(input: unknown): string | null {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+  const cleaned = normalizeWhitespace(
+    decodeHtmlEntities(raw)
+      .replace(OUTPUT_SUMMARY_LABEL_RE, "\n")
+      .replace(/^\s*[-*]\s+/gm, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/`{1,3}/g, "")
+  );
+  return cleaned || null;
+}
+
+function sanitizeExcerptForOutput(input: unknown): string | null {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+  const cleaned = normalizeWhitespace(
+    decodeHtmlEntities(raw)
+      .replace(/\bYou are using an outdated browser[\s\S]{0,260}?experience\.\s*/gi, " ")
+      .replace(/\bSubscribe\b[\s\S]{0,500}?\bE-Edition\b/gi, " ")
+      .replace(OUTPUT_NAV_CLUSTER_RE, " ")
+  );
+  return cleaned || null;
+}
 
 export function csvToArray(csv: unknown): string[] {
   if (!csv) return [];
@@ -18,6 +49,16 @@ export function mapItemRow<T extends Record<string, unknown>>(row: T): T & { sta
   const next = { ...row } as Record<string, unknown>;
   delete next.states_csv;
   delete next.counties_csv;
+  const rawImageUrl = String(next.image_url || "").trim();
+  if (rawImageUrl.startsWith("http://") || rawImageUrl.startsWith("//")) {
+    next.image_url = toHttpsUrl(rawImageUrl);
+  }
+  if ("summary" in next) {
+    next.summary = sanitizeSummaryForOutput(next.summary);
+  }
+  if ("content" in next) {
+    next.content = sanitizeExcerptForOutput(next.content);
+  }
   return { ...(next as T), states, counties };
 }
 

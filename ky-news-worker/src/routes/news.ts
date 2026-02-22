@@ -403,13 +403,32 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
   });
 
   app.get("/api/media/:key{.+}", async (c) => {
-    const key = decodeURIComponent(c.req.param("key") || "");
+    const rawKey = c.req.param("key") || "";
+    let key = "";
+    try {
+      key = decodeURIComponent(rawKey);
+    } catch {
+      badRequest("Invalid object key");
+    }
     if (!/^[a-zA-Z0-9/_\-.]+$/.test(key) || key.includes("..")) {
       badRequest("Invalid object key");
     }
 
-    const obj = await c.env.ky_news_media.get(key);
-    if (!obj) notFound("Media not found");
+    let obj = await c.env.ky_news_media.get(key);
+    if (!obj) {
+      const keyMatch = key.match(/^news\/([a-f0-9]{24})\.[a-z0-9]+$/i);
+      if (keyMatch) {
+        const mapped = await d1First<{ r2_key: string }>(
+          c.env.ky_news_db,
+          "SELECT r2_key FROM item_media WHERE item_id=? LIMIT 1",
+          [keyMatch[1]]
+        );
+        if (mapped?.r2_key && mapped.r2_key !== key) {
+          return c.redirect(`/api/media/${encodeURIComponent(mapped.r2_key)}`, 302);
+        }
+      }
+      notFound("Media not found");
+    }
 
     const headers = new Headers();
     obj.writeHttpMetadata(headers);
@@ -418,6 +437,9 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
       headers.set("cache-control", "public, max-age=2592000, immutable");
     }
 
+    if (c.req.method === "HEAD") {
+      return new Response(null, { headers });
+    }
     return new Response(obj.body, { headers });
   });
 }

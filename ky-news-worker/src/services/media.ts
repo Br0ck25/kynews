@@ -1,6 +1,7 @@
 import { d1First, d1Run } from "./db";
 import { badRequest } from "../lib/errors";
 import { logWarn } from "../lib/logger";
+import { toHttpsUrl } from "../lib/text";
 import type { Env } from "../types";
 
 const IMAGE_TIMEOUT_MS = 12_000;
@@ -34,8 +35,8 @@ export async function mirrorArticleImageToR2(
   env: Env,
   input: { itemId: string; sourceUrl: string | null | undefined }
 ): Promise<string | null> {
-  const sourceUrl = String(input.sourceUrl || "").trim();
-  if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) return null;
+  const sourceUrl = toHttpsUrl(input.sourceUrl);
+  if (!sourceUrl) return null;
 
   const existing = await d1First<{ source_url: string; r2_key: string }>(
     env.ky_news_db,

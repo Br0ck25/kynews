@@ -7,6 +7,7 @@ import { getCachedSummary, generateSummaryWithAI } from "../services/summary";
 import { mirrorArticleImageToR2 } from "../services/media";
 import { makeItemId, stableHash } from "../lib/crypto";
 import { normalizeCounty } from "../lib/utils";
+import { decodeHtmlEntities, toHttpsUrl } from "../lib/text";
 import { logError, logInfo, logWarn } from "../lib/logger";
 import type { Env } from "../types";
 import { incrementMetricGroup, writeStructuredLog } from "../services/observability";
@@ -82,7 +83,7 @@ function canonicalUrl(url: string): string {
 }
 
 function textOnly(input: string | null | undefined): string {
-  return String(input || "")
+  return decodeHtmlEntities(String(input || ""))
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
@@ -303,7 +304,7 @@ async function tagItemLocations(
     defaultCounty?: string | null;
     feedUrl?: string | null;
   }
-): Promise<{ excerpt: string; imageCandidate: string | null }> {
+): Promise<{ excerpt: string; imageCandidate: string | null; publishedAt: string | null }> {
   const st = (input.stateCode || "KY").toUpperCase();
 
   await d1Run(env.ky_news_db, "DELETE FROM item_locations WHERE item_id=? AND state_code=?", [input.itemId, st]);
@@ -322,21 +323,25 @@ async function tagItemLocations(
     article_fetch_status: string | null;
     article_text_excerpt: string | null;
     image_url: string | null;
+    published_at: string | null;
   }>(
     env.ky_news_db,
-    "SELECT article_checked_at, article_fetch_status, article_text_excerpt, image_url FROM items WHERE id=?",
+    "SELECT article_checked_at, article_fetch_status, article_text_excerpt, image_url, published_at FROM items WHERE id=?",
     [input.itemId]
   );
 
   const alreadyChecked = Boolean(meta?.article_checked_at);
   const needsImage = !String(meta?.image_url || "").trim() || /^https?:\/\//i.test(String(meta?.image_url || ""));
+  const needsPublishedDate = !String(meta?.published_at || "").trim();
   let excerpt = textOnly(meta?.article_text_excerpt || "");
   let imageCandidate: string | null = null;
+  let publishedAt: string | null = null;
 
-  if ((!counties.length || needsImage || excerpt.length < 300) && !alreadyChecked) {
+  if ((!counties.length || needsImage || excerpt.length < 300 || needsPublishedDate) && !alreadyChecked) {
     const fetched = await fetchArticle(input.url);
     excerpt = fetched.text || "";
     imageCandidate = fetched.ogImage || null;
+    publishedAt = fetched.publishedAt || null;
     signalText = `${signalText}\n${excerpt}`;
     counties = detectKyCounties(signalText);
 
@@ -352,11 +357,12 @@ async function tagItemLocations(
         article_checked_at = datetime('now'),
         article_fetch_status = ?,
         article_text_excerpt = ?,
+        published_at = COALESCE(published_at, ?),
         content = COALESCE(content, ?),
         image_url = COALESCE(image_url, ?)
       WHERE id=?
       `,
-      [fetched.status, excerpt || null, excerpt || null, fetched.ogImage || null, input.itemId]
+      [fetched.status, excerpt || null, fetched.publishedAt || null, excerpt || null, fetched.ogImage || null, input.itemId]
     );
   }
 
@@ -367,13 +373,13 @@ async function tagItemLocations(
   const kySignal = st !== "KY" ? true : isKyGoogleWatchFeed || hasKySignal(signalText, counties);
   const hasOtherStateSignal = st === "KY" && otherStateNames.length > 0;
   if (st === "KY" && looksSyndicated && !kySignal && counties.length === 0) {
-    return { excerpt, imageCandidate };
+    return { excerpt, imageCandidate, publishedAt };
   }
 
   const shouldTagAsKy = st !== "KY" || kySignal || (!hasOtherStateSignal && !looksSyndicated);
 
   if (!shouldTagAsKy) {
-    return { excerpt, imageCandidate };
+    return { excerpt, imageCandidate, publishedAt };
   }
 
   await d1Run(env.ky_news_db, "INSERT OR IGNORE INTO item_locations (item_id, state_code, county) VALUES (?, ?, '')", [
@@ -397,7 +403,7 @@ async function tagItemLocations(
     }
   }
 
-  return { excerpt, imageCandidate };
+  return { excerpt, imageCandidate, publishedAt };
 }
 
 export async function ingestFeeds(env: Env, options: IngestOptions): Promise<IngestRunResult> {
@@ -493,7 +499,7 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
           const summaryText = textOnly(it.contentSnippet || "") || null;
           const contentText = textOnly(it.content || "") || null;
           const author = (it.author || "").trim() || null;
-          const imageUrl = it.imageUrl && /^https?:\/\//i.test(it.imageUrl) ? it.imageUrl : null;
+          const imageUrl = toHttpsUrl(it.imageUrl);
 
           const itemId = await makeItemId({ url: link, guid: it.guid, title, published_at: publishedAt });
           const hash = await stableHash(
@@ -523,6 +529,7 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
 
           let articleExcerpt = contentText || "";
           let articleImageCandidate = imageUrl;
+          let articlePublishedAt = publishedAt;
 
           if ((feed.region_scope || "ky") === "ky") {
             const loc = await tagItemLocations(env, {
@@ -540,6 +547,13 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
             }
             if (loc.imageCandidate) {
               articleImageCandidate = loc.imageCandidate;
+            }
+            if (!articlePublishedAt && loc.publishedAt) {
+              articlePublishedAt = loc.publishedAt;
+              await d1Run(env.ky_news_db, "UPDATE items SET published_at=COALESCE(published_at, ?) WHERE id=?", [
+                loc.publishedAt,
+                itemId
+              ]);
             }
           }
 

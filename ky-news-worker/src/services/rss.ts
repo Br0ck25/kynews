@@ -1,4 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
+import { toHttpsUrl } from "../lib/text";
 
 export interface ParsedFeedItem {
   title: string;
@@ -62,7 +63,7 @@ function extractImageFromHtml(html: string): string | null {
   const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
   const src = match?.[1]?.trim();
   if (!src) return null;
-  return /^https?:\/\//i.test(src) ? src : null;
+  return toHttpsUrl(src);
 }
 
 function stripHtml(html: string): string {
@@ -81,32 +82,38 @@ function normalizeDate(value: string | null): string | null {
   return d.toISOString();
 }
 
+function pickDate(values: Array<string | null | undefined>): { iso: string | null; raw: string | null } {
+  for (const value of values) {
+    const raw = String(value || "").trim();
+    if (!raw) continue;
+    const iso = normalizeDate(raw);
+    if (iso) return { iso, raw };
+  }
+  return { iso: null, raw: null };
+}
+
 function pickImage(item: Record<string, unknown>): string | null {
   const enclosures = toArray(item.enclosure as Record<string, unknown> | Array<Record<string, unknown>> | undefined);
   for (const enclosure of enclosures) {
-    if (enclosure?.url && /^https?:\/\//i.test(String(enclosure.url))) {
-      return String(enclosure.url);
-    }
+    const mediaUrl = toHttpsUrl(String(enclosure?.url || ""));
+    if (mediaUrl) return mediaUrl;
   }
 
   const mediaContent = item["media:content"] as Record<string, unknown> | Array<Record<string, unknown>> | undefined;
   for (const media of toArray(mediaContent)) {
-    if (media?.url && /^https?:\/\//i.test(String(media.url))) {
-      return String(media.url);
-    }
+    const mediaUrl = toHttpsUrl(String(media?.url || ""));
+    if (mediaUrl) return mediaUrl;
   }
 
   const mediaThumb = item["media:thumbnail"] as Record<string, unknown> | Array<Record<string, unknown>> | undefined;
   for (const media of toArray(mediaThumb)) {
-    if (media?.url && /^https?:\/\//i.test(String(media.url))) {
-      return String(media.url);
-    }
+    const mediaUrl = toHttpsUrl(String(media?.url || ""));
+    if (mediaUrl) return mediaUrl;
   }
 
   const itunes = item["itunes:image"] as Record<string, unknown> | undefined;
-  if (itunes?.href && /^https?:\/\//i.test(String(itunes.href))) {
-    return String(itunes.href);
-  }
+  const itunesUrl = toHttpsUrl(String(itunes?.href || ""));
+  if (itunesUrl) return itunesUrl;
 
   const content = textOf(item["content:encoded"] || item.content || item.description || "");
   return extractImageFromHtml(content);
@@ -115,13 +122,21 @@ function pickImage(item: Record<string, unknown>): string | null {
 function mapRssItem(item: Record<string, unknown>): ParsedFeedItem {
   const content = textOf(item["content:encoded"] || item.content || item.description || "") || null;
   const snippet = textOf(item.description || item.summary || item.contentSnippet || "") || null;
+  const date = pickDate([
+    textOf(item.isoDate),
+    textOf(item.pubDate),
+    textOf(item["dc:date"]),
+    textOf(item.published),
+    textOf(item.updated),
+    textOf(item.date)
+  ]);
 
   return {
     title: textOf(item.title) || "(untitled)",
     link: pickLink(item.link || item.guid),
     guid: textOf(item.guid) || null,
-    isoDate: normalizeDate(textOf(item.isoDate) || textOf(item.pubDate) || null),
-    pubDate: textOf(item.pubDate) || null,
+    isoDate: date.iso,
+    pubDate: date.raw,
     contentSnippet: snippet ? stripHtml(snippet).slice(0, 2000) : null,
     content: content ? content.slice(0, 50_000) : null,
     author: textOf(item["dc:creator"] || item.creator || item.author) || null,
@@ -132,13 +147,19 @@ function mapRssItem(item: Record<string, unknown>): ParsedFeedItem {
 function mapAtomItem(entry: Record<string, unknown>): ParsedFeedItem {
   const content = textOf(entry.content || "") || null;
   const summary = textOf(entry.summary || "") || null;
+  const date = pickDate([
+    textOf(entry.updated),
+    textOf(entry.published),
+    textOf(entry["dc:date"]),
+    textOf(entry.date)
+  ]);
 
   return {
     title: textOf(entry.title) || "(untitled)",
     link: pickLink(entry.link || entry.id),
     guid: textOf(entry.id) || null,
-    isoDate: normalizeDate(textOf(entry.updated) || textOf(entry.published) || null),
-    pubDate: textOf(entry.published) || textOf(entry.updated) || null,
+    isoDate: date.iso,
+    pubDate: date.raw,
     contentSnippet: summary ? stripHtml(summary).slice(0, 2000) : null,
     content: content ? content.slice(0, 50_000) : summary,
     author: textOf((entry.author as any)?.name || entry.author) || null,

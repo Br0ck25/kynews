@@ -1,11 +1,16 @@
 import { d1First, d1Run } from "./db";
 import { logError } from "../lib/logger";
 import { sha256Hex } from "../lib/crypto";
+import { decodeHtmlEntities, normalizeWhitespace } from "../lib/text";
 import type { Env } from "../types";
 
 const SUMMARY_PROMPT_VERSION = "v2";
 const SUMMARY_MIN_WORDS = 200;
 const SUMMARY_MAX_WORDS = 400;
+const SUMMARY_TEMPLATE_LABEL_RE =
+  /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*|__)?\s*(?:background|key points?|impact|what'?s next|overview|bottom line|main takeaways?|takeaways?)\s*:?\s*(?:\*\*|__)?\s*/gi;
+const SUMMARY_BOILERPLATE_RE =
+  /you are using an outdated browser|subscribe home news sports opinion obituaries features|submit an obituary|engagement announcement|wedding announcement/i;
 
 function summaryCacheKey(itemId: string): string {
   return `summary:${SUMMARY_PROMPT_VERSION}:${itemId}`;
@@ -66,13 +71,22 @@ function trimToMaxWords(input: string, maxWords: number): string {
 }
 
 function normalizeSummary(text: string): string {
-  return text
+  const out = decodeHtmlEntities(text)
     .replace(/^\s*(here(?:'s| is)\s+(?:a|the)\s+summary[:\-\s]*)/i, "")
     .replace(/^\s*summary[:\-\s]*/i, "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]+\n/g, "\n")
+    .replace(SUMMARY_TEMPLATE_LABEL_RE, "\n")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`{1,3}/g, "")
     .trim();
+  return normalizeWhitespace(out);
+}
+
+function isSummaryUsable(text: string): boolean {
+  if (!text) return false;
+  if (SUMMARY_BOILERPLATE_RE.test(text)) return false;
+  const words = wordCount(text);
+  return words >= SUMMARY_MIN_WORDS && words <= SUMMARY_MAX_WORDS;
 }
 
 function buildSummaryPrompt(input: { title: string; url: string; articleText: string }): string {
@@ -82,6 +96,8 @@ function buildSummaryPrompt(input: { title: string; url: string; articleText: st
     "Always write in your own words.",
     "Focus on the main ideas, key facts, and concrete outcomes.",
     "Do not include personal opinions, filler, bullet lists, or headings.",
+    "Never output labels such as Background, Key Points, Impact, or What's Next.",
+    "Do not use markdown formatting.",
     "Do not copy long phrases from the source text.",
     "Do not invent facts. If details are uncertain, state that clearly.",
     "Return plain text only.",
@@ -106,6 +122,7 @@ function buildRepairPrompt(input: {
     "Use your own wording only.",
     "Keep only factual, relevant information from the source text.",
     "No opinions, no bullet points, no headings, and no invented details.",
+    "Do not use markdown labels such as Background, Key Points, Impact, or What's Next.",
     "Return plain text only.",
     "",
     `TITLE: ${input.title}`,
@@ -133,11 +150,16 @@ async function runAiSummary(env: Env, model: string, prompt: string, maxTokens =
 export async function getCachedSummary(env: Env, itemId: string): Promise<string | null> {
   const cached = await env.CACHE.get(summaryCacheKey(itemId));
   if (!cached) return null;
-  const out = cached.trim();
+  const out = normalizeSummary(cached);
   if (!out) return null;
 
-  const words = wordCount(out);
-  if (words < SUMMARY_MIN_WORDS || words > SUMMARY_MAX_WORDS) return null;
+  if (!isSummaryUsable(out)) return null;
+  if (out !== cached.trim()) {
+    const ttl = Number(env.SUMMARY_CACHE_TTL_SECONDS || 30 * 24 * 60 * 60);
+    await env.CACHE.put(summaryCacheKey(itemId), out, {
+      expirationTtl: Number.isFinite(ttl) ? ttl : 30 * 24 * 60 * 60
+    });
+  }
   return out;
 }
 
@@ -156,7 +178,18 @@ export async function generateSummaryWithAI(env: Env, input: {
     [input.itemId, sourceHash]
   );
   if (existing?.summary) {
-    return existing.summary;
+    const cleaned = normalizeSummary(existing.summary);
+    if (isSummaryUsable(cleaned)) {
+      if (cleaned !== existing.summary) {
+        await d1Run(
+          env.ky_news_db,
+          "UPDATE item_ai_summaries SET summary=?, generated_at=datetime('now') WHERE item_id=?",
+          [cleaned, input.itemId]
+        );
+        await d1Run(env.ky_news_db, "UPDATE items SET summary=? WHERE id=?", [cleaned, input.itemId]);
+      }
+      return cleaned;
+    }
   }
 
   const model = env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
@@ -166,7 +199,7 @@ export async function generateSummaryWithAI(env: Env, input: {
     if (!summary) return null;
 
     let words = wordCount(summary);
-    if (words < SUMMARY_MIN_WORDS || words > SUMMARY_MAX_WORDS) {
+    if (!isSummaryUsable(summary)) {
       const repaired = await runAiSummary(
         env,
         model,
@@ -185,11 +218,11 @@ export async function generateSummaryWithAI(env: Env, input: {
     }
 
     if (words > SUMMARY_MAX_WORDS) {
-      summary = trimToMaxWords(summary, SUMMARY_MAX_WORDS);
+      summary = normalizeSummary(trimToMaxWords(summary, SUMMARY_MAX_WORDS));
       words = wordCount(summary);
     }
 
-    if (words < SUMMARY_MIN_WORDS) {
+    if (!isSummaryUsable(summary)) {
       return null;
     }
 
