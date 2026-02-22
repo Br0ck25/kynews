@@ -8,6 +8,7 @@ import { runManualFeedIngest, runManualIngest } from "../ingest/ingest";
 import { d1All, d1First, d1Run, tableHasColumn } from "../services/db";
 import { insertAdminLog, requireRole } from "../services/security";
 import { detectKyCounties, detectOtherStateNames, hasKySignal } from "../services/location";
+import { summaryCacheKey, summarySeoCacheKey } from "../services/summary";
 
 const IngestionLogsQuery = z.object({
   limit: z.coerce.number().min(1).max(200).default(50),
@@ -588,9 +589,9 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
     const parsed = SummaryReviewBody.safeParse(payload || {});
     if (!parsed.success) badRequest("Invalid payload");
 
-    const item = await d1First<{ id: string; summary: string | null }>(
+    const item = await d1First<{ id: string; summary: string | null; seo_description: string | null }>(
       c.env.ky_news_db,
-      "SELECT id, summary FROM items WHERE id=?",
+      "SELECT id, summary, seo_description FROM items WHERE id=?",
       [itemId]
     );
     if (!item) notFound("Item not found");
@@ -607,24 +608,40 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
       await d1Run(
         c.env.ky_news_db,
         `
-        INSERT INTO item_ai_summaries (item_id, summary, model, source_hash, generated_at)
-        VALUES (?, ?, 'human-reviewed', NULL, datetime('now'))
+        INSERT INTO item_ai_summaries (item_id, summary, seo_description, model, source_hash, generated_at)
+        VALUES (?, ?, ?, 'human-reviewed', NULL, datetime('now'))
         ON CONFLICT(item_id) DO UPDATE SET
           summary=excluded.summary,
+          seo_description=COALESCE(excluded.seo_description, item_ai_summaries.seo_description),
           model=excluded.model,
           generated_at=excluded.generated_at
         `,
-        [itemId, reviewedSummary]
+        [itemId, reviewedSummary, item.seo_description]
       );
       const ttl = Number(c.env.SUMMARY_CACHE_TTL_SECONDS || 30 * 24 * 60 * 60);
-      await Promise.all([
+      const cacheWrites = [
+        c.env.CACHE.put(summaryCacheKey(itemId), reviewedSummary, {
+          expirationTtl: ttl
+        }),
+        // Legacy cache keys kept to avoid stale reads during rollout.
         c.env.CACHE.put(`summary:v2:${itemId}`, reviewedSummary, {
           expirationTtl: ttl
         }),
         c.env.CACHE.put(`summary:v1:${itemId}`, reviewedSummary, {
           expirationTtl: ttl
         })
-      ]);
+      ];
+
+      const seoDescription = (item.seo_description || "").trim();
+      if (seoDescription) {
+        cacheWrites.push(
+          c.env.CACHE.put(summarySeoCacheKey(itemId), seoDescription, {
+            expirationTtl: ttl
+          })
+        );
+      }
+
+      await Promise.all(cacheWrites);
     }
 
     await d1Run(

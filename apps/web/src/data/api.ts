@@ -18,6 +18,7 @@ export type Item = {
   region_scope?: "ky" | "national";
   published_at?: string | null;
   summary?: string | null;
+  seo_description?: string | null;
   content?: string | null;
   image_url?: string | null;
   states?: string[];

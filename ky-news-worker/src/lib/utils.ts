@@ -25,8 +25,6 @@ const HEAVY_DEPRIORITIZED_PAID_DOMAINS = ["dailyindependent.com"];
 const PAID_FALLBACK_LIMIT = 2;
 const PAID_FALLBACK_WHEN_EMPTY_LIMIT = 3;
 const MIN_ITEM_WORDS = 50;
-const OUTPUT_SUMMARY_LABEL_RE =
-  /(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*|__)?\s*(?:background|summary|key points?|key people|impact|impacts|what'?s next|what to watch next|overview|bottom line|main takeaways?|takeaways?|places|timeline|causes?)\s*:?\s*(?:\*\*|__)?\s*/gi;
 const OUTPUT_NAV_CLUSTER_RE =
   /\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)(?:\s+\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)\b){4,}/gi;
 
@@ -43,27 +41,11 @@ const COUNTY_NAME_BY_NORMALIZED = new Map(
 function sanitizeSummaryForOutput(input: unknown): string | null {
   const raw = String(input || "").trim();
   if (!raw) return null;
-  let cleaned = normalizeWhitespace(
+  const cleaned = normalizeWhitespace(
     decodeHtmlEntities(raw)
-      .replace(OUTPUT_SUMMARY_LABEL_RE, "\n")
-      .replace(/(?:^|\n)\s*[A-Z][A-Za-z ]{2,28}\s*:\s*(?=\n|$)/g, "\n")
-      .replace(/(?:^|\n)\s*[a-z]\s*:\*+\s*(?=\n|$)/g, "\n")
-      .replace(/^\s*[-*]\s+/gm, "")
       .replace(/\*\*([^*]+)\*\*/g, "$1")
       .replace(/`{1,3}/g, "")
   );
-  const lines = cleaned
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const shortLines = lines.filter((line) => line.length < 90);
-  const appearsListHeavy = lines.length >= 8 && shortLines.length >= Math.ceil(lines.length * 0.45);
-  if (appearsListHeavy) {
-    const compactSource = lines.slice(0, Math.min(2, lines.length)).join(" ");
-    const words = compactSource.split(/\s+/).filter(Boolean);
-    const clipped = words.slice(0, 220).join(" ").trim();
-    cleaned = normalizeWhitespace(/[.!?]$/.test(clipped) ? clipped : `${clipped}.`);
-  }
   return cleaned || null;
 }
 

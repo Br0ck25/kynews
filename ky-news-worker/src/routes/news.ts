@@ -160,7 +160,7 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
 
     const sql = `
       SELECT DISTINCT
-        i.id, i.title, i.url, i.author, i.region_scope, i.published_at, i.summary, i.content, i.image_url,
+        i.id, i.title, i.url, i.author, i.region_scope, i.published_at, i.summary, i.seo_description, i.content, i.image_url,
         COALESCE(i.published_at, i.fetched_at) AS sort_ts,
         (
           SELECT group_concat(DISTINCT ilx.state_code)
@@ -322,7 +322,7 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
 
     const sql = `
       SELECT DISTINCT
-        i.id, i.title, i.url, i.author, i.region_scope, i.published_at, i.summary, i.content, i.image_url,
+        i.id, i.title, i.url, i.author, i.region_scope, i.published_at, i.summary, i.seo_description, i.content, i.image_url,
         COALESCE(i.published_at, i.fetched_at) AS sort_ts,
         (
           SELECT group_concat(DISTINCT ilx.state_code)
@@ -364,7 +364,7 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
           c.env.ky_news_db,
           `
           SELECT
-            id, title, url, author, region_scope, published_at, summary, content, image_url,
+            id, title, url, author, region_scope, published_at, summary, seo_description, content, image_url,
             (
               SELECT group_concat(DISTINCT state_code)
               FROM item_locations

@@ -12,7 +12,7 @@ declare namespace Cloudflare {
 		AI: Ai;
 		APP_NAME: "EKY News";
 		NWS_USER_AGENT: "EKY-News-Worker/1.0 (ops@example.com)";
-		AI_MODEL: "@cf/meta/llama-3.1-8b-instruct";
+		AI_MODEL: "@cf/zai-org/glm-4.7-flash";
 		SUMMARY_CACHE_TTL_SECONDS: "2592000";
 		MAX_INGEST_ITEMS_PER_FEED: "60";
 		MAX_FEEDS_PER_RUN: "200";

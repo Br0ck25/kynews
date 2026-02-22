@@ -209,7 +209,9 @@ export default function Reader() {
   // original feed excerpt alongside it is redundant and confusing to readers.
   const showContent = contentParagraphs.length > 0 && !summaryParagraphs.length && contentFingerprint !== summaryFingerprint;
   const canonicalPath = id ? `/item/${id}` : "/item";
-  const seoDescription = metaDescription(item?.summary || item?.content || item?.title || "Read this Kentucky news article.");
+  const seoDescription = metaDescription(
+    item?.seo_description || item?.summary || item?.content || item?.title || "Read this Kentucky news article."
+  );
   const seoTitle = item?.title ? `${item.title} — Local KY News` : "Article — Local KY News";
   const articleSchema: SeoJsonLd | undefined = item
     ? {

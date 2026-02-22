@@ -4,7 +4,7 @@ import { parseFeedItems } from "../services/rss";
 import { scrapeFeedItems } from "../services/scrapers";
 import { detectKyCounties, detectOtherStateNames, hasKySignal } from "../services/location";
 import { fetchArticle } from "../services/article";
-import { getCachedSummary, generateSummaryWithAI } from "../services/summary";
+import { getCachedSeoDescription, getCachedSummary, generateSummaryWithAI } from "../services/summary";
 import { mirrorArticleImageToR2 } from "../services/media";
 import { makeItemId, stableHash } from "../lib/crypto";
 import { normalizeCounty } from "../lib/utils";
@@ -634,7 +634,12 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
 
           const cachedSummary = await getCachedSummary(env, itemId);
           if (cachedSummary) {
-            await d1Run(env.ky_news_db, "UPDATE items SET summary=? WHERE id=?", [cachedSummary, itemId]);
+            const cachedSeoDescription = await getCachedSeoDescription(env, itemId);
+            await d1Run(env.ky_news_db, "UPDATE items SET summary=?, seo_description=COALESCE(?, seo_description) WHERE id=?", [
+              cachedSummary,
+              cachedSeoDescription,
+              itemId
+            ]);
           } else {
             const aiSummary = await generateSummaryWithAI(env, {
               itemId,

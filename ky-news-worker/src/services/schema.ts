@@ -42,6 +42,7 @@ async function createCoreSchema(env: Env): Promise<void> {
         region_scope TEXT NOT NULL DEFAULT 'ky',
         published_at TEXT,
         summary TEXT,
+        seo_description TEXT,
         content TEXT,
         image_url TEXT,
         fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -196,6 +197,7 @@ async function createCoreSchema(env: Env): Promise<void> {
       sql: `CREATE TABLE IF NOT EXISTS item_ai_summaries (
         item_id TEXT PRIMARY KEY,
         summary TEXT NOT NULL,
+        seo_description TEXT,
         model TEXT,
         source_hash TEXT,
         generated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -334,6 +336,8 @@ async function createCoreSchema(env: Env): Promise<void> {
   await addColumnIfMissing(db, "items", "article_checked_at", "TEXT");
   await addColumnIfMissing(db, "items", "article_fetch_status", "TEXT");
   await addColumnIfMissing(db, "items", "article_text_excerpt", "TEXT");
+  await addColumnIfMissing(db, "items", "seo_description", "TEXT");
+  await addColumnIfMissing(db, "item_ai_summaries", "seo_description", "TEXT");
   await addColumnIfMissing(db, "admin_audit_log", "payload_json", "TEXT");
   await addColumnIfMissing(db, "feed_run_metrics", "run_id", "INTEGER");
   await addColumnIfMissing(db, "feed_run_metrics", "source", "TEXT");
