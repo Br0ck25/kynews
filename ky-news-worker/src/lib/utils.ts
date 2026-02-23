@@ -158,12 +158,20 @@ export function canonicalUrl(url: unknown): string {
 }
 
 export function titleFingerprint(title: unknown): string {
-  return String(title || "")
+  const norm = String(title || "")
     .toLowerCase()
     .replace(/[^a-z0-9 ]+/g, " ")
-    .replace(/\b(the|a|an|and|or|for|to|of|in|on|at|from|with)\b/g, " ")
+    .replace(/\b(the|a|an|and|or|for|to|of|in|on|at|from|with|by|as|is|was|are|were)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+  // Also store a sorted-token variant so "flooding Leslie County" and
+  // "Leslie County flooding" produce the same fingerprint key when lookups
+  // use sortedTitleFingerprint().
+  return norm;
+}
+
+export function sortedTitleFingerprint(title: unknown): string {
+  return titleFingerprint(title).split(" ").filter(Boolean).sort().join(" ");
 }
 
 export function isPaidSource(url: unknown): boolean {
@@ -204,6 +212,7 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
     _isPaid: isPaidSource(item.url),
     _isHeavyPaid: isHeavyDeprioritizedPaidSource(item.url),
     _fp: titleFingerprint(item.title),
+    _sfp: sortedTitleFingerprint(item.title),
     _canonicalUrl: canonicalUrl(item.url),
     _source: sourceHost(item.url),
     _sortTs: String(item.sort_ts || "")
@@ -216,7 +225,9 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
   });
 
   const nonPaidFingerprints = new Set(ranked.filter((x) => !x._isPaid && x._fp).map((x) => x._fp));
+  const nonPaidSortedFPs = new Set(ranked.filter((x) => !x._isPaid && x._sfp).map((x) => x._sfp));
   const seenTitle = new Set<string>();
+  const seenSortedTitle = new Set<string>();
   const seenCanonicalUrl = new Set<string>();
   const seenSourceTitle = new Set<string>();
   const filtered: typeof ranked = [];
@@ -224,12 +235,15 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
   for (const item of ranked) {
     if (!itemHasMinimumWords(item)) continue;
     if (item._isPaid && item._fp && nonPaidFingerprints.has(item._fp)) continue;
+    if (item._isPaid && item._sfp && nonPaidSortedFPs.has(item._sfp)) continue;
     if (item._canonicalUrl && seenCanonicalUrl.has(item._canonicalUrl)) continue;
     if (item._fp && seenTitle.has(item._fp)) continue;
+    if (item._sfp && seenSortedTitle.has(item._sfp)) continue;
     const sourceTitleKey = item._fp ? `${item._fp}|${item._source}` : String(item.id);
     if (seenSourceTitle.has(sourceTitleKey)) continue;
     if (item._canonicalUrl) seenCanonicalUrl.add(item._canonicalUrl);
     if (item._fp) seenTitle.add(item._fp);
+    if (item._sfp) seenSortedTitle.add(item._sfp);
     seenSourceTitle.add(sourceTitleKey);
     filtered.push(item);
   }
@@ -248,7 +262,7 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
 
   return [...pickedNonPaid, ...pickedPaid, ...pickedHeavyPaid]
     .slice(0, limit)
-    .map(({ _isPaid, _isHeavyPaid, _fp, _canonicalUrl, _source, _sortTs, ...rest }) => rest as RankedItem);
+    .map(({ _isPaid, _isHeavyPaid, _fp, _sfp, _canonicalUrl, _source, _sortTs, ...rest }) => rest as RankedItem);
 }
 
 export function isPrivateHost(hostname: unknown): boolean {

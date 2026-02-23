@@ -142,10 +142,15 @@ const MAX_INLINE_CARD_IMAGES = Number.MAX_SAFE_INTEGER;
 const SPORTS_LOOKBACK_HOURS = 24 * 14;
 const MIN_COUNTY_STORIES = 5;
 const OBITUARY_LOOKBACK_HOURS = 24 * 365;
-const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\"";
+const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"passed away\" OR \"in loving memory\" OR \"funeral home\" OR \"memorial service\"";
 function isObituaryItem(item: Item) {
-  const haystack = ((item.title || "") + " " + (item.url || "") + " " + ((item as any).description || "")).toLowerCase();
-  return haystack.includes("obituar");
+  const title = (item.title || "").toLowerCase();
+  const url = (item.url || "").toLowerCase();
+  const desc = ((item as any).description || "").toLowerCase();
+  if (title.includes("obituar") || url.includes("obituar") || desc.includes("obituar")) return true;
+  if (title.includes("passed away") || title.includes("in loving memory") || title.includes("in memory of")) return true;
+  if (title.includes("funeral home") || title.includes("memorial service")) return true;
+  return false;
 }
 const SPORTS_QUERY =
   "\"sports\" OR \"sport\" OR \"football\" OR \"basketball\" OR \"baseball\" OR \"soccer\" OR \"volleyball\" OR \"wrestling\" OR \"athletics\"";
@@ -1168,7 +1173,7 @@ function NationalScreen() {
       }
       setLoading(true);
       try {
-        const res = await getItems({ scope: "national", limit: FEED_PAGE_SIZE });
+        const res = await getItems({ scope: "national", hours: 24 * 30, limit: FEED_PAGE_SIZE });
         if (cancelled) return;
         setItems(res.items.filter((item) => !isLikelySportsItem(item)));
         setCursor(res.nextCursor);
@@ -1185,7 +1190,7 @@ function NationalScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await getItems({ scope: "national", cursor, limit: FEED_PAGE_SIZE });
+      const res = await getItems({ scope: "national", hours: 24 * 30, cursor, limit: FEED_PAGE_SIZE });
       setItems((prev) => {
         const seenUrls = new Set(prev.map((i) => i.url));
         return [...prev, ...res.items.filter((item) => !isLikelySportsItem(item) && !seenUrls.has(item.url))];
@@ -2102,13 +2107,27 @@ function WeatherScreen() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await searchItems("weather OR storm OR flood OR tornado OR severe OR drought OR freeze OR ice", {
+        // Try the dedicated weather category first
+        const catRes = await getItems({
           scope: "ky",
+          category: "Kentucky - Weather",
           county,
-          hours: 24 * 7,
+          hours: 24 * 14,
           limit: 10
         });
-        if (!cancelled) setWeatherArticles(res.items);
+        if (cancelled) return;
+        if (catRes.items.length) {
+          setWeatherArticles(catRes.items);
+          return;
+        }
+        // Fallback: narrow keyword search restricted to county
+        const kwRes = await searchItems('"weather" OR "storm" OR "flood" OR "tornado" OR "severe weather"', {
+          scope: "ky",
+          county,
+          hours: 24 * 14,
+          limit: 10
+        });
+        if (!cancelled) setWeatherArticles(kwRes.items);
       } catch {
         // silently fail — weather articles are supplemental
       }

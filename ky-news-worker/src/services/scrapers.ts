@@ -793,11 +793,14 @@ export async function scrapeFacebookPageItems(input: ScrapeFeedInput): Promise<S
         .replace(/\s{2,}/g, " ")
         .trim();
       if (!cleaned || cleaned.length < 10) continue;
+      // Build a stable content-based suffix so each post gets a unique URL
+      const contentKey = cleaned.slice(0, 48).replace(/[^a-z0-9]+/gi, "-").toLowerCase().replace(/^-+|-+$/g, "");
+      const postLink = `${input.url.replace(/\/?$/, "")}?p=${encodeURIComponent(contentKey)}_${items.length}`;
       const imgMatch = divHtml.match(/<img\b[^>]+src="([^"]+)"/i);
       items.push({
         title: pageName,
-        link: input.url,
-        guid: `${input.url}#fb-story-${items.length}`,
+        link: postLink,
+        guid: postLink,
         isoDate: null,
         pubDate: null,
         contentSnippet: cleaned.slice(0, 500),
