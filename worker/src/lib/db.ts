@@ -1,0 +1,171 @@
+import type { ArticleListResponse, ArticleRecord, Category, NewArticle } from '../types';
+
+interface ArticleRow {
+  id: number;
+  canonical_url: string;
+  source_url: string;
+  url_hash: string;
+  title: string;
+  author: string | null;
+  published_at: string;
+  category: Category;
+  is_kentucky: number;
+  county: string | null;
+  city: string | null;
+  summary: string;
+  seo_description: string;
+  raw_word_count: number;
+  summary_word_count: number;
+  content_text: string;
+  content_html: string;
+  image_url: string | null;
+  raw_r2_key: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function findArticleByHash(env: Env, urlHash: string): Promise<ArticleRecord | null> {
+  const result = await env.ky_news_db
+    .prepare(`SELECT * FROM articles WHERE url_hash = ? LIMIT 1`)
+    .bind(urlHash)
+    .first<ArticleRow>();
+
+  return result ? mapArticleRow(result) : null;
+}
+
+export async function insertArticle(env: Env, article: NewArticle): Promise<number> {
+  const result = await env.ky_news_db
+    .prepare(
+      `INSERT INTO articles (
+        canonical_url,
+        source_url,
+        url_hash,
+        title,
+        author,
+        published_at,
+        category,
+        is_kentucky,
+        county,
+        city,
+        summary,
+        seo_description,
+        raw_word_count,
+        summary_word_count,
+        content_text,
+        content_html,
+        image_url,
+        raw_r2_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      article.canonicalUrl,
+      article.sourceUrl,
+      article.urlHash,
+      article.title,
+      article.author,
+      article.publishedAt,
+      article.category,
+      article.isKentucky ? 1 : 0,
+      article.county,
+      article.city,
+      article.summary,
+      article.seoDescription,
+      article.rawWordCount,
+      article.summaryWordCount,
+      article.contentText,
+      article.contentHtml,
+      article.imageUrl,
+      article.rawR2Key,
+    )
+    .run();
+
+  return Number(result.meta.last_row_id ?? 0);
+}
+
+export async function queryArticles(env: Env, options: {
+  category: Category;
+  counties: string[];
+  search: string | null;
+  limit: number;
+  cursor: string | null;
+}): Promise<ArticleListResponse> {
+  const where: string[] = [];
+  const binds: unknown[] = [];
+
+  if (options.category === 'today') {
+    where.push('is_kentucky = 1');
+  } else if (options.category === 'national') {
+    // national feed should show all KY and non-KY posts; no extra filter.
+    // keep this branch for clarity, but do not push a where clause.
+  } else {
+    where.push('category = ?');
+    binds.push(options.category);
+  }
+
+  if (options.counties.length > 0) {
+    where.push(`county IN (${options.counties.map(() => '?').join(',')})`);
+    binds.push(...options.counties);
+  }
+
+  if (options.search) {
+    where.push('(title LIKE ? OR content_text LIKE ?)');
+    const token = `%${escapeLike(options.search)}%`;
+    binds.push(token, token);
+  }
+
+  if (options.cursor) {
+    where.push('id < ?');
+    binds.push(Number.parseInt(options.cursor, 10) || Number.MAX_SAFE_INTEGER);
+  }
+
+  binds.push(options.limit + 1);
+
+  const query = `
+    SELECT *
+    FROM articles
+    WHERE ${where.join(' AND ')}
+    ORDER BY id DESC
+    LIMIT ?
+  `;
+
+  const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
+  const mapped = (rows.results ?? []).map(mapArticleRow);
+
+  const hasMore = mapped.length > options.limit;
+  const items = hasMore ? mapped.slice(0, options.limit) : mapped;
+
+  return {
+    items,
+    nextCursor: hasMore ? String(items[items.length - 1]?.id ?? '') : null,
+  };
+}
+
+function mapArticleRow(row: ArticleRow): ArticleRecord {
+  return {
+    id: row.id,
+    canonicalUrl: row.canonical_url,
+    sourceUrl: row.source_url,
+    urlHash: row.url_hash,
+    title: row.title,
+    author: row.author,
+    publishedAt: row.published_at,
+    category: row.category,
+    isKentucky: row.is_kentucky === 1,
+    county: row.county,
+    city: row.city,
+    summary: row.summary,
+    seoDescription: row.seo_description,
+    rawWordCount: row.raw_word_count,
+    summaryWordCount: row.summary_word_count,
+    contentText: row.content_text,
+    contentHtml: row.content_html,
+    imageUrl: row.image_url,
+    rawR2Key: row.raw_r2_key,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}

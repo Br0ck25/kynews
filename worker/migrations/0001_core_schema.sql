@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS articles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  canonical_url TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  url_hash TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  author TEXT,
+  published_at TEXT NOT NULL,
+  category TEXT NOT NULL CHECK (category IN ('today','national','sports','weather','schools','obituaries')),
+  is_kentucky INTEGER NOT NULL DEFAULT 0 CHECK (is_kentucky IN (0,1)),
+  county TEXT,
+  city TEXT,
+  summary TEXT NOT NULL,
+  seo_description TEXT NOT NULL,
+  raw_word_count INTEGER NOT NULL DEFAULT 0,
+  summary_word_count INTEGER NOT NULL DEFAULT 0,
+  content_text TEXT NOT NULL,
+  content_html TEXT NOT NULL,
+  image_url TEXT,
+  raw_r2_key TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
