@@ -34,7 +34,19 @@
 	],
 	"ai": {
 		"binding": "AI"
-	}
+	},
+	/**
+	 * Optional `routes` configuration can be used to have this Worker respond
+	 * to paths under your Pages site (for example, all `/api/*` requests). If
+	 * you deploy the Worker separately and then set the Pages project to use
+	 * `REACT_APP_API_BASE_URL` the route is not strictly necessary, but it makes
+	 * the front-end calls work without any extra configuration as long as the
+	 * Pages domain is `kynews.pages.dev` (adjust for your custom domain if
+	 * different).
+	 */
+	// Uncomment and update the next line if you want the worker to automatically
+	// handle `https://kynews.pages.dev/api/*` requests:
+	// "routes": ["kynews.pages.dev/api/*"],
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

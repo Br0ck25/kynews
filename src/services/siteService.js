@@ -87,7 +87,17 @@ function toError(error, fallbackMessage) {
 
 export default class SiteService {
   constructor(baseUrl) {
-    this.baseUrl = baseUrl || "";
+    // baseUrl may be provided directly (useful in tests) or pulled from an
+    // environment variable that can be set by the build system (Cloudflare
+    // Pages offers *Build environment variables* which are injected into
+    // `process.env` and made available at runtime as `REACT_APP_*`).
+    //
+    // During local development nothing is set so we default to an empty
+    // string, causing all requests to go to `/<path>`; in production the
+    // variable should point at a deployed Worker endpoint (or left blank if
+    // the Worker is routed to the same domain via `wrangler` routes).
+    this.baseUrl =
+      baseUrl || process.env.REACT_APP_API_BASE_URL || "";
     this.devSeedAttempted = false;
   }
 

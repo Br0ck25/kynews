@@ -30,7 +30,7 @@ import { setSelectedCounties } from "./redux/actions/actions";
 
 function AppTagSync() {
   const dispatch = useDispatch();
-  const service = new SiteService();
+  const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 
   React.useEffect(() => {
     service.getTags().then((tags) => {

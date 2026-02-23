@@ -30,3 +30,33 @@ See GIFs below on desktop and mobile devices:
 
 ![mobile version](preview_images/tech_news_en_mobile.gif)
 
+## Cloudflare Deployment Notes
+
+This project uses a separate Cloudflare Worker to serve the `/api/articles` endpoints
+that the front‑end consumes. When running locally the Worker runs on `localhost` and the
+SPA fetches from a relative path, but after publishing to **Cloudflare Pages** you have two
+options:
+
+1. **Route the Worker under the Pages domain.** Add a route in
+   `worker/wrangler.jsonc` such as:
+   ```jsonc
+   "routes": ["kynews.pages.dev/api/*"]
+   ```
+   then deploy the Worker with `cd worker && npx wrangler publish`. Requests made by the
+   site to `/api/...` will automatically hit the Worker, so you don’t need any extra
+   configuration.
+
+2. **Use an explicit base URL.** Set the environment variable
+   `REACT_APP_API_BASE_URL` for your Pages project (or in `.env` for local testing) to
+the full origin of the Worker (e.g. `https://<your-worker-subdomain>.workers.dev`). The
+   front‑end will prepend this value when constructing API routes. This approach works
+   whether the Worker is routed or not, as long as the variable points at the deployed
+   Worker.
+
+If the site is published without either of these, the build will succeed but the
+client-side code will still call `/api/articles` on the Pages host, which will return
+404 and result in an empty post list. That’s why your production site was blank.
+
+Adjust the Pages build settings to add the environment variable and/or deploy the
+Worker before publishing the site.
+
