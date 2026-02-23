@@ -20,8 +20,9 @@ import type { Category } from './types';
 
 // county filtering is now allowed for any category; preferences are handled on the client
 const COUNTY_FILTER_ALLOWED = new Set(['today', 'sports', 'schools', 'obituaries', 'national', 'weather']);
-const DEFAULT_SEED_LIMIT_PER_SOURCE = 100;
-const MAX_SEED_LIMIT_PER_SOURCE = 500;
+const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
+const MAX_SEED_LIMIT_PER_SOURCE = 10000;
+const INGEST_METRICS_KEY = 'admin:ingest:latest';
 
 interface SeedSourceStatus {
 sourceUrl: string;
@@ -32,7 +33,23 @@ processed: number;
 inserted: number;
 duplicate: number;
 rejected: number;
+lowWordDiscards: number;
 errors: string[];
+}
+
+interface IngestRunMetrics {
+startedAt: string;
+finishedAt: string;
+durationMs: number;
+sourcesTried: number;
+processed: number;
+inserted: number;
+duplicate: number;
+rejected: number;
+lowWordDiscards: number;
+ingestRatePerMinute: number;
+sourceErrors: number;
+trigger: 'manual' | 'scheduled-high' | 'scheduled-normal';
 }
 
 /** All route handling extracted so the outer fetch() can wrap it in a try/catch
@@ -95,10 +112,9 @@ if (!selectedFeed) {
 return json({ error: 'Unable to parse feed', feedCandidates: uniqueFeeds }, 422);
 }
 
-const limitedItems = items.slice(0, 12);
 const results = [] as Awaited<ReturnType<typeof ingestSingleUrl>>[];
 
-for (const item of limitedItems) {
+for (const item of items) {
 try {
 const result = await ingestSingleUrl(env, {
 url: item.link,
@@ -119,7 +135,7 @@ reason: safeError(error),
 return json({
 feed: selectedFeed,
 totalItems: items.length,
-processed: limitedItems.length,
+processed: items.length,
 inserted: results.filter((r) => r.status === 'inserted').length,
 duplicate: results.filter((r) => r.status === 'duplicate').length,
 rejected: results.filter((r) => r.status === 'rejected').length,
@@ -139,7 +155,7 @@ const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filte
 
 // Respond immediately - processing continues in the background via waitUntil
 // so the request never times out even with 50+ sources.
-ctx.waitUntil(runIngest(env, sourceUrls, limitPerSource));
+ctx.waitUntil(runIngest(env, sourceUrls, limitPerSource, 'manual'));
 
 return json({
 message: 'Ingestion started in background',
@@ -189,6 +205,56 @@ limitPerSource,
 		const lastId = articles[articles.length - 1]?.id ?? null;
 		return json({ processed: articles.length, lastId, results });
 	}
+
+if (url.pathname === '/api/admin/ingest' && request.method === 'POST') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: number }>(request);
+const includeSchools = body?.includeSchools !== false;
+const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
+const candidateSources = includeSchools
+	? [...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS]
+	: MASTER_SOURCE_SEEDS;
+const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filter(isHttpUrl))];
+
+ctx.waitUntil(runIngest(env, sourceUrls, limitPerSource, 'manual'));
+return json({ ok: true, message: 'Admin ingest started', sourcesTried: sourceUrls.length, limitPerSource }, 202);
+}
+
+if (url.pathname === '/api/admin/metrics' && request.method === 'GET') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const latest = await env.CACHE.get<IngestRunMetrics>(INGEST_METRICS_KEY, 'json').catch(() => null);
+return json({ latest: latest ?? null });
+}
+
+if (url.pathname === '/api/admin/purge-and-reingest' && request.method === 'POST') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: number }>(request);
+const includeSchools = body?.includeSchools !== false;
+const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
+
+await env.ky_news_db.prepare('DELETE FROM articles').run();
+
+const candidateSources = includeSchools
+	? [...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS]
+	: MASTER_SOURCE_SEEDS;
+const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filter(isHttpUrl))];
+ctx.waitUntil(runIngest(env, sourceUrls, limitPerSource, 'manual'));
+
+return json({
+ok: true,
+message: 'Articles purged. Re-ingest started in background.',
+sourcesTried: sourceUrls.length,
+});
+}
 
 if (url.pathname === '/api/admin/articles' && request.method === 'GET') {
 if (!isAdminAuthorized(request, env)) {
@@ -309,24 +375,63 @@ const cron = (_event as ScheduledEvent).cron || '';
 
 if (cron === '*/5 * * * *') {
 const sourceUrls = [...new Set(HIGH_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
-ctx.waitUntil(runIngest(env, sourceUrls, Math.max(DEFAULT_SEED_LIMIT_PER_SOURCE, 30)));
+ctx.waitUntil(runIngest(env, sourceUrls, Math.max(DEFAULT_SEED_LIMIT_PER_SOURCE, 0), 'scheduled-high'));
 return;
 }
 
 const sourceUrls = [...new Set(NORMAL_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
-ctx.waitUntil(runIngest(env, sourceUrls, DEFAULT_SEED_LIMIT_PER_SOURCE));
+ctx.waitUntil(runIngest(env, sourceUrls, DEFAULT_SEED_LIMIT_PER_SOURCE, 'scheduled-normal'));
 },
 } satisfies ExportedHandler<Env>;
 
 /** Process sources sequentially and store results - used by both HTTP seed endpoint and cron. */
-async function runIngest(env: Env, sourceUrls: string[], limitPerSource: number): Promise<void> {
+async function runIngest(
+	env: Env,
+	sourceUrls: string[],
+	limitPerSource: number,
+	trigger: IngestRunMetrics['trigger'],
+): Promise<void> {
+const started = Date.now();
+let processed = 0;
+let inserted = 0;
+let duplicate = 0;
+let rejected = 0;
+let lowWordDiscards = 0;
+let sourceErrors = 0;
+
 for (const sourceUrl of sourceUrls) {
 try {
-await ingestSeedSource(env, sourceUrl, limitPerSource);
+const status = await ingestSeedSource(env, sourceUrl, limitPerSource);
+processed += status.processed;
+inserted += status.inserted;
+duplicate += status.duplicate;
+rejected += status.rejected;
+lowWordDiscards += status.lowWordDiscards;
+sourceErrors += status.errors.length;
 } catch {
 // swallow per-source errors so one bad source does not abort the rest
+sourceErrors += 1;
 }
 }
+
+const finished = Date.now();
+const durationMs = Math.max(1, finished - started);
+const metrics: IngestRunMetrics = {
+	startedAt: new Date(started).toISOString(),
+	finishedAt: new Date(finished).toISOString(),
+	durationMs,
+	sourcesTried: sourceUrls.length,
+	processed,
+	inserted,
+	duplicate,
+	rejected,
+	lowWordDiscards,
+	ingestRatePerMinute: Number(((inserted / durationMs) * 60000).toFixed(2)),
+	sourceErrors,
+	trigger,
+};
+
+await env.CACHE.put(INGEST_METRICS_KEY, JSON.stringify(metrics), { expirationTtl: 60 * 60 * 24 * 7 }).catch(() => null);
 }
 
 function isHttpUrl(input: string): boolean {
@@ -371,6 +476,7 @@ processed: 0,
 inserted: 0,
 duplicate: 0,
 rejected: 0,
+lowWordDiscards: 0,
 errors: [],
 };
 
@@ -394,7 +500,7 @@ status.errors.push(`feed parse failed (${feedUrl}): ${safeError(error)}`);
 }
 
 if (status.selectedFeed && feedItems.length > 0) {
-const limitedItems = feedItems.slice(0, limitPerSource);
+const limitedItems = limitPerSource > 0 ? feedItems.slice(0, limitPerSource) : feedItems;
 for (const item of limitedItems) {
 try {
 const result = await ingestSingleUrl(env, {
@@ -407,7 +513,12 @@ providedDescription: item.description,
 status.processed += 1;
 if (result.status === 'inserted') status.inserted += 1;
 if (result.status === 'duplicate') status.duplicate += 1;
-if (result.status === 'rejected') status.rejected += 1;
+if (result.status === 'rejected') {
+status.rejected += 1;
+if ((result.reason || '').toLowerCase().includes('content too short')) {
+	status.lowWordDiscards += 1;
+}
+}
 } catch (error) {
 status.processed += 1;
 status.rejected += 1;
@@ -424,7 +535,12 @@ const fallbackResult = await ingestSingleUrl(env, { url: sourceUrl, sourceUrl })
 status.processed += 1;
 if (fallbackResult.status === 'inserted') status.inserted += 1;
 if (fallbackResult.status === 'duplicate') status.duplicate += 1;
-if (fallbackResult.status === 'rejected') status.rejected += 1;
+if (fallbackResult.status === 'rejected') {
+status.rejected += 1;
+if ((fallbackResult.reason || '').toLowerCase().includes('content too short')) {
+	status.lowWordDiscards += 1;
+}
+}
 } catch (error) {
 status.processed += 1;
 status.rejected += 1;

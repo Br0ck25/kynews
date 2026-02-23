@@ -75,6 +75,11 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://www.wtvq.com',
   'https://www.wuky.org',
   'https://www.wymt.com',
+  'http://rss.cnn.com/rss/cnn_latest.rss',
+  'https://moxie.foxnews.com/google-publisher/latest.xml',
+  'https://feeds.nbcnews.com/nbcnews/public/news',
+  'https://feeds.reuters.com/Reuters/worldNews',
+  'https://abcnews.go.com/abcnews/usheadlines',
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [

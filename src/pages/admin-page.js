@@ -29,6 +29,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [sources, setSources] = useState([]);
   const [sourceSummary, setSourceSummary] = useState(null);
+  const [metrics, setMetrics] = useState(null);
 
   const [articleCategoryFilter, setArticleCategoryFilter] = useState("all");
   const [articleSearch, setArticleSearch] = useState("");
@@ -46,8 +47,10 @@ export default function AdminPage() {
         service.getAdminSources(),
         service.getAdminArticles({ category: articleCategoryFilter, search: articleSearch, limit: 40 }),
       ]);
+      const metricsResp = await service.getAdminMetrics();
       setSources(sourceResp.items || []);
       setSourceSummary(sourceResp);
+      setMetrics(metricsResp?.latest || null);
       setArticleRows(articleResp.items || []);
       setEdits({});
     } catch (err) {
@@ -132,6 +135,30 @@ export default function AdminPage() {
     setSources([]);
     setArticleRows([]);
     setSourceSummary(null);
+    setMetrics(null);
+  };
+
+  const triggerIngest = async () => {
+    setError("");
+    try {
+      await service.adminIngest({ includeSchools: true, limitPerSource: 0 });
+      await loadData();
+    } catch (err) {
+      setError(err?.errorMessage || "Unable to start ingest.");
+    }
+  };
+
+  const purgeAndReingest = async () => {
+    // eslint-disable-next-line no-alert
+    const confirmed = window.confirm("This will DELETE all article rows and start re-ingest. Continue?");
+    if (!confirmed) return;
+    setError("");
+    try {
+      await service.adminPurgeAndReingest({ includeSchools: true, limitPerSource: 0 });
+      await loadData();
+    } catch (err) {
+      setError(err?.errorMessage || "Purge/re-ingest failed.");
+    }
   };
 
   if (!authorized) {
@@ -178,7 +205,26 @@ export default function AdminPage() {
       </Typography>
       <Box style={{ marginBottom: 12 }}>
         <Button size="small" variant="outlined" onClick={lockAdmin}>Lock admin panel</Button>
+        <Button size="small" variant="contained" color="primary" onClick={triggerIngest} style={{ marginLeft: 8 }}>
+          Ingest new articles
+        </Button>
+        <Button size="small" variant="contained" color="secondary" onClick={purgeAndReingest} style={{ marginLeft: 8 }}>
+          Purge + Re-ingest
+        </Button>
       </Box>
+
+      {metrics && (
+        <Paper style={{ padding: 12, marginBottom: 16 }}>
+          <Typography variant="subtitle2" gutterBottom>Admin Metrics (Latest Ingest)</Typography>
+          <Box style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Chip size="small" label={`Rate/min: ${metrics.ingestRatePerMinute ?? 0}`} color="primary" />
+            <Chip size="small" label={`Inserted: ${metrics.inserted ?? 0}`} />
+            <Chip size="small" label={`Duplicates: ${metrics.duplicate ?? 0}`} />
+            <Chip size="small" label={`Rejected: ${metrics.rejected ?? 0}`} />
+            <Chip size="small" label={`Low-word discards: ${metrics.lowWordDiscards ?? 0}`} />
+          </Box>
+        </Paper>
+      )}
       {error && (
         <Typography color="error" variant="body2" style={{ marginBottom: 10 }}>
           {error}

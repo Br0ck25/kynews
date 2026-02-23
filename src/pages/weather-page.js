@@ -64,8 +64,20 @@ export default function WeatherPage() {
               {weather.city}, {weather.state} ({weather.zip})
             </Typography>
             <Typography variant="body2" gutterBottom>
-              Current: {weather.current?.temperature_2m ?? "N/A"}°C, Wind {weather.current?.wind_speed_10m ?? "N/A"}
+              Current: {weather.current?.temperature_2m ?? "N/A"}°F, Wind {weather.current?.wind_speed_10m ?? "N/A"} mph
             </Typography>
+
+            <Typography variant="subtitle2" style={{ marginTop: 8 }}>7-Day Forecast</Typography>
+            {Array.isArray(weather?.daily?.time) && weather.daily.time.length > 0 ? (
+              weather.daily.time.slice(0, 7).map((day, idx) => (
+                <Typography key={`${day}-${idx}`} variant="body2">
+                  • {day}: High {weather.daily.temperature_2m_max?.[idx] ?? "N/A"}°F / Low {weather.daily.temperature_2m_min?.[idx] ?? "N/A"}°F
+                </Typography>
+              ))
+            ) : (
+              <Typography variant="body2">7-day forecast unavailable.</Typography>
+            )}
+
             <Typography variant="subtitle2">Alerts</Typography>
             {weather.alerts?.length > 0 ? (
               weather.alerts.map((alert, index) => (

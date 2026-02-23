@@ -403,6 +403,24 @@ export default class SiteService {
     return this.request("/api/admin/sources");
   }
 
+  async getAdminMetrics() {
+    return this.request("/api/admin/metrics");
+  }
+
+  async adminIngest({ includeSchools = true, limitPerSource = 0 } = {}) {
+    return this.request("/api/admin/ingest", {
+      method: "POST",
+      body: JSON.stringify({ includeSchools, limitPerSource }),
+    });
+  }
+
+  async adminPurgeAndReingest({ includeSchools = true, limitPerSource = 0 } = {}) {
+    return this.request("/api/admin/purge-and-reingest", {
+      method: "POST",
+      body: JSON.stringify({ includeSchools, limitPerSource }),
+    });
+  }
+
   async getAdminArticles({ category = "all", search = "", cursor = null, limit = 25 } = {}) {
     const params = new URLSearchParams();
     params.set("category", category);
@@ -456,7 +474,7 @@ export default class SiteService {
     }
 
     const forecastRes = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&timezone=America%2FNew_York&current=temperature_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min`
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&timezone=America%2FNew_York&temperature_unit=fahrenheit&wind_speed_unit=mph&current=temperature_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min`
     );
     const forecast = forecastRes.ok ? await forecastRes.json() : null;
 

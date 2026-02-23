@@ -5,8 +5,15 @@ import Paper from "@material-ui/core/Paper";
 import Typography from "@material-ui/core/Typography";
 import Grid from "@material-ui/core/Grid";
 import Divider from "@material-ui/core/Divider";
+import Box from "@material-ui/core/Box";
+import Button from "@material-ui/core/Button";
+import IconButton from "@material-ui/core/IconButton";
+import ShareIcon from "@material-ui/icons/Share";
+import FavoriteIcon from "@material-ui/icons/Favorite";
 import "./post-component.css";
-import { ToDateTime } from "../../utils/functions";
+import { ShareAPI, ToDateTime } from "../../utils/functions";
+import { SavePost } from "../../services/storageService";
+import SnackbarNotify from "../snackbar-notify-component";
 
 const useStyles = makeStyles((theme) => ({
   mainFeaturedPost: {
@@ -42,13 +49,27 @@ const useStyles = makeStyles((theme) => ({
 export default function FeaturedPost(props) {
   const classes = useStyles();
   const { post } = props;
+  const [showSaved, setShowSaved] = React.useState(false);
   const bodyText = String(post?.contentText || "").trim();
   const paragraphs = bodyText
     ? bodyText.split(/\n{2,}/).map((chunk) => chunk.trim()).filter(Boolean)
     : [];
 
+  const handleSave = () => {
+    SavePost(post);
+    setShowSaved(true);
+  };
+
+  const handleShare = () => {
+    const title = post.title;
+    const text = `I'm reading this on Kentucky News: ${post.title}`;
+    const url = post.originalLink;
+    ShareAPI(title, text, url);
+  };
+
   return (
     <main>
+      {showSaved && <SnackbarNotify message="Article saved successfully." />}
       <Paper
         className={classes.mainFeaturedPost}
         style={{ backgroundImage: `url(${post.image})` }}
@@ -74,6 +95,25 @@ export default function FeaturedPost(props) {
             <Typography variant="body1">No article body available.</Typography>
           )}
         </div>
+        <Box style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "0 10px 12px" }}>
+          <IconButton color="primary" aria-label="Save" onClick={handleSave} size="small">
+            <FavoriteIcon />
+          </IconButton>
+          <IconButton color="primary" aria-label="Share" onClick={handleShare} size="small">
+            <ShareIcon />
+          </IconButton>
+          <Button
+            size="small"
+            color="primary"
+            variant="outlined"
+            href={post.originalLink || "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            disabled={!post.originalLink}
+          >
+            Original Article
+          </Button>
+        </Box>
       </Grid>
     </main>
   );

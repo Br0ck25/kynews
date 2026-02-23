@@ -3,7 +3,7 @@ import type { Category } from '../types';
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
-  'access-control-allow-headers': 'Content-Type',
+  'access-control-allow-headers': 'Content-Type, x-admin-key',
 };
 
 const JSON_HEADERS = {
