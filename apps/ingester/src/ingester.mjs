@@ -6,6 +6,16 @@ import { openDb } from "./db.mjs";
 import { makeItemId, pickImage, stableHash, toIsoOrNull } from "./util.mjs";
 import kyCounties from "./ky-counties.json" with { type: "json" };
 import kyCityCounty from "./ky-city-county.json" with { type: "json" };
+// FIX #7: Import canonical location functions from the single shared source (apps/api/src/search.mjs).
+// Previously these were duplicated in this file; now they are maintained in one place.
+import {
+  detectKyCounties,
+  detectOtherStateNames,
+  hasKySignal,
+  normalizeCounty
+} from "../../api/src/search.mjs";
+// FIX #10: Import shared content-tagging utilities for sports/obituary/schools detection.
+import { computeContentTags, textOnly } from "./contentTags.mjs";
 
 const parser = new Parser({
   customFields: {
@@ -24,14 +34,8 @@ const ARTICLE_MAX_CHARS = Number(process.env.ARTICLE_MAX_CHARS || 2_000_000); //
 const EXCERPT_MAX_CHARS = Number(process.env.ARTICLE_EXCERPT_MAX_CHARS || 10_000);
 const MIN_ARTICLE_WORDS = Number(process.env.MIN_ARTICLE_WORDS || 50);
 
-// Simple text normalization for matching
-function norm(s) {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/&amp;/g, "&")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
+// FIX #7: norm() and the KY pattern arrays have been removed — now imported from
+// ../../api/src/search.mjs as the single canonical implementation.
 
 function textWordCount(input) {
   return String(input || "")
@@ -40,132 +44,9 @@ function textWordCount(input) {
     .filter(Boolean).length;
 }
 
-const KY_COUNTY_PATTERNS = (() => {
-  const names = (kyCounties || []).map((c) => c.name).filter(Boolean);
-  names.sort((a, b) => b.length - a.length);
-  return names.map((name) => {
-    const n = norm(name);
-    // Match "X county", "X co", "X co.", etc.
-    const re = new RegExp(`\\b${n.replace(/\s+/g, "\\s+")}\\s+(county|co\\.?)(\\b|\\s|,|\\.)`, "i");
-    return { name, re };
-  });
-})();
-
-
-const KY_CITY_PATTERNS = (() => {
-  const rows = Array.isArray(kyCityCounty) ? kyCityCounty : [];
-  // Longer first to avoid partial matches ("Fort Thomas" before "Thomas")
-  const cities = rows
-    .map((r) => ({ city: String(r.city || "").trim(), county: String(r.county || "").trim() }))
-    .filter((r) => r.city && r.county);
-  cities.sort((a, b) => b.city.length - a.city.length);
-
-  return cities.map(({ city, county }) => {
-    const n = norm(city);
-    // Match city name as a whole phrase (word boundaries), allowing whitespace between words.
-    const re = new RegExp(`\\b${n.replace(/\\s+/g, "\\s+")}\\b`, "i");
-    return { city, county, re };
-  });
-})();
-
-const OTHER_STATE_NAME_PATTERNS = (() => {
-  const names = [
-    "Alabama",
-    "Alaska",
-    "Arizona",
-    "Arkansas",
-    "California",
-    "Colorado",
-    "Connecticut",
-    "Delaware",
-    "Florida",
-    "Georgia",
-    "Hawaii",
-    "Idaho",
-    "Illinois",
-    "Indiana",
-    "Iowa",
-    "Kansas",
-    "Louisiana",
-    "Maine",
-    "Maryland",
-    "Massachusetts",
-    "Michigan",
-    "Minnesota",
-    "Mississippi",
-    "Missouri",
-    "Montana",
-    "Nebraska",
-    "Nevada",
-    "New Hampshire",
-    "New Jersey",
-    "New Mexico",
-    "New York",
-    "North Carolina",
-    "North Dakota",
-    "Ohio",
-    "Oklahoma",
-    "Oregon",
-    "Pennsylvania",
-    "Rhode Island",
-    "South Carolina",
-    "South Dakota",
-    "Tennessee",
-    "Texas",
-    "Utah",
-    "Vermont",
-    "Virginia",
-    "Washington",
-    "West Virginia",
-    "Wisconsin",
-    "Wyoming",
-    "District of Columbia"
-  ];
-  return names.map((name) => ({
-    name,
-    re: new RegExp(`\\b${norm(name).replace(/\s+/g, "\\s+")}\\b`, "i")
-  }));
-})();
-
-function hasKySignal(text, counties) {
-  if (counties.length) return true;
-  const raw = String(text || "");
-  return /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
-}
-
-function detectOtherStateNames(text) {
-  const t = norm(text);
-  if (!t) return [];
-  const out = [];
-  for (const { name, re } of OTHER_STATE_NAME_PATTERNS) {
-    if (re.test(t)) out.push(name);
-  }
-  return Array.from(new Set(out));
-}
-
-
-
-function detectKyCounties(text) {
-  const t = norm(text);
-  if (!t) return [];
-  const out = [];
-  const raw = String(text || "");
-  const hasKyContext = /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
-
-  // Direct county mentions: "X County" / "X Co."
-  for (const { name, re } of KY_COUNTY_PATTERNS) {
-    if (re.test(t)) out.push(name);
-  }
-
-  // City names are highly ambiguous across states; require explicit Kentucky context.
-  if (hasKyContext) {
-    for (const { county, re } of KY_CITY_PATTERNS) {
-      if (re.test(t)) out.push(county);
-    }
-  }
-
-  return Array.from(new Set(out));
-}
+// FIX #7: KY_COUNTY_PATTERNS, KY_CITY_PATTERNS, OTHER_STATE_NAME_PATTERNS,
+// hasKySignal, detectOtherStateNames, detectKyCounties — all removed here and
+// imported from ../../api/src/search.mjs above.
 
 function extractReadableText(html) {
   const $ = cheerio.load(html, { decodeEntities: true });
@@ -173,8 +54,12 @@ function extractReadableText(html) {
   // Remove obvious non-content
   $("script,style,noscript,iframe,svg,canvas,form,header,footer,nav,aside,button").remove();
 
-  // Prefer semantic containers when present
-  let text = $("article").text() || $("main").text() || $("#main").text() || $("body").text() || "";
+  // FIX #7: Do NOT fall through to body — body picks up navbars, footers, sidebars,
+  // which contaminate the Kentucky-relevance check with out-of-state content signals.
+  // Only use semantic article/main containers; if absent, return empty string so the
+  // caller falls back to the RSS-provided title/summary instead of full page chrome.
+  let text = $("article").text() || $("main").text() || $("#main").text() || "";
+
   text = text
     .replace(/\s+/g, " ")
     .replace(/\u00a0/g, " ")
@@ -287,6 +172,9 @@ function ensureSchema(db) {
   add("article_checked_at", "TEXT");
   add("article_fetch_status", "TEXT");
   add("article_text_excerpt", "TEXT");
+  // FIX #10: tags column for server-side sports/obituary/schools tagging at ingest time.
+  // Requires a one-time admin revalidate to backfill tags on existing items.
+  add("tags", "TEXT NOT NULL DEFAULT ''");
 }
 
 function recordError(db, feedId, err) {
@@ -334,8 +222,8 @@ async function fetchWithConditional(url, etag, lastModified) {
 
 function upsertItemAndLink(db, feedId, row) {
   const insertItem = db.prepare(`
-    INSERT INTO items (id, title, url, guid, author, region_scope, published_at, summary, content, image_url, hash)
-    VALUES (@id, @title, @url, @guid, @author, @region_scope, @published_at, @summary, @content, @image_url, @hash)
+    INSERT INTO items (id, title, url, guid, author, region_scope, published_at, summary, content, image_url, hash, tags)
+    VALUES (@id, @title, @url, @guid, @author, @region_scope, @published_at, @summary, @content, @image_url, @hash, @tags)
     ON CONFLICT(id) DO UPDATE SET
       title=excluded.title,
       author=excluded.author,
@@ -344,7 +232,8 @@ function upsertItemAndLink(db, feedId, row) {
       summary=excluded.summary,
       content=excluded.content,
       image_url=excluded.image_url,
-      hash=excluded.hash
+      hash=excluded.hash,
+      tags=excluded.tags
   `);
 
   const linkFeedItem = db.prepare(`INSERT OR IGNORE INTO feed_items (feed_id, item_id) VALUES (?, ?)`);
@@ -372,6 +261,7 @@ async function tagItemLocations(db, itemId, stateCode, parts, url) {
   del.run(itemId, st);
 
   const titleText = String(parts?.[0] || "");
+  // FIX #7: textOnly is now imported from contentTags.mjs (was undefined before).
   const seedArticleText = textOnly(parts.slice(1).filter(Boolean).join(" \n "));
 
   const meta = db
@@ -404,9 +294,11 @@ async function tagItemLocations(db, itemId, stateCode, parts, url) {
     });
   }
 
+  // FIX #7: textOnly is now imported — was undefined, causing a ReferenceError.
   const articleText = textOnly(excerpt || seedArticleText);
   const titleCounties = detectKyCounties(titleText);
   const bodyCounties = detectKyCounties(articleText);
+  // FIX #7: normalizeCounty is now imported from search.mjs (was undefined before).
   const taggedCounties = new Set([...titleCounties, ...bodyCounties].map((county) => normalizeCounty(county)).filter(Boolean));
   const titleKySignal = st !== "KY" ? true : hasKySignal(titleText, titleCounties);
   const bodyKySignal = st !== "KY" ? true : hasKySignal(articleText, bodyCounties);
@@ -439,6 +331,20 @@ async function tagItemLocations(db, itemId, stateCode, parts, url) {
   if (st === "KY") {
     for (const county of taggedCounties) ins.run(itemId, st, county);
   }
+
+  // FIX #10: Compute and write content tags (sports / obituary / schools) now that
+  // we have the full article text. Uses the shared contentTags.mjs module.
+  const itemMeta = db.prepare("SELECT title, summary, content, url FROM items WHERE id=?").get(itemId);
+  const computedTags = computeContentTags({
+    title: itemMeta?.title || titleText,
+    summary: itemMeta?.summary || "",
+    content: itemMeta?.content || "",
+    articleText: articleText,
+    url: itemMeta?.url || url
+  });
+  if (computedTags) {
+    db.prepare("UPDATE items SET tags=@tags WHERE id=@id").run({ id: itemId, tags: computedTags });
+  }
 }
 
 async function ingestOnce() {
@@ -461,6 +367,9 @@ async function ingestOnce() {
 
     const tx = db.transaction((fn) => fn());
 
+    // FIX #3: Track items saved per region_scope to verify national content is arriving.
+    let savedByScope = {};
+
     for (const f of feeds) {
       try {
         const { status, etag, lastModified, text } = await fetchWithConditional(f.url, f.etag, f.last_modified);
@@ -482,6 +391,11 @@ async function ingestOnce() {
 
           const id = makeItemId({ url, guid: it.guid, title, published_at });
           const hash = stableHash([title, url, summary || "", content || "", author || "", published_at || ""].join("|"));
+          const scope = f.region_scope === "national" ? "national" : "ky";
+
+          // FIX #10: Compute content tags at upsert time from available RSS fields.
+          // Full tags will be recomputed after article fetch in tagItemLocations.
+          const earlyTags = computeContentTags({ title, summary: summary || "", content: content || "", url });
 
           // Upsert item + link in a quick transaction
           tx(() => {
@@ -491,14 +405,18 @@ async function ingestOnce() {
               url,
               guid: it.guid || null,
               author,
-              region_scope: f.region_scope === "national" ? "national" : "ky",
+              region_scope: scope,
               published_at,
               summary,
               content,
               image_url,
-              hash
+              hash,
+              tags: earlyTags
             });
           });
+
+          // FIX #3: Count items saved per scope for diagnostic logging.
+          savedByScope[scope] = (savedByScope[scope] || 0) + 1;
 
           // Only Kentucky feeds participate in state/county tagging.
           if ((f.region_scope || "ky") === "ky") {
@@ -524,6 +442,10 @@ async function ingestOnce() {
         // keep going
       }
     }
+
+    // FIX #3: Log items saved per region_scope so you can verify national content arrives.
+    const scopeSummary = Object.entries(savedByScope).map(([s, n]) => `${s}=${n}`).join(", ");
+    log(`Ingest complete. Items upserted by scope: ${scopeSummary || "none"}`);
 
     finishRun(db, runId, "ok");
   } catch (err) {

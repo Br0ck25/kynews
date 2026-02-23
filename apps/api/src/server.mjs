@@ -8,11 +8,16 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { openDb } from "./db.mjs";
 import { ensureSchema } from "./schema.mjs";
-import { buildSearchClause, isKy, mapItemRow, normalizeCounty } from "./search.mjs";
+import { buildSearchClause, isKy, mapItemRow, normalizeCounty,
+  // FIX #7: Import canonical location functions — single source of truth in search.mjs.
+  detectKyCounties, detectOtherStateNames, hasKySignal, detectKyQueryCounties
+} from "./search.mjs";
 import { insertAdminLog, requireAdmin } from "./security.mjs";
 import { registerWeatherRoutes } from "./weather.mjs";
 import { registerLostFoundRoutes } from "./lostFound.mjs";
 import { registerSeoRoutes } from "./seo.mjs";
+// FIX #10: Import shared content-tagging utilities for tag-backfill in revalidate.
+import { computeContentTags } from "../../ingester/src/contentTags.mjs";
 import kyCounties from "../../ingester/src/ky-counties.json" with { type: "json" };
 import kyCityCounty from "../../ingester/src/ky-city-county.json" with { type: "json" };
 
@@ -184,6 +189,8 @@ const MIN_ITEM_WORDS = 50;
 const DEFAULT_SITE_URL = "https://localky.news";
 
 function normLocationText(s) {
+  // FIX #7: This local copy is kept only for the revalidate endpoint which still uses it.
+  // All location-detection patterns/functions are now canonical in search.mjs.
   return String(s || "")
     .toLowerCase()
     .replace(/&amp;/g, "&")
@@ -239,148 +246,10 @@ function buildSitemapUrlTag({ loc, changefreq, priority, lastmod }) {
   return lines.join("\n");
 }
 
-const KY_COUNTY_PATTERNS = (() => {
-  const names = (kyCounties || []).map((c) => c.name).filter(Boolean);
-  names.sort((a, b) => b.length - a.length);
-  return names.map((name) => {
-    const n = normLocationText(name);
-    const re = new RegExp(`\\b${n.replace(/\\s+/g, "\\s+")}\\s+(county|co\\.?)(\\b|\\s|,|\\.)`, "i");
-    return { name, re };
-  });
-})();
-
-const KY_CITY_PATTERNS = (() => {
-  const rows = Array.isArray(kyCityCounty) ? kyCityCounty : [];
-  const cities = rows
-    .map((r) => ({ city: String(r.city || "").trim(), county: String(r.county || "").trim() }))
-    .filter((r) => r.city && r.county);
-  cities.sort((a, b) => b.city.length - a.city.length);
-  return cities.map(({ city, county }) => {
-    const n = normLocationText(city);
-    const re = new RegExp(`\\b${n.replace(/\\s+/g, "\\s+")}\\b`, "i");
-    return { city, county, re };
-  });
-})();
-
-const KY_QUERY_COUNTY_PATTERNS = (() => {
-  const names = (kyCounties || []).map((c) => c.name).filter(Boolean);
-  names.sort((a, b) => b.length - a.length);
-  return names.map((name) => {
-    const n = normLocationText(name);
-    const re = new RegExp(`\\b${n.replace(/\\s+/g, "\\s+")}(?:\\s+(?:county|co\\.?))?\\b`, "i");
-    return { name, re };
-  });
-})();
-
-const OTHER_STATE_NAME_PATTERNS = [
-  "Alabama",
-  "Alaska",
-  "Arizona",
-  "Arkansas",
-  "California",
-  "Colorado",
-  "Connecticut",
-  "Delaware",
-  "Florida",
-  "Georgia",
-  "Hawaii",
-  "Idaho",
-  "Illinois",
-  "Indiana",
-  "Iowa",
-  "Kansas",
-  "Louisiana",
-  "Maine",
-  "Maryland",
-  "Massachusetts",
-  "Michigan",
-  "Minnesota",
-  "Mississippi",
-  "Missouri",
-  "Montana",
-  "Nebraska",
-  "Nevada",
-  "New Hampshire",
-  "New Jersey",
-  "New Mexico",
-  "New York",
-  "North Carolina",
-  "North Dakota",
-  "Ohio",
-  "Oklahoma",
-  "Oregon",
-  "Pennsylvania",
-  "Rhode Island",
-  "South Carolina",
-  "South Dakota",
-  "Tennessee",
-  "Texas",
-  "Utah",
-  "Vermont",
-  "Virginia",
-  "Washington",
-  "West Virginia",
-  "Wisconsin",
-  "Wyoming",
-  "District of Columbia"
-].map((name) => ({
-  name,
-  re: new RegExp(`\\b${normLocationText(name).replace(/\\s+/g, "\\s+")}\\b`, "i")
-}));
-
-function detectOtherStateNames(text) {
-  const t = normLocationText(text);
-  if (!t) return [];
-  const out = [];
-  for (const { name, re } of OTHER_STATE_NAME_PATTERNS) {
-    if (re.test(t)) out.push(name);
-  }
-  return Array.from(new Set(out));
-}
-
-function detectKyCounties(text) {
-  const t = normLocationText(text);
-  if (!t) return [];
-
-  const out = [];
-  const raw = String(text || "");
-  const hasKyContext = /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
-
-  for (const { name, re } of KY_COUNTY_PATTERNS) {
-    if (re.test(t)) out.push(name);
-  }
-
-  if (hasKyContext) {
-    for (const { county, re } of KY_CITY_PATTERNS) {
-      if (re.test(t)) out.push(county);
-    }
-  }
-
-  return Array.from(new Set(out));
-}
-
-function hasKySignal(text, counties) {
-  if (counties.length) return true;
-  const raw = String(text || "");
-  return /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
-}
-
-function detectKyQueryCounties(text) {
-  const t = normLocationText(text);
-  if (!t) return [];
-
-  const out = [];
-  for (const { name, re } of KY_QUERY_COUNTY_PATTERNS) {
-    if (re.test(t)) out.push(name);
-  }
-
-  for (const { city, county, re } of KY_CITY_PATTERNS) {
-    if (city.length < 4) continue;
-    if (re.test(t)) out.push(county);
-  }
-
-  return Array.from(new Set(out));
-}
+// FIX #7: KY_COUNTY_PATTERNS, KY_CITY_PATTERNS, KY_QUERY_COUNTY_PATTERNS,
+// OTHER_STATE_NAME_PATTERNS, detectOtherStateNames, detectKyCounties, hasKySignal,
+// and detectKyQueryCounties are now imported from ./search.mjs (canonical implementations).
+// The local duplicates have been removed.
 
 function parseCountyList(input) {
   if (!input) return [];
@@ -573,14 +442,17 @@ const ItemsQuery = z.object({
   unfiltered: z.string().optional(),
   hours: z.coerce.number().min(0).max(24 * 365).default(2),
   cursor: z.string().optional(),
-  limit: z.coerce.number().min(1).max(100).default(30)
+  limit: z.coerce.number().min(1).max(100).default(30),
+  // FIX #10: tags filter — comma-separated tag name(s) e.g. "sports", "obituary", "schools".
+  // Uses SQL LIKE on the tags column so it's compatible with existing SQLite without full-text.
+  tags: z.string().min(1).max(80).optional()
 });
 
 const handleItemsRoute = async (req) => {
   const parsed = ItemsQuery.safeParse(req.query ?? {});
   if (!parsed.success) return app.httpErrors.badRequest("Invalid query");
 
-  const { feedId, category, scope, state, county, counties, unfiltered, hours, cursor, limit } = parsed.data;
+  const { feedId, category, scope, state, county, counties, unfiltered, hours, cursor, limit, tags } = parsed.data;
   const countyList = county ? [normalizeCounty(county)] : parseCountyList(counties);
   const includeUnfiltered = ["1", "true", "yes"].includes(String(unfiltered || "").toLowerCase());
 
@@ -603,6 +475,13 @@ const handleItemsRoute = async (req) => {
     if (scope !== "all") {
       where.push("i.region_scope = @scope");
       params.scope = scope;
+    }
+
+    // FIX #10: Filter by content tag if provided (e.g. ?tags=sports).
+    // Uses comma-boundary LIKE to avoid partial matches ("sport" matching "sports").
+    if (tags) {
+      where.push("(',' || COALESCE(i.tags, '') || ',') LIKE @tagsLike");
+      params.tagsLike = `%,${tags},%`;
     }
 
     const needsFi = Boolean(feedId || category);
@@ -630,6 +509,13 @@ const handleItemsRoute = async (req) => {
       } else {
         where.push("il.state_code = @stateCode AND il.county = ''");
       }
+    } else if (scope === "ky") {
+      // FIX #2: When scope is "ky" with no explicit county filter, only return items
+      // that have been positively confirmed as Kentucky-relevant by the tagging system
+      // (at least one item_locations row with state_code='KY'). Items rejected by
+      // tagItemLocations (out-of-state signals) have no KY location rows and must
+      // not appear on the Today page.
+      where.push(`EXISTS (SELECT 1 FROM item_locations ilc WHERE ilc.item_id = i.id AND ilc.state_code = 'KY' AND ilc.county = '')`);
     }
 
     const parsedCursor = parseItemsCursor(cursor);
@@ -730,7 +616,9 @@ app.get("/api/counties", async (req) => {
 });
 
 const SearchQuery = z.object({
-  q: z.string().min(1).max(200),
+  // FIX #1: Raised q max from 200 to 1000; Sports/Schools queries were 300-500 chars,
+  // causing a 400 "Invalid query" error on those pages.
+  q: z.string().min(1).max(1000),
   scope: z.enum(NEWS_SCOPES).default("ky"),
   state: z.string().length(2).optional(),
   county: z.string().min(1).max(80).optional(),
@@ -746,6 +634,10 @@ app.get("/api/search", async (req) => {
   if (!parsed.success) return app.httpErrors.badRequest("Invalid query");
 
   const { q, scope, state, county, counties, hours, sort, cursor, limit } = parsed.data;
+  // FIX #1: Warn when queries are very long so regressions are visible in logs.
+  if (q.length > 800) {
+    app.log.warn({ qLen: q.length }, "search q exceeds 800 chars; consider shortening the query");
+  }
   const countyList = county ? [normalizeCounty(county)] : parseCountyList(counties);
 
   if ((state || countyList.length) && scope === "national") {
@@ -1217,6 +1109,16 @@ app.post("/api/admin/items/revalidate", async (req) => {
             insCountyStmt.run(itemId, county);
           }
         }
+
+        // FIX #10: Backfill content tags during revalidation so existing items get tagged.
+        const computedTags = computeContentTags({
+          title,
+          summary: summaryText,
+          content: articleText,
+          url: String(db.prepare("SELECT url FROM items WHERE id=?").get(itemId)?.url || "")
+        });
+        db.prepare("UPDATE items SET tags=? WHERE id=?").run(computedTags, itemId);
+
         summary.retagged += 1;
       }
     }

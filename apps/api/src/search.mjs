@@ -1,4 +1,5 @@
 import kyCounties from "../../ingester/src/ky-counties.json" with { type: "json" };
+import kyCityCounty from "../../ingester/src/ky-city-county.json" with { type: "json" };
 
 const COUNTY_NAME_BY_NORMALIZED = new Map(
   (Array.isArray(kyCounties) ? kyCounties : [])
@@ -9,6 +10,125 @@ const COUNTY_NAME_BY_NORMALIZED = new Map(
       name
     ])
 );
+
+// FIX #7: Canonical location-text normalizer — single source of truth used by both
+// ingester and API server (previously duplicated as norm() / normLocationText()).
+export function normLocationText(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/&amp;/g, "&")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// FIX #7: Canonical KY county patterns — exported so ingester and server share one copy.
+export const KY_COUNTY_PATTERNS = (() => {
+  const names = (kyCounties || []).map((c) => c.name).filter(Boolean);
+  names.sort((a, b) => b.length - a.length);
+  return names.map((name) => {
+    const n = normLocationText(name);
+    const re = new RegExp(`\\b${n.replace(/\s+/g, "\\s+")}\\s+(county|co\\.?)(\\b|\\s|,|\\.)`, "i");
+    return { name, re };
+  });
+})();
+
+// FIX #7: Canonical KY city→county patterns — exported for shared use.
+export const KY_CITY_PATTERNS = (() => {
+  const rows = Array.isArray(kyCityCounty) ? kyCityCounty : [];
+  const cities = rows
+    .map((r) => ({ city: String(r.city || "").trim(), county: String(r.county || "").trim() }))
+    .filter((r) => r.city && r.county);
+  cities.sort((a, b) => b.city.length - a.city.length);
+  return cities.map(({ city, county }) => {
+    const n = normLocationText(city);
+    const re = new RegExp(`\\b${n.replace(/\s+/g, "\\s+")}\\b`, "i");
+    return { city, county, re };
+  });
+})();
+
+// Query-time county patterns — lenient (county word optional), used by search.
+export const KY_QUERY_COUNTY_PATTERNS = (() => {
+  const names = (kyCounties || []).map((c) => c.name).filter(Boolean);
+  names.sort((a, b) => b.length - a.length);
+  return names.map((name) => {
+    const n = normLocationText(name);
+    const re = new RegExp(`\\b${n.replace(/\s+/g, "\\s+")}(?:\\s+(?:county|co\\.?))?\\b`, "i");
+    return { name, re };
+  });
+})();
+
+const OTHER_STATE_NAME_PATTERNS_LIST = [
+  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut",
+  "Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa",
+  "Kansas","Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota",
+  "Mississippi","Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey",
+  "New Mexico","New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon",
+  "Pennsylvania","Rhode Island","South Carolina","South Dakota","Tennessee","Texas",
+  "Utah","Vermont","Virginia","Washington","West Virginia","Wisconsin","Wyoming",
+  "District of Columbia"
+];
+
+// FIX #7: Canonical other-state detector — exported for shared use.
+export const OTHER_STATE_NAME_PATTERNS = OTHER_STATE_NAME_PATTERNS_LIST.map((name) => ({
+  name,
+  re: new RegExp(`\\b${normLocationText(name).replace(/\s+/g, "\\s+")}\\b`, "i")
+}));
+
+// FIX #7: Exported canonical implementation — previously duplicated in ingester.mjs and server.mjs.
+export function detectOtherStateNames(text) {
+  const t = normLocationText(text);
+  if (!t) return [];
+  const out = [];
+  for (const { name, re } of OTHER_STATE_NAME_PATTERNS) {
+    if (re.test(t)) out.push(name);
+  }
+  return Array.from(new Set(out));
+}
+
+// FIX #7: Exported canonical implementation — previously duplicated in both apps.
+// City matching only fires when explicit Kentucky context is present to avoid false positives.
+export function detectKyCounties(text) {
+  const t = normLocationText(text);
+  if (!t) return [];
+  const out = [];
+  const raw = String(text || "");
+  const hasKyContext = /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
+
+  for (const { name, re } of KY_COUNTY_PATTERNS) {
+    if (re.test(t)) out.push(name);
+  }
+
+  // FIX #7: City names are ambiguous across states; require explicit Kentucky context.
+  if (hasKyContext) {
+    for (const { county, re } of KY_CITY_PATTERNS) {
+      if (re.test(t)) out.push(county);
+    }
+  }
+
+  return Array.from(new Set(out));
+}
+
+// FIX #7: Exported canonical implementation.
+export function hasKySignal(text, counties) {
+  if (counties.length) return true;
+  const raw = String(text || "");
+  return /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
+}
+
+// Query-time county detection (lenient — county word optional, city names used without KY context).
+export function detectKyQueryCounties(text) {
+  const t = normLocationText(text);
+  if (!t) return [];
+  const out = [];
+  for (const { name, re } of KY_QUERY_COUNTY_PATTERNS) {
+    if (re.test(t)) out.push(name);
+  }
+  for (const { city, county, re } of KY_CITY_PATTERNS) {
+    if (city.length < 4) continue;
+    if (re.test(t)) out.push(county);
+  }
+  return Array.from(new Set(out));
+}
 
 export function csvToArray(csv) {
   if (!csv) return [];

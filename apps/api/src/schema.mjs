@@ -34,6 +34,11 @@ export function ensureSchema(db) {
   if (!columnExists(db, "items", "ai_summary")) {
     db.prepare("ALTER TABLE items ADD COLUMN ai_summary TEXT").run();
   }
+  // FIX #10: tags column stores comma-separated content tags ("sports", "obituary", "schools").
+  // Requires a one-time ingester run + admin revalidate to backfill existing items.
+  if (!columnExists(db, "items", "tags")) {
+    db.prepare("ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT ''").run();
+  }
   if (!columnExists(db, "lost_found_posts", "is_resolved")) {
     db.prepare("ALTER TABLE lost_found_posts ADD COLUMN is_resolved INTEGER NOT NULL DEFAULT 0").run();
   }

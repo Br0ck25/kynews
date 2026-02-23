@@ -194,6 +194,12 @@ function isObituaryItem(item: Item) {
   if (fullText.includes("memorial service for")) return true;
   if (fullText.includes("graveside service")) return true;
   if (fullText.includes("condolences to the family")) return true;
+  // FIX #6: Additional funeral/visitation signals for funeral home RSS feeds.
+  if (fullText.includes("funeral home")) return true;
+  if (fullText.includes("funeral service")) return true;
+  if (fullText.includes("visitation will be held")) return true;
+  if (fullText.includes("visitation from")) return true;
+  if (fullText.includes("visitation at")) return true;
   // URL-based signals (funeral home notice pages, obit directories)
   if (url.includes("/notice/") && (url.includes("funeral") || url.includes("dignit") || url.includes("legacy"))) return true;
   if (url.includes("funeralhome") || url.includes("funeral-home")) return true;
@@ -1276,6 +1282,7 @@ function SportsScreen() {
   const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
   const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
   const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
+  const [fallbackSearch, setFallbackSearch] = useState(false);
   const openItem = useOpenItemNavigation(
     () => ({
       items,
@@ -1297,16 +1304,36 @@ function SportsScreen() {
       }
       setLoading(true);
       try {
+        // FIX #10: Try tags endpoint first (faster and more precise).
+        const scope = selectedCounties.length ? "ky" : "all";
+        const tagsRes = await getItems({
+          scope,
+          tags: "sports",
+          counties: selectedCounties.length ? selectedCounties : undefined,
+          hours: SPORTS_LOOKBACK_HOURS,
+          limit: FEED_PAGE_SIZE
+        });
+        if (cancelled) return;
+        // FIX #4: Apply isLikelySportsItem as client-side safeguard.
+        const tagsFiltered = tagsRes.items.filter(isLikelySportsItem);
+        if (tagsFiltered.length > 0) {
+          setItems(tagsFiltered);
+          setCursor(tagsRes.nextCursor);
+          setFallbackSearch(false);
+          return;
+        }
+        // Fallback: keyword search when tags index has no results yet.
         const res = await searchItems(SPORTS_QUERY, {
-          scope: selectedCounties.length ? "ky" : "all",
+          scope,
           state: selectedCounties.length ? "KY" : undefined,
           counties: selectedCounties.length ? selectedCounties : undefined,
           hours: SPORTS_LOOKBACK_HOURS,
           limit: FEED_PAGE_SIZE
         });
         if (cancelled) return;
-        setItems(res.items);
+        setItems(res.items.filter(isLikelySportsItem));
         setCursor(res.nextCursor);
+        setFallbackSearch(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1320,17 +1347,27 @@ function SportsScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await searchItems(SPORTS_QUERY, {
-        scope: selectedCounties.length ? "ky" : "all",
-        state: selectedCounties.length ? "KY" : undefined,
-        counties: selectedCounties.length ? selectedCounties : undefined,
-        hours: SPORTS_LOOKBACK_HOURS,
-        cursor,
-        limit: FEED_PAGE_SIZE
-      });
+      const scope = selectedCounties.length ? "ky" : "all";
+      const res = fallbackSearch
+        ? await searchItems(SPORTS_QUERY, {
+            scope,
+            state: selectedCounties.length ? "KY" : undefined,
+            counties: selectedCounties.length ? selectedCounties : undefined,
+            hours: SPORTS_LOOKBACK_HOURS,
+            cursor,
+            limit: FEED_PAGE_SIZE
+          })
+        : await getItems({
+            scope,
+            tags: "sports",
+            counties: selectedCounties.length ? selectedCounties : undefined,
+            hours: SPORTS_LOOKBACK_HOURS,
+            cursor,
+            limit: FEED_PAGE_SIZE
+          });
       setItems((prev) => {
         const seenUrls = new Set(prev.map((i) => i.url));
-        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
+        return [...prev, ...res.items.filter(isLikelySportsItem).filter((i) => !seenUrls.has(i.url))];
       });
       setCursor(res.nextCursor);
     } finally {
@@ -2378,6 +2415,21 @@ function ObituariesScreen() {
       }
       setLoading(true);
       try {
+        // FIX #10: Try tags endpoint first (most precise).
+        const tagsRes = await getItems({
+          scope: "ky",
+          tags: "obituary",
+          counties: selectedCounties.length ? selectedCounties : undefined,
+          hours: OBITUARY_LOOKBACK_HOURS,
+          limit: FEED_PAGE_SIZE
+        });
+        if (cancelled) return;
+        if (tagsRes.items.length > 0) {
+          setItems(tagsRes.items.filter(isObituaryItem));
+          setCursor(tagsRes.nextCursor);
+          return;
+        }
+        // Secondary: category feed (funeral home RSS sources).
         const categoryFeed = await getItems({
           scope: "ky",
           category: "Kentucky - Obituaries",
@@ -2386,24 +2438,23 @@ function ObituariesScreen() {
           limit: FEED_PAGE_SIZE
         });
         if (cancelled) return;
-        // Apply isObituaryItem as a secondary client-side safeguard to filter out
-        // non-obituary content that may arrive from funeral home RSS feeds.
+        // Apply isObituaryItem as a client-side safeguard against non-obit content.
         const filtered = categoryFeed.items.filter(isObituaryItem);
         if (filtered.length > 0) {
           setItems(filtered);
           setCursor(categoryFeed.nextCursor);
-        } else {
-          // Fallback: keyword search when category filter returns no matching obituaries.
-          const fallback = await getItems({
-            scope: "ky",
-            counties: selectedCounties.length ? selectedCounties : undefined,
-            hours: OBITUARY_LOOKBACK_HOURS,
-            limit: FEED_PAGE_SIZE
-          });
-          if (cancelled) return;
-          setItems(fallback.items.filter(isObituaryItem));
-          setCursor(fallback.nextCursor);
+          return;
         }
+        // FIX #6: Fallback uses searchItems() — not bare getItems() which would return all KY items.
+        const fallback = await searchItems(OBITUARY_FALLBACK_QUERY, {
+          scope: "ky",
+          counties: selectedCounties.length ? selectedCounties : undefined,
+          hours: OBITUARY_LOOKBACK_HOURS,
+          limit: FEED_PAGE_SIZE
+        });
+        if (cancelled) return;
+        setItems(fallback.items.filter(isObituaryItem));
+        setCursor(fallback.nextCursor);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -2464,7 +2515,7 @@ function SchoolsScreen() {
   const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
   const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
   const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
-  const [fallbackSearch, setFallbackSearch] = useState(false);
+  const [fallbackSearch, setFallbackSearch] = useState<"tags" | "category" | "search">("tags");
   const openItem = useOpenItemNavigation(
     () => ({
       items,
@@ -2488,7 +2539,22 @@ function SchoolsScreen() {
       }
       setLoading(true);
       try {
-        // Try category feed first (Facebook school pages)
+        // FIX #10: Try tags endpoint first (most precise, doesn't require keyword search).
+        const tagsRes = await getItems({
+          scope: "ky",
+          tags: "schools",
+          counties: selectedCounties.length ? selectedCounties : undefined,
+          hours: 24 * 14,
+          limit: FEED_PAGE_SIZE
+        });
+        if (cancelled) return;
+        if (tagsRes.items.length) {
+          setItems(tagsRes.items);
+          setCursor(tagsRes.nextCursor);
+          setFallbackSearch("tags");
+          return;
+        }
+        // FIX #5: Secondary: category feed (Facebook school pages).
         const categoryRes = await getItems({
           scope: "ky",
           category: "Kentucky - Schools",
@@ -2500,7 +2566,7 @@ function SchoolsScreen() {
         if (categoryRes.items.length) {
           setItems(categoryRes.items);
           setCursor(categoryRes.nextCursor);
-          setFallbackSearch(false);
+          setFallbackSearch("category");
           return;
         }
         // Fallback to keyword search
@@ -2513,7 +2579,7 @@ function SchoolsScreen() {
         if (cancelled) return;
         setItems(res.items);
         setCursor(res.nextCursor);
-        setFallbackSearch(true);
+        setFallbackSearch("search");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -2527,22 +2593,34 @@ function SchoolsScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = fallbackSearch
-        ? await searchItems(schoolQuery, {
-            scope: "ky",
-            counties: selectedCounties.length ? selectedCounties : undefined,
-            hours: 24 * 14,
-            cursor,
-            limit: FEED_PAGE_SIZE
-          })
-        : await getItems({
-            scope: "ky",
-            category: "Kentucky - Schools",
-            counties: selectedCounties.length ? selectedCounties : undefined,
-            hours: 24 * 14,
-            cursor,
-            limit: FEED_PAGE_SIZE
-          });
+      let res;
+      if (fallbackSearch === "search") {
+        res = await searchItems(schoolQuery, {
+          scope: "ky",
+          counties: selectedCounties.length ? selectedCounties : undefined,
+          hours: 24 * 14,
+          cursor,
+          limit: FEED_PAGE_SIZE
+        });
+      } else if (fallbackSearch === "category") {
+        res = await getItems({
+          scope: "ky",
+          category: "Kentucky - Schools",
+          counties: selectedCounties.length ? selectedCounties : undefined,
+          hours: 24 * 14,
+          cursor,
+          limit: FEED_PAGE_SIZE
+        });
+      } else {
+        res = await getItems({
+          scope: "ky",
+          tags: "schools",
+          counties: selectedCounties.length ? selectedCounties : undefined,
+          hours: 24 * 14,
+          cursor,
+          limit: FEED_PAGE_SIZE
+        });
+      }
       setItems((prev) => mergeUniqueItems(prev, res.items));
       setCursor(res.nextCursor);
     } finally {

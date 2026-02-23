@@ -228,6 +228,8 @@ export async function getItems(
     hours?: number;
     cursor?: string | null;
     limit?: number;
+    /** FIX #10: Filter by content tag; one of "sports" | "obituary" | "schools". */
+    tags?: string;
   } = {}
 ) {
   const params = new URLSearchParams();
@@ -243,6 +245,8 @@ export async function getItems(
   if (opts.includeAll) params.set("includeAll", "1");
   if (opts.hours != null) params.set("hours", String(opts.hours));
   if (opts.cursor) params.set("cursor", opts.cursor);
+  // FIX #10: Pass tags filter to API endpoint.
+  if (opts.tags) params.set("tags", opts.tags);
   params.set("limit", String(opts.limit ?? 30));
   return fetchJsonWithHoursFallback<{ items: (Item & { sort_ts?: string })[]; nextCursor: string | null }>(`/api/items?${params.toString()}`);
 }
