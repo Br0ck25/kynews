@@ -1,11 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { Box, Button, Paper, TextField, Typography } from "@material-ui/core";
+import { Box, Button, Card, CardContent, Grid, Paper, TextField, Typography } from "@material-ui/core";
 import CategoryFeedPage from "./category-feed-page";
 import SiteService from "../services/siteService";
 import { GetValue, SaveValue } from "../services/storageService";
 
 const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 const WEATHER_ZIP_KEY = "weather_zip";
+
+function getWeekday(dateString) {
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return dateString;
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
 
 export default function WeatherPage() {
   const [zip, setZip] = useState(GetValue(WEATHER_ZIP_KEY) || "");
@@ -69,11 +75,23 @@ export default function WeatherPage() {
 
             <Typography variant="subtitle2" style={{ marginTop: 8 }}>7-Day Forecast</Typography>
             {Array.isArray(weather?.daily?.time) && weather.daily.time.length > 0 ? (
-              weather.daily.time.slice(0, 7).map((day, idx) => (
-                <Typography key={`${day}-${idx}`} variant="body2">
-                  • {day}: High {weather.daily.temperature_2m_max?.[idx] ?? "N/A"}°F / Low {weather.daily.temperature_2m_min?.[idx] ?? "N/A"}°F
-                </Typography>
-              ))
+              <Grid container spacing={1} style={{ marginTop: 4, marginBottom: 6 }}>
+                {weather.daily.time.slice(0, 7).map((day, idx) => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={`${day}-${idx}`}>
+                    <Card variant="outlined">
+                      <CardContent style={{ padding: 10 }}>
+                        <Typography variant="subtitle2">{getWeekday(day)}</Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          High {weather.daily.temperature_2m_max?.[idx] ?? "N/A"}°F
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Low {weather.daily.temperature_2m_min?.[idx] ?? "N/A"}°F
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
             ) : (
               <Typography variant="body2">7-day forecast unavailable.</Typography>
             )}

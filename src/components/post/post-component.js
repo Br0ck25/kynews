@@ -50,10 +50,17 @@ export default function FeaturedPost(props) {
   const classes = useStyles();
   const { post } = props;
   const [showSaved, setShowSaved] = React.useState(false);
+  const [showFullText, setShowFullText] = React.useState(false);
   const bodyText = String(post?.contentText || "").trim();
+  const summaryText = String(post?.shortDesc || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const articleHtml = String(post?.description || "").trim();
   const paragraphs = bodyText
     ? bodyText.split(/\n{2,}/).map((chunk) => chunk.trim()).filter(Boolean)
     : [];
+  const previewParagraphs = paragraphs.slice(0, 5);
 
   const handleSave = () => {
     SavePost(post);
@@ -84,13 +91,37 @@ export default function FeaturedPost(props) {
           {ToDateTime(post.date)}
         </Typography>
         <Divider />
+        {summaryText && (
+          <div className={"description"} style={{ paddingBottom: 0 }}>
+            <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+              Summary
+            </Typography>
+            <Typography variant="body1" paragraph>
+              {summaryText}
+            </Typography>
+          </div>
+        )}
         <div className={"description"}>
-          {paragraphs.length > 0 ? (
-            paragraphs.map((paragraph, index) => (
-              <Typography key={`${post.title}-${index}`} variant="body1" paragraph>
-                {paragraph}
-              </Typography>
-            ))
+          {articleHtml ? (
+            <div dangerouslySetInnerHTML={{ __html: articleHtml }} />
+          ) : previewParagraphs.length > 0 ? (
+            <>
+              {previewParagraphs.map((paragraph, index) => (
+                <Typography key={`${post.title}-${index}`} variant="body1" paragraph>
+                  {paragraph}
+                </Typography>
+              ))}
+              {paragraphs.length > previewParagraphs.length && !showFullText && (
+                <Button size="small" color="primary" onClick={() => setShowFullText(true)}>
+                  Show more
+                </Button>
+              )}
+              {showFullText && paragraphs.slice(previewParagraphs.length).map((paragraph, index) => (
+                <Typography key={`${post.title}-full-${index}`} variant="body1" paragraph>
+                  {paragraph}
+                </Typography>
+              ))}
+            </>
           ) : (
             <Typography variant="body1">No article body available.</Typography>
           )}

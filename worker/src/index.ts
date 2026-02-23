@@ -96,29 +96,33 @@ const feedCandidates = feedUrl
 const uniqueFeeds = [...new Set(feedCandidates.filter(isHttpUrl))];
 if (uniqueFeeds.length === 0) return badRequest('No valid feed URLs found');
 
-let selectedFeed: string | null = null;
-let items = [] as Awaited<ReturnType<typeof fetchAndParseFeed>>;
+const allItems: Awaited<ReturnType<typeof fetchAndParseFeed>> = [];
+const seenLinks = new Set<string>();
 
 for (const candidate of uniqueFeeds) {
-const parsed = await fetchAndParseFeed(env, candidate);
-if (parsed.length > 0) {
-selectedFeed = candidate;
-items = parsed;
-break;
+const parsed = await fetchAndParseFeed(env, candidate).catch(() => []);
+for (const item of parsed) {
+if (!item.link || seenLinks.has(item.link)) continue;
+seenLinks.add(item.link);
+allItems.push(item);
 }
 }
 
-if (!selectedFeed) {
+if (allItems.length === 0) {
 return json({ error: 'Unable to parse feed', feedCandidates: uniqueFeeds }, 422);
 }
 
+allItems.sort(
+	(a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+);
+
 const results = [] as Awaited<ReturnType<typeof ingestSingleUrl>>[];
 
-for (const item of items) {
+for (const item of allItems) {
 try {
 const result = await ingestSingleUrl(env, {
 url: item.link,
-sourceUrl: sourceUrl ?? selectedFeed,
+sourceUrl: sourceUrl ?? feedUrl ?? uniqueFeeds[0],
 feedPublishedAt: item.publishedAt,
 providedTitle: item.title,
 providedDescription: item.description,
@@ -133,9 +137,10 @@ reason: safeError(error),
 }
 
 return json({
-feed: selectedFeed,
-totalItems: items.length,
-processed: items.length,
+feed: sourceUrl ?? feedUrl ?? uniqueFeeds[0],
+feedsDiscovered: uniqueFeeds.length,
+totalItems: allItems.length,
+processed: allItems.length,
 inserted: results.filter((r) => r.status === 'inserted').length,
 duplicate: results.filter((r) => r.status === 'duplicate').length,
 rejected: results.filter((r) => r.status === 'rejected').length,
@@ -485,14 +490,18 @@ const feedCandidates = await resolveFeedUrls(env, sourceUrl);
 const uniqueFeeds = [...new Set(feedCandidates.filter(isHttpUrl))];
 status.discoveredFeeds = uniqueFeeds.length;
 
-let feedItems = [] as Awaited<ReturnType<typeof fetchAndParseFeed>>;
+const feedItems = [] as Awaited<ReturnType<typeof fetchAndParseFeed>>;
+const seenLinks = new Set<string>();
 for (const feedUrl of uniqueFeeds) {
 try {
 const parsedItems = await fetchAndParseFeed(env, feedUrl);
 if (parsedItems.length > 0) {
-status.selectedFeed = feedUrl;
-feedItems = parsedItems;
-break;
+if (!status.selectedFeed) status.selectedFeed = feedUrl;
+for (const item of parsedItems) {
+if (!item.link || seenLinks.has(item.link)) continue;
+seenLinks.add(item.link);
+feedItems.push(item);
+}
 }
 } catch (error) {
 status.errors.push(`feed parse failed (${feedUrl}): ${safeError(error)}`);
@@ -500,6 +509,9 @@ status.errors.push(`feed parse failed (${feedUrl}): ${safeError(error)}`);
 }
 
 if (status.selectedFeed && feedItems.length > 0) {
+feedItems.sort(
+	(a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+);
 const limitedItems = limitPerSource > 0 ? feedItems.slice(0, limitPerSource) : feedItems;
 for (const item of limitedItems) {
 try {

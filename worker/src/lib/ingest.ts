@@ -50,12 +50,8 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     : '';
   console.log(`[CLASSIFIED] ${classification.isKentucky ? 'kentucky' : 'national'} - ${extracted.title}${tierSuffix}`);
 
-  const ai = await summarizeArticle(
-    env,
-    canonicalHash,
-    extracted.title,
-    extracted.contentText,
-  );
+  // AI summary is disabled – we display full text on the front end.
+  const ai = { summary: '', seoDescription: '', summaryWordCount: 0 };
 
   const rawR2Key = await storeRawPayloadBestEffort(env, canonicalHash, {
     source,

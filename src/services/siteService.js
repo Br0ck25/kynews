@@ -3,6 +3,7 @@ import { KENTUCKY_COUNTIES } from "../constants/counties";
 
 const DEFAULT_IMAGE = "https://source.unsplash.com/random/1200x800?kentucky-news";
 const WORKER_FALLBACK_BASE_URL = "https://worker.jamesbrock25.workers.dev";
+const ADMIN_API_BASE_URL = process.env.REACT_APP_ADMIN_API_BASE_URL || WORKER_FALLBACK_BASE_URL;
 const ADMIN_SESSION_KEY = "ky_admin_panel_key";
 
 const ALLOWED_CATEGORIES = [
@@ -156,7 +157,9 @@ export default class SiteService {
       ...options,
     };
 
-    const targetUrl = `${this.baseUrl}${path}`;
+    const isAdminPath = path.startsWith("/api/admin/");
+    const targetBaseUrl = isAdminPath ? ADMIN_API_BASE_URL : this.baseUrl;
+    const targetUrl = `${targetBaseUrl}${path}`;
     let response = await fetch(targetUrl, requestOptions);
 
     const parseResponse = async (resp) => {
