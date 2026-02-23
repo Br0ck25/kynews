@@ -1,7 +1,7 @@
 import { d1All, d1First, d1Run } from "../services/db";
 import { parseFeedItems } from "../services/rss";
 import { scrapeFeedItems, scrapeFacebookPageItems } from "../services/scrapers";
-import { detectKyCounties } from "../services/location";
+import { detectKyCounties, detectKyCountiesFromCityHints } from "../services/location";
 import { fetchArticle } from "../services/article";
 import { getCachedSeoDescription, getCachedSummary, generateSummaryWithAI } from "../services/summary";
 import { mirrorArticleImageToR2 } from "../services/media";
@@ -534,6 +534,18 @@ async function writeItemLocations(
         taggedCounties.add(n);
       }
     }
+
+    // Additional city-based county tagging: when KY context is confirmed in the body,
+    // map city mentions directly to their counties (single occurrence is sufficient).
+    // This catches articles that mention e.g. "Hazard" or "Pikeville" without ever
+    // writing "Perry County" or "Pike County" explicitly.
+    const cityBasedCounties = detectKyCountiesFromCityHints(articleText);
+    for (const county of cityBasedCounties) {
+      const n = normalizeCounty(county);
+      if (n && !taggedCounties.has(n)) {
+        taggedCounties.add(n);
+      }
+    }
   }
 
   for (const county of taggedCounties) {
@@ -618,7 +630,9 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
             url: feed.url,
             scraperId: null,
             maxItems: safeMaxItems,
-            userAgent: rssUserAgent
+            userAgent: rssUserAgent,
+            // Pass session cookie from env when configured for authenticated access.
+            sessionCookie: env.FACEBOOK_SESSION_COOKIE || undefined
           });
           feedHttpStatus = scraped.status;
           parsedItems = scraped.items.slice(0, safeMaxItems);

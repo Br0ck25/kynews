@@ -85,7 +85,34 @@ function categoryStrictMatch(category: string | undefined, item: Record<string, 
   }
 
   if (c === "kentucky - obituaries") {
-    return /\b(obituary|obituaries|passed away|in loving memory|funeral|memorial service|visitation)\b/i.test(haystack);
+    // If the item already came from an obituaries-categorized feed (confirmed by DB join),
+    // trust the feed categorization — the DB already filtered to obituary feeds.
+    const feedCats = Array.isArray(item.feed_categories)
+      ? (item.feed_categories as unknown[]).map((x) => String(x || "").toLowerCase())
+      : [];
+    if (feedCats.some((cat) => cat.includes("obituar"))) return true;
+
+    // For items that arrived via broader queries, require strong obituary signals.
+    // Removed standalone 'funeral' and 'visitation' — too broad (e.g. funeral home events).
+    return /\b(obituar(y|ies|ied)|obit\b|passed away|in loving memory|in memoriam|survived by|predeceased|laid to rest|celebration of life|death notice|funeral arrangements?|memorial services? (for|of)|graveside service|interment|condolences to the family|passed from this (life|world))\b/i.test(haystack);
+  }
+
+  if (c === "kentucky - sports") {
+    // Items from sports-categorized feeds always pass; otherwise require sports keywords.
+    const feedCats = Array.isArray(item.feed_categories)
+      ? (item.feed_categories as unknown[]).map((x) => String(x || "").toLowerCase())
+      : [];
+    if (feedCats.some((cat) => cat.includes("sport"))) return true;
+    return /\b(sport|football|basketball|baseball|soccer|volleyball|softball|wrestling|track|cross country|swimming|tennis|golf|lacrosse|cheerleading|athletics|game|score|stats|playoff|tournament|championship|league|team|coach|athlete|player|roster|draft|season)\b/i.test(haystack);
+  }
+
+  if (c === "kentucky - schools") {
+    // Trust items from school-categorized feeds (Facebook pages, school RSS).
+    const feedCats = Array.isArray(item.feed_categories)
+      ? (item.feed_categories as unknown[]).map((x) => String(x || "").toLowerCase())
+      : [];
+    if (feedCats.some((cat) => cat.includes("school"))) return true;
+    return /\b(school|district|student|teacher|classroom|principal|superintendent|curriculum|graduation|enrollment|education|faculty|campus|academy|university|college|kindergarten|elementary|middle school|high school|board of education)\b/i.test(haystack);
   }
 
   return true;

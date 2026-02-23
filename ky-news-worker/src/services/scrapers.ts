@@ -20,6 +20,12 @@ export type ScrapeFeedInput = {
   scraperId: string | null;
   maxItems: number;
   userAgent: string;
+  /**
+   * Optional Facebook session cookie (xs, c_user, datr, etc.) to authenticate
+   * mbasic.facebook.com requests when the page requires login.
+   * Configure via FACEBOOK_SESSION_COOKIE env var in wrangler.jsonc secrets.
+   */
+  sessionCookie?: string;
 };
 
 export type ScrapeFeedResult = {
@@ -682,15 +688,21 @@ export async function scrapeFacebookPageItems(input: ScrapeFeedInput): Promise<S
   let html = "";
   let status = 0;
   try {
+    const reqHeaders: Record<string, string> = {
+      // Mobile Safari UA encourages mbasic rendering path
+      "User-Agent":
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.5",
+    };
+    // Include session cookie if configured — required for pages that Facebook
+    // has restricted to logged-in users. Configure FACEBOOK_SESSION_COOKIE in env.
+    if (input.sessionCookie) {
+      reqHeaders["Cookie"] = input.sessionCookie;
+    }
     const res = await fetch(mbasicUrl, {
       signal: ctrl.signal,
-      headers: {
-        // Mobile Safari UA encourages mbasic rendering path
-        "User-Agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-      },
+      headers: reqHeaders,
       redirect: "follow",
     });
     status = res.status;
@@ -703,7 +715,14 @@ export async function scrapeFacebookPageItems(input: ScrapeFeedInput): Promise<S
   }
 
   if (status !== 200) {
-    throw new Error(`Facebook mbasic returned HTTP ${status} for ${mbasicUrl}`);
+    // Non-200 is a soft failure — log and return empty rather than throwing,
+    // so one blocked page doesn't abort the entire ingest run.
+    logWarn("ingest.facebook.http_error", {
+      feedId: input.feedId,
+      url: mbasicUrl,
+      status
+    });
+    return { status, items: [] };
   }
 
   // Detect login-wall redirect (Facebook blocks unauthenticated bots for some pages)
@@ -712,7 +731,15 @@ export async function scrapeFacebookPageItems(input: ScrapeFeedInput): Promise<S
     (html.includes('name="email"') && html.includes('name="pass"')) ||
     html.includes("/login/?next=");
   if (isLoginPage) {
-    throw new Error(`Facebook requires login for @${pageSlug} — public access blocked by Facebook`);
+    // Return gracefully instead of throwing — if no session cookie is configured,
+    // all Facebook feeds would otherwise error out on every ingest cycle.
+    // To restore Facebook content: set FACEBOOK_SESSION_COOKIE in wrangler secrets.
+    logWarn("ingest.facebook.login_wall", {
+      feedId: input.feedId,
+      url: mbasicUrl,
+      hint: "Set FACEBOOK_SESSION_COOKIE in wrangler.jsonc secrets to enable Facebook scraping"
+    });
+    return { status: 403, items: [] };
   }
 
   // Derive page display name from og:title, <title>, or feed name

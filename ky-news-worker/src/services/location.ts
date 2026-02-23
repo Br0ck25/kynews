@@ -130,6 +130,26 @@ export function detectKyCounties(text: string, opts: { includeCityHints?: boolea
   return Array.from(new Set(out));
 }
 
+/**
+ * Returns counties inferred solely from KY city-name matches in the text.
+ * Requires explicit KY context ("Kentucky" or "KY") to avoid false positives.
+ * Used for body-text tagging where city mentions should map directly to counties.
+ */
+export function detectKyCountiesFromCityHints(text: string): string[] {
+  const raw = String(text || "");
+  const hasKyContext = /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
+  if (!hasKyContext) return [];
+
+  const t = norm(raw);
+  if (!t) return [];
+
+  const out: string[] = [];
+  for (const { county, re } of KY_CITY_PATTERNS) {
+    if (re.test(t)) out.push(county);
+  }
+  return Array.from(new Set(out));
+}
+
 export function hasKySignal(text: string, counties: string[]): boolean {
   if (counties.length) return true;
   const raw = String(text || "");

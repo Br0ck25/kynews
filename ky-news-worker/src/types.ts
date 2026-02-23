@@ -33,6 +33,9 @@ export interface Env {
   BOT_SCORE_MIN?: string;
   ADMIN_EMAILS?: string;
   EDITOR_EMAILS?: string;
+  // Optional Facebook session cookie to authenticate mbasic.facebook.com scraping.
+  // Set this in wrangler.jsonc secrets when Facebook pages require a logged-in session.
+  FACEBOOK_SESSION_COOKIE?: string;
 }
 
 export type AppBindings = {

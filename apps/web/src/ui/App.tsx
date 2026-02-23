@@ -173,14 +173,34 @@ const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"passed away
 function isObituaryItem(item: Item) {
   const title = (item.title || "").toLowerCase();
   const url = (item.url || "").toLowerCase();
-  const desc = ((item as any).description || "").toLowerCase();
-  if (title.includes("obituar") || url.includes("obituar") || desc.includes("obituar")) return true;
-  if (title.includes("passed away") || title.includes("in loving memory") || title.includes("in memory of")) return true;
-  if (title.includes("funeral home") || title.includes("memorial service")) return true;
+  // Check all text fields: summary, content, and the legacy description field
+  const summary = (item.summary || "").toLowerCase();
+  const content = (item.content || "").toLowerCase();
+  const seoDesc = (item.seo_description || "").toLowerCase();
+  const fullText = `${title} ${url} ${summary} ${content} ${seoDesc}`;
+
+  // Strong signals in any field
+  if (fullText.includes("obituar")) return true;
+  if (fullText.includes("passed away")) return true;
+  if (fullText.includes("in loving memory")) return true;
+  if (fullText.includes("in memory of")) return true;
+  if (fullText.includes("in memoriam")) return true;
+  if (fullText.includes("survived by")) return true;
+  if (fullText.includes("predeceased")) return true;
+  if (fullText.includes("laid to rest")) return true;
+  if (fullText.includes("celebration of life")) return true;
+  if (fullText.includes("death notice")) return true;
+  if (fullText.includes("funeral arrangements")) return true;
+  if (fullText.includes("memorial service for")) return true;
+  if (fullText.includes("graveside service")) return true;
+  if (fullText.includes("condolences to the family")) return true;
+  // URL-based signals (funeral home notice pages, obit directories)
+  if (url.includes("/notice/") && (url.includes("funeral") || url.includes("dignit") || url.includes("legacy"))) return true;
+  if (url.includes("funeralhome") || url.includes("funeral-home")) return true;
   return false;
 }
 const SPORTS_QUERY =
-  "\"sports\" OR \"sport\" OR \"football\" OR \"basketball\" OR \"baseball\" OR \"soccer\" OR \"volleyball\" OR \"wrestling\" OR \"athletics\"";
+  "\"sports\" OR \"sport\" OR \"football\" OR \"basketball\" OR \"baseball\" OR \"soccer\" OR \"volleyball\" OR \"softball\" OR \"wrestling\" OR \"tennis\" OR \"golf\" OR \"track\" OR \"swimming\" OR \"lacrosse\" OR \"cross country\" OR \"cheerleading\" OR \"athletics\" OR \"game\" OR \"playoff\" OR \"tournament\" OR \"championship\" OR \"coach\" OR \"wildcats\" OR \"cardinals\" OR \"tigers\" OR \"bulldogs\" OR \"eagles\" OR \"Warriors\" OR \"hawks\"";
 const routeScrollPositions = new Map<string, number>();
 const FEED_SCROLL_STORAGE_PREFIX = "feed_scroll_pos:";
 const routeFeedSnapshots = new Map<string, RouteFeedSnapshot>();
@@ -1200,7 +1220,8 @@ function NationalScreen() {
       }
       setLoading(true);
       try {
-        const res = await getItems({ scope: "national", includeAll: true, hours: 24 * 30, limit: FEED_PAGE_SIZE });
+        // scope:"all" shows every article (both KY and national) — not just national-scoped feeds.
+        const res = await getItems({ scope: "all", includeAll: true, hours: 24 * 30, limit: FEED_PAGE_SIZE });
         if (cancelled) return;
         setItems(res.items);
         setCursor(res.nextCursor);
@@ -1217,7 +1238,8 @@ function NationalScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await getItems({ scope: "national", includeAll: true, hours: 24 * 30, cursor, limit: FEED_PAGE_SIZE });
+      // scope:"all" shows every article (both KY and national).
+      const res = await getItems({ scope: "all", includeAll: true, hours: 24 * 30, cursor, limit: FEED_PAGE_SIZE });
       setItems((prev) => mergeUniqueItems(prev, res.items));
       setCursor(res.nextCursor);
     } finally {
@@ -2226,6 +2248,32 @@ function WeatherScreen() {
           </div>
         ) : null}
 
+        {county ? (
+          <div className="card" style={{ padding: 10, marginBottom: 12, background: "#1e3a5f", borderColor: "#1e3a5f", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ color: "#fff", fontSize: 13, fontWeight: 700 }}>
+              Sign up for official Kentucky emergency alerts (severe weather, Amber alerts, etc.)
+            </div>
+            <a
+              href="https://goky.ky.gov"
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "inline-block",
+                background: "#f59e0b",
+                color: "#1a1a1a",
+                fontWeight: 900,
+                fontSize: 13,
+                padding: "6px 14px",
+                borderRadius: 6,
+                textDecoration: "none",
+                whiteSpace: "nowrap"
+              }}
+            >
+              Activate Alerts →
+            </a>
+          </div>
+        ) : null}
+
         {alerts.length ? (
           <div className="card" style={{ padding: 14, marginBottom: 12, borderColor: "#f59e0b" }}>
             <div style={{ fontWeight: 900, marginBottom: 10 }}>Active Alerts</div>
@@ -2338,8 +2386,24 @@ function ObituariesScreen() {
           limit: FEED_PAGE_SIZE
         });
         if (cancelled) return;
-        setItems(categoryFeed.items);
-        setCursor(categoryFeed.nextCursor);
+        // Apply isObituaryItem as a secondary client-side safeguard to filter out
+        // non-obituary content that may arrive from funeral home RSS feeds.
+        const filtered = categoryFeed.items.filter(isObituaryItem);
+        if (filtered.length > 0) {
+          setItems(filtered);
+          setCursor(categoryFeed.nextCursor);
+        } else {
+          // Fallback: keyword search when category filter returns no matching obituaries.
+          const fallback = await getItems({
+            scope: "ky",
+            counties: selectedCounties.length ? selectedCounties : undefined,
+            hours: OBITUARY_LOOKBACK_HOURS,
+            limit: FEED_PAGE_SIZE
+          });
+          if (cancelled) return;
+          setItems(fallback.items.filter(isObituaryItem));
+          setCursor(fallback.nextCursor);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -2361,7 +2425,7 @@ function ObituariesScreen() {
         cursor,
         limit: FEED_PAGE_SIZE
       });
-      setItems((prev) => mergeUniqueItems(prev, res.items));
+      setItems((prev) => mergeUniqueItems(prev, res.items.filter(isObituaryItem)));
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -2409,7 +2473,7 @@ function SchoolsScreen() {
     routeStateKey
   );
 
-  const schoolQuery = "\"school\" OR \"schools\" OR \"district\" OR \"classroom\" OR \"student\" OR \"teacher\" OR \"university\" OR \"college\"";
+  const schoolQuery = "\"school\" OR \"schools\" OR \"district\" OR \"classroom\" OR \"student\" OR \"teacher\" OR \"university\" OR \"college\" OR \"graduation\" OR \"enrollment\" OR \"school sports\" OR \"high school\" OR \"middle school\" OR \"elementary school\" OR \"board of education\" OR \"superintendent\"";
 
   useEffect(() => {
     let cancelled = false;
