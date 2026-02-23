@@ -181,13 +181,17 @@ export default class SiteService {
 
     let { parsed, rawText, isHtmlLike } = await parseResponse(response);
 
-    // If same-origin /api is routed to SPA HTML, retry against worker host.
-    if (
-      response.ok &&
-      (parsed == null || isHtmlLike) &&
+    // If same-origin /api is routed to SPA HTML (or returns an error page),
+    // retry against the worker host.  We used to only do this when the first
+    // response was `ok`, but POST/ADMIN requests currently return a 405 from
+    // the frontend app which prevents the retry.  Treat any non-JSON/HTML
+    // response as a sign that we've hit the SPA instead of the API.
+    const shouldFallback =
       path.startsWith("/api/") &&
-      this.baseUrl !== WORKER_FALLBACK_BASE_URL
-    ) {
+      this.baseUrl !== WORKER_FALLBACK_BASE_URL &&
+      (parsed == null || isHtmlLike || !response.ok);
+
+    if (shouldFallback) {
       try {
         response = await fetch(`${WORKER_FALLBACK_BASE_URL}${path}`, requestOptions);
         ({ parsed, rawText, isHtmlLike } = await parseResponse(response));
