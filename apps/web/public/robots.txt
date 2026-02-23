@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://ky-news-worker.jamesbrock25.workers.dev/sitemap.xml

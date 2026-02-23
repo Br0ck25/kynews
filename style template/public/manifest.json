@@ -1,0 +1,42 @@
+{
+  "short_name": "Kentucky News",
+  "name": "Kentucky News",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/pwa/",
+  "display": "standalone",
+  "theme_color": "#3367D6",
+  "background_color": "#ffffff",
+  "scope": "/pwa/",
+  "shortcuts": [
+    {
+      "name": "Search News",
+      "short_name": "Search",
+      "description": "Open search view",
+      "url": "/pwa/search",
+      "icons": [{ "src": "/pwa/logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "View Saved Posts",
+      "short_name": "Saved",
+      "description": "View articles you saved while reading",
+      "url": "/pwa/saved",
+      "icons": [{ "src": "/pwa/logo192.png", "sizes": "192x192" }]
+    }
+  ]
+}

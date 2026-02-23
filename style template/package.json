@@ -2,6 +2,7 @@
   "name": "pwa",
   "version": "0.1.0",
   "private": true,
+  "homepage": "/pwa/",
   "dependencies": {
     "@material-ui/core": "^4.11.2",
     "@material-ui/icons": "^4.11.2",
@@ -30,15 +31,12 @@
     "workbox-strategies": "^5.1.4",
     "workbox-streams": "^5.1.4"
   },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^4.5.14"
-  },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "test": "react-scripts test --watchAll=false"
+    "start": "set HOST=intranet&& react-scripts start",
+    "build": "GENERATE_SOURCEMAP=false react-scripts build",
+    "winBuild": "set \"GENERATE_SOURCEMAP=false\" && react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
   },
   "eslintConfig": {
     "extends": [

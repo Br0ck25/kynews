@@ -1,7 +1,0 @@
-CREATE TABLE IF NOT EXISTS admins (
-  id TEXT PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  role TEXT NOT NULL,
-  token TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);

@@ -1,0 +1,15 @@
+@media (prefers-reduced-motion: no-preference) {
+  
+}
+
+.App {
+	min-height: 100vh;
+}
+
+.App .MuiContainer-root {
+	max-width: 1200px;
+	padding-top: 8px;
+	padding-bottom: 24px;
+}
+
+
