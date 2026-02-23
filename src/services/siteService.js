@@ -98,6 +98,18 @@ function toError(error, fallbackMessage) {
   return { errorMessage: message };
 }
 
+function resolveViteApiBaseUrl() {
+  try {
+    // Keep import.meta inside a runtime string to avoid CommonJS/Jest parse errors.
+    // eslint-disable-next-line no-new-func
+    return Function(
+      'try { return (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE_URL) || undefined; } catch (_) { return undefined; }'
+    )();
+  } catch {
+    return undefined;
+  }
+}
+
 export default class SiteService {
   constructor(baseUrl) {
     // baseUrl may be provided directly (useful in tests) or pulled from an
@@ -109,8 +121,10 @@ export default class SiteService {
     // string, causing all requests to go to `/<path>`; in production the
     // variable should point at a deployed Worker endpoint (or left blank if
     // the Worker is routed to the same domain via `wrangler` routes).
+    const viteBaseUrl = resolveViteApiBaseUrl();
     this.baseUrl =
       baseUrl ||
+      viteBaseUrl ||
       process.env.REACT_APP_API_BASE_URL ||
       "";
     this.devSeedAttempted = false;
