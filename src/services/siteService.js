@@ -2,6 +2,7 @@ import { SaveValue, GetValue } from "./storageService";
 import { KENTUCKY_COUNTIES } from "../constants/counties";
 
 const DEFAULT_IMAGE = "https://source.unsplash.com/random/1200x800?kentucky-news";
+const WORKER_FALLBACK_BASE_URL = "https://worker.jamesbrock25.workers.dev";
 
 const ALLOWED_CATEGORIES = [
   "today",
@@ -110,6 +111,12 @@ function resolveViteApiBaseUrl() {
   }
 }
 
+function looksLikeHtmlDocument(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.startsWith("<!doctype html") || trimmed.startsWith("<html");
+}
+
 export default class SiteService {
   constructor(baseUrl) {
     // baseUrl may be provided directly (useful in tests) or pulled from an
@@ -131,22 +138,64 @@ export default class SiteService {
   }
 
   async request(path, options = {}) {
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const requestOptions = {
       headers: {
         "Content-Type": "application/json",
       },
       ...options,
-    });
+    };
 
-    let data = null;
-    try {
-      data = await response.json();
-    } catch {
-      data = null;
+    const targetUrl = `${this.baseUrl}${path}`;
+    let response = await fetch(targetUrl, requestOptions);
+
+    const parseResponse = async (resp) => {
+      const contentType = resp.headers.get("content-type") || "";
+      const rawText = await resp.text();
+
+      let parsed = null;
+      if (rawText) {
+        try {
+          parsed = JSON.parse(rawText);
+        } catch {
+          parsed = null;
+        }
+      }
+
+      return {
+        parsed,
+        rawText,
+        isHtmlLike: contentType.includes("text/html") || looksLikeHtmlDocument(rawText),
+      };
+    };
+
+    let { parsed, rawText, isHtmlLike } = await parseResponse(response);
+
+    // If same-origin /api is routed to SPA HTML, retry against worker host.
+    if (
+      response.ok &&
+      (parsed == null || isHtmlLike) &&
+      path.startsWith("/api/") &&
+      this.baseUrl !== WORKER_FALLBACK_BASE_URL
+    ) {
+      try {
+        response = await fetch(`${WORKER_FALLBACK_BASE_URL}${path}`, requestOptions);
+        ({ parsed, rawText, isHtmlLike } = await parseResponse(response));
+      } catch {
+        // Keep original response interpretation below.
+      }
     }
+
+    const data = parsed;
 
     if (!response.ok) {
       throw toError(data, `Request failed with status ${response.status}`);
+    }
+
+    if (data == null || isHtmlLike) {
+      throw toError(
+        null,
+        "API endpoint returned non-JSON content. Check frontend API routing or base URL configuration."
+      );
     }
 
     return data;
