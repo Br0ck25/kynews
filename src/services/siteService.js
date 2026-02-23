@@ -59,11 +59,13 @@ function migrateToCountyTags(existingTags) {
 }
 
 function mapWorkerArticleToPost(article) {
+  const bodyText = article?.contentText ?? "";
   return {
     title: article?.title ?? "Untitled",
     date: article?.publishedAt ?? new Date().toISOString(),
     shortDesc: article?.summary ?? article?.seoDescription ?? "",
-    description: article?.contentHtml ?? article?.contentText ?? article?.summary ?? "",
+    description: article?.contentHtml ?? article?.summary ?? "",
+    contentText: bodyText,
     image: article?.imageUrl ?? DEFAULT_IMAGE,
     imageText: article?.title ?? "Kentucky News",
     link: "/post",
@@ -72,6 +74,17 @@ function mapWorkerArticleToPost(article) {
     county: article?.county ?? null,
     tags: [],
   };
+}
+
+function sortPostsNewestFirst(posts) {
+  return [...posts].sort((a, b) => {
+    const aDate = new Date(a.date).getTime();
+    const bDate = new Date(b.date).getTime();
+    if (!Number.isFinite(aDate) && !Number.isFinite(bDate)) return 0;
+    if (!Number.isFinite(aDate)) return 1;
+    if (!Number.isFinite(bDate)) return -1;
+    return bDate - aDate;
+  });
 }
 
 function toError(error, fallbackMessage) {
@@ -98,8 +111,6 @@ export default class SiteService {
     // the Worker is routed to the same domain via `wrangler` routes).
     this.baseUrl =
       baseUrl ||
-      // eslint-disable-next-line no-undef
-      (typeof import.meta !== 'undefined' ? import.meta.env?.VITE_API_BASE_URL : undefined) ||
       process.env.REACT_APP_API_BASE_URL ||
       "";
     this.devSeedAttempted = false;
@@ -151,7 +162,7 @@ export default class SiteService {
     const params = new URLSearchParams();
     if (options.search) params.set("search", options.search);
     if (options.limit) params.set("limit", String(options.limit));
-    if (options.counties && options.counties.length > 0) {
+    if (category !== "national" && options.counties && options.counties.length > 0) {
       params.set("counties", options.counties.join(","));
     }
 
@@ -190,7 +201,7 @@ export default class SiteService {
         payload = await this.request(route);
       }
 
-      const posts = (payload?.items || []).map(mapWorkerArticleToPost);
+      const posts = sortPostsNewestFirst((payload?.items || []).map(mapWorkerArticleToPost));
       // only cache unfiltered "today" queries (no counties specified) because
       // storing every county result quickly eats localStorage quota.
       if (!options.counties || options.counties.length === 0) {
@@ -276,7 +287,7 @@ export default class SiteService {
     const validCategory = ALLOWED_CATEGORIES.includes(category) ? category : "today";
     const params = new URLSearchParams();
     params.set("limit", String(limit));
-    if (counties && counties.length > 0) {
+    if (validCategory !== "national" && counties && counties.length > 0) {
       params.set("counties", counties.join(","));
     }
     if (cursor) {
@@ -287,7 +298,7 @@ export default class SiteService {
     const payload = await this.request(route);
 
     return {
-      posts: (payload?.items || []).map(mapWorkerArticleToPost),
+      posts: sortPostsNewestFirst((payload?.items || []).map(mapWorkerArticleToPost)),
       nextCursor: payload?.nextCursor ?? null,
     };
   }

@@ -4,6 +4,7 @@ import CategoryFeedPage from './category-feed-page';
 import SiteService from '../services/siteService';
 import { Provider } from 'react-redux';
 import store from '../redux/store/store';
+import { setSelectedCounties } from '../redux/actions/actions';
 
 jest.mock('../services/siteService');
 
@@ -26,10 +27,17 @@ describe('CategoryFeedPage', () => {
     jest.clearAllMocks();
   });
 
-  it('renders both Kentucky and national articles for national category', async () => {
-    const kyPost = createPost({ title: 'KY post', isKentucky: true, county: 'Boone' });
+  afterEach(() => {
+    store.dispatch(setSelectedCounties([]));
+  });
+
+  it('uses paged API and ignores county filter for national category', async () => {
+    store.dispatch(setSelectedCounties(['Boone']));
+
     const natPost = createPost({ title: 'Nat post', isKentucky: false });
-    jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([kyPost, natPost]);
+    const fetchSpy = jest
+      .spyOn(SiteService.prototype, 'fetchPage')
+      .mockResolvedValue({ posts: [natPost], nextCursor: null });
 
     render(
       <Provider store={store}>
@@ -37,8 +45,13 @@ describe('CategoryFeedPage', () => {
       </Provider>
     );
 
-    // wait for posts to appear
-    await waitFor(() => expect(screen.getByText('KY post')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Nat post')).toBeInTheDocument());
+    expect(fetchSpy).toHaveBeenCalledWith({
+      category: 'national',
+      counties: [],
+      cursor: null,
+      limit: 20,
+    });
     expect(screen.getByText('Nat post')).toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
 import type { ArticleListResponse, ArticleRecord, Category, NewArticle } from '../types';
+import { normalizeCountyList } from './geo';
 
 interface ArticleRow {
   id: number;
@@ -34,6 +35,8 @@ export async function findArticleByHash(env: Env, urlHash: string): Promise<Arti
 }
 
 export async function insertArticle(env: Env, article: NewArticle): Promise<number> {
+  const normalizedCounty = normalizeCountyName(article.county);
+
   const result = await env.ky_news_db
     .prepare(
       `INSERT INTO articles (
@@ -66,7 +69,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
       article.publishedAt,
       article.category,
       article.isKentucky ? 1 : 0,
-      article.county,
+      normalizedCounty,
       article.city,
       article.summary,
       article.seoDescription,
@@ -94,13 +97,18 @@ export async function queryArticles(env: Env, options: {
 
   if (options.category === 'today') {
     where.push('is_kentucky = 1');
+  } else if (options.category === 'sports') {
+    where.push('category = ?');
+    binds.push('sports');
+    where.push('is_kentucky = 1');
   } else {
-    // national, sports, weather, schools, obituaries – all filter by stored category value
+    // national, weather, schools, obituaries – filter by stored category value
     where.push('category = ?');
     binds.push(options.category);
   }
 
-  if (options.counties.length > 0) {
+  // National should always show all national stories regardless of county filters.
+  if (options.category !== 'national' && options.counties.length > 0) {
     where.push(`county IN (${options.counties.map(() => '?').join(',')})`);
     binds.push(...options.counties);
   }
@@ -120,7 +128,7 @@ export async function queryArticles(env: Env, options: {
 
   // Guard: always ensure a WHERE clause exists (empty-where would be invalid SQL)
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1';
-  const query = `SELECT * FROM articles ${whereClause} ORDER BY id DESC LIMIT ?`;
+  const query = `SELECT * FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?`;
 
   const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
   const mapped = (rows.results ?? []).map(mapArticleRow);
@@ -172,7 +180,7 @@ export async function listArticlesForReclassify(
 ): Promise<ArticleRecord[]> {
   const where = beforeId != null ? 'WHERE id < ?' : '';
   const binds = beforeId != null ? [beforeId, limit] : [limit];
-  const query = `SELECT * FROM articles ${where} ORDER BY id DESC LIMIT ?`;
+  const query = `SELECT * FROM articles ${where} ORDER BY published_at DESC, id DESC LIMIT ?`;
   const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
   return (rows.results ?? []).map(mapArticleRow);
 }
@@ -183,8 +191,16 @@ export async function updateArticleClassification(
   id: number,
   patch: { category: Category; isKentucky: boolean; county: string | null },
 ): Promise<void> {
+  const normalizedCounty = normalizeCountyName(patch.county);
+
   await env.ky_news_db
     .prepare('UPDATE articles SET category = ?, is_kentucky = ?, county = ? WHERE id = ?')
-    .bind(patch.category, patch.isKentucky ? 1 : 0, patch.county, id)
+    .bind(patch.category, patch.isKentucky ? 1 : 0, normalizedCounty, id)
     .run();
+}
+
+function normalizeCountyName(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = normalizeCountyList([value]);
+  return normalized[0] ?? null;
 }

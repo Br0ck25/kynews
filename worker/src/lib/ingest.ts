@@ -1,4 +1,6 @@
 import type { ExtractedArticle, IngestResult, IngestSource, NewArticle } from '../types';
+import { Readability } from '@mozilla/readability';
+import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed } from './classify';
 import { findArticleByHash, insertArticle } from './db';
@@ -7,6 +9,10 @@ import { scrapeArticleHtml } from './scrape';
 
 export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<IngestResult> {
   const extracted = await fetchAndExtractArticle(env, source);
+  const rssTitle = source.providedTitle?.trim() ?? '';
+  const rssDescription = source.providedDescription?.trim() ?? '';
+  // RSS-only primary relevance check payload.
+  const textToCheck = [rssTitle, rssDescription].filter(Boolean).join(' ');
 
   const canonicalHash = await sha256Hex(extracted.canonicalUrl);
   const duplicate = await findArticleByHash(env, canonicalHash);
@@ -31,9 +37,18 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   // Use AI (GLM-4.7-Flash) to classify the article; falls back to keywords if AI fails
   const classification = await classifyArticleWithAi(env, {
     url: extracted.canonicalUrl,
-    title: extracted.title,
-    content: extracted.contentText,
+    title: rssTitle || extracted.title,
+    content: extracted.classificationText || textToCheck,
+    rssTitle,
+    rssDescription,
   });
+
+  const tierSuffix = classification.isKentucky
+    ? classification.county
+      ? ` (county: ${classification.county})`
+      : ''
+    : '';
+  console.log(`[CLASSIFIED] ${classification.isKentucky ? 'kentucky' : 'national'} - ${extracted.title}${tierSuffix}`);
 
   const ai = await summarizeArticle(
     env,
@@ -70,6 +85,8 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     rawR2Key,
   };
 
+  // NOTE: Existing rows inserted before this classifier update may have stale Kentucky/county tags.
+  // Run a one-time backfill reclassification job against historical records after deployment.
   const articleId = await insertArticle(env, newArticle);
 
   return {
@@ -99,13 +116,21 @@ async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<E
       publishedAt: toIsoDate(source.feedPublishedAt),
       contentHtml: description,
       contentText: description,
+      classificationText: [source.providedTitle, source.providedDescription].filter(Boolean).join(' '),
       imageUrl: null,
     };
   }
 
   const scraped = scrapeArticleHtml(source.url, fetched.body);
+  const readability = extractReadableArticle(fetched.body);
+  const readableText = [readability?.title, readability?.textContent].filter(Boolean).join(' ').trim();
+  const readableHtml = readability?.content?.trim() ?? '';
+
+  // Never classify from raw HTML. If Readability fails, fallback to RSS title/description only.
+  const rssText = [source.providedTitle, source.providedDescription].filter(Boolean).join(' ').trim();
 
   const synthesizedText =
+    readableText ||
     scraped.contentText ||
     source.providedDescription ||
     source.providedTitle ||
@@ -114,13 +139,24 @@ async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<E
   return {
     canonicalUrl: scraped.canonicalUrl,
     sourceUrl: source.sourceUrl ?? source.url,
-    title: scraped.title || source.providedTitle || source.url,
+    title: readability?.title || scraped.title || source.providedTitle || source.url,
     author: scraped.author,
     publishedAt: scraped.publishedAt || toIsoDate(source.feedPublishedAt),
-    contentHtml: scraped.contentHtml,
+    contentHtml: readableHtml || scraped.contentHtml,
     contentText: synthesizedText,
+    classificationText: readableText || rssText,
     imageUrl: scraped.imageUrl,
   };
+}
+
+function extractReadableArticle(rawHtml: string): { title?: string; textContent?: string; content?: string } | null {
+  try {
+    const { document } = parseHTML(rawHtml);
+    const reader = new Readability(document);
+    return reader.parse();
+  } catch {
+    return null;
+  }
 }
 
 async function storeRawPayloadBestEffort(

@@ -4,11 +4,8 @@ import { makeStyles } from "@material-ui/core/styles";
 import Paper from "@material-ui/core/Paper";
 import Typography from "@material-ui/core/Typography";
 import Grid from "@material-ui/core/Grid";
-import Button from "@material-ui/core/Button";
 import Divider from "@material-ui/core/Divider";
-import Chip from "@material-ui/core/Chip";
 import "./post-component.css";
-import { ToDateTime, getPostTags } from '../../utils/functions';
 
 const useStyles = makeStyles((theme) => ({
   mainFeaturedPost: {
@@ -39,17 +36,15 @@ const useStyles = makeStyles((theme) => ({
       paddingRight: 0,
     },
   },
-  buttonsDiv: {
-    margin: 5,
-  },
-  buttons: {
-    marginRight: 15,
-  },
 }));
 
 export default function FeaturedPost(props) {
   const classes = useStyles();
   const { post } = props;
+  const bodyText = String(post?.contentText || "").trim();
+  const paragraphs = bodyText
+    ? bodyText.split(/\n{2,}/).map((chunk) => chunk.trim()).filter(Boolean)
+    : [];
 
   return (
     <main>
@@ -60,58 +55,21 @@ export default function FeaturedPost(props) {
       </Paper>
       <Divider />
       <Grid item xs={12} md={9}>
-        {getPostTags(post).length > 0 && (
-          <div style={{ padding: 10 }}>
-            {getPostTags(post).map((tag) => (
-              <Chip
-                key={tag}
-                label={tag}
-                size="small"
-                variant="outlined"
-                color="primary"
-                style={{ marginRight: 4, marginBottom: 4 }}
-              />
-            ))}
-          </div>
-        )}
         <Typography variant="h5" gutterBottom style={{ padding: 10 }}>
           {post.title}
         </Typography>
         <Divider />
-        <Typography variant="subtitle1" className={classes.buttonsDiv}>
-          <Button
-            variant="outlined"
-            size="small"
-            className={classes.buttons}
-            href={post.originalLink}
-            target="_blank"
-          >
-            Link Original
-          </Button>
-          {/* <IconButton
-            className={classes.buttons}
-            aria-label="Facebook"
-            component="span"
-            size="small"
-          >
-            <FacebookIcon />
-          </IconButton>
-          <IconButton
-            className={classes.buttons}
-            aria-label="WhatsApp"
-            component="span"
-            size="small"
-          >
-            <WhatsAppIcon /> 
-          </IconButton> */}
-            <i style={{fontSize: 12}}>{ToDateTime(post.date)}</i>
-        </Typography>
-        <Divider />
-        <Typography
-          variant="body1"
-          className={"description"}
-          dangerouslySetInnerHTML={{ __html: post.description }}
-        ></Typography>
+        <div className={"description"}>
+          {paragraphs.length > 0 ? (
+            paragraphs.map((paragraph, index) => (
+              <Typography key={`${post.title}-${index}`} variant="body1" paragraph>
+                {paragraph}
+              </Typography>
+            ))
+          ) : (
+            <Typography variant="body1">No article body available.</Typography>
+          )}
+        </div>
       </Grid>
     </main>
   );

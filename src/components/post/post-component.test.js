@@ -4,13 +4,13 @@ import { Provider } from 'react-redux';
 import store from '../../redux/store/store';
 import Post from './post-component';
 
-test('renders tags on full post component', () => {
+test('renders title and plain body text on full post component', () => {
   const post = {
     title: 'Detail',
     image: '',
     originalLink: 'http://example.com',
     date: '2020-01-01',
-    description: '<p>hi</p>',
+    contentText: 'Paragraph one.\n\nParagraph two.',
     isKentucky: true,
     county: 'Campbell',
     tags: [],
@@ -20,6 +20,7 @@ test('renders tags on full post component', () => {
       <Post post={post} />
     </Provider>
   );
-  expect(screen.getByText(/Kentucky/i)).toBeInTheDocument();
-  expect(screen.getByText(/Campbell/i)).toBeInTheDocument();
+  expect(screen.getByText(/Detail/i)).toBeInTheDocument();
+  expect(screen.getByText(/Paragraph one/i)).toBeInTheDocument();
+  expect(screen.getByText(/Paragraph two/i)).toBeInTheDocument();
 });

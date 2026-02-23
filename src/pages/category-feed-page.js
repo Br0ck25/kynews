@@ -57,6 +57,8 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
   const sentinelRef = useRef(null);
   // Track current category+counties key to detect dependency changes
   const countyKey = (selectedCounties || []).join("|");
+  const effectiveCounties = category === "national" ? [] : selectedCounties || [];
+  const hasSelectedCounties = (selectedCounties || []).length > 0;
 
   useEffect(() => {
     dispatch(setTitle(title));
@@ -71,7 +73,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
     setErrors("");
 
     service
-      .fetchPage({ category, counties: selectedCounties || [], cursor: null, limit: 20 })
+      .fetchPage({ category, counties: effectiveCounties, cursor: null, limit: 20 })
       .then(({ posts, nextCursor }) => {
         setAllPosts(posts);
         setCursor(nextCursor);
@@ -93,7 +95,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
 
     setIsLoadingMore(true);
     service
-      .fetchPage({ category, counties: selectedCounties || [], cursor, limit: 20 })
+      .fetchPage({ category, counties: effectiveCounties, cursor, limit: 20 })
       .then(({ posts, nextCursor }) => {
         setAllPosts((prev) => [...prev, ...posts]);
         setCursor(nextCursor);
@@ -110,6 +112,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
+    if (typeof IntersectionObserver === "undefined") return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -137,7 +140,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
       </Typography>
 
       {/* Manual county selector dropdown — only shown when explicitly enabled */}
-      {countyFilterEnabled && (
+      {countyFilterEnabled && category !== "national" && (
         <div className={classes.countyFilterWrap}>
           <FormControl fullWidth variant="outlined" size="small">
             <InputLabel id={`${category}-counties-label`}>Counties</InputLabel>
@@ -166,7 +169,11 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
         <Skeletons showFeaturedSkeleton />
       ) : allPosts.length === 0 ? (
         <Typography variant="body1">
-          No articles found for this section yet. Check back soon or try re-seeding sources.
+          {category === "national"
+            ? "No articles found for this section."
+            : hasSelectedCounties
+            ? "No articles found for the selected counties."
+            : "No articles found for this section yet."}
         </Typography>
       ) : (
         <>

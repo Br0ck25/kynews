@@ -165,7 +165,7 @@ describe('Kentucky News worker API', () => {
 		expect(payload).toHaveProperty('nextCursor');
 	});
 
-	it('national endpoint returns non-kentucky-only articles regardless of category field', async () => {
+	it('national endpoint returns only national-category articles', async () => {
 		await ensureSchemaAndFixture();
 
 		const response = await SELF.fetch('https://example.com/api/articles/national?limit=20');
@@ -176,20 +176,35 @@ describe('Kentucky News worker API', () => {
 			nextCursor: string | null;
 		}>();
 		expect(Array.isArray(payload.items)).toBe(true);
-		expect(payload.items.length).toBe(2);
-		expect(payload.items.every((item) => !item.isKentucky)).toBe(true);
-		expect(payload.items.some((item) => item.category === 'sports')).toBe(true);
-		expect(payload.items.some((item) => item.category === 'today')).toBe(true);
+		expect(payload.items.length).toBe(0);
 	});
 
-	it('allows county filter for any category (preferences apply globally)', async () => {
+	it('ignores county filter on national endpoint', async () => {
 		await ensureSchemaAndFixture();
-		const response = await SELF.fetch(
+		const unfiltered = await SELF.fetch('https://example.com/api/articles/national');
+		const filtered = await SELF.fetch(
 			'https://example.com/api/articles/national?counties=Fayette',
 		);
+		expect(unfiltered.status).toBe(200);
+		expect(filtered.status).toBe(200);
+		const allPayload = await unfiltered.json<{ items: Array<unknown> }>();
+		const filteredPayload = await filtered.json<{ items: Array<unknown> }>();
+		expect(filteredPayload.items.length).toBe(allPayload.items.length);
+	});
+
+	it('sports endpoint returns kentucky-only sports articles', async () => {
+		await ensureSchemaAndFixture();
+
+		const response = await SELF.fetch('https://example.com/api/articles/sports?limit=20');
 		expect(response.status).toBe(200);
-		const payload = await response.json<{ items: Array<unknown> }>();
+
+		const payload = await response.json<{
+			items: Array<{ category: string; isKentucky: boolean }>;
+		}>();
 		expect(Array.isArray(payload.items)).toBe(true);
+		expect(payload.items.length).toBe(1);
+		expect(payload.items[0]?.category).toBe('sports');
+		expect(payload.items[0]?.isKentucky).toBe(true);
 	});
 });
 

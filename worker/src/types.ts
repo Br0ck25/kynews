@@ -79,6 +79,7 @@ export interface ExtractedArticle {
   publishedAt: string;
   contentHtml: string;
   contentText: string;
+  classificationText: string;
   imageUrl: string | null;
 }
 
