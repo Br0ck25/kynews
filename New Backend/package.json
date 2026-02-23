@@ -1,0 +1,40 @@
+{
+  "name": "@local-ky-news/new-backend",
+  "private": true,
+  "type": "module",
+  "version": "3.1.0",
+  "description": "Kentucky news aggregator — Node.js HTTP server + ingestion pipeline",
+  "scripts": {
+    "migrate":       "node migrate-sqlite.mjs",
+    "migrate:v3":    "node ingestion-v3.mjs",
+    "migrate:d1":    "wrangler d1 execute ky-news --file ingestion-v3.sql",
+    "server":        "node server.mjs",
+    "server:dev":    "node --watch server.mjs",
+    "scheduler":     "node scheduler.mjs",
+    "scheduler:dev": "node --watch scheduler.mjs",
+    "start":         "node server.mjs & node scheduler.mjs",
+    "discover":      "node bing-fallback-worker.mjs",
+    "ingest":        "node ingestion-v3.mjs",
+    "body":          "node body-worker-v2.mjs",
+    "pipeline":      "npm run ingest && npm run body",
+    "bing-sync":     "node bing-fallback-worker.mjs",
+    "legislature":   "node legislature-worker.mjs",
+    "calendars":     "node school-calendar-worker.mjs",
+    "coverage":      "node coverage-report.mjs",
+    "coverage:alert":"ALERT=true node coverage-report.mjs",
+    "deploy":        "wrangler deploy",
+    "dev":           "wrangler dev"
+  },
+  "dependencies": {
+    "@fastify/cors":     "^10.0.0",
+    "@fastify/sensible": "^6.0.0",
+    "better-sqlite3":    "^11.0.0",
+    "cheerio":           "^1.0.0",
+    "fast-xml-parser":   "^5.3.7",
+    "fastify":           "^5.0.0",
+    "zod":               "^3.23.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
