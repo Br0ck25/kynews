@@ -105,6 +105,33 @@ function truncateText(value: string, maxChars = 420): string {
   return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`;
 }
 
+function normalizeTitleForDedupe(title?: string | null): string {
+  return String(title || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\b(the|a|an|and|or|for|to|of|in|on|at|from|with|by|as|is|was|are|were)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function mergeUniqueItems(prev: Item[], incoming: Item[]): Item[] {
+  const seenIds = new Set(prev.map((i) => i.id));
+  const seenUrls = new Set(prev.map((i) => i.url));
+  const seenTitles = new Set(prev.map((i) => normalizeTitleForDedupe(i.title)));
+  const merged = [...prev];
+
+  for (const item of incoming) {
+    const titleKey = normalizeTitleForDedupe(item.title);
+    if (seenIds.has(item.id) || seenUrls.has(item.url) || (titleKey && seenTitles.has(titleKey))) continue;
+    merged.push(item);
+    seenIds.add(item.id);
+    seenUrls.add(item.url);
+    if (titleKey) seenTitles.add(titleKey);
+  }
+
+  return merged;
+}
+
 const SPORTS_CONTENT_RE =
   /\b(sports?|football|basketball|baseball|soccer|volleyball|wrestling|athletic(?:s)?|nfl|nba|mlb|nhl|ncaa|hockey|olympics?|olympic|swimming|swimmer|tennis|golf|golfer|gymnastics?|gymnast|cycling|cyclist|lacrosse|softball|rugby|rowing|track\s+and\s+field|medal|athlete|tournament|championship|semifinal|quarterfinal)\b/i;
 
@@ -1173,9 +1200,9 @@ function NationalScreen() {
       }
       setLoading(true);
       try {
-        const res = await getItems({ scope: "national", hours: 24 * 30, limit: FEED_PAGE_SIZE });
+        const res = await getItems({ scope: "national", includeAll: true, hours: 24 * 30, limit: FEED_PAGE_SIZE });
         if (cancelled) return;
-        setItems(res.items.filter((item) => !isLikelySportsItem(item)));
+        setItems(res.items);
         setCursor(res.nextCursor);
       } finally {
         if (!cancelled) setLoading(false);
@@ -1190,11 +1217,8 @@ function NationalScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await getItems({ scope: "national", hours: 24 * 30, cursor, limit: FEED_PAGE_SIZE });
-      setItems((prev) => {
-        const seenUrls = new Set(prev.map((i) => i.url));
-        return [...prev, ...res.items.filter((item) => !isLikelySportsItem(item) && !seenUrls.has(item.url))];
-      });
+      const res = await getItems({ scope: "national", includeAll: true, hours: 24 * 30, cursor, limit: FEED_PAGE_SIZE });
+      setItems((prev) => mergeUniqueItems(prev, res.items));
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -1842,7 +1866,6 @@ function CountyPage() {
         const primary = await getItems({
           state: "KY",
           county: countyName,
-          unfiltered: true,
           hours: 0,
           limit: COUNTY_PAGE_SIZE
         });
@@ -1887,16 +1910,11 @@ function CountyPage() {
       const res = await getItems({
         state: "KY",
         county: countyName || countySlug,
-        unfiltered: true,
         hours: 0,
         cursor,
         limit: COUNTY_PAGE_SIZE
       });
-      setItems((prev) => {
-        const seenIds = new Set(prev.map((item) => item.id));
-        const seenUrls = new Set(prev.map((item) => item.url));
-        return [...prev, ...res.items.filter((item) => !seenIds.has(item.id) && !seenUrls.has(item.url))];
-      });
+      setItems((prev) => mergeUniqueItems(prev, res.items));
       setCursor(res.nextCursor);
     } finally {
       setLoadingMore(false);
@@ -2107,7 +2125,6 @@ function WeatherScreen() {
     let cancelled = false;
     (async () => {
       try {
-        // Try the dedicated weather category first
         const catRes = await getItems({
           scope: "ky",
           category: "Kentucky - Weather",
@@ -2115,21 +2132,9 @@ function WeatherScreen() {
           hours: 24 * 14,
           limit: 10
         });
-        if (cancelled) return;
-        if (catRes.items.length) {
-          setWeatherArticles(catRes.items);
-          return;
-        }
-        // Fallback: narrow keyword search restricted to county
-        const kwRes = await searchItems('"weather" OR "storm" OR "flood" OR "tornado" OR "severe weather"', {
-          scope: "ky",
-          county,
-          hours: 24 * 14,
-          limit: 10
-        });
-        if (!cancelled) setWeatherArticles(kwRes.items);
+        if (!cancelled) setWeatherArticles(catRes.items);
       } catch {
-        // silently fail — weather articles are supplemental
+        if (!cancelled) setWeatherArticles([]);
       }
     })();
     return () => { cancelled = true; };
@@ -2301,16 +2306,13 @@ function ObituariesScreen() {
     [loc.pathname, loc.search, selectedCounties]
   );
   const restoredFeed = useMemo(() => readRouteFeedSnapshot(routeStateKey), [routeStateKey]);
-  const restoredMeta = restoredFeed?.meta as Record<string, unknown> | undefined;
   const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
   const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
   const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
-  const [fallbackSearch, setFallbackSearch] = useState<boolean>(() => Boolean(restoredMeta?.fallbackSearch));
   const openItem = useOpenItemNavigation(
     () => ({
       items,
-      cursor,
-      meta: { fallbackSearch }
+      cursor
     }),
     routeStateKey
   );
@@ -2323,7 +2325,6 @@ function ObituariesScreen() {
         if (cancelled) return;
         setItems(cached.items);
         setCursor(cached.cursor ?? null);
-        setFallbackSearch(Boolean((cached.meta as Record<string, unknown> | undefined)?.fallbackSearch));
         setLoading(false);
         return;
       }
@@ -2337,26 +2338,8 @@ function ObituariesScreen() {
           limit: FEED_PAGE_SIZE
         });
         if (cancelled) return;
-
-        if (categoryFeed.items.length) {
-          setItems(categoryFeed.items);
-          setCursor(categoryFeed.nextCursor);
-          setFallbackSearch(false);
-          return;
-        }
-
-        const fallback = await searchItems(OBITUARY_FALLBACK_QUERY, {
-          scope: "ky",
-          counties: selectedCounties.length ? selectedCounties : undefined,
-          hours: OBITUARY_LOOKBACK_HOURS,
-          limit: FEED_PAGE_SIZE
-        });
-        if (cancelled) return;
-
-        const filtered = fallback.items.filter(isObituaryItem);
-        setItems(filtered);
-        setCursor(filtered.length < fallback.items.length ? null : fallback.nextCursor);
-        setFallbackSearch(true);
+        setItems(categoryFeed.items);
+        setCursor(categoryFeed.nextCursor);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -2370,26 +2353,15 @@ function ObituariesScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = fallbackSearch
-        ? await searchItems(OBITUARY_FALLBACK_QUERY, {
-            scope: "ky",
-            counties: selectedCounties.length ? selectedCounties : undefined,
-            hours: OBITUARY_LOOKBACK_HOURS,
-            cursor,
-            limit: FEED_PAGE_SIZE
-          })
-        : await getItems({
-            scope: "ky",
-            category: "Kentucky - Obituaries",
-            counties: selectedCounties.length ? selectedCounties : undefined,
-            hours: OBITUARY_LOOKBACK_HOURS,
-            cursor,
-            limit: FEED_PAGE_SIZE
-          });
-      setItems((prev) => {
-        const seenUrls = new Set(prev.map((i) => i.url));
-        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
+      const res = await getItems({
+        scope: "ky",
+        category: "Kentucky - Obituaries",
+        counties: selectedCounties.length ? selectedCounties : undefined,
+        hours: OBITUARY_LOOKBACK_HOURS,
+        cursor,
+        limit: FEED_PAGE_SIZE
       });
+      setItems((prev) => mergeUniqueItems(prev, res.items));
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -2400,9 +2372,6 @@ function ObituariesScreen() {
     <AppShell title="Obituaries">
       <CoverageTabs />
       <div className="section">
-        {fallbackSearch ? (
-          <div className="locationBanner">Showing obituary keyword matches from Kentucky sources.</div>
-        ) : null}
         {selectedCounties.length ? (
           <div className="locationBanner">Filtered to My Counties ({selectedCounties.length}).</div>
         ) : null}
@@ -2431,6 +2400,7 @@ function SchoolsScreen() {
   const [items, setItems] = useState<Item[]>(() => restoredFeed?.items || []);
   const [cursor, setCursor] = useState<string | null>(() => restoredFeed?.cursor ?? null);
   const [loading, setLoading] = useState<boolean>(() => !(restoredFeed?.items?.length));
+  const [fallbackSearch, setFallbackSearch] = useState(false);
   const openItem = useOpenItemNavigation(
     () => ({
       items,
@@ -2466,6 +2436,7 @@ function SchoolsScreen() {
         if (categoryRes.items.length) {
           setItems(categoryRes.items);
           setCursor(categoryRes.nextCursor);
+          setFallbackSearch(false);
           return;
         }
         // Fallback to keyword search
@@ -2478,6 +2449,7 @@ function SchoolsScreen() {
         if (cancelled) return;
         setItems(res.items);
         setCursor(res.nextCursor);
+        setFallbackSearch(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -2491,17 +2463,23 @@ function SchoolsScreen() {
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await searchItems(schoolQuery, {
-        scope: "ky",
-        counties: selectedCounties.length ? selectedCounties : undefined,
-        hours: 24 * 14,
-        cursor,
-        limit: FEED_PAGE_SIZE
-      });
-      setItems((prev) => {
-        const seenUrls = new Set(prev.map((i) => i.url));
-        return [...prev, ...res.items.filter((i) => !seenUrls.has(i.url))];
-      });
+      const res = fallbackSearch
+        ? await searchItems(schoolQuery, {
+            scope: "ky",
+            counties: selectedCounties.length ? selectedCounties : undefined,
+            hours: 24 * 14,
+            cursor,
+            limit: FEED_PAGE_SIZE
+          })
+        : await getItems({
+            scope: "ky",
+            category: "Kentucky - Schools",
+            counties: selectedCounties.length ? selectedCounties : undefined,
+            hours: 24 * 14,
+            cursor,
+            limit: FEED_PAGE_SIZE
+          });
+      setItems((prev) => mergeUniqueItems(prev, res.items));
       setCursor(res.nextCursor);
     } finally {
       setLoading(false);
@@ -3113,7 +3091,7 @@ function OwnerAdminScreen() {
       if (!res.ok) {
         setError(res.stderr || "Manual ingestion failed");
       } else {
-        setNotice("Manual ingestion triggered successfully.");
+        setNotice(res.message || "Ingestion started. Refresh logs in a moment for progress.");
       }
       await refreshAll(token);
     } catch (err: any) {

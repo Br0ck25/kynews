@@ -111,31 +111,34 @@ function sameSet(a: Set<string>, b: Set<string>): boolean {
 export function registerAdminRoutes(app: Hono<AppBindings>): void {
   app.post("/api/admin/feeds/reload", async (c) => {
     const admin = requireRole(c, "editor");
-    const run = await runManualIngest(c.env);
+    const requestRunId = randomUUID();
 
-    await insertAdminLog(c.env, admin.email, "feeds.reload", "ingester", "manual", {
-      code: run.code,
-      stderr: run.stderr.slice(-500)
+    await insertAdminLog(c.env, admin.email, "feeds.reload.accepted", "ingester", "manual", {
+      runId: requestRunId
     });
 
-    if (!run.ok) {
-      return c.json(
-        {
-          ok: false,
+    c.executionCtx.waitUntil(
+      (async () => {
+        const run = await runManualIngest(c.env);
+        await insertAdminLog(c.env, admin.email, "feeds.reload.completed", "ingester", "manual", {
+          runId: requestRunId,
+          ok: run.ok,
           code: run.code,
-          stderr: run.stderr,
-          stdout: run.stdout
-        },
-        500
-      );
-    }
+          stderr: run.stderr.slice(-1200),
+          stdout: run.stdout.slice(-1200)
+        });
+      })()
+    );
 
-    return c.json({
-      ok: true,
-      code: run.code,
-      stdout: run.stdout,
-      stderr: run.stderr
-    });
+    return c.json(
+      {
+        ok: true,
+        accepted: true,
+        runId: requestRunId,
+        message: "Ingestion started. Check ingestion logs/health for progress."
+      },
+      202
+    );
   });
 
   app.post("/api/admin/feeds/:id/trigger", async (c) => {

@@ -224,6 +224,7 @@ export async function getItems(
     county?: string;
     counties?: string[];
     unfiltered?: boolean;
+    includeAll?: boolean;
     hours?: number;
     cursor?: string | null;
     limit?: number;
@@ -239,6 +240,7 @@ export async function getItems(
     for (const county of opts.counties) params.append("counties", county);
   }
   if (opts.unfiltered) params.set("unfiltered", "1");
+  if (opts.includeAll) params.set("includeAll", "1");
   if (opts.hours != null) params.set("hours", String(opts.hours));
   if (opts.cursor) params.set("cursor", opts.cursor);
   params.set("limit", String(opts.limit ?? 30));
@@ -548,7 +550,15 @@ export async function getAdminFeedHealth(input: {
 }
 
 export async function runAdminFeedReload(input: { token?: string } = {}) {
-  return fetchJson<{ ok: boolean; code: number; stdout: string; stderr: string }>("/api/admin/feeds/reload", {
+  return fetchJson<{
+    ok: boolean;
+    accepted?: boolean;
+    runId?: string;
+    message?: string;
+    code?: number;
+    stdout?: string;
+    stderr?: string;
+  }>("/api/admin/feeds/reload", {
     method: "POST",
     headers: adminHeaders(input.token)
   });

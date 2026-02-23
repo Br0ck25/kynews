@@ -25,6 +25,7 @@ const ItemsQuery = z.object({
   county: z.string().min(1).max(80).optional(),
   counties: z.union([z.string(), z.array(z.string())]).optional(),
   unfiltered: z.string().optional(),
+  includeAll: z.string().optional(),
   hours: z.coerce.number().min(0).max(24 * 365).default(2),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(30)
@@ -68,6 +69,28 @@ function parseKeysetCursor(cursor: string | undefined): { ts: string; id: string
   return { ts, id: id || null };
 }
 
+function categoryStrictMatch(category: string | undefined, item: Record<string, unknown>): boolean {
+  if (!category) return true;
+  const c = category.trim().toLowerCase();
+  const title = String(item.title || "");
+  const summary = String(item.summary || "");
+  const content = String(item.content || "");
+  const url = String(item.url || "");
+  const haystack = `${title} ${summary} ${content} ${url}`.toLowerCase();
+
+  if (c === "kentucky - weather") {
+    return /\b(weather|forecast|storm|storms|tornado|tornadoes|flood|flooding|rain|snow|ice|freeze|warning|watch|advisory|thunderstorm|wind chill|heat advisory)\b/i.test(
+      haystack
+    );
+  }
+
+  if (c === "kentucky - obituaries") {
+    return /\b(obituary|obituaries|passed away|in loving memory|funeral|memorial service|visitation)\b/i.test(haystack);
+  }
+
+  return true;
+}
+
 export function registerNewsRoutes(app: Hono<AppBindings>): void {
   app.get("/api/health", (c) => c.json({ ok: true, now: new Date().toISOString() }));
 
@@ -100,9 +123,10 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
     const parsed = ItemsQuery.safeParse(queryInput(c));
     if (!parsed.success) badRequest("Invalid query");
 
-    const { feedId, category, scope, state, county, counties, unfiltered, hours, cursor, limit } = parsed.data;
+    const { feedId, category, scope, state, county, counties, unfiltered, includeAll, hours, cursor, limit } = parsed.data;
     const countyList = county ? [normalizeCounty(county)] : parseCountyList(counties);
     const includeUnfiltered = ["1", "true", "yes"].includes(String(unfiltered || "").toLowerCase());
+    const includeAllItems = ["1", "true", "yes"].includes(String(includeAll || "").toLowerCase());
 
     if ((state || countyList.length) && scope === "national") {
       badRequest("State/county filters only apply to KY scope");
@@ -171,7 +195,19 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
           SELECT group_concat(DISTINCT ily.county)
           FROM item_locations ily
           WHERE ily.item_id = i.id AND ily.county != ''
-        ) AS counties_csv
+        ) AS counties_csv,
+        (
+          SELECT group_concat(DISTINCT lower(COALESCE(fm.fetch_mode, 'rss')))
+          FROM feed_items fim
+          JOIN feeds fm ON fm.id = fim.feed_id
+          WHERE fim.item_id = i.id
+        ) AS feed_modes_csv,
+        (
+          SELECT group_concat(DISTINCT COALESCE(fc.category, ''))
+          FROM feed_items fic
+          JOIN feeds fc ON fc.id = fic.feed_id
+          WHERE fic.item_id = i.id
+        ) AS feed_categories_csv
       FROM items i
       ${needsFi ? "JOIN feed_items fi ON fi.item_id = i.id" : ""}
       ${category ? "JOIN feeds f ON f.id = fi.feed_id" : ""}
@@ -187,7 +223,10 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
     const mapped = rows.map((row) => mapItemRow(row as Record<string, unknown>)) as unknown as Array<
       Record<string, unknown> & { id: string; title: string; url: string; sort_ts?: string }
     >;
-    const items = includeUnfiltered ? mapped.slice(0, limit) : rankAndFilterItems(mapped, limit);
+    const strictMapped = mapped.filter((item) => categoryStrictMatch(category, item));
+    const items = includeUnfiltered
+      ? strictMapped.slice(0, limit)
+      : rankAndFilterItems(strictMapped, limit, { includeAll: includeAllItems });
     const tail = items[items.length - 1] as any;
     const nextCursor = items.length ? `${String(tail.sort_ts || "")}|${String(tail.id || "")}` : null;
     c.header("cache-control", "public, max-age=20, s-maxage=45, stale-while-revalidate=90");
@@ -333,7 +372,19 @@ export function registerNewsRoutes(app: Hono<AppBindings>): void {
           SELECT group_concat(DISTINCT ily.county)
           FROM item_locations ily
           WHERE ily.item_id = i.id AND ily.county != ''
-        ) AS counties_csv
+        ) AS counties_csv,
+        (
+          SELECT group_concat(DISTINCT lower(COALESCE(fm.fetch_mode, 'rss')))
+          FROM feed_items fim
+          JOIN feeds fm ON fm.id = fim.feed_id
+          WHERE fim.item_id = i.id
+        ) AS feed_modes_csv,
+        (
+          SELECT group_concat(DISTINCT COALESCE(fc.category, ''))
+          FROM feed_items fic
+          JOIN feeds fc ON fc.id = fic.feed_id
+          WHERE fic.item_id = i.id
+        ) AS feed_categories_csv
       FROM items i
       ${needsLoc ? "JOIN item_locations il ON il.item_id = i.id" : ""}
       WHERE ${where.join(" AND ")}

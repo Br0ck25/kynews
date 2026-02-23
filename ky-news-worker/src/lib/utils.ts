@@ -72,9 +72,13 @@ export function csvToArray(csv: unknown): string[] {
 export function mapItemRow<T extends Record<string, unknown>>(row: T): T & { states: string[]; counties: string[] } {
   const states = csvToArray(row.states_csv);
   const counties = csvToArray(row.counties_csv);
+  const feedModes = csvToArray(row.feed_modes_csv);
+  const feedCategories = csvToArray(row.feed_categories_csv);
   const next = { ...row } as Record<string, unknown>;
   delete next.states_csv;
   delete next.counties_csv;
+  delete next.feed_modes_csv;
+  delete next.feed_categories_csv;
   const rawImageUrl = String(next.image_url || "").trim();
   if (rawImageUrl.startsWith("http://") || rawImageUrl.startsWith("//")) {
     next.image_url = toHttpsUrl(rawImageUrl);
@@ -91,6 +95,12 @@ export function mapItemRow<T extends Record<string, unknown>>(row: T): T & { sta
   }
   if ("content" in next) {
     next.content = sanitizeExcerptForOutput(next.content);
+  }
+  if (feedModes.length) {
+    next.feed_modes = feedModes;
+  }
+  if (feedCategories.length) {
+    next.feed_categories = feedCategories;
   }
   return { ...(next as T), states, counties };
 }
@@ -188,6 +198,15 @@ function countWords(input: unknown): number {
 }
 
 function itemHasMinimumWords(item: Record<string, unknown>): boolean {
+  const modes = Array.isArray(item.feed_modes) ? item.feed_modes.map((x) => String(x || "").toLowerCase()) : [];
+  const categories = Array.isArray(item.feed_categories)
+    ? item.feed_categories.map((x) => String(x || "").toLowerCase())
+    : [];
+  const isFacebookFeed = modes.includes("facebook-page");
+  const isSchoolsFeed = categories.some((x) => x.includes("schools"));
+  if (isFacebookFeed || isSchoolsFeed) {
+    return true;
+  }
   const summaryWords = countWords(item.summary);
   const contentWords = countWords(item.content);
   return Math.max(summaryWords, contentWords) >= MIN_ITEM_WORDS;
@@ -206,7 +225,14 @@ type RankedItem = Record<string, unknown> & {
   sort_ts?: string;
 };
 
-export function rankAndFilterItems(items: RankedItem[], limit: number): RankedItem[] {
+export function rankAndFilterItems(
+  items: RankedItem[],
+  limit: number,
+  options?: {
+    includeAll?: boolean;
+  }
+): RankedItem[] {
+  const includeAll = Boolean(options?.includeAll);
   const ranked = items.map((item) => ({
     ...item,
     _isPaid: isPaidSource(item.url),
@@ -219,6 +245,9 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
   }));
 
   ranked.sort((a, b) => {
+    if (includeAll) {
+      return b._sortTs.localeCompare(a._sortTs);
+    }
     if (a._isPaid !== b._isPaid) return a._isPaid ? 1 : -1;
     if (a._isHeavyPaid !== b._isHeavyPaid) return a._isHeavyPaid ? 1 : -1;
     return b._sortTs.localeCompare(a._sortTs);
@@ -233,9 +262,9 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
   const filtered: typeof ranked = [];
 
   for (const item of ranked) {
-    if (!itemHasMinimumWords(item)) continue;
-    if (item._isPaid && item._fp && nonPaidFingerprints.has(item._fp)) continue;
-    if (item._isPaid && item._sfp && nonPaidSortedFPs.has(item._sfp)) continue;
+    if (!includeAll && !itemHasMinimumWords(item)) continue;
+    if (!includeAll && item._isPaid && item._fp && nonPaidFingerprints.has(item._fp)) continue;
+    if (!includeAll && item._isPaid && item._sfp && nonPaidSortedFPs.has(item._sfp)) continue;
     if (item._canonicalUrl && seenCanonicalUrl.has(item._canonicalUrl)) continue;
     if (item._fp && seenTitle.has(item._fp)) continue;
     if (item._sfp && seenSortedTitle.has(item._sfp)) continue;
@@ -246,6 +275,12 @@ export function rankAndFilterItems(items: RankedItem[], limit: number): RankedIt
     if (item._sfp) seenSortedTitle.add(item._sfp);
     seenSourceTitle.add(sourceTitleKey);
     filtered.push(item);
+  }
+
+  if (includeAll) {
+    return filtered
+      .slice(0, limit)
+      .map(({ _isPaid, _isHeavyPaid, _fp, _sfp, _canonicalUrl, _source, _sortTs, ...rest }) => rest as RankedItem);
   }
 
   const nonPaid = filtered.filter((item) => !item._isPaid);
