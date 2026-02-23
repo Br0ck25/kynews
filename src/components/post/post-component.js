@@ -5,6 +5,8 @@ import Paper from "@material-ui/core/Paper";
 import Typography from "@material-ui/core/Typography";
 import Grid from "@material-ui/core/Grid";
 import Divider from "@material-ui/core/Divider";
+import Button from "@material-ui/core/Button";
+import Box from "@material-ui/core/Box";
 import "./post-component.css";
 
 const useStyles = makeStyles((theme) => ({
@@ -36,6 +38,12 @@ const useStyles = makeStyles((theme) => ({
       paddingRight: 0,
     },
   },
+  actions: {
+    display: "flex",
+    gap: theme.spacing(1),
+    padding: theme.spacing(2, 1),
+    justifyContent: "flex-end",
+  },
 }));
 
 export default function FeaturedPost(props) {
@@ -45,6 +53,22 @@ export default function FeaturedPost(props) {
   const paragraphs = bodyText
     ? bodyText.split(/\n{2,}/).map((chunk) => chunk.trim()).filter(Boolean)
     : [];
+
+  const shareArticle = async () => {
+    const shareUrl = post?.originalLink || window.location.href;
+    const shareTitle = post?.title || "Local KY News";
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: shareTitle, url: shareUrl });
+        return;
+      }
+      await navigator.clipboard.writeText(shareUrl);
+      // eslint-disable-next-line no-alert
+      alert("Link copied to clipboard");
+    } catch {
+      // ignore share cancellation/errors
+    }
+  };
 
   return (
     <main>
@@ -70,6 +94,23 @@ export default function FeaturedPost(props) {
             <Typography variant="body1">No article body available.</Typography>
           )}
         </div>
+        <Divider />
+        <Box className={classes.actions}>
+          <Button size="small" variant="outlined" color="primary" onClick={shareArticle}>
+            Share link
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            color="primary"
+            href={post?.originalLink || "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            disabled={!post?.originalLink}
+          >
+            Original article
+          </Button>
+        </Box>
       </Grid>
     </main>
   );

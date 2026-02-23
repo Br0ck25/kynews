@@ -388,6 +388,27 @@ export default class SiteService {
     });
   }
 
+  async getAdminSources() {
+    return this.request("/api/admin/sources");
+  }
+
+  async getAdminArticles({ category = "all", search = "", cursor = null, limit = 25 } = {}) {
+    const params = new URLSearchParams();
+    params.set("category", category);
+    params.set("limit", String(limit));
+    if (search) params.set("search", search);
+    if (cursor) params.set("cursor", cursor);
+
+    return this.request(`/api/admin/articles?${params.toString()}`);
+  }
+
+  async retagArticle({ id, category, isKentucky, county }) {
+    return this.request("/api/admin/retag", {
+      method: "POST",
+      body: JSON.stringify({ id, category, isKentucky, county }),
+    });
+  }
+
   getPostByHref(href) {
     return fetch(href)
       .then((resp) => resp.json())

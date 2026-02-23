@@ -18,6 +18,7 @@ import SavedPage from "./pages/saved-page";
 import PostPage from "./pages/post-page";
 import FavoritesPage from "./pages/favorites-page";
 import LostFoundPage from "./pages/lost-found-page";
+import AdminPage from "./pages/admin-page";
 import SectionsHeader from "./components/home/sections-component";
 import { Container, Box } from "@material-ui/core";
 import CssBaseline from "@material-ui/core/CssBaseline";
@@ -117,6 +118,9 @@ function App() {
                   </Route>
                   <Route path="/post">
                     <PostPage />
+                  </Route>
+                  <Route path="/admin">
+                    <AdminPage />
                   </Route>
                 </Switch>
               </Box>

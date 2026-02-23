@@ -1,5 +1,5 @@
 const Constants = {
-    appName: 'Kentucky News',
+    appName: 'Local KY News',
     localStoragePrefix: 'kentucky_news_app_'
 }
 

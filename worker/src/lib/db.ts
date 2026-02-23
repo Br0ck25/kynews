@@ -25,6 +25,12 @@ interface ArticleRow {
   updated_at: string;
 }
 
+interface SourceStatsRow {
+  source_url: string;
+  article_count: number;
+  latest_published_at: string;
+}
+
 export async function findArticleByHash(env: Env, urlHash: string): Promise<ArticleRecord | null> {
   const result = await env.ky_news_db
     .prepare(`SELECT * FROM articles WHERE url_hash = ? LIMIT 1`)
@@ -103,8 +109,25 @@ export async function queryArticles(env: Env, options: {
     where.push('is_kentucky = 1');
   } else {
     // national, weather, schools, obituaries – filter by stored category value
-    where.push('category = ?');
-    binds.push(options.category);
+    if (options.category === 'obituaries') {
+      where.push(`(
+        category = 'obituaries'
+        OR (
+          is_kentucky = 1
+          AND (
+            title LIKE ? OR
+            content_text LIKE ? OR
+            content_text LIKE ? OR
+            content_text LIKE ? OR
+            content_text LIKE ?
+          )
+        )
+      )`);
+      binds.push('%obituary%', '%obituary%', '%passed away%', '%funeral service%', '%survived by%');
+    } else {
+      where.push('category = ?');
+      binds.push(options.category);
+    }
   }
 
   // National should always show all national stories regardless of county filters.
@@ -203,4 +226,73 @@ function normalizeCountyName(value: string | null): string | null {
   if (!value) return null;
   const normalized = normalizeCountyList([value]);
   return normalized[0] ?? null;
+}
+
+export async function listAdminArticles(env: Env, options: {
+  limit: number;
+  cursor: string | null;
+  search: string | null;
+  category: Category | 'all';
+}): Promise<ArticleListResponse> {
+  const where: string[] = [];
+  const binds: unknown[] = [];
+
+  if (options.category !== 'all') {
+    where.push('category = ?');
+    binds.push(options.category);
+  }
+
+  if (options.search) {
+    where.push('(title LIKE ? OR source_url LIKE ? OR county LIKE ?)');
+    const token = `%${escapeLike(options.search)}%`;
+    binds.push(token, token, token);
+  }
+
+  if (options.cursor) {
+    where.push('id < ?');
+    binds.push(Number.parseInt(options.cursor, 10) || Number.MAX_SAFE_INTEGER);
+  }
+
+  binds.push(options.limit + 1);
+  const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  const query = `SELECT * FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?`;
+  const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
+  const mapped = (rows.results ?? []).map(mapArticleRow);
+
+  const hasMore = mapped.length > options.limit;
+  const items = hasMore ? mapped.slice(0, options.limit) : mapped;
+  return {
+    items,
+    nextCursor: hasMore ? String(items[items.length - 1]?.id ?? '') : null,
+  };
+}
+
+export async function getSourceStats(env: Env): Promise<Array<{
+  sourceUrl: string;
+  articleCount: number;
+  latestPublishedAt: string;
+  status: 'active' | 'idle';
+}>> {
+  const rows = await env.ky_news_db
+    .prepare(
+      `SELECT source_url, COUNT(*) as article_count, MAX(published_at) as latest_published_at
+       FROM articles
+       GROUP BY source_url
+       ORDER BY article_count DESC, latest_published_at DESC`,
+    )
+    .all<SourceStatsRow>();
+
+  const now = Date.now();
+  const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+
+  return (rows.results ?? []).map((row) => {
+    const latestTs = Date.parse(row.latest_published_at || '');
+    const isActive = Number.isFinite(latestTs) && now - latestTs <= fourteenDaysMs;
+    return {
+      sourceUrl: row.source_url,
+      articleCount: Number(row.article_count ?? 0),
+      latestPublishedAt: row.latest_published_at,
+      status: isActive ? 'active' : 'idle',
+    };
+  });
 }

@@ -60,8 +60,23 @@ export function detectCounty(input: string): string | null {
 }
 
 export function detectCity(input: string): string | null {
-  const normalized = normalizeForSearch(input);
+  const raw = String(input || '');
+  const normalized = normalizeForSearch(raw);
   for (const city of Object.keys(KY_CITY_TO_COUNTY)) {
+    const likelyCount = countCityMentions(normalized, city);
+    if (likelyCount === 0) continue;
+
+    const hasLocationSignals = hasLocationSignalNearby(normalized, city);
+    const hasKentuckyContext = /\bkentucky\b|\bky\b/.test(normalized);
+
+    if (!hasLocationSignals && !hasKentuckyContext && likelyCount < 2) {
+      continue;
+    }
+
+    if (likelyCount === 1 && isLikelyPersonName(raw, city)) {
+      continue;
+    }
+
     const token = city.includes(' ') ? city : ` ${city} `;
     if (city.includes(' ')) {
       if (normalized.includes(city)) return city;
@@ -88,4 +103,44 @@ export function normalizeCountyList(values: string[]): string[] {
 
 function normalizeForSearch(input: string): string {
   return ` ${input.toLowerCase().replace(/[^a-z0-9\s]/g, ' ')} `.replace(/\s+/g, ' ');
+}
+
+function countCityMentions(normalizedInput: string, city: string): number {
+  const re = city.includes(' ')
+    ? new RegExp(city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
+    : new RegExp(`\\b${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+  return (normalizedInput.match(re) ?? []).length;
+}
+
+function hasLocationSignalNearby(normalizedInput: string, city: string): boolean {
+  const signals = [' in ', ' at ', ' from ', ' near ', ' city of ', ' county ', ' ky ', ' kentucky '];
+  const words = normalizedInput.trim().split(/\s+/);
+  const cityWords = city.split(' ');
+
+  for (let i = 0; i < words.length; i += 1) {
+    let matches = true;
+    for (let j = 0; j < cityWords.length; j += 1) {
+      if (words[i + j] !== cityWords[j]) {
+        matches = false;
+        break;
+      }
+    }
+    if (!matches) continue;
+
+    const start = Math.max(0, i - 5);
+    const end = Math.min(words.length, i + cityWords.length + 5);
+    const windowText = ` ${words.slice(start, end).join(' ')} `;
+    if (signals.some((signal) => windowText.includes(signal))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isLikelyPersonName(rawInput: string, city: string): boolean {
+  if (city.includes(' ')) return false;
+  const escaped = city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const personRe = new RegExp(`\\b${escaped}\\s+[A-Z][a-z]{2,}\\b`);
+  return personRe.test(rawInput);
 }

@@ -43,7 +43,7 @@ export default function PostPage() {
             color="primary"
             variant="contained"
           >
-            Back to Kentucky Today
+            Back to Local KY News
           </Button>
         </div>
       )}

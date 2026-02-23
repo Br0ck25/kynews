@@ -5,7 +5,7 @@ export default function TodayPage() {
   return (
     <CategoryFeedPage
       category="today"
-      title="Kentucky Today"
+      title="Local KY News"
     />
   );
 }

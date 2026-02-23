@@ -1,10 +1,17 @@
-import { queryArticles, listArticlesForReclassify, updateArticleClassification } from './lib/db';
+import {
+	getSourceStats,
+	listAdminArticles,
+	listArticlesForReclassify,
+	queryArticles,
+	updateArticleClassification,
+} from './lib/db';
 import { MASTER_SOURCE_SEEDS, SCHOOL_SOURCE_SEEDS } from './data/source-seeds';
 import { badRequest, corsPreflightResponse, isAllowedCategory, json, parseCommaList, parseJsonBody, parsePositiveInt } from './lib/http';
 import { ingestSingleUrl } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
 import { classifyArticleWithAi } from './lib/classify';
+import type { Category } from './types';
 
 // county filtering is now allowed for any category; preferences are handled on the client
 const COUNTY_FILTER_ALLOWED = new Set(['today', 'sports', 'schools', 'obituaries', 'national', 'weather']);
@@ -117,7 +124,7 @@ results,
 
 if (url.pathname === '/api/ingest/seed' && request.method === 'POST') {
 const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: number }>(request);
-const includeSchools = body?.includeSchools === true;
+const includeSchools = body?.includeSchools !== false;
 const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
 
 const candidateSources = includeSchools
@@ -174,6 +181,66 @@ limitPerSource,
 		const lastId = articles[articles.length - 1]?.id ?? null;
 		return json({ processed: articles.length, lastId, results });
 	}
+
+if (url.pathname === '/api/admin/articles' && request.method === 'GET') {
+const limit = parsePositiveInt(url.searchParams.get('limit'), 25, 100);
+const cursor = url.searchParams.get('cursor');
+const search = url.searchParams.get('search')?.trim() ?? null;
+const categoryQuery = (url.searchParams.get('category') || 'all').toLowerCase();
+const category = categoryQuery === 'all' ? 'all' : (isAllowedCategory(categoryQuery) ? categoryQuery : 'all');
+
+const result = await listAdminArticles(env, {
+limit,
+cursor,
+search,
+category: category as Category | 'all',
+});
+
+return json(result);
+}
+
+if (url.pathname === '/api/admin/sources' && request.method === 'GET') {
+const stats = await getSourceStats(env);
+const configuredSources = [...new Set([...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS].map((s) => s.trim()).filter(isHttpUrl))];
+const statsMap = new Map(stats.map((item) => [item.sourceUrl, item]));
+
+const merged = configuredSources
+	.map((sourceUrl) => {
+		const found = statsMap.get(sourceUrl);
+		return found ?? {
+			sourceUrl,
+			articleCount: 0,
+			latestPublishedAt: '',
+			status: 'idle' as const,
+		};
+	})
+	.sort((a, b) => b.articleCount - a.articleCount || a.sourceUrl.localeCompare(b.sourceUrl));
+
+return json({
+totalConfiguredSources: configuredSources.length,
+activeSources: merged.filter((s) => s.articleCount > 0).length,
+inactiveSources: merged.filter((s) => s.articleCount === 0).length,
+items: merged,
+});
+}
+
+if (url.pathname === '/api/admin/retag' && request.method === 'POST') {
+const body = await parseJsonBody<{ id?: number; category?: string; isKentucky?: boolean; county?: string | null }>(request);
+const id = Number(body?.id ?? 0);
+if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+
+const category = (body?.category || '').toLowerCase();
+if (!isAllowedCategory(category)) return badRequest('Invalid category');
+
+await updateArticleClassification(env, id, {
+category: category as Category,
+isKentucky: Boolean(body?.isKentucky),
+county: typeof body?.county === 'string' && body.county.trim() ? body.county.trim() : null,
+});
+
+return json({ ok: true, id });
+}
+
 const categoryMatch = url.pathname.match(/^\/api\/articles\/([a-z-]+)$/i);
 if (categoryMatch && request.method === 'GET') {
 const category = categoryMatch[1]?.toLowerCase();
@@ -220,8 +287,8 @@ return json({ error: 'Internal server error', details: safeError(err) }, 500);
 }
 },
 async scheduled(_event, env, ctx): Promise<void> {
-// Runs on cron schedule - ingest all master sources automatically.
-const sourceUrls = [...new Set(MASTER_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
+// Runs on cron schedule - ingest all configured sources automatically.
+const sourceUrls = [...new Set([...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS].map((s) => s.trim()).filter(isHttpUrl))];
 ctx.waitUntil(runIngest(env, sourceUrls, DEFAULT_SEED_LIMIT_PER_SOURCE));
 },
 } satisfies ExportedHandler<Env>;
