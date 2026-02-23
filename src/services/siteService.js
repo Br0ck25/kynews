@@ -414,6 +414,17 @@ export default class SiteService {
     return this.request("/api/admin/metrics");
   }
 
+  async getAdminRejections() {
+    return this.request("/api/admin/rejections");
+  }
+
+  async publishAdminRejection(payload) {
+    return this.request("/api/admin/publish", {
+      method: "POST",
+      body: JSON.stringify(payload || {}),
+    });
+  }
+
   async adminIngest({ includeSchools = true, limitPerSource = 0 } = {}) {
     return this.request("/api/admin/ingest", {
       method: "POST",

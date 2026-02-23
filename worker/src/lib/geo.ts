@@ -53,7 +53,8 @@ export function detectCounty(input: string): string | null {
 
   for (const county of KY_COUNTIES) {
     const token = `${county.toLowerCase()} county`;
-    if (normalized.includes(token)) return county;
+    const shortToken = `${county.toLowerCase()} co`;
+    if (normalized.includes(token) || normalized.includes(shortToken)) return county;
   }
 
   return null;

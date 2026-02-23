@@ -26,7 +26,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   }
 
   const words = wordCount(extracted.contentText);
-  if (!isShortContentAllowed(extracted.canonicalUrl, words)) {
+  if (!source.allowShortContent && !isShortContentAllowed(extracted.canonicalUrl, words)) {
     return {
       status: 'rejected',
       reason: `content too short (${words} words)`,

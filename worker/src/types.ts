@@ -61,6 +61,7 @@ export interface IngestSource {
   feedPublishedAt?: string;
   providedTitle?: string;
   providedDescription?: string;
+  allowShortContent?: boolean;
 }
 
 export interface IngestResult {

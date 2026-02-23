@@ -35,6 +35,21 @@ duplicate: number;
 rejected: number;
 lowWordDiscards: number;
 errors: string[];
+rejectedSamples: IngestDecisionSample[];
+duplicateSamples: IngestDecisionSample[];
+}
+
+interface IngestDecisionSample {
+url: string;
+sourceUrl: string;
+title?: string;
+reason: string;
+publishedAt?: string;
+decision: 'duplicate' | 'rejected';
+category?: string;
+id?: number;
+urlHash?: string;
+createdAt: string;
 }
 
 interface IngestRunMetrics {
@@ -50,6 +65,8 @@ lowWordDiscards: number;
 ingestRatePerMinute: number;
 sourceErrors: number;
 trigger: 'manual' | 'scheduled-high' | 'scheduled-normal';
+rejectedSamples: IngestDecisionSample[];
+duplicateSamples: IngestDecisionSample[];
 }
 
 /** All route handling extracted so the outer fetch() can wrap it in a try/catch
@@ -237,6 +254,50 @@ const latest = await env.CACHE.get<IngestRunMetrics>(INGEST_METRICS_KEY, 'json')
 return json({ latest: latest ?? null });
 }
 
+if (url.pathname === '/api/admin/rejections' && request.method === 'GET') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const latest = await env.CACHE.get<IngestRunMetrics>(INGEST_METRICS_KEY, 'json').catch(() => null);
+return json({
+items: latest?.rejectedSamples ?? [],
+duplicateItems: latest?.duplicateSamples ?? [],
+totalRejected: latest?.rejected ?? 0,
+totalDuplicate: latest?.duplicate ?? 0,
+});
+}
+
+if (url.pathname === '/api/admin/publish' && request.method === 'POST') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const body = await parseJsonBody<{
+url?: string;
+sourceUrl?: string;
+providedTitle?: string;
+providedDescription?: string;
+feedPublishedAt?: string;
+}>(request);
+
+const articleUrl = body?.url?.trim();
+if (!articleUrl || !isHttpUrl(articleUrl)) {
+return badRequest('Missing or invalid url');
+}
+
+const result = await ingestSingleUrl(env, {
+url: articleUrl,
+sourceUrl: body?.sourceUrl?.trim() || articleUrl,
+providedTitle: body?.providedTitle?.trim() || undefined,
+providedDescription: body?.providedDescription?.trim() || undefined,
+feedPublishedAt: body?.feedPublishedAt,
+allowShortContent: true,
+});
+
+return json({ ok: true, result });
+}
+
 if (url.pathname === '/api/admin/purge-and-reingest' && request.method === 'POST') {
 if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
@@ -403,6 +464,8 @@ let duplicate = 0;
 let rejected = 0;
 let lowWordDiscards = 0;
 let sourceErrors = 0;
+const rejectedSamples: IngestDecisionSample[] = [];
+const duplicateSamples: IngestDecisionSample[] = [];
 
 for (const sourceUrl of sourceUrls) {
 try {
@@ -413,6 +476,12 @@ duplicate += status.duplicate;
 rejected += status.rejected;
 lowWordDiscards += status.lowWordDiscards;
 sourceErrors += status.errors.length;
+for (const sample of status.rejectedSamples) {
+if (rejectedSamples.length < 200) rejectedSamples.push(sample);
+}
+for (const sample of status.duplicateSamples) {
+if (duplicateSamples.length < 200) duplicateSamples.push(sample);
+}
 } catch {
 // swallow per-source errors so one bad source does not abort the rest
 sourceErrors += 1;
@@ -434,6 +503,8 @@ const metrics: IngestRunMetrics = {
 	ingestRatePerMinute: Number(((inserted / durationMs) * 60000).toFixed(2)),
 	sourceErrors,
 	trigger,
+	rejectedSamples,
+	duplicateSamples,
 };
 
 await env.CACHE.put(INGEST_METRICS_KEY, JSON.stringify(metrics), { expirationTtl: 60 * 60 * 24 * 7 }).catch(() => null);
@@ -483,6 +554,8 @@ duplicate: 0,
 rejected: 0,
 lowWordDiscards: 0,
 errors: [],
+rejectedSamples: [],
+duplicateSamples: [],
 };
 
 try {
@@ -524,9 +597,37 @@ providedDescription: item.description,
 });
 status.processed += 1;
 if (result.status === 'inserted') status.inserted += 1;
-if (result.status === 'duplicate') status.duplicate += 1;
+if (result.status === 'duplicate') {
+status.duplicate += 1;
+if (status.duplicateSamples.length < 50) {
+status.duplicateSamples.push({
+	decision: 'duplicate',
+	url: item.link,
+	sourceUrl,
+	title: item.title,
+	publishedAt: item.publishedAt,
+	reason: 'url hash already exists',
+	category: result.category,
+	id: result.id,
+	urlHash: result.urlHash,
+	createdAt: new Date().toISOString(),
+});
+}
+}
 if (result.status === 'rejected') {
 status.rejected += 1;
+if (status.rejectedSamples.length < 50) {
+status.rejectedSamples.push({
+	decision: 'rejected',
+	url: item.link,
+	sourceUrl,
+	title: item.title,
+	publishedAt: item.publishedAt,
+	reason: result.reason || 'unknown reject reason',
+	category: result.category,
+	createdAt: new Date().toISOString(),
+});
+}
 if ((result.reason || '').toLowerCase().includes('content too short')) {
 	status.lowWordDiscards += 1;
 }
@@ -546,9 +647,33 @@ try {
 const fallbackResult = await ingestSingleUrl(env, { url: sourceUrl, sourceUrl });
 status.processed += 1;
 if (fallbackResult.status === 'inserted') status.inserted += 1;
-if (fallbackResult.status === 'duplicate') status.duplicate += 1;
+if (fallbackResult.status === 'duplicate') {
+status.duplicate += 1;
+if (status.duplicateSamples.length < 50) {
+status.duplicateSamples.push({
+	decision: 'duplicate',
+	url: sourceUrl,
+	sourceUrl,
+	reason: 'url hash already exists',
+	category: fallbackResult.category,
+	id: fallbackResult.id,
+	urlHash: fallbackResult.urlHash,
+	createdAt: new Date().toISOString(),
+});
+}
+}
 if (fallbackResult.status === 'rejected') {
 status.rejected += 1;
+if (status.rejectedSamples.length < 50) {
+status.rejectedSamples.push({
+	decision: 'rejected',
+	url: sourceUrl,
+	sourceUrl,
+	reason: fallbackResult.reason || 'unknown reject reason',
+	category: fallbackResult.category,
+	createdAt: new Date().toISOString(),
+});
+}
 if ((fallbackResult.reason || '').toLowerCase().includes('content too short')) {
 	status.lowWordDiscards += 1;
 }

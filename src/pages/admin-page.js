@@ -30,6 +30,9 @@ export default function AdminPage() {
   const [sources, setSources] = useState([]);
   const [sourceSummary, setSourceSummary] = useState(null);
   const [metrics, setMetrics] = useState(null);
+  const [rejections, setRejections] = useState([]);
+  const [duplicateItems, setDuplicateItems] = useState([]);
+  const [publishingUrl, setPublishingUrl] = useState("");
 
   const [articleCategoryFilter, setArticleCategoryFilter] = useState("all");
   const [articleSearch, setArticleSearch] = useState("");
@@ -47,10 +50,15 @@ export default function AdminPage() {
         service.getAdminSources(),
         service.getAdminArticles({ category: articleCategoryFilter, search: articleSearch, limit: 40 }),
       ]);
-      const metricsResp = await service.getAdminMetrics();
+      const [metricsResp, rejectResp] = await Promise.all([
+        service.getAdminMetrics(),
+        service.getAdminRejections(),
+      ]);
       setSources(sourceResp.items || []);
       setSourceSummary(sourceResp);
       setMetrics(metricsResp?.latest || null);
+      setRejections(rejectResp?.items || []);
+      setDuplicateItems(rejectResp?.duplicateItems || []);
       setArticleRows(articleResp.items || []);
       setEdits({});
     } catch (err) {
@@ -136,6 +144,27 @@ export default function AdminPage() {
     setArticleRows([]);
     setSourceSummary(null);
     setMetrics(null);
+    setRejections([]);
+    setDuplicateItems([]);
+  };
+
+  const publishRejectedItem = async (item) => {
+    if (!item?.url) return;
+    setPublishingUrl(item.url);
+    setError("");
+    try {
+      await service.publishAdminRejection({
+        url: item.url,
+        sourceUrl: item.sourceUrl,
+        providedTitle: item.title,
+        feedPublishedAt: item.publishedAt,
+      });
+      await loadData();
+    } catch (err) {
+      setError(err?.errorMessage || "Unable to publish rejected item.");
+    } finally {
+      setPublishingUrl("");
+    }
   };
 
   const triggerIngest = async () => {
@@ -225,6 +254,75 @@ export default function AdminPage() {
           </Box>
         </Paper>
       )}
+
+      <Paper style={{ padding: 16, marginBottom: 16 }}>
+        <Typography variant="h6" gutterBottom>
+          Ingest Decisions (Latest Run)
+        </Typography>
+        <Typography variant="body2" color="textSecondary" gutterBottom>
+          Rejected items can be force-published. Duplicates indicate URLs already stored by hash.
+        </Typography>
+
+        <Typography variant="subtitle2" style={{ marginTop: 8 }}>Rejected ({rejections.length})</Typography>
+        {rejections.length === 0 ? (
+          <Typography variant="body2" color="textSecondary">No rejected samples captured in the latest run.</Typography>
+        ) : (
+          <Table size="small" style={{ marginBottom: 12 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell>URL</TableCell>
+                <TableCell>Reason</TableCell>
+                <TableCell>Source</TableCell>
+                <TableCell>Publish</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rejections.slice(0, 100).map((item, index) => (
+                <TableRow key={`${item.url}-${index}`}>
+                  <TableCell style={{ maxWidth: 300, overflowWrap: "anywhere" }}>{item.url}</TableCell>
+                  <TableCell>{item.reason || "unknown"}</TableCell>
+                  <TableCell style={{ maxWidth: 220, overflowWrap: "anywhere" }}>{item.sourceUrl || "—"}</TableCell>
+                  <TableCell>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="primary"
+                      disabled={publishingUrl === item.url}
+                      onClick={() => publishRejectedItem(item)}
+                    >
+                      {publishingUrl === item.url ? "Publishing..." : "Publish"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        <Typography variant="subtitle2">Duplicates ({duplicateItems.length})</Typography>
+        {duplicateItems.length === 0 ? (
+          <Typography variant="body2" color="textSecondary">No duplicate samples captured in the latest run.</Typography>
+        ) : (
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>URL</TableCell>
+                <TableCell>Reason</TableCell>
+                <TableCell>Source</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {duplicateItems.slice(0, 100).map((item, index) => (
+                <TableRow key={`${item.url}-dup-${index}`}>
+                  <TableCell style={{ maxWidth: 300, overflowWrap: "anywhere" }}>{item.url}</TableCell>
+                  <TableCell>{item.reason || "duplicate"}</TableCell>
+                  <TableCell style={{ maxWidth: 220, overflowWrap: "anywhere" }}>{item.sourceUrl || "—"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Paper>
       {error && (
         <Typography color="error" variant="body2" style={{ marginBottom: 10 }}>
           {error}
