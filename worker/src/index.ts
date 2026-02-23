@@ -1,6 +1,6 @@
 import { queryArticles } from './lib/db';
 import { MASTER_SOURCE_SEEDS, SCHOOL_SOURCE_SEEDS } from './data/source-seeds';
-import { badRequest, isAllowedCategory, json, parseCommaList, parseJsonBody, parsePositiveInt } from './lib/http';
+import { badRequest, corsPreflightResponse, isAllowedCategory, json, parseCommaList, parseJsonBody, parsePositiveInt } from './lib/http';
 import { ingestSingleUrl } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
@@ -24,6 +24,11 @@ interface SeedSourceStatus {
 
 export default {
 	async fetch(request, env): Promise<Response> {
+		// Handle CORS preflight requests
+		if (request.method === 'OPTIONS') {
+			return corsPreflightResponse();
+		}
+
 		const url = new URL(request.url);
 
 		if ((url.pathname === '/' || url.pathname === '/health') && request.method === 'GET') {

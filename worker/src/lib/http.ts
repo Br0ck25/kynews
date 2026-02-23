@@ -1,8 +1,19 @@
 import type { Category } from '../types';
 
+const CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'Content-Type',
+};
+
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
+  ...CORS_HEADERS,
 };
+
+export function corsPreflightResponse(): Response {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
 
 export function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {

@@ -97,7 +97,11 @@ export default class SiteService {
     // variable should point at a deployed Worker endpoint (or left blank if
     // the Worker is routed to the same domain via `wrangler` routes).
     this.baseUrl =
-      baseUrl || process.env.REACT_APP_API_BASE_URL || "";
+      baseUrl ||
+      // eslint-disable-next-line no-undef
+      (typeof import.meta !== 'undefined' ? import.meta.env?.VITE_API_BASE_URL : undefined) ||
+      process.env.REACT_APP_API_BASE_URL ||
+      "";
     this.devSeedAttempted = false;
   }
 
