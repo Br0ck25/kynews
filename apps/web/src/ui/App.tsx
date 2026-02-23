@@ -142,7 +142,11 @@ const MAX_INLINE_CARD_IMAGES = Number.MAX_SAFE_INTEGER;
 const SPORTS_LOOKBACK_HOURS = 24 * 14;
 const MIN_COUNTY_STORIES = 5;
 const OBITUARY_LOOKBACK_HOURS = 24 * 365;
-const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\" OR \"funeral\" OR \"visitation\" OR \"memorial service\" OR \"passed away\"";
+const OBITUARY_FALLBACK_QUERY = "\"obituary\" OR \"obituaries\"";
+function isObituaryItem(item: Item) {
+  const haystack = ((item.title || "") + " " + (item.url || "") + " " + ((item as any).description || "")).toLowerCase();
+  return haystack.includes("obituar");
+}
 const SPORTS_QUERY =
   "\"sports\" OR \"sport\" OR \"football\" OR \"basketball\" OR \"baseball\" OR \"soccer\" OR \"volleyball\" OR \"wrestling\" OR \"athletics\"";
 const routeScrollPositions = new Map<string, number>();
@@ -2059,7 +2063,9 @@ function WeatherScreen() {
   const [alerts, setAlerts] = useState<WeatherAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [weatherArticles, setWeatherArticles] = useState<Item[]>([]);
   const allCounties = useMemo(() => (kyCounties as { name: string }[]).map((c) => c.name), []);
+  const openWeatherItem = useOpenItemNavigation(() => ({ items: weatherArticles, cursor: null }), `/weather-articles|${county}`);
 
   useEffect(() => {
     let cancelled = false;
@@ -2089,6 +2095,25 @@ function WeatherScreen() {
     return () => {
       cancelled = true;
     };
+  }, [county]);
+
+  useEffect(() => {
+    if (!county) { setWeatherArticles([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await searchItems("weather OR storm OR flood OR tornado OR severe OR drought OR freeze OR ice", {
+          scope: "ky",
+          county,
+          hours: 24 * 7,
+          limit: 10
+        });
+        if (!cancelled) setWeatherArticles(res.items);
+      } catch {
+        // silently fail — weather articles are supplemental
+      }
+    })();
+    return () => { cancelled = true; };
   }, [county]);
 
   return (
@@ -2236,6 +2261,13 @@ function WeatherScreen() {
             </div>
           </div>
         ) : null}
+
+        {weatherArticles.length > 0 ? (
+          <div className="card" style={{ padding: 14, marginTop: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 10 }}>Local Weather News{county ? ` — ${county} County` : ""}</div>
+            <StoryDeck items={weatherArticles} onOpen={openWeatherItem} emptyMessage="" />
+          </div>
+        ) : null}
       </div>
     </AppShell>
   );
@@ -2302,8 +2334,9 @@ function ObituariesScreen() {
         });
         if (cancelled) return;
 
-        setItems(fallback.items);
-        setCursor(fallback.nextCursor);
+        const filtered = fallback.items.filter(isObituaryItem);
+        setItems(filtered);
+        setCursor(filtered.length < fallback.items.length ? null : fallback.nextCursor);
         setFallbackSearch(true);
       } finally {
         if (!cancelled) setLoading(false);
@@ -2402,6 +2435,21 @@ function SchoolsScreen() {
       }
       setLoading(true);
       try {
+        // Try category feed first (Facebook school pages)
+        const categoryRes = await getItems({
+          scope: "ky",
+          category: "Kentucky - Schools",
+          counties: selectedCounties.length ? selectedCounties : undefined,
+          hours: 24 * 14,
+          limit: FEED_PAGE_SIZE
+        });
+        if (cancelled) return;
+        if (categoryRes.items.length) {
+          setItems(categoryRes.items);
+          setCursor(categoryRes.nextCursor);
+          return;
+        }
+        // Fallback to keyword search
         const res = await searchItems(schoolQuery, {
           scope: "ky",
           counties: selectedCounties.length ? selectedCounties : undefined,

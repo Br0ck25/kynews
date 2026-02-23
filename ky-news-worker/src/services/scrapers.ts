@@ -14,6 +14,8 @@ type ScraperKind = "generic-news" | "gannett-story" | "townnews-article" | "mccl
 
 export type ScrapeFeedInput = {
   feedId: string;
+  /** Display name of the feed (used as post title for facebook-page mode). */
+  feedName?: string;
   url: string;
   scraperId: string | null;
   maxItems: number;
@@ -641,6 +643,180 @@ function toParsedFeedItem(candidate: Candidate): ParsedFeedItem {
     author: candidate.author,
     imageUrl: candidate.imageUrl
   };
+}
+
+// ─── Facebook public-page scraper ───────────────────────────────────────────
+/**
+ * Scrape a public Facebook page via mbasic.facebook.com (server-rendered, no JS required).
+ * Returns posts as feed items: page name = title, post text = content, first image = imageUrl.
+ * No minimum word count is enforced – school/community posts are typically short.
+ *
+ * Falls back gracefully (returns 0 items) when Facebook blocks the request or
+ * requires login.
+ */
+export async function scrapeFacebookPageItems(input: ScrapeFeedInput): Promise<ScrapeFeedResult> {
+  // Extract page slug from Facebook URL (https://www.facebook.com/{slug}/)
+  let pageSlug = "";
+  let numericId = false;
+  try {
+    const u = new URL(input.url);
+    const firstSegment = u.pathname.replace(/^\/+/, "").split("/")[0] || "";
+    pageSlug = firstSegment;
+    numericId = /^\d+$/.test(pageSlug);
+  } catch {
+    throw new Error(`Invalid Facebook page URL: ${input.url}`);
+  }
+
+  if (!pageSlug) {
+    throw new Error(`Could not extract page slug from Facebook URL: ${input.url}`);
+  }
+
+  // Use mbasic (server-rendered, no JS) for public pages
+  const mbasicUrl = numericId
+    ? `https://mbasic.facebook.com/profile.php?id=${pageSlug}`
+    : `https://mbasic.facebook.com/${pageSlug}`;
+
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), LIST_TIMEOUT_MS);
+
+  let html = "";
+  let status = 0;
+  try {
+    const res = await fetch(mbasicUrl, {
+      signal: ctrl.signal,
+      headers: {
+        // Mobile Safari UA encourages mbasic rendering path
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+      },
+      redirect: "follow",
+    });
+    status = res.status;
+    if (status === 200) {
+      html = await res.text();
+      if (html.length > LIST_MAX_CHARS) html = html.slice(0, LIST_MAX_CHARS);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (status !== 200) {
+    throw new Error(`Facebook mbasic returned HTTP ${status} for ${mbasicUrl}`);
+  }
+
+  // Detect login-wall redirect (Facebook blocks unauthenticated bots for some pages)
+  const isLoginPage =
+    html.includes('id="login_form"') ||
+    (html.includes('name="email"') && html.includes('name="pass"')) ||
+    html.includes("/login/?next=");
+  if (isLoginPage) {
+    throw new Error(`Facebook requires login for @${pageSlug} — public access blocked by Facebook`);
+  }
+
+  // Derive page display name from og:title, <title>, or feed name
+  const pageName =
+    input.feedName ||
+    extractFirst(html, /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["'][^>]*>/i) ||
+    extractFirst(html, /<title[^>]*>([\s\S]*?)<\/title>/i) ||
+    pageSlug;
+
+  const maxItems = Number.isFinite(input.maxItems) ? Math.max(1, Math.min(input.maxItems, 60)) : 20;
+  const items: ParsedFeedItem[] = [];
+
+  // ── Strategy 1: <article> elements (mbasic wraps each story in <article>) ──
+  const articleMatches = [...html.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article>/gi)];
+  for (const match of articleMatches) {
+    if (items.length >= maxItems) break;
+    const articleHtml = match[1] || "";
+
+    // Skip comment/reaction blocks
+    if (/data-sigil="comment"/.test(articleHtml) || /data-ft="{[^}]*\"type\":\s*27/.test(articleHtml)) continue;
+
+    // Extract post permalink
+    const postLinkMatch =
+      articleHtml.match(/href="(\/[^"]+\/posts\/[^"?#]+[^"]*?)"/) ||
+      articleHtml.match(/href="(\/story\.php\?[^"]+)"/) ||
+      articleHtml.match(/href="(\/permalink\/\d+\/?)"/);
+    const rawPostLink = postLinkMatch
+      ? postLinkMatch[1].replace(/&amp;/g, "&")
+      : null;
+    const postLink = rawPostLink
+      ? `https://www.facebook.com${rawPostLink}`
+      : input.url.replace(/\/$/, "");
+
+    // Strip HTML and decode entities to get readable text
+    const text = cleanText(articleHtml);
+    if (!text || text.length < 15) continue;
+
+    // Remove Facebook engagement noise (Like · Comment · Share etc.)
+    const cleaned = text
+      .replace(/\s*\b(Like|Comment|Share|Reply|See more|See less|Translated|Turn off translations?)\b\s*/gi, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    if (!cleaned || cleaned.length < 10) continue;
+
+    // First image from the article block
+    const imgMatch = articleHtml.match(/<img\b[^>]+src="([^"]+)"/i);
+    const imageUrl = imgMatch ? toHttpsUrl(imgMatch[1]) : null;
+
+    // Timestamp from <abbr title="...">
+    const abbrMatch = articleHtml.match(/<abbr[^>]+title="([^"]+)"/i);
+    const isoDate = abbrMatch ? toIsoOrNull(abbrMatch[1]) : null;
+
+    items.push({
+      title: pageName,
+      link: postLink,
+      guid: postLink !== input.url.replace(/\/$/, "") ? postLink : `${input.url}#fb-post-${items.length}`,
+      isoDate,
+      pubDate: isoDate,
+      contentSnippet: cleaned.slice(0, 500),
+      content: cleaned,
+      author: pageName,
+      imageUrl,
+    });
+  }
+
+  // ── Strategy 2: story-permalink divs (older mbasic layout) ──
+  if (items.length === 0) {
+    const storyDivMatches = [
+      ...html.matchAll(/<div[^>]+id="m_story_permalink_view[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi)
+    ];
+    for (const match of storyDivMatches) {
+      if (items.length >= maxItems) break;
+      const divHtml = match[1] || "";
+      const text = cleanText(divHtml).trim();
+      if (!text || text.length < 15) continue;
+      const cleaned = text
+        .replace(/\s*\b(Like|Comment|Share|Reply|See more|See less)\b\s*/gi, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      if (!cleaned || cleaned.length < 10) continue;
+      const imgMatch = divHtml.match(/<img\b[^>]+src="([^"]+)"/i);
+      items.push({
+        title: pageName,
+        link: input.url,
+        guid: `${input.url}#fb-story-${items.length}`,
+        isoDate: null,
+        pubDate: null,
+        contentSnippet: cleaned.slice(0, 500),
+        content: cleaned,
+        author: pageName,
+        imageUrl: imgMatch ? toHttpsUrl(imgMatch[1]) : null,
+      });
+    }
+  }
+
+  if (items.length === 0) {
+    logWarn("ingest.facebook.no_posts", {
+      feedId: input.feedId,
+      url: mbasicUrl,
+      htmlLength: html.length,
+    });
+  }
+
+  return { status, items };
 }
 
 export async function scrapeFeedItems(input: ScrapeFeedInput): Promise<ScrapeFeedResult> {

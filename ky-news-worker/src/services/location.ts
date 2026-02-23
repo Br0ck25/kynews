@@ -108,10 +108,11 @@ export function detectOtherStateNames(text: string): string[] {
   return Array.from(new Set(out));
 }
 
-export function detectKyCounties(text: string): string[] {
+export function detectKyCounties(text: string, opts: { includeCityHints?: boolean } = {}): string[] {
   const t = norm(text);
   if (!t) return [];
 
+  const includeCityHints = opts.includeCityHints !== false;
   const out: string[] = [];
   const raw = String(text || "");
   const hasKyContext = /\bkentucky\b/i.test(raw) || /\bky\b/i.test(raw);
@@ -120,7 +121,7 @@ export function detectKyCounties(text: string): string[] {
     if (re.test(t)) out.push(name);
   }
 
-  if (hasKyContext) {
+  if (includeCityHints && hasKyContext) {
     for (const { county, re } of KY_CITY_PATTERNS) {
       if (re.test(t)) out.push(county);
     }

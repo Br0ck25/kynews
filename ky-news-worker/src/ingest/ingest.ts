@@ -1,6 +1,6 @@
 import { d1All, d1First, d1Run } from "../services/db";
 import { parseFeedItems } from "../services/rss";
-import { scrapeFeedItems } from "../services/scrapers";
+import { scrapeFeedItems, scrapeFacebookPageItems } from "../services/scrapers";
 import { detectKyCounties } from "../services/location";
 import { fetchArticle } from "../services/article";
 import { getCachedSeoDescription, getCachedSummary, generateSummaryWithAI } from "../services/summary";
@@ -469,6 +469,15 @@ async function writeItemLocations(
     title: string;
     bodyText: string;
     shouldTagState: boolean;
+    /** When set, always tag this county regardless of article text analysis. */
+    defaultCounty?: string | null;
+    /**
+     * When true, skip body-text county analysis entirely and rely only on
+     * defaultCounty + title detection. Used for Facebook-page feeds where the
+     * post body text is written from the school page's perspective and has no
+     * location signals.
+     */
+    skipBodyAnalysis?: boolean;
   }
 ): Promise<void> {
   const st = (input.stateCode || "KY").toUpperCase();
@@ -483,13 +492,49 @@ async function writeItemLocations(
 
   if (st !== "KY") return;
 
-  const titleCounties = detectKyCounties(input.title);
-  const normalizedBody = textOnly(input.bodyText);
-  const articleText = normalizedBody.length > LOCATION_TAG_CHAR_LIMIT
-    ? normalizedBody.slice(0, LOCATION_TAG_CHAR_LIMIT)
-    : normalizedBody;
-  const bodyCounties = detectKyCounties(articleText);
-  const taggedCounties = new Set([...titleCounties, ...bodyCounties].map((county) => normalizeCounty(county)).filter(Boolean));
+  // Title counties are always reliable — include all of them.
+  const titleCountyNames = detectKyCounties(input.title);
+  const titleCountySet = new Set<string>(
+    titleCountyNames.map((c) => normalizeCounty(c)).filter(Boolean)
+  );
+
+  const taggedCounties = new Set<string>(titleCountySet);
+
+  // Always include the feed's default county if supplied (the feed is explicitly
+  // scoped to that county so every article from it belongs there).
+  if (input.defaultCounty) {
+    const dc = normalizeCounty(input.defaultCounty);
+    if (dc) taggedCounties.add(dc);
+  }
+
+  if (!input.skipBodyAnalysis) {
+    const normalizedBody = textOnly(input.bodyText);
+    const articleText = normalizedBody.length > LOCATION_TAG_CHAR_LIMIT
+      ? normalizedBody.slice(0, LOCATION_TAG_CHAR_LIMIT)
+      : normalizedBody;
+    const bodyCountyCandidates = detectKyCounties(articleText);
+
+    for (const county of bodyCountyCandidates) {
+      const n = normalizeCounty(county);
+      if (!n) continue;
+
+      // Counties already confirmed by title or default_county are fine.
+      if (taggedCounties.has(n)) continue;
+
+      // For body-only detection: require 2+ explicit "County" mentions to avoid
+      // false positives from passing references (e.g. sports schedules that list
+      // other teams' counties).  City-name hints (one-mention) are intentionally
+      // excluded here; they can produce false positives for common names.
+      const countRe = new RegExp(
+        `\\b${n.replace(/\s+/g, "\\\\s+")}\\s+(?:county|co\\.?)\\b`,
+        "gi"
+      );
+      const mCount = (articleText.match(countRe) || []).length;
+      if (mCount >= 2) {
+        taggedCounties.add(n);
+      }
+    }
+  }
 
   for (const county of taggedCounties) {
     await d1Run(
@@ -559,11 +604,28 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
       let feedStatus: "ok" | "error" | "not_modified" = "ok";
       let feedErrorMessage: string | undefined;
       try {
-        const fetchMode = String(feed.fetch_mode || "rss").trim().toLowerCase();
+      const fetchMode = String(feed.fetch_mode || "rss").trim().toLowerCase();
         const safeMaxItems = Number.isFinite(maxItemsPerFeed) ? maxItemsPerFeed : 60;
         let parsedItems: ReturnType<typeof parseFeedItems> = [];
+        // facebook-page feeds skip KY relevance + word-count checks — posts are
+        // inherently local (county-scoped) and can be legitimately short.
+        const isFacebookFeed = fetchMode === "facebook-page";
 
-        if (fetchMode === "scrape") {
+        if (isFacebookFeed) {
+          const scraped = await scrapeFacebookPageItems({
+            feedId: feed.id,
+            feedName: feed.name,
+            url: feed.url,
+            scraperId: null,
+            maxItems: safeMaxItems,
+            userAgent: rssUserAgent
+          });
+          feedHttpStatus = scraped.status;
+          parsedItems = scraped.items.slice(0, safeMaxItems);
+          if (parsedItems.length > 0) {
+            summary.feedsUpdated += 1;
+          }
+        } else if (fetchMode === "scrape") {
           const scraped = await scrapeFeedItems({
             feedId: feed.id,
             url: feed.url,
@@ -620,9 +682,10 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
 
           const isKyScope = (feed.region_scope || "ky") === "ky";
           let kyRelevance: PreparedKyRelevance | null = null;
-          if (isKyScope) {
+          if (isKyScope && !isFacebookFeed) {
             // NOTE: Items tagged before this ingest-time relevance gate may need a one-time
             // backfill script to re-run isKentuckyRelevant() and refresh item_locations.
+            // Facebook-page feeds are already county-scoped; skip relevance gating.
             kyRelevance = await prepareKentuckyRelevance(env, {
               itemId,
               stateCode: feed.state_code || "KY",
@@ -658,41 +721,48 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
             hash
           });
 
-          if (isKyScope && kyRelevance) {
-            await persistFetchedArticleData(env, {
-              itemId,
-              fetchStatus: kyRelevance.fetchStatus,
-              excerpt: kyRelevance.excerpt,
-              imageCandidate: kyRelevance.imageCandidate,
-              publishedAt: kyRelevance.publishedAt
-            });
+          if (isKyScope) {
+            if (kyRelevance) {
+              await persistFetchedArticleData(env, {
+                itemId,
+                fetchStatus: kyRelevance.fetchStatus,
+                excerpt: kyRelevance.excerpt,
+                imageCandidate: kyRelevance.imageCandidate,
+                publishedAt: kyRelevance.publishedAt
+              });
+            }
             await writeItemLocations(env, {
               itemId,
               stateCode: feed.state_code || "KY",
               title,
-              bodyText: kyRelevance.locationBodyText,
-              shouldTagState: true
+              bodyText: kyRelevance?.locationBodyText ?? (contentText || summaryText || ""),
+              shouldTagState: true,
+              defaultCounty: feed.default_county || null,
+              skipBodyAnalysis: isFacebookFeed
             });
           }
 
           if (upserted === "unchanged") {
-            const existingQuality = await d1First<{
-              article_text_excerpt: string | null;
-              content: string | null;
-              summary: string | null;
-            }>(
-              env.ky_news_db,
-              "SELECT article_text_excerpt, content, summary FROM items WHERE id=? LIMIT 1",
-              [itemId]
-            );
-            const existingQualityText =
-              kyRelevance?.excerpt ||
-              existingQuality?.article_text_excerpt ||
-              existingQuality?.content ||
-              existingQuality?.summary ||
-              "";
-            if (textWordCount(existingQualityText) < MIN_ARTICLE_WORDS) {
-              await removeLowWordItem(env, feed.id, itemId);
+            // For Facebook-page feeds, never remove for low word count — posts are intentionally short.
+            if (!isFacebookFeed) {
+              const existingQuality = await d1First<{
+                article_text_excerpt: string | null;
+                content: string | null;
+                summary: string | null;
+              }>(
+                env.ky_news_db,
+                "SELECT article_text_excerpt, content, summary FROM items WHERE id=? LIMIT 1",
+                [itemId]
+              );
+              const existingQualityText =
+                kyRelevance?.excerpt ||
+                existingQuality?.article_text_excerpt ||
+                existingQuality?.content ||
+                existingQuality?.summary ||
+                "";
+              if (textWordCount(existingQualityText) < MIN_ARTICLE_WORDS) {
+                await removeLowWordItem(env, feed.id, itemId);
+              }
             }
             continue;
           }
@@ -709,8 +779,9 @@ export async function ingestFeeds(env: Env, options: IngestOptions): Promise<Ing
             }
           }
 
+          // Facebook-page posts are intentionally short; skip the word-count gate.
           const qualityText = articleExcerpt || contentText || summaryText || "";
-          if (textWordCount(qualityText) < MIN_ARTICLE_WORDS) {
+          if (!isFacebookFeed && textWordCount(qualityText) < MIN_ARTICLE_WORDS) {
             await removeLowWordItem(env, feed.id, itemId);
             continue;
           }
