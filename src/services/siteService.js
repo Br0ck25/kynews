@@ -267,6 +267,31 @@ export default class SiteService {
     }
   }
 
+  /**
+   * Fetch a single page of articles for infinite scroll.
+   * Returns { posts: [], nextCursor: string|null }.
+   * Pass cursor=null for the first page, then pass the returned nextCursor for subsequent pages.
+   */
+  async fetchPage({ category = "today", counties = [], cursor = null, limit = 20 } = {}) {
+    const validCategory = ALLOWED_CATEGORIES.includes(category) ? category : "today";
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    if (counties && counties.length > 0) {
+      params.set("counties", counties.join(","));
+    }
+    if (cursor) {
+      params.set("cursor", cursor);
+    }
+
+    const route = `/api/articles/${validCategory}?${params.toString()}`;
+    const payload = await this.request(route);
+
+    return {
+      posts: (payload?.items || []).map(mapWorkerArticleToPost),
+      nextCursor: payload?.nextCursor ?? null,
+    };
+  }
+
   async ingestUrl(url) {
     if (!url) {
       throw toError(null, "Missing url to ingest.");

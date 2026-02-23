@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { makeStyles } from "@material-ui/core/styles";
 import {
   FormControl,
@@ -10,6 +10,8 @@ import {
   Snackbar,
   IconButton,
   Typography,
+  CircularProgress,
+  Box,
 } from "@material-ui/core";
 import CloseIcon from "@material-ui/icons/Close";
 import Skeletons from "../components/skeletons-component";
@@ -18,7 +20,7 @@ import Posts from "../components/home/posts-component";
 import SiteService from "../services/siteService";
 import SnackbarNoInternet from "../components/snackbar-no-internet-component";
 import { useDispatch, useSelector } from "react-redux";
-import { setPosts, setSelectedCounties, setTitle } from "../redux/actions/actions";
+import { setPosts, setTitle, setSelectedCounties } from "../redux/actions/actions";
 import { KENTUCKY_COUNTIES } from "../constants/counties";
 
 const useStyles = makeStyles((theme) => ({
@@ -29,43 +31,98 @@ const useStyles = makeStyles((theme) => ({
   close: {
     padding: theme.spacing(0.5),
   },
+  loaderWrap: {
+    display: "flex",
+    justifyContent: "center",
+    padding: theme.spacing(3),
+  },
 }));
 
 const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 
 export default function CategoryFeedPage({ category, title, countyFilterEnabled = false }) {
   const classes = useStyles();
-  const posts = useSelector((state) => state.posts);
   const selectedCounties = useSelector((state) => state.selectedCounties);
   const dispatch = useDispatch();
 
+  // Use local state for the full accumulated list (supports infinite pagination)
+  const [allPosts, setAllPosts] = useState([]);
+  const [cursor, setCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [errors, setErrors] = useState("");
+
+  // Sentinel element at the bottom of the list triggers next-page load
+  const sentinelRef = useRef(null);
+  // Track current category+counties key to detect dependency changes
+  const countyKey = (selectedCounties || []).join("|");
 
   useEffect(() => {
     dispatch(setTitle(title));
-  }, [title]);
+  }, [title, dispatch]);
 
+  // Reset and fetch first page whenever category or county selection changes
   useEffect(() => {
+    setAllPosts([]);
+    setCursor(null);
+    setHasMore(true);
     setIsLoading(true);
-    // always respect preferences; dropdown is only for manual override if enabled
-    const counties = selectedCounties || [];
+    setErrors("");
 
     service
-      .getPosts({
-        category,
-        limit: 24,
-        counties,
-      })
-      .then((data) => {
-        dispatch(setPosts(data));
+      .fetchPage({ category, counties: selectedCounties || [], cursor: null, limit: 20 })
+      .then(({ posts, nextCursor }) => {
+        setAllPosts(posts);
+        setCursor(nextCursor);
+        setHasMore(nextCursor !== null);
+        // Keep Redux posts in sync with the first page for post-detail navigation
+        dispatch(setPosts(posts));
         setIsLoading(false);
       })
       .catch((error) => {
         setErrors(error.errorMessage || "Failed to load posts.");
         setIsLoading(false);
       });
-  }, [category, selectedCounties.join("|")]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, countyKey]);
+
+  // Load next page when the sentinel scrolls into view
+  const loadMore = useCallback(() => {
+    if (isLoadingMore || !hasMore || !cursor) return;
+
+    setIsLoadingMore(true);
+    service
+      .fetchPage({ category, counties: selectedCounties || [], cursor, limit: 20 })
+      .then(({ posts, nextCursor }) => {
+        setAllPosts((prev) => [...prev, ...posts]);
+        setCursor(nextCursor);
+        setHasMore(nextCursor !== null);
+        setIsLoadingMore(false);
+      })
+      .catch(() => {
+        // silently fail on load-more; user can scroll up and back down to retry
+        setIsLoadingMore(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, countyKey, cursor, hasMore, isLoadingMore]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   const handleCountyChange = (event) => {
     dispatch(setSelectedCounties(event.target.value));
@@ -79,7 +136,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
         {title}
       </Typography>
 
-      {/* manual county selector dropdown is only shown when enabled, but filtering happens regardless */}
+      {/* Manual county selector dropdown — only shown when explicitly enabled */}
       {countyFilterEnabled && (
         <div className={classes.countyFilterWrap}>
           <FormControl fullWidth variant="outlined" size="small">
@@ -105,39 +162,55 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
         </div>
       )}
 
-      {!isLoading && posts && posts.length > 0 ? (
-        <>
-          <FeaturedPost post={posts[0]} />
-          <Posts posts={posts.filter((_, index) => index !== 0)} />
-        </>
+      {isLoading ? (
+        <Skeletons showFeaturedSkeleton />
+      ) : allPosts.length === 0 ? (
+        <Typography variant="body1">
+          No articles found for this section yet. Check back soon or try re-seeding sources.
+        </Typography>
       ) : (
         <>
-          {!isLoading && (!posts || posts.length === 0) ? (
-            <Typography variant="body1">
-              No articles found for this section yet. In local development, the app will try to auto-seed sources on first load.
-            </Typography>
-          ) : (
-            <Skeletons showFeaturedSkeleton />
+          <FeaturedPost post={allPosts[0]} />
+          <Posts posts={allPosts.filter((_, index) => index !== 0)} />
+
+          {/* Sentinel: IntersectionObserver watches this element to trigger more loads */}
+          <div ref={sentinelRef} style={{ height: 1 }} />
+
+          {isLoadingMore && (
+            <Box className={classes.loaderWrap}>
+              <CircularProgress size={32} />
+            </Box>
           )}
 
-          <Snackbar
-            anchorOrigin={{ vertical: "top", horizontal: "center" }}
-            open={!!errors}
-            message={errors}
-            key={`${category}-error`}
-            action={
-              <IconButton
-                aria-label="close"
-                color="inherit"
-                className={classes.close}
-                onClick={() => setErrors("")}
-              >
-                <CloseIcon />
-              </IconButton>
-            }
-          />
+          {!hasMore && allPosts.length > 0 && (
+            <Typography
+              variant="body2"
+              color="textSecondary"
+              align="center"
+              style={{ padding: 16 }}
+            >
+              All articles loaded.
+            </Typography>
+          )}
         </>
       )}
+
+      <Snackbar
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        open={!!errors}
+        message={errors}
+        key={`${category}-error`}
+        action={
+          <IconButton
+            aria-label="close"
+            color="inherit"
+            className={classes.close}
+            onClick={() => setErrors("")}
+          >
+            <CloseIcon />
+          </IconButton>
+        }
+      />
     </div>
   );
 }

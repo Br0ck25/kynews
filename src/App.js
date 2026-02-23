@@ -21,7 +21,7 @@ import LostFoundPage from "./pages/lost-found-page";
 import SectionsHeader from "./components/home/sections-component";
 import { Container, Box } from "@material-ui/core";
 import CssBaseline from "@material-ui/core/CssBaseline";
-import { isMobile } from "./utils/functions";
+import { isMobile } from "./utils/functions"; // kept for potential future use
 import { Provider, useDispatch } from "react-redux";
 import store from "./redux/store/store";
 import Theme from "./components/theme";
@@ -125,7 +125,8 @@ function App() {
             <br />
             <br />
             <br />
-            {isMobile() && <LabelBottomNavigation />}
+            {/* Show bottom nav on all screen sizes */}
+            <LabelBottomNavigation />
           </div>
         </Router>
       </Theme>

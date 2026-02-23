@@ -1,6 +1,6 @@
 import type { ExtractedArticle, IngestResult, IngestSource, NewArticle } from '../types';
 import { summarizeArticle } from './ai';
-import { classifyArticle, isShortContentAllowed } from './classify';
+import { classifyArticleWithAi, isShortContentAllowed } from './classify';
 import { findArticleByHash, insertArticle } from './db';
 import { cachedTextFetch, sha256Hex, toIsoDate, wordCount } from './http';
 import { scrapeArticleHtml } from './scrape';
@@ -28,7 +28,8 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
-  const classification = classifyArticle({
+  // Use AI (GLM-4.7-Flash) to classify the article; falls back to keywords if AI fails
+  const classification = await classifyArticleWithAi(env, {
     url: extracted.canonicalUrl,
     title: extracted.title,
     content: extracted.contentText,

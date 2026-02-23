@@ -94,10 +94,8 @@ export async function queryArticles(env: Env, options: {
 
   if (options.category === 'today') {
     where.push('is_kentucky = 1');
-  } else if (options.category === 'national') {
-    // national feed should show all KY and non-KY posts; no extra filter.
-    // keep this branch for clarity, but do not push a where clause.
   } else {
+    // national, sports, weather, schools, obituaries – all filter by stored category value
     where.push('category = ?');
     binds.push(options.category);
   }
@@ -120,13 +118,9 @@ export async function queryArticles(env: Env, options: {
 
   binds.push(options.limit + 1);
 
-  const query = `
-    SELECT *
-    FROM articles
-    WHERE ${where.join(' AND ')}
-    ORDER BY id DESC
-    LIMIT ?
-  `;
+  // Guard: always ensure a WHERE clause exists (empty-where would be invalid SQL)
+  const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1';
+  const query = `SELECT * FROM articles ${whereClause} ORDER BY id DESC LIMIT ?`;
 
   const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
   const mapped = (rows.results ?? []).map(mapArticleRow);
@@ -168,4 +162,29 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+/** Fetch a batch of articles (by descending id) starting below a given id threshold.
+ *  Used by the admin re-classify endpoint to process existing articles page-by-page. */
+export async function listArticlesForReclassify(
+  env: Env,
+  { limit, beforeId }: { limit: number; beforeId: number | null },
+): Promise<ArticleRecord[]> {
+  const where = beforeId != null ? 'WHERE id < ?' : '';
+  const binds = beforeId != null ? [beforeId, limit] : [limit];
+  const query = `SELECT * FROM articles ${where} ORDER BY id DESC LIMIT ?`;
+  const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
+  return (rows.results ?? []).map(mapArticleRow);
+}
+
+/** Update the category, is_kentucky, and county for an existing article row. */
+export async function updateArticleClassification(
+  env: Env,
+  id: number,
+  patch: { category: Category; isKentucky: boolean; county: string | null },
+): Promise<void> {
+  await env.ky_news_db
+    .prepare('UPDATE articles SET category = ?, is_kentucky = ?, county = ? WHERE id = ?')
+    .bind(patch.category, patch.isKentucky ? 1 : 0, patch.county, id)
+    .run();
 }

@@ -1,12 +1,36 @@
-import moment from 'moment';
 import { KENTUCKY_COUNTIES } from '../constants/counties';
 
-export function ToDateTime(value){
-  return moment(value).format('DD/MM/YYYY hh:mm:ss');
+/**
+ * Formats a date as "February 10, 2026 at 6:00 AM EST" (Eastern Time).
+ * Falls back to the raw value string if the date is unparseable.
+ */
+export function ToDateTime(value) {
+  if (!value) return '';
+  try {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    const parts = new Intl.DateTimeFormat('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'America/New_York',
+      timeZoneName: 'short',
+    }).formatToParts(d);
+    const get = (type) => parts.find((p) => p.type === type)?.value ?? '';
+    return `${get('month')} ${get('day')}, ${get('year')} at ${get('hour')}:${get('minute')} ${get('dayPeriod')} ${get('timeZoneName')}`;
+  } catch {
+    return String(value);
+  }
 }
 
-export function DateFromNow(value){
-  return moment(value).fromNow();
+/**
+ * Shows the full formatted date (same style as ToDateTime).
+ * Previously used moment().fromNow() - changed to display the actual date.
+ */
+export function DateFromNow(value) {
+  return ToDateTime(value);
 }
 
 export async function ShareAPI(title, text, url){

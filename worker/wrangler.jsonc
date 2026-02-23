@@ -75,4 +75,12 @@
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
 	 */
 	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
+	/**
+	 * Cron Triggers
+	 * Automatically ingest articles every hour.
+	 * https://developers.cloudflare.com/workers/configuration/cron-triggers/
+	 */
+	"triggers": {
+		"crons": ["0 * * * *"]
+	}
 }
