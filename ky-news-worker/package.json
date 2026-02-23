@@ -8,12 +8,15 @@
 		"start": "wrangler dev",
 		"typecheck": "tsc --noEmit",
 		"generate:feed-seed-sql": "node scripts/generate-feed-seed-sql.mjs",
+		"backfill:ky-relevance": "node scripts/backfill-ky-relevance.mjs",
 		"test": "vitest",
 		"cf-typegen": "wrangler types"
 	},
 	"dependencies": {
+		"@mozilla/readability": "^0.6.0",
 		"fast-xml-parser": "^5.3.0",
 		"hono": "^4.10.2",
+		"linkedom": "^0.18.12",
 		"zod": "^4.1.12"
 	},
 	"devDependencies": {

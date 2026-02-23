@@ -176,6 +176,10 @@ Deployment target:
 - Scheduled ingestion runs every 15 minutes via Wrangler cron.
 - Manual ingestion can be triggered via `POST /api/admin/feeds/reload` with admin auth.
 - Single-feed ingestion can be triggered via `POST /api/admin/feeds/:id/trigger`.
+- One-time KY relevance backfill script:
+  - Dry run (recommended first): `npm run backfill:ky-relevance -- --remote --dry-run --limit 2000`
+  - Apply changes: `npm run backfill:ky-relevance -- --remote --apply --limit 2000`
+  - Rejected KY items linked to national feeds are demoted to `region_scope='national'` (not deleted).
 - AI summaries are cached in KV (`summary:v1:<itemId>`) and persisted to D1.
 - AI summaries enter `summary_review_queue` for admin/editor review.
 - Mirrored article images are saved in R2 under `news/*` and served from `/api/media/*`.

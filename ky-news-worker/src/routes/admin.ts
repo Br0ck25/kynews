@@ -7,7 +7,8 @@ import { normalizeCounty, safeJsonParse } from "../lib/utils";
 import { runManualFeedIngest, runManualIngest } from "../ingest/ingest";
 import { d1All, d1First, d1Run, tableHasColumn } from "../services/db";
 import { insertAdminLog, requireRole } from "../services/security";
-import { detectKyCounties, detectOtherStateNames, hasKySignal } from "../services/location";
+import { detectKyCounties } from "../services/location";
+import { isKentuckyRelevant } from "../services/relevance";
 import { summaryCacheKey, summarySeoCacheKey } from "../services/summary";
 
 const IngestionLogsQuery = z.object({
@@ -285,22 +286,13 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
         continue;
       }
 
-      const fullText = articleText;
+      const rssTextToCheck = [title, summaryText].filter(Boolean).join(" ");
+      const fullText = articleText || rssTextToCheck;
+      const relevance = isKentuckyRelevant(title, fullText);
       const titleCounties = detectKyCounties(title);
       const bodyCounties = detectKyCounties(fullText);
       const taggedCounties = new Set([...titleCounties, ...bodyCounties].map((x) => normalizeCounty(x)).filter(Boolean));
-      const titleKySignal = hasKySignal(title, titleCounties);
-      const bodyKySignal = hasKySignal(fullText, bodyCounties);
-      const hasStrongKySignal = titleKySignal || bodyKySignal || taggedCounties.size > 0;
-
-      const titleOtherStates = detectOtherStateNames(title);
-      const bodyOtherStates = detectOtherStateNames(fullText);
-      const hasTitleOutOfStateSignal = titleOtherStates.length > 0 && !titleKySignal && titleCounties.length === 0;
-      const hasPrimaryOutOfStateSignal = bodyOtherStates.length > 0 && !bodyKySignal && bodyCounties.length === 0;
-      const shouldTagAsKy =
-        hasStrongKySignal &&
-        !hasTitleOutOfStateSignal &&
-        !hasPrimaryOutOfStateSignal;
+      const shouldTagAsKy = relevance.relevant;
 
       const existing = tagsByItem.get(itemId) || [];
       const nonKy = existing.filter((x) => x.state_code !== "KY");
@@ -327,7 +319,8 @@ export function registerAdminRoutes(app: Hono<AppBindings>): void {
           action: "retag",
           title,
           counties: Array.from(taggedCounties).sort((a, b) => a.localeCompare(b)),
-          should_tag_ky: shouldTagAsKy
+          should_tag_ky: shouldTagAsKy,
+          failed_tier: relevance.failedTier
         });
       }
 

@@ -1,3 +1,5 @@
+import { Readability } from "@mozilla/readability";
+import { parseHTML } from "linkedom";
 import { decodeHtmlEntities, normalizeWhitespace, toHttpsUrl } from "../lib/text";
 
 export interface ArticleFetchResult {
@@ -10,20 +12,6 @@ export interface ArticleFetchResult {
 const ARTICLE_TIMEOUT_MS = 12_000;
 const ARTICLE_MAX_CHARS = 2_000_000;
 const EXCERPT_MAX_CHARS = 10_000;
-const NAV_CLUSTER_RE =
-  /\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)(?:\s+\b(?:home|news|sports|opinion|obituaries|features|classifieds|public notices|contests|calendar|services|about us|policies|news tip|submit photo|engagement announcement|wedding announcement|anniversary announcement|letter to editor|submit an obituary|pay subscription|e-edition)\b){4,}/gi;
-
-function stripTags(input: string): string {
-  return decodeHtmlEntities(input)
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<iframe[\s\S]*?<\/iframe>/gi, " ")
-    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 function firstMatch(html: string, re: RegExp): string | null {
   const match = html.match(re);
@@ -96,61 +84,19 @@ function pickPublishedAt(html: string): string | null {
   return null;
 }
 
-function cleanExtractedText(input: string): string {
-  return normalizeWhitespace(
-    decodeHtmlEntities(input)
-      .replace(/\bYou are using an outdated browser[\s\S]{0,260}?experience\.\s*/gi, " ")
-      .replace(/\bSubscribe\b[\s\S]{0,500}?\bE-Edition\b/gi, " ")
-      .replace(NAV_CLUSTER_RE, " ")
-      .replace(/\s+/g, " ")
-  );
-}
-
 function extractReadableText(html: string): string {
-  const cleaned = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<iframe[\s\S]*?<\/iframe>/gi, " ")
-    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
-    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
-    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
-    .replace(/<aside[\s\S]*?<\/aside>/gi, " ");
-
-  const candidates: RegExp[] = [
-    /<article[^>]*>([\s\S]*?)<\/article>/gi,
-    /<main[^>]*>([\s\S]*?)<\/main>/gi,
-    /<section[^>]+(?:id|class)=["'][^"']*(?:article|story|post|entry|content-body|article-body|story-body|entry-content)[^"']*["'][^>]*>([\s\S]*?)<\/section>/gi,
-    /<div[^>]+(?:id|class)=["'][^"']*(?:article|story|post|entry|content-body|article-body|story-body|entry-content)[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi
-  ];
-
-  let bestText = "";
-  let bestScore = -1;
-  for (const re of candidates) {
-    re.lastIndex = 0;
-    let match: RegExpExecArray | null = null;
-    while ((match = re.exec(cleaned))) {
-      const block = match[1] || "";
-      if (!block) continue;
-      const paragraphCount = (block.match(/<p\b/gi) || []).length;
-      const text = cleanExtractedText(stripTags(block));
-      if (!text) continue;
-      const navHits = (text.match(/\b(home|subscribe|classifieds|public notices|calendar|services)\b/gi) || []).length;
-      const score = text.length + paragraphCount * 120 - navHits * 45;
-      if (score > bestScore) {
-        bestScore = score;
-        bestText = text;
-      }
-    }
+  try {
+    const { document } = parseHTML(html);
+    const reader = new Readability(document);
+    const article = reader.parse();
+    const cleanText = normalizeWhitespace(
+      decodeHtmlEntities([article?.title, article?.textContent].filter(Boolean).join(" "))
+    );
+    if (!cleanText) return "";
+    return cleanText.length > EXCERPT_MAX_CHARS ? cleanText.slice(0, EXCERPT_MAX_CHARS) : cleanText;
+  } catch {
+    return "";
   }
-
-  if (!bestText || bestText.length < 220) {
-    const bodyMatch = cleaned.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    bestText = cleanExtractedText(stripTags(bodyMatch?.[1] || cleaned));
-  }
-
-  const text = cleanExtractedText(bestText);
-  return text.length > EXCERPT_MAX_CHARS ? text.slice(0, EXCERPT_MAX_CHARS) : text;
 }
 
 export async function fetchArticle(url: string): Promise<ArticleFetchResult> {
