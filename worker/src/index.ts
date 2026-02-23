@@ -5,7 +5,12 @@ import {
 	queryArticles,
 	updateArticleClassification,
 } from './lib/db';
-import { MASTER_SOURCE_SEEDS, SCHOOL_SOURCE_SEEDS } from './data/source-seeds';
+import {
+	HIGH_PRIORITY_SOURCE_SEEDS,
+	MASTER_SOURCE_SEEDS,
+	NORMAL_PRIORITY_SOURCE_SEEDS,
+	SCHOOL_SOURCE_SEEDS,
+} from './data/source-seeds';
 import { badRequest, corsPreflightResponse, isAllowedCategory, json, parseCommaList, parseJsonBody, parsePositiveInt } from './lib/http';
 import { ingestSingleUrl } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
@@ -15,8 +20,8 @@ import type { Category } from './types';
 
 // county filtering is now allowed for any category; preferences are handled on the client
 const COUNTY_FILTER_ALLOWED = new Set(['today', 'sports', 'schools', 'obituaries', 'national', 'weather']);
-const DEFAULT_SEED_LIMIT_PER_SOURCE = 12;
-const MAX_SEED_LIMIT_PER_SOURCE = 50;
+const DEFAULT_SEED_LIMIT_PER_SOURCE = 100;
+const MAX_SEED_LIMIT_PER_SOURCE = 500;
 
 interface SeedSourceStatus {
 sourceUrl: string;
@@ -144,6 +149,9 @@ limitPerSource,
 }, 202);
 }
 	if (url.pathname === '/api/admin/reclassify' && request.method === 'POST') {
+		if (!isAdminAuthorized(request, env)) {
+			return json({ error: 'Unauthorized' }, 401);
+		}
 		// Re-classify existing articles using AI (GLM-4.7-Flash).
 		// Pass { limit: 20, beforeId: <lastId from previous response> } to page through.
 		// Process runs inline (not waitUntil) so the response includes results.
@@ -183,6 +191,9 @@ limitPerSource,
 	}
 
 if (url.pathname === '/api/admin/articles' && request.method === 'GET') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
 const limit = parsePositiveInt(url.searchParams.get('limit'), 25, 100);
 const cursor = url.searchParams.get('cursor');
 const search = url.searchParams.get('search')?.trim() ?? null;
@@ -200,6 +211,9 @@ return json(result);
 }
 
 if (url.pathname === '/api/admin/sources' && request.method === 'GET') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
 const stats = await getSourceStats(env);
 const configuredSources = [...new Set([...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS].map((s) => s.trim()).filter(isHttpUrl))];
 const statsMap = new Map(stats.map((item) => [item.sourceUrl, item]));
@@ -225,6 +239,9 @@ items: merged,
 }
 
 if (url.pathname === '/api/admin/retag' && request.method === 'POST') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
 const body = await parseJsonBody<{ id?: number; category?: string; isKentucky?: boolean; county?: string | null }>(request);
 const id = Number(body?.id ?? 0);
 if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
@@ -287,8 +304,16 @@ return json({ error: 'Internal server error', details: safeError(err) }, 500);
 }
 },
 async scheduled(_event, env, ctx): Promise<void> {
-// Runs on cron schedule - ingest all configured sources automatically.
-const sourceUrls = [...new Set([...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS].map((s) => s.trim()).filter(isHttpUrl))];
+// Tiered polling: high-priority every 5 min, normal every 15 min.
+const cron = (_event as ScheduledEvent).cron || '';
+
+if (cron === '*/5 * * * *') {
+const sourceUrls = [...new Set(HIGH_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
+ctx.waitUntil(runIngest(env, sourceUrls, Math.max(DEFAULT_SEED_LIMIT_PER_SOURCE, 30)));
+return;
+}
+
+const sourceUrls = [...new Set(NORMAL_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
 ctx.waitUntil(runIngest(env, sourceUrls, DEFAULT_SEED_LIMIT_PER_SOURCE));
 },
 } satisfies ExportedHandler<Env>;
@@ -323,6 +348,17 @@ if (!Number.isFinite(limitPerSource)) return DEFAULT_SEED_LIMIT_PER_SOURCE;
 const numeric = Math.floor(limitPerSource as number);
 if (numeric <= 0) return DEFAULT_SEED_LIMIT_PER_SOURCE;
 return Math.min(numeric, MAX_SEED_LIMIT_PER_SOURCE);
+}
+
+function isAdminAuthorized(request: Request, env: Env): boolean {
+	const configured = ((env as unknown as { ADMIN_PANEL_PASSWORD?: string }).ADMIN_PANEL_PASSWORD || '').trim();
+	if (!configured) {
+		// If no password is configured in worker secrets, keep admin endpoints closed.
+		return false;
+	}
+
+	const provided = (request.headers.get('x-admin-key') || '').trim();
+	return provided.length > 0 && provided === configured;
 }
 
 async function ingestSeedSource(env: Env, sourceUrl: string, limitPerSource: number): Promise<SeedSourceStatus> {

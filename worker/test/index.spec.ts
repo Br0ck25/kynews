@@ -209,9 +209,9 @@ describe('Kentucky News worker API', () => {
 });
 
 describe('classification utilities', () => {
-	it('allows short content for facebook URLs only', () => {
-		expect(isShortContentAllowed('https://facebook.com/story/123', 10)).toBe(true);
-		expect(isShortContentAllowed('https://fb.watch/abc', 10)).toBe(true);
+	it('rejects short content under minimum threshold', () => {
+		expect(isShortContentAllowed('https://facebook.com/story/123', 10)).toBe(false);
+		expect(isShortContentAllowed('https://fb.watch/abc', 10)).toBe(false);
 		expect(isShortContentAllowed('https://example.com/news', 10)).toBe(false);
 		expect(isShortContentAllowed('https://example.com/news', 75)).toBe(true);
 	});

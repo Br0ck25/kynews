@@ -81,6 +81,6 @@
 	 * https://developers.cloudflare.com/workers/configuration/cron-triggers/
 	 */
 	"triggers": {
-		"crons": ["0 * * * *"]
+		"crons": ["*/5 * * * *", "*/15 * * * *"]
 	}
 }

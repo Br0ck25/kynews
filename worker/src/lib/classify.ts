@@ -273,8 +273,6 @@ const CATEGORY_PATTERNS: Record<Exclude<Category, 'today' | 'national'>, RegExp[
   ],
 };
 
-const FACEBOOK_EXEMPT_HOSTS = ['facebook.com', 'fb.watch', 'm.facebook.com'];
-
 export function classifyArticle(title: string, bodyText: string): RelevanceClassification {
   const normalizedTitle = normalizeText(title);
   const normalizedBody = normalizeText(bodyText);
@@ -319,16 +317,7 @@ export function detectSemanticCategory(text: string): Exclude<Category, 'today' 
 }
 
 export function isShortContentAllowed(url: string, wordCount: number, minimum = 50): boolean {
-  if (wordCount >= minimum) return true;
-
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return FACEBOOK_EXEMPT_HOSTS.some((allowedHost) =>
-      host === allowedHost || host.endsWith(`.${allowedHost}`),
-    );
-  } catch {
-    return false;
-  }
+  return wordCount >= minimum;
 }
 
 function hasStrongLocationTitleMatch(title: string): boolean {

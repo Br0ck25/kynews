@@ -23,6 +23,9 @@ const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 const CATEGORIES = ["today", "national", "sports", "weather", "schools", "obituaries"];
 
 export default function AdminPage() {
+  const [password, setPassword] = useState("");
+  const [authorized, setAuthorized] = useState(Boolean(service.getAdminPanelKey()));
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [sources, setSources] = useState([]);
   const [sourceSummary, setSourceSummary] = useState(null);
@@ -35,7 +38,9 @@ export default function AdminPage() {
   const [edits, setEdits] = useState({});
 
   const loadData = async () => {
+    if (!authorized) return;
     setLoading(true);
+    setError("");
     try {
       const [sourceResp, articleResp] = await Promise.all([
         service.getAdminSources(),
@@ -47,18 +52,21 @@ export default function AdminPage() {
       setEdits({});
     } catch (err) {
       console.error(err);
+      setError(err?.errorMessage || "Unable to load admin data. Check password and worker deployment.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    if (authorized) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authorized]);
 
   const applyFilter = async () => {
+    if (!authorized) return;
     setLoading(true);
+    setError("");
     try {
       const articleResp = await service.getAdminArticles({
         category: articleCategoryFilter,
@@ -69,6 +77,7 @@ export default function AdminPage() {
       setEdits({});
     } catch (err) {
       console.error(err);
+      setError(err?.errorMessage || "Unable to filter articles.");
     } finally {
       setLoading(false);
     }
@@ -97,10 +106,67 @@ export default function AdminPage() {
       await applyFilter();
     } catch (err) {
       console.error(err);
+      setError(err?.errorMessage || "Retag failed.");
     } finally {
       setSavingId(null);
     }
   };
+
+  const unlockAdmin = async () => {
+    setError("");
+    service.setAdminPanelKey(password);
+    try {
+      await service.getAdminSources();
+      setAuthorized(true);
+      setPassword("");
+    } catch (err) {
+      setAuthorized(false);
+      service.setAdminPanelKey("");
+      setError(err?.errorMessage || "Invalid admin password.");
+    }
+  };
+
+  const lockAdmin = () => {
+    service.setAdminPanelKey("");
+    setAuthorized(false);
+    setSources([]);
+    setArticleRows([]);
+    setSourceSummary(null);
+  };
+
+  if (!authorized) {
+    return (
+      <Box>
+        <Typography variant="h5" gutterBottom>
+          Admin Console
+        </Typography>
+        <Typography variant="body2" color="textSecondary" gutterBottom>
+          Enter admin password to continue.
+        </Typography>
+        <Paper style={{ padding: 16, maxWidth: 420 }}>
+          <TextField
+            fullWidth
+            variant="outlined"
+            size="small"
+            label="Admin Password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Box style={{ marginTop: 12, display: "flex", gap: 8 }}>
+            <Button variant="contained" color="primary" onClick={unlockAdmin}>
+              Unlock
+            </Button>
+          </Box>
+          {error && (
+            <Typography color="error" variant="body2" style={{ marginTop: 10 }}>
+              {error}
+            </Typography>
+          )}
+        </Paper>
+      </Box>
+    );
+  }
 
   return (
     <Box>
@@ -110,6 +176,14 @@ export default function AdminPage() {
       <Typography variant="body2" color="textSecondary" gutterBottom>
         Hidden route for moderation and source health checks.
       </Typography>
+      <Box style={{ marginBottom: 12 }}>
+        <Button size="small" variant="outlined" onClick={lockAdmin}>Lock admin panel</Button>
+      </Box>
+      {error && (
+        <Typography color="error" variant="body2" style={{ marginBottom: 10 }}>
+          {error}
+        </Typography>
+      )}
 
       <Paper style={{ padding: 16, marginBottom: 16 }}>
         <Typography variant="h6" gutterBottom>

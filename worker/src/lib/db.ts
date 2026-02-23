@@ -107,27 +107,18 @@ export async function queryArticles(env: Env, options: {
     where.push('category = ?');
     binds.push('sports');
     where.push('is_kentucky = 1');
+  } else if (options.category === 'schools') {
+    where.push('category = ?');
+    binds.push('schools');
+    where.push('is_kentucky = 1');
+  } else if (options.category === 'obituaries') {
+    where.push('category = ?');
+    binds.push('obituaries');
+    where.push('is_kentucky = 1');
   } else {
-    // national, weather, schools, obituaries – filter by stored category value
-    if (options.category === 'obituaries') {
-      where.push(`(
-        category = 'obituaries'
-        OR (
-          is_kentucky = 1
-          AND (
-            title LIKE ? OR
-            content_text LIKE ? OR
-            content_text LIKE ? OR
-            content_text LIKE ? OR
-            content_text LIKE ?
-          )
-        )
-      )`);
-      binds.push('%obituary%', '%obituary%', '%passed away%', '%funeral service%', '%survived by%');
-    } else {
-      where.push('category = ?');
-      binds.push(options.category);
-    }
+    // national, weather – filter by stored category value
+    where.push('category = ?');
+    binds.push(options.category);
   }
 
   // National should always show all national stories regardless of county filters.

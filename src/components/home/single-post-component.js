@@ -193,6 +193,19 @@ export default function SinglePost(props) {
                   <ShareIcon />
                 </IconButton>
 
+                <Button
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  href={post.originalLink || "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  disabled={!post.originalLink}
+                  style={{ marginLeft: 8 }}
+                >
+                  Original Article
+                </Button>
+
                 {showDelete && (
                   <IconButton
                     color="secondary"

@@ -8,7 +8,7 @@ import Button from "@material-ui/core/Button";
 import Chip from "@material-ui/core/Chip";
 import { useDispatch } from "react-redux";
 import { setPost } from "../redux/actions/actions";
-import { getPostTags } from "../utils/functions";
+import { DateFromNow, getPostTags } from "../utils/functions";
 
 const useStyles = makeStyles((theme) => ({
   mainFeaturedPost: {
@@ -100,6 +100,9 @@ export default function FeaturedPost(props) {
               }}
             >
               {/* {post.description.split(' ').splice(0, 10).join(' ')}... */}
+            </Typography>
+            <Typography variant="body2" color="inherit" style={{ opacity: 0.9 }}>
+              {DateFromNow(post.date)}
             </Typography>
             <Button
               size="small"

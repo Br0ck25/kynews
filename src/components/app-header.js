@@ -6,8 +6,6 @@ import Typography from "@material-ui/core/Typography";
 import IconButton from '@material-ui/core/IconButton';
 import MenuIcon from '@material-ui/icons/Menu';
 import SideBarMenu from './sidebar-menu-component';
-import { isMobile } from '../utils/functions';
-import { useSelector } from "react-redux";
 import Constants from "../constants/constants";
 
 const useStyles = makeStyles((theme) => ({
@@ -33,9 +31,7 @@ const useStyles = makeStyles((theme) => ({
 
 export default function AppHeader() {
   const classes = useStyles();
-  const title = useSelector(state => state.title);
-  const headerTitle = title && title.trim() ? title : Constants.appName;
-  const mobile = isMobile();
+  const headerTitle = Constants.appName;
 
   const [open, setOpen] = useState(false);
 

@@ -298,3 +298,27 @@ export const SCHOOL_SOURCE_SEEDS: string[] = [
   'https://www.wolfe.kyschools.us/',
   'https://www.woodford.kyschools.us/',
 ];
+
+export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
+  'https://kentuckylantern.com',
+  'https://www.courier-journal.com',
+  'https://www.kentucky.com',
+  'https://www.whas11.com',
+  'https://www.wdrb.com',
+  'https://www.wlky.com',
+  'https://www.wkyt.com',
+  'https://www.lex18.com',
+  'https://www.wtvq.com',
+  'https://www.wsaz.com',
+  'https://www.wymt.com',
+  'https://www.wpsdlocal6.com',
+  'https://www.kfvs12.com',
+  'https://spectrumnews1.com/ky/louisville',
+  'https://ket.org/news',
+  'https://www.weather.gov/',
+];
+
+export const NORMAL_PRIORITY_SOURCE_SEEDS: string[] = [
+  ...MASTER_SOURCE_SEEDS,
+  ...SCHOOL_SOURCE_SEEDS,
+].filter((url, idx, arr) => arr.indexOf(url) === idx && !HIGH_PRIORITY_SOURCE_SEEDS.includes(url));

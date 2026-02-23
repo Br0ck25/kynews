@@ -1,7 +1,7 @@
 import { KENTUCKY_COUNTIES } from '../constants/counties';
 
 /**
- * Formats a date as "MM/DD/YYYY" (Eastern Time).
+ * Formats a date as "MM/DD/YYYY hh:mm AM/PM ET" using the article's original published timestamp.
  * Falls back to the raw value string if the date is unparseable.
  */
 export function ToDateTime(value) {
@@ -9,12 +9,20 @@ export function ToDateTime(value) {
   try {
     const d = new Date(value);
     if (isNaN(d.getTime())) return String(value);
-    return new Intl.DateTimeFormat('en-US', {
+    const datePart = new Intl.DateTimeFormat('en-US', {
       month: '2-digit',
       day: '2-digit',
       year: 'numeric',
       timeZone: 'America/New_York',
     }).format(d);
+    const timePart = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'America/New_York',
+      timeZoneName: 'short',
+    }).format(d);
+    return `${datePart} ${timePart}`;
   } catch {
     return String(value);
   }

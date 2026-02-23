@@ -3,6 +3,7 @@ import { KENTUCKY_COUNTIES } from "../constants/counties";
 
 const DEFAULT_IMAGE = "https://source.unsplash.com/random/1200x800?kentucky-news";
 const WORKER_FALLBACK_BASE_URL = "https://worker.jamesbrock25.workers.dev";
+const ADMIN_SESSION_KEY = "ky_admin_panel_key";
 
 const ALLOWED_CATEGORIES = [
   "today",
@@ -138,10 +139,20 @@ export default class SiteService {
   }
 
   async request(path, options = {}) {
+    const headers = {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    };
+
+    if (path.startsWith("/api/admin/")) {
+      const adminKey = this.getAdminPanelKey();
+      if (adminKey) {
+        headers["x-admin-key"] = adminKey;
+      }
+    }
+
     const requestOptions = {
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       ...options,
     };
 
@@ -407,6 +418,67 @@ export default class SiteService {
       method: "POST",
       body: JSON.stringify({ id, category, isKentucky, county }),
     });
+  }
+
+  setAdminPanelKey(value) {
+    const key = String(value || "").trim();
+    if (!key) {
+      sessionStorage.removeItem(ADMIN_SESSION_KEY);
+      return;
+    }
+    sessionStorage.setItem(ADMIN_SESSION_KEY, key);
+  }
+
+  getAdminPanelKey() {
+    try {
+      return sessionStorage.getItem(ADMIN_SESSION_KEY) || "";
+    } catch {
+      return "";
+    }
+  }
+
+  async getWeatherByZip(zip) {
+    const normalizedZip = String(zip || "").trim();
+    if (!/^\d{5}$/.test(normalizedZip)) {
+      throw toError(null, "Please enter a valid 5-digit ZIP code.");
+    }
+
+    const geoRes = await fetch(`https://api.zippopotam.us/us/${normalizedZip}`);
+    if (!geoRes.ok) {
+      throw toError(null, "ZIP code not found.");
+    }
+    const geo = await geoRes.json();
+    const place = geo?.places?.[0];
+    const lat = Number(place?.latitude);
+    const lon = Number(place?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      throw toError(null, "Unable to resolve coordinates for this ZIP code.");
+    }
+
+    const forecastRes = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&timezone=America%2FNew_York&current=temperature_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min`
+    );
+    const forecast = forecastRes.ok ? await forecastRes.json() : null;
+
+    const alertsRes = await fetch(`https://api.weather.gov/alerts/active?point=${lat},${lon}`);
+    const alertsJson = alertsRes.ok ? await alertsRes.json() : { features: [] };
+
+    return {
+      zip: normalizedZip,
+      city: place?.["place name"] || "",
+      state: place?.state || "",
+      latitude: lat,
+      longitude: lon,
+      current: forecast?.current ?? null,
+      daily: forecast?.daily ?? null,
+      alerts: Array.isArray(alertsJson?.features)
+        ? alertsJson.features.slice(0, 5).map((f) => ({
+            title: f?.properties?.headline || f?.properties?.event || "Weather Alert",
+            severity: f?.properties?.severity || "",
+            expires: f?.properties?.expires || "",
+          }))
+        : [],
+    };
   }
 
   getPostByHref(href) {
