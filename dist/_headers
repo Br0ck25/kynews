@@ -1,0 +1,19 @@
+# Hashed JS/CSS assets — filenames include content hash; safe to cache 1 year
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Service worker — must never be cached so browsers always get the latest
+/service-worker.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+
+# HTML entry point — revalidate on every visit
+/index.html
+  Cache-Control: no-cache
+
+# Root and all SPA routes — always revalidate so new deploys pick up immediately
+/*
+  Cache-Control: no-cache
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin

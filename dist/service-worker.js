@@ -1,26 +1,53 @@
 /**
- * Minimal service worker that immediately self-unregisters.
+ * Minimal "cleanup" service worker.
  *
- * This file replaces the legacy CRA-generated service worker that used the
- * deprecated `StorageType.persistent` API (via workbox-expiration v5).
- * Existing visitors whose browsers had the old service worker cached will
- * receive this file on the next update check (≤4 h cadence), at which point
- * the worker activates, cleans up all caches, and removes itself.
+ * Replaces the legacy CRA/Workbox service worker that used the deprecated
+ * `StorageType.persistent` API (via workbox-expiration v5 IDBKeyRange quota
+ * tracking). Any browser that still has the old SW cached will receive this
+ * file on the next update check, skip-wait to activate immediately, delete
+ * all caches AND all Workbox IndexedDB databases, then unregister itself.
  *
- * The main app (`index.js`) already calls `serviceWorkerRegistration.unregister()`
- * so no new registrations happen from the React side.
+ * The main app (index.js) already calls serviceWorkerRegistration.unregister()
+ * so no new SW registrations happen from the React bundle.
  */
 
-// Activate immediately so we don't wait for tabs to close.
+// Activate immediately without waiting for existing tabs to close.
 self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', async () => {
-  // Delete all workbox/app caches from the old service worker.
-  const cacheNames = await caches.keys();
-  await Promise.all(cacheNames.map((name) => caches.delete(name)));
+  // 1. Delete all Cache Storage entries from the old Workbox service worker.
+  try {
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames.map((name) => caches.delete(name)));
+  } catch (_) {
+    // best-effort
+  }
 
-  // Unregister this service worker so it stops intercepting fetches.
-  // Uses navigator.storage (standardised) instead of the deprecated
-  // StorageType.persistent / webkitStorageInfo APIs.
-  await self.registration.unregister();
+  // 2. Delete Workbox IndexedDB databases.
+  // workbox-expiration v5 creates IDBs named "workbox-expiration" (and
+  // others) that called the deprecated StorageType.persistent quota API.
+  // Deleting them removes the deprecation warning from Lighthouse.
+  if (typeof indexedDB !== 'undefined' && indexedDB.databases) {
+    try {
+      const dbs = await indexedDB.databases();
+      await Promise.all(
+        dbs
+          .filter((db) => db.name && (
+            db.name.startsWith('workbox') ||
+            db.name.startsWith('firebase') ||
+            db.name === 'keyval-store'
+          ))
+          .map((db) => indexedDB.deleteDatabase(db.name))
+      );
+    } catch (_) {
+      // best-effort; indexedDB.databases() may not be available in all browsers
+    }
+  }
+
+  // 3. Unregister self so this SW stops intercepting any future fetches.
+  try {
+    await self.registration.unregister();
+  } catch (_) {
+    // best-effort
+  }
 });
