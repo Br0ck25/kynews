@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { unstable_batchedUpdates } from "react-dom";
 import { makeStyles } from "@material-ui/core/styles";
 import {
   FormControl,
@@ -95,17 +96,26 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
       .fetchPage({ category, counties: effectiveCounties, cursor: null, limit: getPageLimit(category) })
       .then(({ posts, nextCursor }) => {
         if (!active || !isMountedRef.current) return;
-        setAllPosts(posts);
-        setCursor(nextCursor);
-        setHasMore(nextCursor !== null);
-        // Keep Redux posts in sync with the first page for post-detail navigation
-        dispatch(setPosts(posts));
-        setIsLoading(false);
+        // Batch all state updates into one React re-render.
+        // React 17 does NOT batch async state updates; without batchedUpdates
+        // cursor changes BEFORE isLoading=false so the sentinel effect fires
+        // when sentinel is off the DOM, returns early, and is never re-triggered
+        // when isLoading later becomes false — infinite scroll completely broken.
+        unstable_batchedUpdates(() => {
+          setAllPosts(posts);
+          setCursor(nextCursor);
+          setHasMore(nextCursor !== null);
+          // Keep Redux posts in sync with the first page for post-detail navigation
+          dispatch(setPosts(posts));
+          setIsLoading(false);
+        });
       })
       .catch((error) => {
         if (!active || !isMountedRef.current) return;
-        setErrors(error.errorMessage || "Failed to load posts.");
-        setIsLoading(false);
+        unstable_batchedUpdates(() => {
+          setErrors(error.errorMessage || "Failed to load posts.");
+          setIsLoading(false);
+        });
       });
 
     return () => {
@@ -128,17 +138,21 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
       .fetchPage({ category, counties: effectiveCounties, cursor, limit: getPageLimit(category) })
       .then(({ posts, nextCursor }) => {
         if (!isMountedRef.current) return;
-        setAllPosts((prev) => [...prev, ...posts]);
-        setCursor(nextCursor);
-        setHasMore(nextCursor !== null);
-        isLoadingMoreRef.current = false;
-        setIsLoadingMore(false);
+        unstable_batchedUpdates(() => {
+          setAllPosts((prev) => [...prev, ...posts]);
+          setCursor(nextCursor);
+          setHasMore(nextCursor !== null);
+          isLoadingMoreRef.current = false;
+          setIsLoadingMore(false);
+        });
       })
       .catch(() => {
         if (!isMountedRef.current) return;
-        // silently fail on load-more; user can scroll up and back down to retry
-        isLoadingMoreRef.current = false;
-        setIsLoadingMore(false);
+        unstable_batchedUpdates(() => {
+          // silently fail on load-more; user can scroll up and back down to retry
+          isLoadingMoreRef.current = false;
+          setIsLoadingMore(false);
+        });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, countyKey, cursor, hasMore]);
@@ -178,12 +192,14 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
       if (observer) observer.disconnect();
       window.removeEventListener("scroll", handleScroll);
     };
-  }, [loadMore]);
+    // Re-run when isLoading changes so the observer is reattached the moment
+    // the sentinel div appears in the DOM after the skeleton phase ends.
+  }, [loadMore, isLoading]);
 
   // If viewport is taller than content, keep auto-loading until the sentinel
   // is below the preload threshold or there are no more pages.
   useEffect(() => {
-    if (isLoading || isLoadingMoreRef.current || !hasMore) return;
+    if (isLoading || isLoadingMoreRef.current || !hasMore || !cursor) return;
     const el = sentinelRef.current;
     if (!el) return;
 

@@ -35,8 +35,9 @@
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
   <title>Kentucky News</title>
-  <!-- Preconnect to Google Fonts CDN to reduce render-blocking latency -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <!-- DNS-prefetch for Google Fonts stylesheet (avoids exceeding the 4-preconnect limit) -->
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+  <!-- Preconnect only for gstatic where actual font binary files are fetched -->
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <!-- Load fonts asynchronously to avoid render blocking -->
   <link

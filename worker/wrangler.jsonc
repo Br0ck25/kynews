@@ -44,9 +44,12 @@
 	 * Pages domain is `kynews.pages.dev` (adjust for your custom domain if
 	 * different).
 	 */
-	// Uncomment and update the next line if you want the worker to automatically
-	// handle `https://kynews.pages.dev/api/*` requests:
-	// "routes": ["kynews.pages.dev/api/*"],
+	// Worker routes: handle /api/* requests on the production domain so the
+	// frontend never needs to fall back to the slower worker.dev subdomain.
+	"routes": [
+		{ "pattern": "localkynews.com/api/*", "zone_name": "localkynews.com" },
+		{ "pattern": "www.localkynews.com/api/*", "zone_name": "localkynews.com" }
+	],
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

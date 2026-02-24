@@ -31,9 +31,10 @@ const useStyles = makeStyles((theme) => ({
 }));
 
 function a11yProps(index) {
+  // aria-controls omitted: there are no corresponding tabpanel elements in
+  // this navigation bar — pointing to non-existent IDs is an ARIA violation.
   return {
     id: `scrollable-auto-tab-${index}`,
-    "aria-controls": `scrollable-auto-tabpanel-${index}`,
   };
 }
 
@@ -95,7 +96,7 @@ export default function SectionsHeader(props) {
           variant={isDesktop ? "standard" : "scrollable"}
           centered={isDesktop}
           scrollButtons="auto"
-          aria-label="scrollable auto tabs example"
+          aria-label="Site navigation sections"
         >
           {sections.map((section, index) => (
             <Tab key={index} label={section.title} {...a11yProps(index)} />
