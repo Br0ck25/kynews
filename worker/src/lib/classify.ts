@@ -41,17 +41,39 @@ const KY_CITY_TERMS = [
   'erlanger',
 ] as const;
 
+/**
+ * City names that exist in multiple US states. A hit on one of these only counts
+ * toward the Kentucky threshold when "Kentucky" or "KY" is also present.
+ */
 const AMBIGUOUS_CITY_TERMS = new Set<string>([
   'lexington',
   'louisville',
   'georgetown',
   'franklin',
   'winchester',
+  'ashland',      // also Ashland, VA / OR
+  'covington',    // also Covington, VA / GA / OH
+  'richmond',     // also Richmond, VA and many others
+  'florence',     // also Florence, AL / SC / OR
+  'madisonville', // also Madisonville, TN / TX
 ]);
 
+/**
+ * Kentucky county patterns.
+ *
+ * Supports: "Pike County", "Leslie Co", "Leslie Cnty".
+ * For the "Co" abbreviation: `[\\s]` in the template literal becomes the `[\s]`
+ * whitespace class in the compiled regex. This ensures "Leslie Co" (space after)
+ * and "Leslie Co" (end of string) match, while "oil co report" does not (the
+ * county name "oil" isn't in KY_COUNTIES, so it never fires anyway — but the
+ * boundary guard prevents hypothetical same-named false positives).
+ */
 const COUNTY_PATTERNS = KY_COUNTIES.map((county) => ({
   county,
-  pattern: new RegExp(`\\b${escapeRegExp(county)}\\s+county\\b`, 'i'),
+  pattern: new RegExp(
+    `\\b${escapeRegExp(county)}\\s+(?:county|cnty|co(?=[\\s]|$))\\b`,
+    'i',
+  ),
 }));
 
 const KENTUCKY_OR_KY_RE = /\bkentucky\b|\bky\b/i;
@@ -73,6 +95,94 @@ interface ClassifierInput {
 }
 
 /**
+ * Known source domains whose site-name branding contains "Kentucky" and would
+ * otherwise inflate the Kentucky mention count for national articles.
+ * Articles from these sources have their brand phrase stripped before classification.
+ */
+const KY_BRANDED_SOURCES: Array<{ hosts: string[]; stripPattern: RegExp }> = [
+  {
+    hosts: ['kentuckylantern.com'],
+    stripPattern: /\bkentucky\s+lantern\b/gi,
+  },
+  {
+    hosts: ['kentuckytoday.com'],
+    stripPattern: /\bkentucky\s+today\b/gi,
+  },
+  {
+    hosts: ['kentuckysportsradio.com', 'ksr.com'],
+    stripPattern: /\bkentucky\s+sports\s+radio\b|\bksr\b/gi,
+  },
+  {
+    hosts: ['kentucky.com'],
+    // Kentucky.com (Herald-Leader) — strip standalone brand references but not
+    // legitimate "Kentucky" usage in article text. We strip only the byline/footer form.
+    stripPattern: /\bkentucky\.com\b/gi,
+  },
+];
+
+/**
+ * Source domain → default Kentucky county.
+ * When an article from a hyperlocal KY source has no county detected in the text,
+ * this provides a fallback so the county field is never null for known local outlets.
+ * Add entries as new sources are ingested. County values must match KY_COUNTIES exactly.
+ */
+const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
+  // Eastern Kentucky
+  'pikevilledaily.com': 'Pike',
+  'dailyindependent.com': 'Greenup',      // Ashland / Greenup area
+  'harlanenterprise.com': 'Harlan',
+  'thetimestribune.com': 'Floyd',         // Paintsville
+  'bdmountaineer.com': 'Breathitt',       // Jackson / Breathitt
+  'hazardherald.com': 'Perry',
+  'messagenewspaper.com': 'Leslie',       // Hyden
+  'newsexpressky.com': 'Letcher',         // Whitesburg area
+  'letnews.com': 'Letcher',
+  'lccourier.com': 'Lee',
+  'kentuckyexplorer.com': 'Knott',
+  'jacksontimes.com': 'Breathitt',
+  // Central Kentucky
+  'kentucky.com': 'Fayette',             // Lexington Herald-Leader
+  'lex18.com': 'Fayette',
+  'wkyt.com': 'Fayette',
+  'jessaminejournalonline.com': 'Jessamine',
+  'richmondregister.com': 'Madison',
+  'bgdailynews.com': 'Warren',           // Bowling Green
+  'wkuherald.com': 'Warren',
+  // Western Kentucky
+  'paducahsun.com': 'McCracken',
+  'murrayledger.com': 'Calloway',
+  'mayfield-messenger.com': 'Graves',
+  // Louisville Metro
+  'wdrb.com': 'Jefferson',
+  'wave3.com': 'Jefferson',
+  'whas11.com': 'Jefferson',
+  'courier-journal.com': 'Jefferson',
+  // Northern Kentucky
+  'nky.com': 'Kenton',
+  'nkytribune.com': 'Kenton',
+  // State-level sources (no default county — they cover all of KY)
+  'kentuckylantern.com': null,
+  'kentuckytoday.com': null,
+  'kentuckysportsradio.com': null,
+};
+
+/**
+ * Brand phrases that should NOT count as "Kentucky" location signals.
+ * These are national brand names that contain the word "Kentucky" but refer
+ * to a company or product, not the Commonwealth.
+ * Each entry is tested as a case-insensitive substring after normalization.
+ */
+const KY_HARD_NEGATIVES: RegExp[] = [
+  /\bkentucky\s+fried\s+chicken\b/i,
+  /\bkfc\b/i,
+  /\bkentucky\s+derby\s+industries\b/i,    // unrelated brand (rare)
+  /\bkentucky\s+windage\b/i,               // shooting/gun term, not geographic
+  /\bwestern\s+kentucky\s+university\b/i,  // WKU in national rankings not KY news
+  /\beastern\s+kentucky\s+university\b/i,  // EKU in national context
+  /\bnorthern\s+kentucky\s+university\b/i, // NKU in national context
+];
+
+/**
  * AI-powered classification using GLM-4.7-Flash.
  * Reads the article title and content to determine category, Kentucky presence,
  * and county. Falls back to keyword-based classifyArticle if AI fails.
@@ -81,41 +191,66 @@ export async function classifyArticleWithAi(
   env: Env,
   input: ClassifierInput,
 ): Promise<ClassificationResult> {
-  const title = normalizeTitleForClassification((input.title || '').trim(), input.url);
-  const content = normalizeContentForClassification((input.content || '').trim(), input.url);
-  const relevance = classifyArticle(title, content);
+  const title = normalizeTitleForSource((input.title || '').trim(), input.url);
+  const content = normalizeContentForSource((input.content || '').trim(), input.url);
 
-  const semanticText = `${title}\n${content}`;
+  // Strip hard-negative brand phrases from the classification text so they don't
+  // inflate the Kentucky mention count. We blank them rather than delete so
+  // surrounding context words are preserved.
+  const cleanTitle = stripHardNegatives(title);
+  const cleanContent = stripHardNegatives(content);
+
+  const relevance = classifyArticle(cleanTitle, cleanContent);
+
+  const semanticText = `${cleanTitle}\n${cleanContent}`;
   const semanticCategory = detectSemanticCategory(semanticText);
 
   const hasKhsaa = /\bkhsaa\b/i.test(semanticText);
   const baseIsKentucky = relevance.category === 'kentucky' || hasKhsaa;
   const baseGeo = baseIsKentucky ? detectKentuckyGeo(semanticText) : { county: null, city: null };
 
+  // Apply source-domain default county when geo detection finds none.
+  const sourceDefaultCounty = getSourceDefaultCounty(input.url);
+
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');
   if (category === 'sports' && !baseIsKentucky && !hasKhsaa) {
-    // Kentucky Sports page should only include Kentucky sports.
     category = 'national';
   }
 
+  // Louisville Cardinals / UofL sports: Louisville is in AMBIGUOUS_CITY_TERMS so it
+  // doesn't trigger KY by itself. But "Louisville" + any sports keyword is a reliable
+  // KY sports signal — UofL is unambiguously a Kentucky institution.
+  if (!baseIsKentucky && category === 'sports' && /\b(louisville|uofl|u of l|cardinals)\b/i.test(semanticText)) {
+    category = 'sports';
+    // Will be corrected to national below if we can't confirm KY — but first
+    // treat Louisville sports as a KY signal and let the merge handle it.
+  }
+  const louisvilleSportsSignal =
+    /\b(louisville|uofl|u of l)\b/i.test(semanticText) &&
+    detectSemanticCategory(semanticText) === 'sports';
+
   let fallback: ClassificationResult = {
-    isKentucky: baseIsKentucky,
-    county: baseGeo.county,
+    isKentucky: baseIsKentucky || louisvilleSportsSignal,
+    county: baseGeo.county ?? (baseIsKentucky || louisvilleSportsSignal ? sourceDefaultCounty : null),
     city: baseGeo.city,
     category: hasKhsaa ? 'sports' : category,
   };
 
-  // Fallback AI mode: only when deterministic result is ambiguous or missing county for Kentucky stories.
-  if (!shouldUseAiFallback(title, content, fallback)) {
+  // Re-apply sports guard now that Louisville signal may have changed isKentucky.
+  if (fallback.category === 'sports' && !fallback.isKentucky && !hasKhsaa) {
+    fallback.category = 'national';
+  }
+
+  if (!shouldUseAiFallback(cleanTitle, cleanContent, fallback)) {
     return fallback;
   }
 
   try {
-    const countyList = KY_COUNTIES.slice(0, 50).join(', '); // first 50 for prompt brevity
+    const countyList = KY_COUNTIES.join(', '); // full list — model context is large enough
     const prompt = [
       'You are a news classifier for a Kentucky local news app.',
       'Analyze the article title and first 1200 characters of content below.',
-      'Important: Ignore publisher/site branding in title or body (for example, "Kentucky Lantern") when deciding Kentucky relevance.',
+      'Important: Ignore publisher/site branding (e.g. "Kentucky Lantern", "Kentucky Today") when deciding Kentucky relevance.',
       '',
       'Task: Return a JSON object with three fields:',
       '  "category" - one of: "sports", "weather", "schools", "obituaries", "today", "national"',
@@ -125,19 +260,26 @@ export async function classifyArticleWithAi(
       '    obituaries = article is an obituary, funeral notice, or memorial service announcement',
       '    today      = article mentions Kentucky or KY but does not fit sports/weather/schools/obituaries',
       '    national   = article does NOT primarily concern Kentucky AND does not fit the above categories',
-      '  "isKentucky" - true if the article contains the word "Kentucky" or abbreviation "KY" (standalone), false otherwise',
-      '                 but DO NOT count publisher names/branding as location signals.',
-      '  "county" - if a specific Kentucky county is prominently mentioned (e.g., "Pike County", "Fayette County"),',
-      '             return just the county name WITHOUT the word County (e.g., "Pike"). Otherwise return null.',
-      `  Known KY counties include: ${countyList}, ...`,
+      '  "isKentucky" - true ONLY if the article is primarily about events, people, or places IN Kentucky.',
+      '    Return false if:',
+      '      - Kentucky is only mentioned once in passing (e.g. in a list of states)',
+      '      - The story is primarily set in another state that happens to mention KY',
+      '      - The only Kentucky reference is a brand name (KFC, Western Kentucky University rankings, etc.)',
+      '      - A county name appears but that county is clearly in another state',
+      '    DO NOT count publisher names/branding as location signals.',
+      '  "county" - if a specific Kentucky county is prominently mentioned AND the story is set in Kentucky,',
+      '             return just the county name WITHOUT the word "County" (e.g. "Pike" not "Pike County").',
+      '             County must be one of the official 120 Kentucky counties listed below.',
+      '             If the county is in another state, or you are not confident, return null.',
+      `  All 120 KY counties: ${countyList}`,
       '',
       'Rules:',
       '  - Respond with ONLY valid JSON. No markdown, no code fences, no extra text.',
       '  - Example: {"category":"today","isKentucky":true,"county":"Fayette"}',
       '',
-      `Title: ${title}`,
+      `Title: ${cleanTitle}`,
       '',
-      `Content: ${content.slice(0, 1200)}`,
+      `Content: ${cleanContent.slice(0, 1200)}`,
     ].join('\n');
 
     const aiRaw = (await env.AI.run('@cf/zai-org/glm-4.7-flash' as keyof AiModels, {
@@ -164,17 +306,15 @@ export async function classifyArticleWithAi(
     };
 
     const aiCategory = VALID_AI_CATEGORIES.has(parsed.category ?? '') ? (parsed.category as Category) : null;
-
     const aiIsKentucky = typeof parsed.isKentucky === 'boolean' ? parsed.isKentucky : false;
-    const aiCounty = parsed.county && parsed.county !== 'null' && parsed.county.length > 1
-      ? normalizeCountyName(parsed.county)
-      : null;
+    const aiCounty =
+      parsed.county && parsed.county !== 'null' && parsed.county.length > 1
+        ? normalizeCountyName(parsed.county)
+        : null;
 
-    const aiGeo = aiIsKentucky ? detectKentuckyGeo(`${title}\n${content}`) : { county: null, city: null };
-
+    const aiGeo = aiIsKentucky ? detectKentuckyGeo(`${cleanTitle}\n${cleanContent}`) : { county: null, city: null };
     const mergedIsKentucky = fallback.isKentucky || aiIsKentucky;
 
-    // Keep deterministic section category unless deterministic was national and AI found a valid semantic category.
     let mergedCategory = fallback.category;
     if (fallback.category === 'national' && aiCategory && aiCategory !== 'national') {
       mergedCategory = aiCategory;
@@ -184,16 +324,21 @@ export async function classifyArticleWithAi(
       mergedCategory = 'national';
     }
 
+    const mergedCounty =
+      fallback.county ??
+      aiCounty ??
+      aiGeo.county ??
+      (mergedIsKentucky ? sourceDefaultCounty : null);
+
     fallback = {
       isKentucky: mergedIsKentucky,
-      county: fallback.county ?? aiCounty ?? aiGeo.county,
+      county: mergedCounty,
       city: fallback.city ?? aiGeo.city,
       category: hasKhsaa ? 'sports' : mergedCategory,
     };
 
     return fallback;
   } catch {
-    // AI unavailable or returned unparseable response — deterministic result stands.
     return fallback;
   }
 }
@@ -218,9 +363,9 @@ const CATEGORY_PATTERNS: Record<Exclude<Category, 'today' | 'national'>, RegExp[
     /\bwrestling\s+(match|team|coach|tournament|season)\b/i,
     /\btrack\s+and\s+field\b/i,
     /\bcross\s+country\s+(team|meet|race|runner)\b/i,
-    /\bkhsaa\b/i,         // Kentucky High School Athletic Association
+    /\bkhsaa\b/i,
     /\bncaa\s+(tournament|game|team|championship)\b/i,
-    /\bsec\s+(champion|play|game|title)\b/i,  // SEC sports
+    /\bsec\s+(champion|play|game|title)\b/i,
     /\bathletic\s+(director|program|scholarship)\b/i,
     /\bcoach(es|ed|ing)?\s+of\s+the\s+year\b/i,
     /\bvolleyball\s+(team|match|game|season|tournament)\b/i,
@@ -229,8 +374,6 @@ const CATEGORY_PATTERNS: Record<Exclude<Category, 'today' | 'national'>, RegExp[
     /\bgymnastics\s+(team|meet|competition|season)\b/i,
   ],
   weather: [
-    // Require *specific* weather phrases, not generic words like "rain" or "temperature"
-    // to avoid mis-classifying political/housing/crime articles that happen to mention weather
     /\bweather\s+(forecast|advisory|warning|alert|service)\b/i,
     /\btornado\s+(warning|watch|siren)\b/i,
     /\bflood\s+(warning|watch|advisory|stage)\b/i,
@@ -244,7 +387,6 @@ const CATEGORY_PATTERNS: Record<Exclude<Category, 'today' | 'national'>, RegExp[
     /\bnational weather service\b/i,
   ],
   schools: [
-    // Require compound phrases to avoid matching "student" or "college" in unrelated articles
     /\bschool board\b/i,
     /\bboard of education\b/i,
     /\bhigh school\b/i,
@@ -282,28 +424,24 @@ export function classifyArticle(title: string, bodyText: string): RelevanceClass
 
   const titleHasKentucky = hasKentuckyOrKy(normalizedTitle);
   if (titleHasKentucky || hasStrongLocationTitleMatch(normalizedTitle)) {
-    return {
-      category: 'kentucky',
-      tier: 'title',
-      mentionCount: 1,
-    };
+    return { category: 'kentucky', tier: 'title', mentionCount: 1 };
   }
 
   const hasKentuckyContext = hasKentuckyOrKy(wholeArticle);
   const mentionCount = countKentuckyMentions(normalizedBody, hasKentuckyContext);
-  if (mentionCount >= 2) {
-    return {
-      category: 'kentucky',
-      tier: 'body',
-      mentionCount,
-    };
+
+  // State-enumeration guard: if Kentucky appears but only inside a list of US states
+  // (e.g. "…affecting Kentucky, Ohio, Indiana and Tennessee…"), do not treat it as a
+  // primary Kentucky story. Require at least one KY mention that is NOT in an enumeration.
+  if (mentionCount >= 2 && isKentuckyOnlyInStateList(normalizedBody)) {
+    return { category: 'national', tier: 'national', mentionCount };
   }
 
-  return {
-    category: 'national',
-    tier: 'national',
-    mentionCount,
-  };
+  if (mentionCount >= 2) {
+    return { category: 'kentucky', tier: 'body', mentionCount };
+  }
+
+  return { category: 'national', tier: 'national', mentionCount };
 }
 
 export function detectSemanticCategory(text: string): Exclude<Category, 'today' | 'national'> | null {
@@ -311,9 +449,7 @@ export function detectSemanticCategory(text: string): Exclude<Category, 'today' 
     Exclude<Category, 'today' | 'national'>,
     RegExp[],
   ][]) {
-    if (patterns.some((pattern) => pattern.test(text))) {
-      return category;
-    }
+    if (patterns.some((pattern) => pattern.test(text))) return category;
   }
   return null;
 }
@@ -324,56 +460,74 @@ export function isShortContentAllowed(url: string, wordCount: number, minimum = 
 
 function hasStrongLocationTitleMatch(title: string): boolean {
   const titleHasKentuckyContext = hasKentuckyOrKy(title);
-
-  if (COUNTY_PATTERNS.some(({ pattern }) => pattern.test(title))) return true;
+  if (detectCounty(normalizeText(title), title)) return true;
   if (/\bkhsaa\b/i.test(title)) return true;
 
   for (const term of [...KY_CITY_TERMS, ...KY_REGION_TERMS]) {
     if (!containsWordOrPhrase(title, term)) continue;
-    if (AMBIGUOUS_CITY_TERMS.has(term) && !titleHasKentuckyContext) {
-      continue;
-    }
+    if (AMBIGUOUS_CITY_TERMS.has(term) && !titleHasKentuckyContext) continue;
     return true;
   }
 
   return false;
 }
 
+/**
+ * Counts distinct Kentucky signals in body text.
+ *
+ * County and city hits only count when `allowAmbiguousCities` is true
+ * (i.e. "Kentucky"/"KY" already appears in the full article). This prevents
+ * a county-name-only match from pushing a national story over the KY threshold.
+ */
 function countKentuckyMentions(text: string, allowAmbiguousCities: boolean): number {
   if (!text) return 0;
 
   let count = 0;
+
+  // Unambiguous standalone signals — always count.
   count += countMatches(text, /\bkentucky\b/gi);
   count += countMatches(text, /\bky\b/gi);
   count += countMatches(text, /\bkhsaa\b/gi);
-
-  for (const { pattern } of COUNTY_PATTERNS) {
-    count += countMatches(text, new RegExp(pattern.source, 'gi'));
-  }
-
   for (const term of KY_REGION_TERMS) {
     count += countPhraseOccurrences(text, term);
   }
 
-  for (const city of KY_CITY_TERMS) {
-    if (AMBIGUOUS_CITY_TERMS.has(city) && !allowAmbiguousCities) continue;
-    count += countPhraseOccurrences(text, city);
-  }
+  // County and city hits only count when we already have KY context.
+  if (allowAmbiguousCities) {
+    for (const { pattern } of COUNTY_PATTERNS) {
+      count += countMatches(text, new RegExp(pattern.source, 'gi'));
+    }
 
-  // Also allow existing city/county detector to contribute one mention when it can find a canonical hit.
-  if (detectCounty(text)) count += 1;
-  if (allowAmbiguousCities && detectCity(text)) count += 1;
+    if (detectCounty(text)) count += 1;
+    if (detectCity(text)) count += 1;
+
+    for (const city of KY_CITY_TERMS) {
+      if (AMBIGUOUS_CITY_TERMS.has(city)) continue;
+      count += countPhraseOccurrences(text, city);
+    }
+  }
 
   return count;
 }
 
+/**
+ * Decides whether to invoke the AI classifier.
+ *
+ * Triggers AI when:
+ * - KY story with no county (AI may fill it in)
+ * - KY story with county but NO standalone "Kentucky"/"KY" (county-only match,
+ *   which is the most error-prone path — e.g. "Christian County, MO")
+ * - National story that nonetheless has at least one KY hint (AI double-check)
+ */
 function shouldUseAiFallback(title: string, content: string, current: ClassificationResult): boolean {
+  const fullText = `${title}\n${content}`;
+
   if (current.isKentucky && !current.county) return true;
 
-  // Deterministic national but with weak Kentucky hints: let AI double-check.
+  if (current.isKentucky && current.county && !hasKentuckyOrKy(fullText)) return true;
+
   if (!current.isKentucky) {
-    const text = `${title}\n${content}`;
-    if (hasKentuckyOrKy(text)) return true;
+    if (hasKentuckyOrKy(fullText)) return true;
     if (countKentuckyMentions(normalizeText(content), false) === 1) return true;
   }
 
@@ -391,11 +545,8 @@ function normalizeCountyName(value: string): string | null {
 }
 
 function containsWordOrPhrase(haystack: string, phrase: string): boolean {
-  if (phrase.includes(' ')) {
-    return haystack.includes(phrase);
-  }
-  const re = new RegExp(`\\b${escapeRegExp(phrase)}\\b`, 'i');
-  return re.test(haystack);
+  if (phrase.includes(' ')) return haystack.includes(phrase);
+  return new RegExp(`\\b${escapeRegExp(phrase)}\\b`, 'i').test(haystack);
 }
 
 function countMatches(text: string, regex: RegExp): number {
@@ -420,26 +571,43 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function normalizeTitleForClassification(title: string, sourceUrl: string): string {
+/**
+ * Strips site-name branding from titles for sources that embed "Kentucky" in their brand.
+ * Prevents brand boilerplate from inflating the Kentucky mention count for national articles.
+ */
+function normalizeTitleForSource(title: string, sourceUrl: string): string {
   const host = getHostname(sourceUrl);
   if (!host) return title;
 
-  if (host === 'kentuckylantern.com' || host.endsWith('.kentuckylantern.com')) {
-    return title
-      .replace(/^\s*kentucky\s+lantern\s*[|•·—–-]\s*/i, '')
-      .replace(/\s*[|•·—–-]\s*kentucky\s+lantern\s*$/i, '')
-      .trim();
+  for (const source of KY_BRANDED_SOURCES) {
+    if (source.hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
+      return title
+        .replace(/^\s*[\w\s]+\s*[|•·—–-]\s*/i, (m) =>
+          source.stripPattern.test(m) ? '' : m,
+        )
+        .replace(/\s*[|•·—–-]\s*[\w\s]+\s*$/i, (m) =>
+          source.stripPattern.test(m) ? '' : m,
+        )
+        .replace(source.stripPattern, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
   }
 
   return title;
 }
 
-function normalizeContentForClassification(content: string, sourceUrl: string): string {
+/**
+ * Strips site-name branding from article content for known KY-branded sources.
+ */
+function normalizeContentForSource(content: string, sourceUrl: string): string {
   const host = getHostname(sourceUrl);
   if (!host) return content;
 
-  if (host === 'kentuckylantern.com' || host.endsWith('.kentuckylantern.com')) {
-    return content.replace(/\bkentucky\s+lantern\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  for (const source of KY_BRANDED_SOURCES) {
+    if (source.hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
+      return content.replace(source.stripPattern, ' ').replace(/\s+/g, ' ').trim();
+    }
   }
 
   return content;
@@ -451,4 +619,71 @@ function getHostname(sourceUrl: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Blanks out hard-negative brand phrases so they don't inflate the Kentucky
+ * mention count. Replaces matched text with spaces rather than deleting so
+ * surrounding word boundaries are preserved.
+ */
+function stripHardNegatives(text: string): string {
+  let result = text;
+  for (const pattern of KY_HARD_NEGATIVES) {
+    result = result.replace(pattern, (m) => ' '.repeat(m.length));
+  }
+  return result;
+}
+
+/**
+ * Returns the default county for a known hyperlocal Kentucky source domain,
+ * or null if the domain is unknown or covers the whole state.
+ */
+function getSourceDefaultCounty(sourceUrl: string): string | null {
+  const host = getHostname(sourceUrl);
+  if (!host) return null;
+
+  for (const [domain, county] of Object.entries(SOURCE_DEFAULT_COUNTY)) {
+    if (host === domain || host.endsWith(`.${domain}`)) return county;
+  }
+
+  return null;
+}
+
+/**
+ * Returns true when every occurrence of "Kentucky"/"KY" in the text appears
+ * inside a multi-state enumeration pattern, suggesting the article is national
+ * in scope and merely lists KY alongside other states.
+ *
+ * Examples that return true:
+ *   "…affecting Kentucky, Ohio, Indiana and Tennessee…"
+ *   "…states including Kentucky, Virginia, and West Virginia…"
+ *
+ * A single KY mention that is NOT in an enumeration returns false, allowing
+ * the normal mentionCount >= 2 logic to proceed.
+ */
+function isKentuckyOnlyInStateList(normalizedText: string): boolean {
+  // Pattern: "kentucky" or "ky" surrounded by other state names within ~60 chars
+  const kyRe = /\b(kentucky|ky)\b/gi;
+  // Neighbours that suggest an enumeration context
+  const enumerationNeighbourRe =
+    /\b(ohio|indiana|tennessee|virginia|west virginia|illinois|missouri|arkansas|georgia|carolina|alabama|mississippi|florida|texas|oklahoma|kansas|nebraska|iowa|michigan|wisconsin|minnesota|pennsylvania|new york|new jersey|maryland|delaware|connecticut|massachusetts|rhode island|vermont|new hampshire|maine|alaska|hawaii|arizona|nevada|utah|colorado|wyoming|montana|idaho|oregon|washington)\b/i;
+
+  let match: RegExpExecArray | null;
+  let allInEnumeration = true;
+  let foundAny = false;
+
+  while ((match = kyRe.exec(normalizedText)) !== null) {
+    foundAny = true;
+    const start = Math.max(0, match.index - 80);
+    const end = Math.min(normalizedText.length, match.index + match[0].length + 80);
+    const window = normalizedText.slice(start, end);
+
+    if (!enumerationNeighbourRe.test(window)) {
+      // This KY mention is NOT in a state list — article has standalone KY context.
+      allInEnumeration = false;
+      break;
+    }
+  }
+
+  return foundAny && allInEnumeration;
 }

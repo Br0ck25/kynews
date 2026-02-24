@@ -521,43 +521,47 @@ export default function AdminPage() {
         </Typography>
       )}
 
-      <Paper style={{ padding: 16, marginBottom: 16 }}>
-        <Typography variant="h6" gutterBottom>
-          Source Health
-        </Typography>
-        {sourceSummary && (
-          <Box style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-            <Chip label={`Configured: ${sourceSummary.totalConfiguredSources || 0}`} />
-            <Chip label={`Active: ${sourceSummary.activeSources || 0}`} color="primary" />
-            <Chip label={`No articles yet: ${sourceSummary.inactiveSources || 0}`} />
-          </Box>
-        )}
-        {loading ? (
-          <CircularProgress size={24} />
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Source</TableCell>
-                <TableCell align="right">Articles</TableCell>
-                <TableCell>Latest Published</TableCell>
-                <TableCell>Status</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {sources.slice(0, 200).map((row) => (
-                <TableRow key={row.sourceUrl}>
-                  <TableCell style={{ maxWidth: 420, overflowWrap: "anywhere" }}>{row.sourceUrl}</TableCell>
-                  <TableCell align="right">{row.articleCount}</TableCell>
-                  <TableCell>{row.latestPublishedAt || "—"}</TableCell>
-                  <TableCell>
-                    <Chip size="small" label={row.status} color={row.status === "active" ? "primary" : "default"} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+      <Paper style={{ marginBottom: 16 }}>
+        <Accordion defaultExpanded={false}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="h6">Source Health</Typography>
+          </AccordionSummary>
+          <AccordionDetails style={{ display: "block" }}>
+            {sourceSummary && (
+              <Box style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                <Chip label={`Configured: ${sourceSummary.totalConfiguredSources || 0}`} />
+                <Chip label={`Active: ${sourceSummary.activeSources || 0}`} color="primary" />
+                <Chip label={`No articles yet: ${sourceSummary.inactiveSources || 0}`} />
+              </Box>
+            )}
+            {loading ? (
+              <CircularProgress size={24} />
+            ) : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Source</TableCell>
+                    <TableCell align="right">Articles</TableCell>
+                    <TableCell>Latest Published</TableCell>
+                    <TableCell>Status</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {sources.slice(0, 200).map((row) => (
+                    <TableRow key={row.sourceUrl}>
+                      <TableCell style={{ maxWidth: 420, overflowWrap: "anywhere" }}>{row.sourceUrl}</TableCell>
+                      <TableCell align="right">{row.articleCount}</TableCell>
+                      <TableCell>{row.latestPublishedAt || "—"}</TableCell>
+                      <TableCell>
+                        <Chip size="small" label={row.status} color={row.status === "active" ? "primary" : "default"} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </AccordionDetails>
+        </Accordion>
       </Paper>
 
       <Paper style={{ padding: 16 }}>

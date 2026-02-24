@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
 import { __testables } from '../src/index';
 import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
+import { detectCounty } from '../src/lib/geo';
 import { toIsoDateOrNull } from '../src/lib/http';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
@@ -232,6 +233,24 @@ describe('classification utilities', () => {
 
 		expect(classification.isKentucky).toBe(false);
 		expect(classification.category).toBe('national');
+	});
+
+	it('does not detect Kentucky county when nearby out-of-state signal is present', () => {
+		const text =
+			'A jury in Christian County Missouri returned an indictment after a multi-state investigation.';
+
+		expect(detectCounty(text, text)).toBeNull();
+	});
+
+	it('applies source default county fallback for Kentucky.com when KY context is present', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.kentucky.com/news/politics-government/article999999999.html',
+			title: 'State budget advances in Kentucky legislature',
+			content: 'Kentucky lawmakers debated fiscal priorities during the latest legislative session.',
+		});
+
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Fayette');
 	});
 });
 

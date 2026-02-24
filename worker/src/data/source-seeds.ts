@@ -5,6 +5,7 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://abcnews.go.com/abcnews/topstories?format=rss',
   'https://kentuckylantern.com/feed',
   'https://kentuckylantern.com/feed/',
+  'https://kentuckylantern.com/feed/localFeed',
   'https://kentuckylantern.com/feed/?format=rss',
   'https://kentuckylantern.com/rss',
   'https://kentuckylantern.com/rss/',
@@ -140,6 +141,12 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://kychamberbottomline.com/feed/',
   'https://www.wcpo.com/news/state/state-kentucky.rss',
   'https://www.owensborotimes.com/feed/',
+  'https://stateline.org/feed/',
+  'https://stateline.org/feed/localFeed',
+  'https://www.newsfromthestates.com/api/v1/articles',
+  'https://www.newsfromthestates.com/api/v2/article/category?article_category=247',
+  'https://www.newsfromthestates.com/api/v2/article/category?article_category=187491',
+  'https://www.newsfromthestates.com/api/v2/article/category?article_category=565',
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [
@@ -149,6 +156,13 @@ export const SCHOOL_SOURCE_SEEDS: string[] = [
 export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
   'https://www.wymt.com/search/?query=kentucky',
   'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
+  'https://kentuckylantern.com/feed/localFeed',
+  'https://stateline.org/feed/',
+  'https://stateline.org/feed/localFeed',
+  'https://www.newsfromthestates.com/api/v1/articles',
+  'https://www.newsfromthestates.com/api/v2/article/category?article_category=247',
+  'https://www.newsfromthestates.com/api/v2/article/category?article_category=187491',
+  'https://www.newsfromthestates.com/api/v2/article/category?article_category=565',
 ];
 
 export const NORMAL_PRIORITY_SOURCE_SEEDS: string[] = [
