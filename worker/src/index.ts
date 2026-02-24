@@ -36,6 +36,16 @@ const INGEST_METRICS_KEY = 'admin:ingest:latest';
 const FALLBACK_CRAWL_MAX_LINKS = 12;
 const FALLBACK_CRAWL_MAX_SECTION_PAGES = 3;
 
+const STRUCTURED_SEARCH_SOURCE_URLS = new Set([
+	'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
+	'https://www.wymt.com/search/?query=kentucky',
+]);
+
+const ROBOTS_BYPASS_URLS = new Set([
+	'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
+	'https://www.wymt.com/search/?query=kentucky',
+]);
+
 interface SeedSourceStatus {
 sourceUrl: string;
 discoveredFeeds: number;
@@ -581,6 +591,9 @@ duplicateSamples: [],
 };
 
 try {
+const forceStructuredSearchFallback = isStructuredSearchSource(sourceUrl);
+
+if (!forceStructuredSearchFallback) {
 const feedCandidates = await resolveFeedUrls(env, sourceUrl);
 const uniqueFeeds = [...new Set(feedCandidates.filter(isHttpUrl))];
 status.discoveredFeeds = uniqueFeeds.length;
@@ -663,6 +676,7 @@ status.errors.push(`ingest failed (${item.link}): ${safeError(error)}`);
 
 return status;
 }
+}
 
 status.fallbackUsed = true;
 try {
@@ -733,6 +747,11 @@ async function discoverFallbackArticleUrls(env: Env, sourceUrl: string, limitPer
 	const rootFetch = await cachedTextFetch(env, sourceUrl, 600).catch(() => null);
 	if (!rootFetch?.body || rootFetch.status >= 400) return [];
 
+	const structuredSearchLinks = extractStructuredSearchLinks(sourceUrl, rootFetch.body, maxLinks);
+	if (structuredSearchLinks.length > 0) {
+		return structuredSearchLinks;
+	}
+
 	const seedLinks = extractCandidateLinks(sourceUrl, rootFetch.body);
 	if (seedLinks.length >= maxLinks) return seedLinks.slice(0, maxLinks);
 
@@ -801,7 +820,7 @@ function isLikelyArticleUrl(value: string): boolean {
 	}
 
 	if (path.endsWith('.xml') || path.endsWith('.rss') || path.endsWith('.json')) return false;
-	if (path.includes('/video/') || path.includes('/videos/')) return true;
+	if (path.includes('/video/') || path.includes('/videos/')) return false;
 
 	const articleSignals = [
 		/news\//,
@@ -842,6 +861,8 @@ function isLikelySectionUrl(value: string): boolean {
 
 async function isAllowedByRobots(env: Env, targetUrl: string): Promise<boolean> {
 	try {
+		if (isRobotsBypassAllowed(targetUrl)) return true;
+
 		const target = new URL(targetUrl);
 		const robotsUrl = `${target.origin}/robots.txt`;
 		const robotsFetch = await cachedTextFetch(env, robotsUrl, 3600).catch(() => null);
@@ -857,6 +878,97 @@ async function isAllowedByRobots(env: Env, targetUrl: string): Promise<boolean> 
 		return false;
 	}
 }
+
+function isStructuredSearchSource(sourceUrl: string): boolean {
+	const normalized = normalizeSourceUrl(sourceUrl);
+	return normalized ? STRUCTURED_SEARCH_SOURCE_URLS.has(normalized) : false;
+}
+
+function isRobotsBypassAllowed(targetUrl: string): boolean {
+	const normalized = normalizeSourceUrl(targetUrl);
+	return normalized ? ROBOTS_BYPASS_URLS.has(normalized) : false;
+}
+
+function normalizeSourceUrl(value: string): string | null {
+	try {
+		const parsed = new URL(value);
+		if (!(parsed.protocol === 'https:' || parsed.protocol === 'http:')) return null;
+		parsed.hash = '';
+		return parsed.toString();
+	} catch {
+		return null;
+	}
+}
+
+function extractStructuredSearchLinks(sourceUrl: string, html: string, maxLinks: number): string[] {
+	const normalized = normalizeSourceUrl(sourceUrl);
+	if (!normalized || maxLinks <= 0) return [];
+
+	if (normalized === 'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest') {
+		return extractKentuckySearchArticleLinks(sourceUrl, html, maxLinks);
+	}
+
+	if (normalized === 'https://www.wymt.com/search/?query=kentucky') {
+		return extractWymtSearchArticleLinks(sourceUrl, html, maxLinks);
+	}
+
+	return [];
+}
+
+function extractKentuckySearchArticleLinks(baseUrl: string, html: string, maxLinks: number): string[] {
+	const results = new Set<string>();
+
+	for (const match of html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>/gi)) {
+		const href = (match[1] || '').trim();
+		if (!href) continue;
+
+		try {
+			const resolved = new URL(href, baseUrl);
+			if (resolved.origin !== 'https://www.kentucky.com') continue;
+			if (!/\/article\d+\.html$/i.test(resolved.pathname)) continue;
+			resolved.hash = '';
+			resolved.search = '';
+			results.add(resolved.toString());
+			if (results.size >= maxLinks) break;
+		} catch {
+			// ignore invalid urls
+		}
+	}
+
+	return [...results];
+}
+
+function extractWymtSearchArticleLinks(baseUrl: string, html: string, maxLinks: number): string[] {
+	const results = new Set<string>();
+
+	for (const match of html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>/gi)) {
+		const href = (match[1] || '').trim();
+		if (!href) continue;
+
+		try {
+			const resolved = new URL(href, baseUrl);
+			if (resolved.origin !== 'https://www.wymt.com') continue;
+			const path = resolved.pathname.toLowerCase();
+			if (path.startsWith('/video/')) continue;
+			if (!/^\/\d{4}\/\d{2}\/\d{2}\/[a-z0-9-]+\/?$/i.test(path)) continue;
+			resolved.hash = '';
+			resolved.search = '';
+			results.add(resolved.toString());
+			if (results.size >= maxLinks) break;
+		} catch {
+			// ignore invalid urls
+		}
+	}
+
+	return [...results];
+}
+
+export const __testables = {
+	normalizeSourceUrl,
+	isStructuredSearchSource,
+	isRobotsBypassAllowed,
+	extractStructuredSearchLinks,
+};
 
 function parseRobotsForGenericBot(content: string): { allow: string[]; disallow: string[] } {
 	const allow: string[] = [];

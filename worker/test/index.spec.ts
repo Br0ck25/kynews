@@ -1,6 +1,7 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
+import { __testables } from '../src/index';
 import { detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
@@ -219,5 +220,58 @@ describe('classification utilities', () => {
 	it('detects semantic sports category from content', () => {
 		const category = detectSemanticCategory('The Wildcats won a basketball game tonight.');
 		expect(category).toBe('sports');
+	});
+});
+
+describe('structured search source extraction', () => {
+	it('extracts only kentucky.com article links from search html', () => {
+		const html = `
+			<div>
+				<a href="https://www.kentucky.com/search/?q=kentucky">Search</a>
+				<a href="https://www.kentucky.com/sports/college/article314814863.html">Valid article</a>
+				<a href="https://www.kentucky.com/news/local/article314811957.html?taid=abc">Valid article with query</a>
+				<a href="https://www.kentucky.com/news/local/">Section link</a>
+			</div>
+		`;
+
+		const links = __testables.extractStructuredSearchLinks(
+			'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
+			html,
+			10,
+		);
+
+		expect(links).toEqual([
+			'https://www.kentucky.com/sports/college/article314814863.html',
+			'https://www.kentucky.com/news/local/article314811957.html',
+		]);
+	});
+
+	it('extracts only non-video wymt dated article links from search html', () => {
+		const html = `
+			<div>
+				<a href="https://www.wymt.com/video/2026/02/24/this-day-history-february-23-1945/">Video item</a>
+				<a href="https://www.wymt.com/2026/02/18/kentucky-power-asks-psc-approve-project-support-affordable-generation/">Article item</a>
+				<a href="https://www.wymt.com/weather">Weather nav</a>
+			</div>
+		`;
+
+		const links = __testables.extractStructuredSearchLinks(
+			'https://www.wymt.com/search/?query=kentucky',
+			html,
+			10,
+		);
+
+		expect(links).toEqual([
+			'https://www.wymt.com/2026/02/18/kentucky-power-asks-psc-approve-project-support-affordable-generation/',
+		]);
+	});
+
+	it('only bypasses robots for explicitly allowed search URLs', () => {
+		expect(
+			__testables.isRobotsBypassAllowed('https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest'),
+		).toBe(true);
+		expect(__testables.isRobotsBypassAllowed('https://www.wymt.com/search/?query=kentucky')).toBe(true);
+		expect(__testables.isRobotsBypassAllowed('https://www.kentucky.com/search/?q=kentucky&page=2')).toBe(false);
+		expect(__testables.isRobotsBypassAllowed('https://www.wymt.com/weather')).toBe(false);
 	});
 });

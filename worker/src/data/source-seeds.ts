@@ -75,9 +75,6 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://www.wtvq.com',
   'https://www.wuky.org',
   'https://www.wymt.com',
-  'https://www.wymt.com/arc/outboundfeeds/sitemap-index/?outputType=xml',
-  'https://www.wymt.com/arc/outboundfeeds/news-sitemap-index/category/news/?outputType=xml',
-  'https://www.wymt.com/arc/outboundfeeds/sitemap-section-index/?outputType=xml',
   'http://rss.cnn.com/rss/cnn_latest.rss',
   'https://moxie.foxnews.com/google-publisher/latest.xml',
   'https://feeds.nbcnews.com/nbcnews/public/news',
@@ -395,7 +392,9 @@ export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
   'https://spectrumnews1.com/ky/louisville',
   'https://ket.org/news',
   'https://www.weather.gov/',
-	 'https://www.wymt.com/search/?query=leslie',
+  'https://www.wymt.com/search/?query=leslie',
+  'https://www.wymt.com/search/?query=kentucky',
+  'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
 ];
 
 export const NORMAL_PRIORITY_SOURCE_SEEDS: string[] = [
