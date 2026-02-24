@@ -195,9 +195,7 @@ const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: nu
 const includeSchools = body?.includeSchools !== false;
 const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
 
-const candidateSources = includeSchools
-? [...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS]
-: MASTER_SOURCE_SEEDS;
+const candidateSources = buildManualIngestSources(includeSchools);
 const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filter(isHttpUrl))];
 
 // Respond immediately - processing continues in the background via waitUntil
@@ -261,9 +259,7 @@ return json({ error: 'Unauthorized' }, 401);
 const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: number }>(request);
 const includeSchools = body?.includeSchools !== false;
 const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
-const candidateSources = includeSchools
-	? [...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS]
-	: MASTER_SOURCE_SEEDS;
+const candidateSources = buildManualIngestSources(includeSchools);
 const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filter(isHttpUrl))];
 
 ctx.waitUntil(runIngest(env, sourceUrls, limitPerSource, 'manual'));
@@ -334,9 +330,7 @@ const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
 
 await env.ky_news_db.prepare('DELETE FROM articles').run();
 
-const candidateSources = includeSchools
-	? [...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS]
-	: MASTER_SOURCE_SEEDS;
+const candidateSources = buildManualIngestSources(includeSchools);
 const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filter(isHttpUrl))];
 ctx.waitUntil(runIngest(env, sourceUrls, limitPerSource, 'manual'));
 
@@ -635,6 +629,12 @@ if (numeric <= 0) return DEFAULT_SEED_LIMIT_PER_SOURCE;
 return Math.min(numeric, MAX_SEED_LIMIT_PER_SOURCE);
 }
 
+function buildManualIngestSources(includeSchools: boolean): string[] {
+	return includeSchools
+		? [...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS, ...HIGH_PRIORITY_SOURCE_SEEDS]
+		: [...MASTER_SOURCE_SEEDS, ...HIGH_PRIORITY_SOURCE_SEEDS];
+}
+
 function isAdminAuthorized(request: Request, env: Env): boolean {
 	const configured = ((env as unknown as { ADMIN_PANEL_PASSWORD?: string }).ADMIN_PANEL_PASSWORD || '').trim();
 	if (!configured) {
@@ -753,6 +753,11 @@ return status;
 status.fallbackUsed = true;
 try {
 const fallbackUrls = await discoverFallbackArticleUrls(env, sourceUrl, limitPerSource);
+if (forceStructuredSearchFallback && fallbackUrls.length === 0) {
+	status.rejected += 1;
+	status.errors.push(`structured search found no article links (${sourceUrl})`);
+	return status;
+}
 const urlsToTry = fallbackUrls.length > 0 ? fallbackUrls : [sourceUrl];
 
 for (const candidateUrl of urlsToTry) {
