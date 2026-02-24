@@ -470,6 +470,31 @@ export default class SiteService {
     });
   }
 
+  async updateAdminArticleDateTime({ id, publishedAt }) {
+    return this.request("/api/admin/article/update-datetime", {
+      method: "POST",
+      body: JSON.stringify({ id, publishedAt }),
+    });
+  }
+
+  async deleteAdminArticle({ id, block = false, reason = "" }) {
+    return this.request("/api/admin/article/delete", {
+      method: "POST",
+      body: JSON.stringify({ id, block, reason }),
+    });
+  }
+
+  async getBlockedArticles() {
+    return this.request("/api/admin/blocked");
+  }
+
+  async unblockArticle({ id }) {
+    return this.request("/api/admin/blocked/unblock", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+  }
+
   setAdminPanelKey(value) {
     const key = String(value || "").trim();
     if (!key) {

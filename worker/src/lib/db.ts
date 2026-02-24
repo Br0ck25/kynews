@@ -31,6 +31,15 @@ interface SourceStatsRow {
   latest_published_at: string;
 }
 
+interface BlockedArticleRow {
+  id: number;
+  canonical_url: string;
+  source_url: string | null;
+  url_hash: string;
+  reason: string | null;
+  created_at: string;
+}
+
 export async function findArticleByHash(env: Env, urlHash: string): Promise<ArticleRecord | null> {
   const result = await env.ky_news_db
     .prepare(`SELECT * FROM articles WHERE url_hash = ? LIMIT 1`)
@@ -98,6 +107,90 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
     .run();
 
   return Number(result.meta.last_row_id ?? 0);
+}
+
+export async function updateArticlePublishedAt(env: Env, id: number, publishedAt: string): Promise<void> {
+  await env.ky_news_db
+    .prepare('UPDATE articles SET published_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .bind(publishedAt, id)
+    .run();
+}
+
+export async function deleteArticleById(env: Env, id: number): Promise<void> {
+  await env.ky_news_db
+    .prepare('DELETE FROM articles WHERE id = ?')
+    .bind(id)
+    .run();
+}
+
+export async function blockArticleByIdAndDelete(
+  env: Env,
+  id: number,
+  reason: string | null,
+): Promise<{ blocked: boolean; deleted: boolean }> {
+  const article = await env.ky_news_db
+    .prepare('SELECT canonical_url, source_url, url_hash FROM articles WHERE id = ? LIMIT 1')
+    .bind(id)
+    .first<{ canonical_url: string; source_url: string; url_hash: string }>();
+
+  if (!article) {
+    return { blocked: false, deleted: false };
+  }
+
+  await ensureBlockedArticlesTable(env);
+  await env.ky_news_db
+    .prepare(
+      `INSERT OR REPLACE INTO blocked_articles (canonical_url, source_url, url_hash, reason, created_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    )
+    .bind(article.canonical_url, article.source_url, article.url_hash, reason)
+    .run();
+
+  await deleteArticleById(env, id);
+  return { blocked: true, deleted: true };
+}
+
+export async function isUrlHashBlocked(env: Env, urlHash: string): Promise<boolean> {
+  await ensureBlockedArticlesTable(env);
+  const result = await env.ky_news_db
+    .prepare('SELECT id FROM blocked_articles WHERE url_hash = ? LIMIT 1')
+    .bind(urlHash)
+    .first<{ id: number }>();
+
+  return Boolean(result?.id);
+}
+
+export async function listBlockedArticles(env: Env): Promise<Array<{
+  id: number;
+  canonicalUrl: string;
+  sourceUrl: string | null;
+  urlHash: string;
+  reason: string | null;
+  createdAt: string;
+}>> {
+  await ensureBlockedArticlesTable(env);
+  const rows = await env.ky_news_db
+    .prepare('SELECT * FROM blocked_articles ORDER BY id DESC LIMIT 500')
+    .all<BlockedArticleRow>();
+
+  return (rows.results ?? []).map((row) => ({
+    id: row.id,
+    canonicalUrl: row.canonical_url,
+    sourceUrl: row.source_url,
+    urlHash: row.url_hash,
+    reason: row.reason,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function unblockArticleByBlockedId(env: Env, id: number): Promise<boolean> {
+  await ensureBlockedArticlesTable(env);
+  const result = await env.ky_news_db
+    .prepare('DELETE FROM blocked_articles WHERE id = ?')
+    .bind(id)
+    .run();
+
+  return Number(result.meta.changes ?? 0) > 0;
 }
 
 export async function queryArticles(env: Env, options: {
@@ -295,4 +388,23 @@ export async function getSourceStats(env: Env): Promise<Array<{
       status: isActive ? 'active' : 'idle',
     };
   });
+}
+
+async function ensureBlockedArticlesTable(env: Env): Promise<void> {
+  await env.ky_news_db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS blocked_articles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        canonical_url TEXT NOT NULL,
+        source_url TEXT,
+        url_hash TEXT NOT NULL UNIQUE,
+        reason TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    )
+    .run();
+
+  await env.ky_news_db
+    .prepare('CREATE INDEX IF NOT EXISTS idx_blocked_articles_hash ON blocked_articles(url_hash)')
+    .run();
 }

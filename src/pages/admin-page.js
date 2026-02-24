@@ -45,6 +45,9 @@ export default function AdminPage() {
   const [hasMoreArticles, setHasMoreArticles] = useState(false);
   const [loadingMoreArticles, setLoadingMoreArticles] = useState(false);
   const [savingId, setSavingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [blockedRows, setBlockedRows] = useState([]);
+  const [unblockingId, setUnblockingId] = useState(null);
 
   const [edits, setEdits] = useState({});
 
@@ -53,9 +56,10 @@ export default function AdminPage() {
     setLoading(true);
     setError("");
     try {
-      const [sourceResp, articleResp] = await Promise.all([
+      const [sourceResp, articleResp, blockedResp] = await Promise.all([
         service.getAdminSources(),
         service.getAdminArticles({ category: articleCategoryFilter, search: articleSearch, limit: 200 }),
+        service.getBlockedArticles(),
       ]);
       const [metricsResp, rejectResp] = await Promise.all([
         service.getAdminMetrics(),
@@ -70,6 +74,7 @@ export default function AdminPage() {
       setArticleRows(initialItems);
       setArticleCursor(articleResp.nextCursor || null);
       setHasMoreArticles(Boolean(articleResp.nextCursor));
+      setBlockedRows(blockedResp?.items || []);
       setEdits({});
     } catch (err) {
       console.error(err);
@@ -135,6 +140,7 @@ export default function AdminPage() {
                 category: patch.category ?? row.category,
                 isKentucky: patch.isKentucky ?? row.isKentucky,
                 county: patch.county ?? row.county,
+                publishedAt: patch.publishedAt ?? row.publishedAt,
               }
             : item
         )
@@ -148,6 +154,88 @@ export default function AdminPage() {
       setError(err?.errorMessage || "Retag failed.");
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const saveDateTime = async (row) => {
+    const patch = edits[row.id] || {};
+    const publishedAt = patch.publishedAt ?? row.publishedAt;
+    if (!publishedAt) {
+      setError("Published date/time is required.");
+      return;
+    }
+
+    setSavingId(row.id);
+    setError("");
+    try {
+      const payload = await service.updateAdminArticleDateTime({ id: row.id, publishedAt });
+      const nextPublishedAt = payload?.publishedAt || publishedAt;
+      setArticleRows((prev) =>
+        prev.map((item) =>
+          item.id === row.id
+            ? {
+                ...item,
+                publishedAt: nextPublishedAt,
+              }
+            : item
+        )
+      );
+      setEdits((prev) => ({
+        ...prev,
+        [row.id]: {
+          ...(prev[row.id] || {}),
+          publishedAt: nextPublishedAt,
+        },
+      }));
+    } catch (err) {
+      console.error(err);
+      setError(err?.errorMessage || "Unable to update date/time.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const deleteArticle = async (row, shouldBlock) => {
+    const confirmed = window.confirm(
+      shouldBlock
+        ? `Delete article #${row.id} and block it from future ingestion?`
+        : `Delete article #${row.id}?`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(row.id);
+    setError("");
+    try {
+      await service.deleteAdminArticle({
+        id: row.id,
+        block: shouldBlock,
+        reason: shouldBlock ? "Blocked by admin console" : "",
+      });
+      setArticleRows((prev) => prev.filter((item) => item.id !== row.id));
+      if (shouldBlock) {
+        const blockedResp = await service.getBlockedArticles();
+        setBlockedRows(blockedResp?.items || []);
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err?.errorMessage || "Unable to delete article.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const unblockArticle = async (blockedItem) => {
+    if (!blockedItem?.id) return;
+    setUnblockingId(blockedItem.id);
+    setError("");
+    try {
+      await service.unblockArticle({ id: blockedItem.id });
+      setBlockedRows((prev) => prev.filter((item) => item.id !== blockedItem.id));
+    } catch (err) {
+      console.error(err);
+      setError(err?.errorMessage || "Unable to unblock article.");
+    } finally {
+      setUnblockingId(null);
     }
   };
 
@@ -511,11 +599,12 @@ export default function AdminPage() {
               <TableRow>
                 <TableCell>ID</TableCell>
                 <TableCell>Title</TableCell>
+                <TableCell>Published (UTC)</TableCell>
                 <TableCell>Category</TableCell>
                 <TableCell>KY</TableCell>
                 <TableCell>County</TableCell>
                 <TableCell>Links</TableCell>
-                <TableCell>Save</TableCell>
+                <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -524,11 +613,22 @@ export default function AdminPage() {
                 const currentCategory = edit.category ?? row.category;
                 const currentKy = edit.isKentucky ?? row.isKentucky;
                 const currentCounty = edit.county ?? row.county ?? "";
+                const currentPublishedAt = edit.publishedAt ?? row.publishedAt ?? "";
 
                 return (
                   <TableRow key={row.id}>
                     <TableCell>{row.id}</TableCell>
                     <TableCell style={{ maxWidth: 420, overflowWrap: "anywhere" }}>{row.title}</TableCell>
+                    <TableCell>
+                      <TextField
+                        variant="outlined"
+                        size="small"
+                        type="datetime-local"
+                        value={toDateTimeLocalValue(currentPublishedAt)}
+                        onChange={(e) => setEdit(row.id, { publishedAt: fromDateTimeLocalValue(e.target.value) })}
+                        InputLabelProps={{ shrink: true }}
+                      />
+                    </TableCell>
                     <TableCell>
                       <FormControl variant="outlined" size="small" style={{ minWidth: 140 }}>
                         <Select
@@ -587,15 +687,44 @@ export default function AdminPage() {
                       </Box>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="primary"
-                        disabled={savingId === row.id}
-                        onClick={() => saveRetag(row)}
-                      >
-                        {savingId === row.id ? "Saving..." : "Save"}
-                      </Button>
+                      <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="primary"
+                          disabled={savingId === row.id}
+                          onClick={() => saveRetag(row)}
+                        >
+                          {savingId === row.id ? "Saving..." : "Save tags"}
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="primary"
+                          disabled={savingId === row.id}
+                          onClick={() => saveDateTime(row)}
+                        >
+                          Save date/time
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="secondary"
+                          disabled={deletingId === row.id}
+                          onClick={() => deleteArticle(row, false)}
+                        >
+                          Delete
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="secondary"
+                          disabled={deletingId === row.id}
+                          onClick={() => deleteArticle(row, true)}
+                        >
+                          {deletingId === row.id ? "Working..." : "Delete + Block"}
+                        </Button>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 );
@@ -615,6 +744,76 @@ export default function AdminPage() {
           </Button>
         </Box>
       </Paper>
+
+      <Paper style={{ padding: 16, marginTop: 16 }}>
+        <Typography variant="h6" gutterBottom>
+          Blocked Articles
+        </Typography>
+        <Typography variant="body2" color="textSecondary" gutterBottom>
+          Blocked URLs are rejected during future ingest runs.
+        </Typography>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>ID</TableCell>
+              <TableCell>URL</TableCell>
+              <TableCell>Reason</TableCell>
+              <TableCell>Blocked At</TableCell>
+              <TableCell>Action</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {blockedRows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5}>No blocked articles.</TableCell>
+              </TableRow>
+            ) : (
+              blockedRows.map((item) => (
+                <TableRow key={`blocked-${item.id}`}>
+                  <TableCell>{item.id}</TableCell>
+                  <TableCell style={{ maxWidth: 420, overflowWrap: "anywhere" }}>
+                    {item.canonicalUrl || item.sourceUrl || "—"}
+                  </TableCell>
+                  <TableCell>{item.reason || "—"}</TableCell>
+                  <TableCell>{item.createdAt || "—"}</TableCell>
+                  <TableCell>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="primary"
+                      disabled={unblockingId === item.id}
+                      onClick={() => unblockArticle(item)}
+                    >
+                      {unblockingId === item.id ? "Unblocking..." : "Unblock"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Paper>
     </Box>
   );
+}
+
+function toDateTimeLocalValue(isoValue) {
+  if (!isoValue) return "";
+  const date = new Date(isoValue);
+  if (!Number.isFinite(date.getTime())) return "";
+
+  const pad = (v) => String(v).padStart(2, "0");
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function fromDateTimeLocalValue(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return "";
+  return parsed.toISOString();
 }

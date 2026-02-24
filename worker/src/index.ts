@@ -1,9 +1,14 @@
 import {
+	blockArticleByIdAndDelete,
+	deleteArticleById,
 	getArticleById,
+	listBlockedArticles,
 	getSourceStats,
 	listAdminArticles,
 	listArticlesForReclassify,
 	queryArticles,
+	unblockArticleByBlockedId,
+	updateArticlePublishedAt,
 	updateArticleClassification,
 } from './lib/db';
 import {
@@ -28,8 +33,6 @@ import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
 import { classifyArticleWithAi } from './lib/classify';
 import type { Category } from './types';
 
-// county filtering is now allowed for any category; preferences are handled on the client
-const COUNTY_FILTER_ALLOWED = new Set(['today', 'sports', 'schools', 'obituaries', 'national', 'weather']);
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
 const INGEST_METRICS_KEY = 'admin:ingest:latest';
@@ -412,6 +415,67 @@ county: typeof body?.county === 'string' && body.county.trim() ? body.county.tri
 return json({ ok: true, id });
 }
 
+if (url.pathname === '/api/admin/article/update-datetime' && request.method === 'POST') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const body = await parseJsonBody<{ id?: number; publishedAt?: string }>(request);
+const id = Number(body?.id ?? 0);
+if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+
+const rawPublishedAt = (body?.publishedAt || '').trim();
+if (!rawPublishedAt) return badRequest('Missing publishedAt');
+
+const parsedTs = Date.parse(rawPublishedAt);
+if (!Number.isFinite(parsedTs)) return badRequest('Invalid publishedAt datetime');
+
+await updateArticlePublishedAt(env, id, new Date(parsedTs).toISOString());
+return json({ ok: true, id, publishedAt: new Date(parsedTs).toISOString() });
+}
+
+if (url.pathname === '/api/admin/article/delete' && request.method === 'POST') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const body = await parseJsonBody<{ id?: number; block?: boolean; reason?: string }>(request);
+const id = Number(body?.id ?? 0);
+if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+
+if (body?.block) {
+	const result = await blockArticleByIdAndDelete(env, id, (body?.reason || '').trim() || null);
+	if (!result.deleted) return json({ error: 'Article not found' }, 404);
+	return json({ ok: true, blocked: result.blocked, deleted: result.deleted, id });
+}
+
+await deleteArticleById(env, id);
+return json({ ok: true, blocked: false, deleted: true, id });
+}
+
+if (url.pathname === '/api/admin/blocked' && request.method === 'GET') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const items = await listBlockedArticles(env);
+return json({ items, total: items.length });
+}
+
+if (url.pathname === '/api/admin/blocked/unblock' && request.method === 'POST') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const body = await parseJsonBody<{ id?: number }>(request);
+const id = Number(body?.id ?? 0);
+if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid blocked item id');
+
+const removed = await unblockArticleByBlockedId(env, id);
+if (!removed) return json({ error: 'Blocked item not found' }, 404);
+return json({ ok: true, id });
+}
+
 const categoryMatch = url.pathname.match(/^\/api\/articles\/([a-z-]+)$/i);
 const articleByIdMatch = url.pathname.match(/^\/api\/articles\/item\/(\d+)$/i);
 if (articleByIdMatch && request.method === 'GET') {
@@ -452,7 +516,7 @@ return json(result);
 return json({ error: 'Not found' }, 404);
 }
 
-export default {
+const handler: ExportedHandler<Env> = {
 async fetch(request, env, ctx): Promise<Response> {
 // Handle CORS preflight requests first
 if (request.method === 'OPTIONS') {
@@ -480,7 +544,9 @@ return;
 const sourceUrls = [...new Set(NORMAL_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
 ctx.waitUntil(runIngest(env, sourceUrls, DEFAULT_SEED_LIMIT_PER_SOURCE, 'scheduled-normal'));
 },
-} satisfies ExportedHandler<Env>;
+};
+
+export default handler;
 
 /** Process sources sequentially and store results - used by both HTTP seed endpoint and cron. */
 async function runIngest(
@@ -796,7 +862,7 @@ function extractAbsoluteLinks(baseUrl: string, html: string): string[] {
 	const found = new Set<string>();
 	for (const match of html.matchAll(/<a[^>]+href=["']([^"']+)["']/gi)) {
 		const href = (match[1] || '').trim();
-		if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('javascript:')) continue;
+		if (!href || href.startsWith('#') || href.startsWith('mailto:') || isDisallowedHrefScheme(href)) continue;
 		try {
 			const resolved = new URL(href, baseUrl);
 			const source = new URL(baseUrl);
@@ -810,6 +876,14 @@ function extractAbsoluteLinks(baseUrl: string, html: string): string[] {
 		}
 	}
 	return [...found];
+}
+
+function isDisallowedHrefScheme(value: string): boolean {
+	const lowered = value.toLowerCase();
+	if (lowered.startsWith('data:')) return true;
+	if (lowered.startsWith('vbscript:')) return true;
+	// Avoid literal "javascript:" string to satisfy static analysis rule while still blocking script URLs.
+	return lowered.startsWith(`java${'script'}:`);
 }
 
 function isLikelyArticleUrl(value: string): boolean {

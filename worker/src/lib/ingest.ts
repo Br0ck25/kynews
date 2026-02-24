@@ -3,7 +3,7 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed } from './classify';
-import { findArticleByHash, insertArticle } from './db';
+import { findArticleByHash, insertArticle, isUrlHashBlocked } from './db';
 import { cachedTextFetch, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { scrapeArticleHtml } from './scrape';
 
@@ -15,6 +15,15 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   const textToCheck = [rssTitle, rssDescription].filter(Boolean).join(' ');
 
   const canonicalHash = await sha256Hex(extracted.canonicalUrl);
+  const blocked = await isUrlHashBlocked(env, canonicalHash);
+  if (blocked) {
+    return {
+      status: 'rejected',
+      reason: 'blocked by admin',
+      urlHash: canonicalHash,
+    };
+  }
+
   const duplicate = await findArticleByHash(env, canonicalHash);
   if (duplicate) {
     return {
@@ -155,7 +164,14 @@ function extractReadableArticle(rawHtml: string): { title?: string; textContent?
   try {
     const { document } = parseHTML(rawHtml);
     const reader = new Readability(document);
-    return reader.parse();
+    const parsed = reader.parse();
+    if (!parsed) return null;
+
+    return {
+      title: parsed.title ?? undefined,
+      textContent: parsed.textContent ?? undefined,
+      content: parsed.content ?? undefined,
+    };
   } catch {
     return null;
   }
