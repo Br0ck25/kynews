@@ -384,6 +384,20 @@ export default class SiteService {
     };
   }
 
+  async getPostById(id) {
+    const numericId = Number(id);
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+      throw toError(null, "Invalid article id.");
+    }
+
+    const payload = await this.request(`/api/articles/item/${numericId}`);
+    if (!payload?.item) {
+      throw toError(null, "Article not found.");
+    }
+
+    return mapWorkerArticleToPost(payload.item);
+  }
+
   async ingestUrl(url) {
     if (!url) {
       throw toError(null, "Missing url to ingest.");

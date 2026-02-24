@@ -4,6 +4,7 @@ import Post from "../components/post/post-component";
 import { Button, Typography } from "@material-ui/core";
 import { useLocation, Link as RouterLink } from "react-router-dom";
 import { useSelector } from "react-redux";
+import SiteService from "../services/siteService";
 
 const useStyles = makeStyles({
   root: {
@@ -22,12 +23,36 @@ export default function PostPage() {
   const classes = useStyles();
   const location = useLocation();
   const reduxPost = useSelector((state) => state.post);
-  const post = location?.state?.post || reduxPost;
+  const [resolvedPost, setResolvedPost] = React.useState(location?.state?.post || reduxPost || null);
+  const [loading, setLoading] = React.useState(false);
+  const service = React.useMemo(() => new SiteService(process.env.REACT_APP_API_BASE_URL), []);
+
+  React.useEffect(() => {
+    if (resolvedPost) return;
+    const params = new URLSearchParams(location.search || "");
+    const articleId = params.get("articleId");
+    if (!articleId) return;
+
+    setLoading(true);
+    service
+      .getPostById(articleId)
+      .then((post) => setResolvedPost(post))
+      .catch(() => setResolvedPost(null))
+      .finally(() => setLoading(false));
+  }, [location.search, resolvedPost, service]);
+
+  const post = resolvedPost;
 
   return (
     <div className={classes.root}>
       {post ? (
         <Post post={post} />
+      ) : loading ? (
+        <div className={classes.emptyState}>
+          <Typography variant="h6" gutterBottom>
+            Loading article...
+          </Typography>
+        </div>
       ) : (
         <div className={classes.emptyState}>
           <Typography variant="h6" gutterBottom>

@@ -1,4 +1,5 @@
 import {
+	getArticleById,
 	getSourceStats,
 	listAdminArticles,
 	listArticlesForReclassify,
@@ -391,6 +392,16 @@ return json({ ok: true, id });
 }
 
 const categoryMatch = url.pathname.match(/^\/api\/articles\/([a-z-]+)$/i);
+const articleByIdMatch = url.pathname.match(/^\/api\/articles\/item\/(\d+)$/i);
+if (articleByIdMatch && request.method === 'GET') {
+const id = Number.parseInt(articleByIdMatch[1] || '0', 10);
+if (!Number.isFinite(id) || id <= 0) return badRequest('Invalid article id');
+
+const article = await getArticleById(env, id);
+if (!article) return json({ error: 'Not found' }, 404);
+return json({ item: article });
+}
+
 if (categoryMatch && request.method === 'GET') {
 const category = categoryMatch[1]?.toLowerCase();
 if (!category || !isAllowedCategory(category)) {

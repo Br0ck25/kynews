@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Box,
   Button,
   Chip,
@@ -17,6 +20,7 @@ import {
   TextField,
   Typography,
 } from "@material-ui/core";
+import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import SiteService from "../services/siteService";
 
 const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
@@ -37,6 +41,9 @@ export default function AdminPage() {
   const [articleCategoryFilter, setArticleCategoryFilter] = useState("all");
   const [articleSearch, setArticleSearch] = useState("");
   const [articleRows, setArticleRows] = useState([]);
+  const [articleCursor, setArticleCursor] = useState(null);
+  const [hasMoreArticles, setHasMoreArticles] = useState(false);
+  const [loadingMoreArticles, setLoadingMoreArticles] = useState(false);
   const [savingId, setSavingId] = useState(null);
 
   const [edits, setEdits] = useState({});
@@ -48,7 +55,7 @@ export default function AdminPage() {
     try {
       const [sourceResp, articleResp] = await Promise.all([
         service.getAdminSources(),
-        service.getAdminArticles({ category: articleCategoryFilter, search: articleSearch, limit: 40 }),
+        service.getAdminArticles({ category: articleCategoryFilter, search: articleSearch, limit: 200 }),
       ]);
       const [metricsResp, rejectResp] = await Promise.all([
         service.getAdminMetrics(),
@@ -59,7 +66,10 @@ export default function AdminPage() {
       setMetrics(metricsResp?.latest || null);
       setRejections(rejectResp?.items || []);
       setDuplicateItems(rejectResp?.duplicateItems || []);
-      setArticleRows(articleResp.items || []);
+      const initialItems = articleResp.items || [];
+      setArticleRows(initialItems);
+      setArticleCursor(articleResp.nextCursor || null);
+      setHasMoreArticles(Boolean(articleResp.nextCursor));
       setEdits({});
     } catch (err) {
       console.error(err);
@@ -82,9 +92,12 @@ export default function AdminPage() {
       const articleResp = await service.getAdminArticles({
         category: articleCategoryFilter,
         search: articleSearch,
-        limit: 40,
+        limit: 200,
       });
-      setArticleRows(articleResp.items || []);
+      const initialItems = articleResp.items || [];
+      setArticleRows(initialItems);
+      setArticleCursor(articleResp.nextCursor || null);
+      setHasMoreArticles(Boolean(articleResp.nextCursor));
       setEdits({});
     } catch (err) {
       console.error(err);
@@ -114,7 +127,22 @@ export default function AdminPage() {
         isKentucky: patch.isKentucky ?? row.isKentucky,
         county: patch.county ?? row.county,
       });
-      await applyFilter();
+      setArticleRows((prev) =>
+        prev.map((item) =>
+          item.id === row.id
+            ? {
+                ...item,
+                category: patch.category ?? row.category,
+                isKentucky: patch.isKentucky ?? row.isKentucky,
+                county: patch.county ?? row.county,
+              }
+            : item
+        )
+      );
+      setEdits((prev) => ({
+        ...prev,
+        [row.id]: {},
+      }));
     } catch (err) {
       console.error(err);
       setError(err?.errorMessage || "Retag failed.");
@@ -142,6 +170,8 @@ export default function AdminPage() {
     setAuthorized(false);
     setSources([]);
     setArticleRows([]);
+    setArticleCursor(null);
+    setHasMoreArticles(false);
     setSourceSummary(null);
     setMetrics(null);
     setRejections([]);
@@ -166,6 +196,30 @@ export default function AdminPage() {
       setPublishingUrl("");
     }
   };
+
+  const loadMoreArticles = async () => {
+    if (!hasMoreArticles || !articleCursor || loadingMoreArticles) return;
+    setLoadingMoreArticles(true);
+    try {
+      const response = await service.getAdminArticles({
+        category: articleCategoryFilter,
+        search: articleSearch,
+        limit: 200,
+        cursor: articleCursor,
+      });
+
+      const nextItems = response.items || [];
+      setArticleRows((prev) => [...prev, ...nextItems]);
+      setArticleCursor(response.nextCursor || null);
+      setHasMoreArticles(Boolean(response.nextCursor));
+    } catch (err) {
+      setError(err?.errorMessage || "Unable to load more articles.");
+    } finally {
+      setLoadingMoreArticles(false);
+    }
+  };
+
+  const getLocalArticleLink = (id) => `https://localkynews.com/post?articleId=${id}`;
 
   const triggerIngest = async () => {
     setError("");
@@ -263,16 +317,23 @@ export default function AdminPage() {
           Rejected items can be force-published. Duplicates indicate URLs already stored by hash.
         </Typography>
 
-        <Typography variant="subtitle2" style={{ marginTop: 8 }}>Rejected ({rejections.length})</Typography>
-        {rejections.length === 0 ? (
-          <Typography variant="body2" color="textSecondary">No rejected samples captured in the latest run.</Typography>
-        ) : (
-          <Table size="small" style={{ marginBottom: 12 }}>
+        <Accordion defaultExpanded={false}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="subtitle2">Rejected ({rejections.length})</Typography>
+          </AccordionSummary>
+          <AccordionDetails style={{ display: "block", padding: 0 }}>
+            {rejections.length === 0 ? (
+              <Typography variant="body2" color="textSecondary" style={{ padding: 12 }}>
+                No rejected samples captured in the latest run.
+              </Typography>
+            ) : (
+              <Table size="small" style={{ marginBottom: 12 }}>
             <TableHead>
               <TableRow>
                 <TableCell>URL</TableCell>
                 <TableCell>Reason</TableCell>
                 <TableCell>Source</TableCell>
+                <TableCell>Local</TableCell>
                 <TableCell>Publish</TableCell>
               </TableRow>
             </TableHead>
@@ -282,6 +343,22 @@ export default function AdminPage() {
                   <TableCell style={{ maxWidth: 300, overflowWrap: "anywhere" }}>{item.url}</TableCell>
                   <TableCell>{item.reason || "unknown"}</TableCell>
                   <TableCell style={{ maxWidth: 220, overflowWrap: "anywhere" }}>{item.sourceUrl || "—"}</TableCell>
+                  <TableCell>
+                    {item.id ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        href={getLocalArticleLink(item.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open
+                      </Button>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Button
                       size="small"
@@ -297,18 +374,27 @@ export default function AdminPage() {
               ))}
             </TableBody>
           </Table>
-        )}
+            )}
+          </AccordionDetails>
+        </Accordion>
 
-        <Typography variant="subtitle2">Duplicates ({duplicateItems.length})</Typography>
-        {duplicateItems.length === 0 ? (
-          <Typography variant="body2" color="textSecondary">No duplicate samples captured in the latest run.</Typography>
-        ) : (
-          <Table size="small">
+        <Accordion defaultExpanded={false}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="subtitle2">Duplicates ({duplicateItems.length})</Typography>
+          </AccordionSummary>
+          <AccordionDetails style={{ display: "block", padding: 0 }}>
+            {duplicateItems.length === 0 ? (
+              <Typography variant="body2" color="textSecondary" style={{ padding: 12 }}>
+                No duplicate samples captured in the latest run.
+              </Typography>
+            ) : (
+              <Table size="small">
             <TableHead>
               <TableRow>
                 <TableCell>URL</TableCell>
                 <TableCell>Reason</TableCell>
                 <TableCell>Source</TableCell>
+                <TableCell>Local</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -317,11 +403,29 @@ export default function AdminPage() {
                   <TableCell style={{ maxWidth: 300, overflowWrap: "anywhere" }}>{item.url}</TableCell>
                   <TableCell>{item.reason || "duplicate"}</TableCell>
                   <TableCell style={{ maxWidth: 220, overflowWrap: "anywhere" }}>{item.sourceUrl || "—"}</TableCell>
+                  <TableCell>
+                    {item.id ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        href={getLocalArticleLink(item.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open
+                      </Button>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        )}
+            )}
+          </AccordionDetails>
+        </Accordion>
       </Paper>
       {error && (
         <Typography color="error" variant="body2" style={{ marginBottom: 10 }}>
@@ -396,6 +500,7 @@ export default function AdminPage() {
           />
           <Button variant="contained" color="primary" onClick={applyFilter}>Refresh</Button>
           <Button variant="outlined" onClick={loadData}>Reload All</Button>
+          <Chip label={`Loaded: ${articleRows.length}`} size="small" />
         </Box>
 
         {loading ? (
@@ -409,6 +514,7 @@ export default function AdminPage() {
                 <TableCell>Category</TableCell>
                 <TableCell>KY</TableCell>
                 <TableCell>County</TableCell>
+                <TableCell>Links</TableCell>
                 <TableCell>Save</TableCell>
               </TableRow>
             </TableHead>
@@ -456,6 +562,31 @@ export default function AdminPage() {
                       />
                     </TableCell>
                     <TableCell>
+                      <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="primary"
+                          href={getLocalArticleLink(row.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Local
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="default"
+                          href={row.canonicalUrl || row.sourceUrl || "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          disabled={!row.canonicalUrl && !row.sourceUrl}
+                        >
+                          Source
+                        </Button>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
                       <Button
                         size="small"
                         variant="contained"
@@ -472,6 +603,17 @@ export default function AdminPage() {
             </TableBody>
           </Table>
         )}
+
+        <Box style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+          <Button
+            variant="contained"
+            color="primary"
+            disabled={!hasMoreArticles || loadingMoreArticles}
+            onClick={loadMoreArticles}
+          >
+            {loadingMoreArticles ? "Loading..." : hasMoreArticles ? "Load More" : "No More Articles"}
+          </Button>
+        </Box>
       </Paper>
     </Box>
   );

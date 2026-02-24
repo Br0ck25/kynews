@@ -52,9 +52,9 @@ export function detectCounty(input: string): string | null {
   const normalized = normalizeForSearch(input);
 
   for (const county of KY_COUNTIES) {
-    const token = `${county.toLowerCase()} county`;
-    const shortToken = `${county.toLowerCase()} co`;
-    if (normalized.includes(token) || normalized.includes(shortToken)) return county;
+    const escaped = county.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const countyPattern = new RegExp(`\\b${escaped}\\s+(county|co|cnty)\\b`, 'i');
+    if (countyPattern.test(normalized)) return county;
   }
 
   return null;

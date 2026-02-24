@@ -40,6 +40,15 @@ export async function findArticleByHash(env: Env, urlHash: string): Promise<Arti
   return result ? mapArticleRow(result) : null;
 }
 
+export async function getArticleById(env: Env, id: number): Promise<ArticleRecord | null> {
+  const result = await env.ky_news_db
+    .prepare(`SELECT * FROM articles WHERE id = ? LIMIT 1`)
+    .bind(id)
+    .first<ArticleRow>();
+
+  return result ? mapArticleRow(result) : null;
+}
+
 export async function insertArticle(env: Env, article: NewArticle): Promise<number> {
   const normalizedCounty = normalizeCountyName(article.county);
 
