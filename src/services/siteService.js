@@ -3,7 +3,17 @@ import { KENTUCKY_COUNTIES } from "../constants/counties";
 
 const DEFAULT_IMAGE = "https://source.unsplash.com/random/1200x800?kentucky-news";
 const WORKER_FALLBACK_BASE_URL = "https://worker.jamesbrock25.workers.dev";
-const ADMIN_API_BASE_URL = process.env.REACT_APP_ADMIN_API_BASE_URL || WORKER_FALLBACK_BASE_URL;
+// Determine the admin API base.  In most cases we want it to match the
+// public API base so requests originate from the same origin and don't
+// trigger unnecessary CORS preflight failures (especially when the value is
+// empty).  The old code always fell back to WORKER_FALLBACK_BASE_URL, meaning
+// admin pages were served from the worker.dev domain which required CORS.
+const ADMIN_API_BASE_URL = process.env.REACT_APP_ADMIN_API_BASE_URL || "";
+
+// We'll later normalize in the constructor to ensure an empty string means
+// same-origin.  The fallback value here is intentionally "" (not
+// WORKER_FALLBACK_BASE_URL).
+
 const ADMIN_SESSION_KEY = "ky_admin_panel_key";
 
 const ALLOWED_CATEGORIES = [
@@ -136,6 +146,17 @@ export default class SiteService {
       viteBaseUrl ||
       process.env.REACT_APP_API_BASE_URL ||
       "";
+
+    // Normalize admin base URL: empty means same-origin, otherwise use value
+    // specified or fallback to WORKER_FALLBACK_BASE_URL so existing local dev
+    // and tests continue working.
+    if (process.env.REACT_APP_ADMIN_API_BASE_URL !== undefined) {
+      // if explicitly provided (even empty string), honor it; empty => same-origin
+      this.adminBaseUrl = process.env.REACT_APP_ADMIN_API_BASE_URL || this.baseUrl;
+    } else {
+      this.adminBaseUrl = WORKER_FALLBACK_BASE_URL;
+    }
+
     this.devSeedAttempted = false;
   }
 
@@ -158,7 +179,7 @@ export default class SiteService {
     };
 
     const isAdminPath = path.startsWith("/api/admin/");
-    const targetBaseUrl = isAdminPath ? ADMIN_API_BASE_URL : this.baseUrl;
+    const targetBaseUrl = isAdminPath ? this.adminBaseUrl : this.baseUrl;
     const targetUrl = `${targetBaseUrl}${path}`;
     let response = await fetch(targetUrl, requestOptions);
 
