@@ -486,7 +486,8 @@ return json({ ok: true, id });
 }
 
 // Preview a Facebook post by URL and extract title/body/image for manual article creation.
-// Requires FACEBOOK_ACCESS_TOKEN to be set in worker secrets/env vars.
+// If FACEBOOK_ACCESS_TOKEN is set it uses the Graph API; otherwise falls back to scraping
+// mbasic.facebook.com (server-rendered HTML), which works for public pages without a token.
 if (url.pathname === '/api/admin/facebook/preview' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
 		return json({ error: 'Unauthorized' }, 401);
@@ -497,65 +498,65 @@ if (url.pathname === '/api/admin/facebook/preview' && request.method === 'POST')
 
 	if (!fbUrl) return badRequest('Missing required field: url');
 
-	// Try to parse the post ID from the Facebook URL
 	const postId = extractFacebookPostId(fbUrl);
 	const fbToken = ((env as unknown as { FACEBOOK_ACCESS_TOKEN?: string }).FACEBOOK_ACCESS_TOKEN || '').trim();
 
-	if (!fbToken) {
-		return json({
-			ok: false,
-			message: 'FACEBOOK_ACCESS_TOKEN is not configured in worker environment variables. Fill fields manually.',
-			title: null,
-			body: null,
-			imageUrl: null,
-			publishedAt: null,
-		});
+	// --- Path 1: Graph API (token available) ---
+	if (fbToken && postId) {
+		try {
+			const apiUrl = `https://graph.facebook.com/v19.0/${postId}?fields=message,full_picture,created_time&access_token=${encodeURIComponent(fbToken)}`;
+			const fbResponse = await fetch(apiUrl, { headers: { accept: 'application/json' } });
+			const fbData = await fbResponse.json() as { message?: string; full_picture?: string; created_time?: string; error?: { message?: string } };
+
+			if (!fbData.error && fbData.message) {
+				const { title, body: postBody } = deriveFacebookTitleAndBody(fbData.message);
+				return json({
+					ok: true,
+					source: 'graph-api',
+					title,
+					body: postBody,
+					imageUrl: fbData.full_picture || null,
+					publishedAt: fbData.created_time || null,
+				});
+			}
+		} catch {
+			// fall through to scrape path
+		}
 	}
 
-	if (!postId) {
-		return json({
-			ok: false,
-			message: 'Could not extract a post ID from the provided URL. Fill fields manually.',
-			title: null,
-			body: null,
-			imageUrl: null,
-			publishedAt: null,
-		});
-	}
-
+	// --- Path 2: Public scrape via mbasic.facebook.com (no token required) ---
+	// mbasic is Facebook's legacy server-rendered mobile site — it returns plain HTML
+	// that can be parsed without JavaScript and contains og: meta tags with post content.
 	try {
-		const apiUrl = `https://graph.facebook.com/v19.0/${postId}?fields=message,full_picture,created_time&access_token=${encodeURIComponent(fbToken)}`;
-		const fbResponse = await fetch(apiUrl, { headers: { accept: 'application/json' } });
-		const fbData = await fbResponse.json() as { message?: string; full_picture?: string; created_time?: string; error?: { message?: string } };
-
-		if (fbData.error || !fbData.message) {
+		const scraped = await scrapeFacebookPostPublic(fbUrl);
+		if (scraped.message) {
+			const { title, body: postBody } = deriveFacebookTitleAndBody(scraped.message);
 			return json({
-				ok: false,
-				message: fbData.error?.message || 'Post not found or has no text message.',
-				title: null,
-				body: null,
-				imageUrl: null,
+				ok: true,
+				source: 'mbasic-scrape',
+				title,
+				body: postBody,
+				imageUrl: scraped.imageUrl,
 				publishedAt: null,
 			});
 		}
-
-		const { title, body: postBody } = deriveFacebookTitleAndBody(fbData.message);
-
-		return json({
-			ok: true,
-			title,
-			body: postBody,
-			imageUrl: fbData.full_picture || null,
-			publishedAt: fbData.created_time || null,
-		});
-	} catch (err) {
-		return json({ ok: false, message: safeError(err), title: null, body: null, imageUrl: null, publishedAt: null }, 500);
+	} catch {
+		// fall through to manual notice
 	}
+
+	return json({
+		ok: false,
+		source: null,
+		message: 'Could not load this post automatically. The page may be private or require login. Please fill the fields manually.',
+		title: null,
+		body: null,
+		imageUrl: null,
+		publishedAt: null,
+	});
 }
 
 // Manually create an article (from a Facebook post or any other source) without going through
-// the normal URL-scraping pipeline.  The body text is used as-is for content; classification
-// runs normally so category/county are still determined by AI unless overridden by the caller.
+// the normal URL-scraping pipeline. Body is optional. Classification runs through AI as normal.
 if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
 		return json({ error: 'Unauthorized' }, 401);
@@ -567,53 +568,54 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		imageUrl?: string;
 		sourceUrl?: string;
 		county?: string;
-		published?: boolean;
+		isDraft?: boolean;
 		publishedAt?: string;
 	}>(request);
 
 	const title = body?.title?.trim();
-	const postBody = body?.body?.trim();
+	// body text is optional – e.g. a post may be image-only or have only a title
+	const postBody = body?.body?.trim() || '';
 
 	if (!title) return badRequest('Missing required field: title');
-	if (!postBody) return badRequest('Missing required field: body');
 
 	const sourceUrl = body?.sourceUrl?.trim() || '';
 	const imageUrl = body?.imageUrl?.trim() || null;
 	const providedCounty = body?.county?.trim() || null;
-	// published=true means use current time; published=false means future-date it far out (draft)
-	const published = body?.published !== false;
-	const publishedAt = (body?.publishedAt || '').trim() || new Date().toISOString();
+	const isDraft = Boolean(body?.isDraft);
 
-	// Use the Facebook/source URL as the canonical URL when valid; otherwise derive one from a
-	// hash of the title + timestamp so duplicate detection still works on re-submit.
+	// Resolve publish time: drafts get far-future date so they never surface publicly
+	const rawPublishedAt = (body?.publishedAt || '').trim();
+	const resolvedPublishedAt = isDraft
+		? '9999-12-31T00:00:00.000Z'
+		: (rawPublishedAt && !Number.isNaN(Date.parse(rawPublishedAt)) ? rawPublishedAt : new Date().toISOString());
+
+	// Canonical URL: use source URL when valid, otherwise derive from title hash
 	const canonicalUrl = sourceUrl && isHttpUrl(sourceUrl)
 		? sourceUrl
-		: `https://localkynews.com/manual/${await sha256Hex(title + publishedAt)}`;
+		: `https://localkynews.com/manual/${await sha256Hex(title + resolvedPublishedAt)}`;
 
 	const canonicalHash = await sha256Hex(canonicalUrl);
 
-	// Duplicate guard – same URL already stored
 	const existing = await findArticleByHash(env, canonicalHash);
 	if (existing) {
 		return json({ status: 'duplicate', id: existing.id, message: 'An article with this URL already exists.' });
 	}
 
-	// Run through existing AI classifier for category consistency (schools, today, etc.)
-	// but always force isKentucky=true and prefer the admin-supplied county.
+	// Classify – always force isKentucky=true; prefer admin-supplied county
+	const classifyContent = postBody || title;
 	const classification = await classifyArticleWithAi(env, {
 		url: canonicalUrl,
 		title,
-		content: postBody,
+		content: classifyContent,
 	});
 
 	classification.isKentucky = true;
-	if (providedCounty) {
-		classification.county = providedCounty;
-	}
+	if (providedCounty) classification.county = providedCounty;
 
-	// Build simple HTML from the plain-text body preserving paragraph breaks
-	const contentHtml = `<p>${postBody.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>')}</p>`;
-	const words = wordCount(postBody);
+	const contentHtml = postBody
+		? `<p>${postBody.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>')}</p>`
+		: '';
+	const words = wordCount(postBody || title);
 
 	const newArticle: NewArticle = {
 		canonicalUrl,
@@ -621,8 +623,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		urlHash: canonicalHash,
 		title,
 		author: null,
-		// Draft: publish far in the future so it won't surface until explicitly set live
-		publishedAt: published ? publishedAt : '9999-12-31T00:00:00.000Z',
+		publishedAt: resolvedPublishedAt,
 		category: classification.category,
 		isKentucky: true,
 		county: classification.county,
@@ -631,7 +632,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		seoDescription: '',
 		rawWordCount: words,
 		summaryWordCount: 0,
-		contentText: postBody,
+		contentText: postBody || title,
 		contentHtml,
 		imageUrl,
 		rawR2Key: null,
@@ -642,6 +643,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 	return json({
 		status: 'inserted',
 		id: articleId,
+		isDraft,
 		category: newArticle.category,
 		isKentucky: true,
 		county: newArticle.county,
@@ -1338,6 +1340,68 @@ function extractFacebookPostId(fbUrl: string): string | null {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Scrape a public Facebook post via mbasic.facebook.com — the legacy server-rendered
+ * mobile site that returns plain HTML without requiring JavaScript or authentication.
+ * Extracts the post message and og:image from meta tags.
+ */
+async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: string | null; imageUrl: string | null }> {
+	let mbasicUrl: string;
+	try {
+		const parsed = new URL(fbUrl);
+		parsed.hostname = 'mbasic.facebook.com';
+		mbasicUrl = parsed.toString();
+	} catch {
+		return { message: null, imageUrl: null };
+	}
+
+	const resp = await fetch(mbasicUrl, {
+		headers: {
+			// Identify as a standard mobile browser – required for mbasic to return real content
+			'user-agent': 'Mozilla/5.0 (Linux; Android 11; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0',
+			accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+			'accept-language': 'en-US,en;q=0.5',
+			'cache-control': 'no-cache',
+		},
+		redirect: 'follow',
+	});
+
+	if (!resp.ok) return { message: null, imageUrl: null };
+
+	const html = await resp.text();
+
+	// Extract og:description – on public pages this contains the post text
+	const descMatch =
+		html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ??
+		html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
+
+	// Extract og:image (prefer fbcdn CDN URLs which are the actual post photo)
+	const imageMatch =
+		html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["'](https?[^"']+)["']/i) ??
+		html.match(/<meta[^>]+content=["'](https?[^"']+)["'][^>]+property=["']og:image["']/i);
+
+	const message = descMatch?.[1] ? htmlEntityDecode(descMatch[1]) : null;
+
+	// Filter out Facebook's generic fallback images (e.g. no-photo placeholder)
+	const rawImage = imageMatch?.[1] ? htmlEntityDecode(imageMatch[1]) : null;
+	const imageUrl = rawImage && !rawImage.includes('rsrc.php') ? rawImage : null;
+
+	return { message, imageUrl };
+}
+
+/** Decode HTML entities in a string extracted from raw HTML attributes. */
+function htmlEntityDecode(input: string): string {
+	return input
+		.replace(/&amp;/g, '&')
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'")
+		.replace(/&#x27;/g, "'")
+		.replace(/&#x2F;/g, '/')
+		.replace(/&#x3D;/g, '=');
 }
 
 /**

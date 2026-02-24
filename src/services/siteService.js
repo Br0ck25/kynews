@@ -509,12 +509,12 @@ export default class SiteService {
 
   /**
    * Manually create an article from supplied fields (e.g. a Facebook post pasted by an admin).
-   * Returns { status: 'inserted'|'duplicate', id, category, county, canonicalUrl }
+   * Returns { status: 'inserted'|'duplicate', id, isDraft, category, county, canonicalUrl }
    */
-  async createManualArticle({ title, body, imageUrl, sourceUrl, county, published, publishedAt }) {
+  async createManualArticle({ title, body, imageUrl, sourceUrl, county, isDraft, publishedAt }) {
     return this.request("/api/admin/manual-article", {
       method: "POST",
-      body: JSON.stringify({ title, body, imageUrl, sourceUrl, county, published, publishedAt }),
+      body: JSON.stringify({ title, body, imageUrl, sourceUrl, county, isDraft, publishedAt }),
     });
   }
 
