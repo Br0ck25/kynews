@@ -12,7 +12,16 @@ import {
 	NORMAL_PRIORITY_SOURCE_SEEDS,
 	SCHOOL_SOURCE_SEEDS,
 } from './data/source-seeds';
-import { badRequest, corsPreflightResponse, isAllowedCategory, json, parseCommaList, parseJsonBody, parsePositiveInt } from './lib/http';
+import {
+	badRequest,
+	cachedTextFetch,
+	corsPreflightResponse,
+	isAllowedCategory,
+	json,
+	parseCommaList,
+	parseJsonBody,
+	parsePositiveInt,
+} from './lib/http';
 import { ingestSingleUrl } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
@@ -24,6 +33,8 @@ const COUNTY_FILTER_ALLOWED = new Set(['today', 'sports', 'schools', 'obituaries
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
 const INGEST_METRICS_KEY = 'admin:ingest:latest';
+const FALLBACK_CRAWL_MAX_LINKS = 12;
+const FALLBACK_CRAWL_MAX_SECTION_PAGES = 3;
 
 interface SeedSourceStatus {
 sourceUrl: string;
@@ -655,39 +666,50 @@ return status;
 
 status.fallbackUsed = true;
 try {
-const fallbackResult = await ingestSingleUrl(env, { url: sourceUrl, sourceUrl });
-status.processed += 1;
-if (fallbackResult.status === 'inserted') status.inserted += 1;
-if (fallbackResult.status === 'duplicate') {
-status.duplicate += 1;
-if (status.duplicateSamples.length < 50) {
-status.duplicateSamples.push({
-	decision: 'duplicate',
-	url: sourceUrl,
-	sourceUrl,
-	reason: 'url hash already exists',
-	category: fallbackResult.category,
-	id: fallbackResult.id,
-	urlHash: fallbackResult.urlHash,
-	createdAt: new Date().toISOString(),
-});
-}
-}
-if (fallbackResult.status === 'rejected') {
-status.rejected += 1;
-if (status.rejectedSamples.length < 50) {
-status.rejectedSamples.push({
-	decision: 'rejected',
-	url: sourceUrl,
-	sourceUrl,
-	reason: fallbackResult.reason || 'unknown reject reason',
-	category: fallbackResult.category,
-	createdAt: new Date().toISOString(),
-});
-}
-if ((fallbackResult.reason || '').toLowerCase().includes('content too short')) {
-	status.lowWordDiscards += 1;
-}
+const fallbackUrls = await discoverFallbackArticleUrls(env, sourceUrl, limitPerSource);
+const urlsToTry = fallbackUrls.length > 0 ? fallbackUrls : [sourceUrl];
+
+for (const candidateUrl of urlsToTry) {
+	try {
+		const fallbackResult = await ingestSingleUrl(env, { url: candidateUrl, sourceUrl });
+		status.processed += 1;
+		if (fallbackResult.status === 'inserted') status.inserted += 1;
+		if (fallbackResult.status === 'duplicate') {
+			status.duplicate += 1;
+			if (status.duplicateSamples.length < 50) {
+				status.duplicateSamples.push({
+					decision: 'duplicate',
+					url: candidateUrl,
+					sourceUrl,
+					reason: 'url hash already exists',
+					category: fallbackResult.category,
+					id: fallbackResult.id,
+					urlHash: fallbackResult.urlHash,
+					createdAt: new Date().toISOString(),
+				});
+			}
+		}
+		if (fallbackResult.status === 'rejected') {
+			status.rejected += 1;
+			if (status.rejectedSamples.length < 50) {
+				status.rejectedSamples.push({
+					decision: 'rejected',
+					url: candidateUrl,
+					sourceUrl,
+					reason: fallbackResult.reason || 'unknown reject reason',
+					category: fallbackResult.category,
+					createdAt: new Date().toISOString(),
+				});
+			}
+			if ((fallbackResult.reason || '').toLowerCase().includes('content too short')) {
+				status.lowWordDiscards += 1;
+			}
+		}
+	} catch (error) {
+		status.processed += 1;
+		status.rejected += 1;
+		status.errors.push(`fallback ingest failed (${candidateUrl}): ${safeError(error)}`);
+	}
 }
 } catch (error) {
 status.processed += 1;
@@ -702,4 +724,216 @@ status.errors.push(`source failed (${sourceUrl}): ${safeError(error)}`);
 }
 
 return status;
+}
+
+async function discoverFallbackArticleUrls(env: Env, sourceUrl: string, limitPerSource: number): Promise<string[]> {
+	if (!(await isAllowedByRobots(env, sourceUrl))) return [];
+
+	const maxLinks = limitPerSource > 0 ? Math.min(limitPerSource, FALLBACK_CRAWL_MAX_LINKS) : FALLBACK_CRAWL_MAX_LINKS;
+	const rootFetch = await cachedTextFetch(env, sourceUrl, 600).catch(() => null);
+	if (!rootFetch?.body || rootFetch.status >= 400) return [];
+
+	const seedLinks = extractCandidateLinks(sourceUrl, rootFetch.body);
+	if (seedLinks.length >= maxLinks) return seedLinks.slice(0, maxLinks);
+
+	const sectionLinks = extractSectionLinks(sourceUrl, rootFetch.body).slice(0, FALLBACK_CRAWL_MAX_SECTION_PAGES);
+	const aggregated = [...seedLinks];
+	const seen = new Set(aggregated);
+
+	for (const sectionUrl of sectionLinks) {
+		if (!(await isAllowedByRobots(env, sectionUrl))) continue;
+		const sectionFetch = await cachedTextFetch(env, sectionUrl, 600).catch(() => null);
+		if (!sectionFetch?.body || sectionFetch.status >= 400) continue;
+
+		const candidates = extractCandidateLinks(sourceUrl, sectionFetch.body);
+		for (const candidate of candidates) {
+			if (seen.has(candidate)) continue;
+			seen.add(candidate);
+			aggregated.push(candidate);
+			if (aggregated.length >= maxLinks) return aggregated;
+		}
+	}
+
+	return aggregated.slice(0, maxLinks);
+}
+
+function extractCandidateLinks(baseUrl: string, html: string): string[] {
+	const links = extractAbsoluteLinks(baseUrl, html);
+	return links.filter((url) => isLikelyArticleUrl(url));
+}
+
+function extractSectionLinks(baseUrl: string, html: string): string[] {
+	const links = extractAbsoluteLinks(baseUrl, html);
+	return links.filter((url) => isLikelySectionUrl(url));
+}
+
+function extractAbsoluteLinks(baseUrl: string, html: string): string[] {
+	const found = new Set<string>();
+	for (const match of html.matchAll(/<a[^>]+href=["']([^"']+)["']/gi)) {
+		const href = (match[1] || '').trim();
+		if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('javascript:')) continue;
+		try {
+			const resolved = new URL(href, baseUrl);
+			const source = new URL(baseUrl);
+			if (resolved.origin !== source.origin) continue;
+			if (!(resolved.protocol === 'https:' || resolved.protocol === 'http:')) continue;
+			resolved.hash = '';
+			if (resolved.searchParams.has('outputType')) continue;
+			found.add(resolved.toString());
+		} catch {
+			// ignore invalid urls
+		}
+	}
+	return [...found];
+}
+
+function isLikelyArticleUrl(value: string): boolean {
+	let parsed: URL;
+	try {
+		parsed = new URL(value);
+	} catch {
+		return false;
+	}
+
+	const path = parsed.pathname.toLowerCase();
+	if (!path || path === '/' || path.endsWith('/feed') || path.includes('/tag/') || path.includes('/category/')) {
+		return false;
+	}
+
+	if (path.endsWith('.xml') || path.endsWith('.rss') || path.endsWith('.json')) return false;
+	if (path.includes('/video/') || path.includes('/videos/')) return true;
+
+	const articleSignals = [
+		/news\//,
+		/sports\//,
+		/weather\//,
+		/school(s)?\//,
+		/obit(uary|uaries)?\//,
+		/story\//,
+		/article\//,
+		/\/(20\d{2})\/(0?[1-9]|1[0-2])\//,
+	];
+
+	return articleSignals.some((signal) => signal.test(path));
+}
+
+function isLikelySectionUrl(value: string): boolean {
+	let parsed: URL;
+	try {
+		parsed = new URL(value);
+	} catch {
+		return false;
+	}
+
+	const path = parsed.pathname.toLowerCase();
+	if (!path || path === '/') return false;
+
+	return [
+		'/news',
+		'/sports',
+		'/weather',
+		'/school',
+		'/schools',
+		'/obituaries',
+		'/obituary',
+		'/local',
+	].some((segment) => path === segment || path.startsWith(`${segment}/`));
+}
+
+async function isAllowedByRobots(env: Env, targetUrl: string): Promise<boolean> {
+	try {
+		const target = new URL(targetUrl);
+		const robotsUrl = `${target.origin}/robots.txt`;
+		const robotsFetch = await cachedTextFetch(env, robotsUrl, 3600).catch(() => null);
+
+		if (!robotsFetch) return false;
+		if (robotsFetch.status === 404 || robotsFetch.status === 410) return true;
+		if (robotsFetch.status >= 500) return false;
+		if (robotsFetch.status >= 400) return true;
+
+		const { allow, disallow } = parseRobotsForGenericBot(robotsFetch.body || '');
+		return isPathAllowedByRules(target.pathname || '/', allow, disallow);
+	} catch {
+		return false;
+	}
+}
+
+function parseRobotsForGenericBot(content: string): { allow: string[]; disallow: string[] } {
+	const allow: string[] = [];
+	const disallow: string[] = [];
+	const lines = content.split(/\r?\n/);
+
+	let currentAgents: string[] = [];
+	let currentAllow: string[] = [];
+	let currentDisallow: string[] = [];
+
+	const flushGroup = () => {
+		const normalizedAgents = currentAgents.map((value) => value.toLowerCase());
+		if (normalizedAgents.includes('*') || normalizedAgents.includes('kentuckynewsbot')) {
+			allow.push(...currentAllow);
+			disallow.push(...currentDisallow);
+		}
+		currentAgents = [];
+		currentAllow = [];
+		currentDisallow = [];
+	};
+
+	for (const rawLine of lines) {
+		const clean = rawLine.split('#')[0]?.trim() || '';
+		if (!clean) continue;
+		const split = clean.split(':');
+		if (split.length < 2) continue;
+
+		const key = split[0]?.trim().toLowerCase();
+		const value = split.slice(1).join(':').trim();
+		if (!key) continue;
+
+		if (key === 'user-agent') {
+			if (currentAllow.length > 0 || currentDisallow.length > 0) {
+				flushGroup();
+			}
+			currentAgents.push(value);
+			continue;
+		}
+
+		if (key === 'allow') {
+			currentAllow.push(value);
+		}
+		if (key === 'disallow') {
+			currentDisallow.push(value);
+		}
+	}
+
+	flushGroup();
+	return { allow, disallow };
+}
+
+function isPathAllowedByRules(pathname: string, allowRules: string[], disallowRules: string[]): boolean {
+	const rules = [
+		...allowRules.filter(Boolean).map((pattern) => ({ type: 'allow' as const, pattern })),
+		...disallowRules.filter(Boolean).map((pattern) => ({ type: 'disallow' as const, pattern })),
+	];
+
+	let best: { type: 'allow' | 'disallow'; length: number } | null = null;
+	for (const rule of rules) {
+		if (!matchesRobotsPattern(pathname, rule.pattern)) continue;
+		const score = rule.pattern.length;
+		if (!best || score > best.length || (score === best.length && rule.type === 'allow' && best.type === 'disallow')) {
+			best = { type: rule.type, length: score };
+		}
+	}
+
+	if (!best) return true;
+	return best.type === 'allow';
+}
+
+function matchesRobotsPattern(pathname: string, pattern: string): boolean {
+	if (!pattern) return false;
+	const hasEndAnchor = pattern.endsWith('$');
+	const rawPattern = hasEndAnchor ? pattern.slice(0, -1) : pattern;
+	const escaped = rawPattern
+		.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+		.replace(/\*/g, '.*');
+	const regex = new RegExp(`^${escaped}${hasEndAnchor ? '$' : ''}`);
+	return regex.test(pathname);
 }

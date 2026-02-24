@@ -13,6 +13,13 @@ function getWeekday(dateString) {
   return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+function formatDateTime(dateString) {
+  if (!dateString) return "N/A";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return dateString;
+  return date.toLocaleString();
+}
+
 export default function WeatherPage() {
   const [zip, setZip] = useState(GetValue(WEATHER_ZIP_KEY) || "");
   const [loading, setLoading] = useState(false);
@@ -99,9 +106,58 @@ export default function WeatherPage() {
             <Typography variant="subtitle2">Alerts</Typography>
             {weather.alerts?.length > 0 ? (
               weather.alerts.map((alert, index) => (
-                <Typography key={`${alert.title}-${index}`} variant="body2">
-                  • {alert.title}{alert.severity ? ` (${alert.severity})` : ""}
-                </Typography>
+                <Card key={`${alert.title}-${index}`} variant="outlined" style={{ marginTop: 8 }}>
+                  <CardContent style={{ padding: 12 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      {alert.title}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Event: {alert.event || "N/A"}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Severity: {alert.severity || "N/A"} • Urgency: {alert.urgency || "N/A"} • Certainty: {alert.certainty || "N/A"}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Areas: {alert.areaDesc || "N/A"}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Sent: {formatDateTime(alert.sent)}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Effective: {formatDateTime(alert.effective)}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" gutterBottom>
+                      Expires: {formatDateTime(alert.expires)}
+                    </Typography>
+                    {!!alert.description && (
+                      <Typography variant="body2" style={{ whiteSpace: "pre-line", marginBottom: 6 }}>
+                        {alert.description}
+                      </Typography>
+                    )}
+                    {!!alert.instruction && (
+                      <Typography variant="body2" style={{ whiteSpace: "pre-line", marginBottom: 6 }}>
+                        <strong>Instructions:</strong> {alert.instruction}
+                      </Typography>
+                    )}
+                    {!!alert.senderName && (
+                      <Typography variant="caption" display="block" color="textSecondary">
+                        Issued by: {alert.senderName}
+                      </Typography>
+                    )}
+                    {!!alert.web && (
+                      <Button
+                        size="small"
+                        color="primary"
+                        href={alert.web}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ marginTop: 8 }}
+                      >
+                        Alert details
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
               ))
             ) : (
               <Typography variant="body2">No active alerts for this ZIP.</Typography>

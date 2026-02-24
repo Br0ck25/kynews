@@ -524,8 +524,19 @@ export default class SiteService {
       alerts: Array.isArray(alertsJson?.features)
         ? alertsJson.features.slice(0, 5).map((f) => ({
             title: f?.properties?.headline || f?.properties?.event || "Weather Alert",
+            event: f?.properties?.event || "",
             severity: f?.properties?.severity || "",
+            urgency: f?.properties?.urgency || "",
+            certainty: f?.properties?.certainty || "",
+            areaDesc: f?.properties?.areaDesc || "",
+            senderName: f?.properties?.senderName || "",
+            sent: f?.properties?.sent || "",
+            effective: f?.properties?.effective || "",
             expires: f?.properties?.expires || "",
+            description: f?.properties?.description || "",
+            instruction: f?.properties?.instruction || "",
+            response: f?.properties?.response || "",
+            web: f?.properties?.web || "",
           }))
         : [],
     };

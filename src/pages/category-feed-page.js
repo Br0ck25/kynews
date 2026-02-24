@@ -39,6 +39,11 @@ const useStyles = makeStyles((theme) => ({
 }));
 
 const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
+const HIGH_LIMIT_CATEGORIES = new Set(["today", "national", "sports", "obituaries"]);
+
+function getPageLimit(category) {
+  return HIGH_LIMIT_CATEGORIES.has(category) ? 100 : 20;
+}
 
 export default function CategoryFeedPage({ category, title, countyFilterEnabled = false }) {
   const classes = useStyles();
@@ -73,7 +78,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
     setErrors("");
 
     service
-      .fetchPage({ category, counties: effectiveCounties, cursor: null, limit: 20 })
+      .fetchPage({ category, counties: effectiveCounties, cursor: null, limit: getPageLimit(category) })
       .then(({ posts, nextCursor }) => {
         setAllPosts(posts);
         setCursor(nextCursor);
@@ -95,7 +100,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
 
     setIsLoadingMore(true);
     service
-      .fetchPage({ category, counties: effectiveCounties, cursor, limit: 20 })
+      .fetchPage({ category, counties: effectiveCounties, cursor, limit: getPageLimit(category) })
       .then(({ posts, nextCursor }) => {
         setAllPosts((prev) => [...prev, ...posts]);
         setCursor(nextCursor);

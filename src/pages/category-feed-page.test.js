@@ -50,7 +50,7 @@ describe('CategoryFeedPage', () => {
       category: 'national',
       counties: [],
       cursor: null,
-      limit: 20,
+      limit: 100,
     });
     expect(screen.getByText('Nat post')).toBeInTheDocument();
   });
