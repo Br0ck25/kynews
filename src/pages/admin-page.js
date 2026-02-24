@@ -52,6 +52,8 @@ export default function AdminPage() {
   const [duplicateItems, setDuplicateItems] = useState([]);
   const [publishingUrl, setPublishingUrl] = useState("");
 
+  const [backfillResult, setBackfillResult] = useState(null);
+
   const [articleCategoryFilter, setArticleCategoryFilter] = useState("all");
   const [articleSearch, setArticleSearch] = useState("");
   const [showDraftsOnly, setShowDraftsOnly] = useState(false);
@@ -444,6 +446,16 @@ export default function AdminPage() {
     }
   };
 
+  const backfillCounties = async () => {
+    setError("");
+    try {
+      const result = await service.adminBackfillCounties({ threshold: 5 });
+      setBackfillResult(result);
+    } catch (err) {
+      setError(err?.errorMessage || "Backfill failed.");
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // Derived values
   // ---------------------------------------------------------------------------
@@ -523,6 +535,9 @@ export default function AdminPage() {
             <Button variant="contained" color="secondary" onClick={purgeAndReingest}>
               Purge + Re-ingest
             </Button>
+            <Button variant="contained" color="primary" onClick={backfillCounties}>
+              Backfill Counties
+            </Button>
             <Button variant="outlined" onClick={loadData} disabled={loading}>
               {loading ? "Loading…" : "Refresh"}
             </Button>
@@ -540,6 +555,13 @@ export default function AdminPage() {
                 <Chip size="small" label={`Low-word: ${metrics.lowWordDiscards ?? 0}`} />
                 <Chip size="small" label={`Duration: ${((metrics.durationMs ?? 0) / 1000).toFixed(1)}s`} />
               </Box>
+            </Paper>
+          )}
+
+          {backfillResult && (
+            <Paper style={{ padding: 12, marginBottom: 16 }}>
+              <Typography variant="subtitle2" gutterBottom>Backfill Result</Typography>
+              <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(backfillResult, null, 2)}</pre>
             </Paper>
           )}
 

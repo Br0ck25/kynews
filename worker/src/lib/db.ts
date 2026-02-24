@@ -193,6 +193,23 @@ export async function unblockArticleByBlockedId(env: Env, id: number): Promise<b
   return Number(result.meta.changes ?? 0) > 0;
 }
 
+export async function getCountyCounts(env: Env): Promise<Map<string, number>> {
+  const rows = await env.ky_news_db
+    .prepare(
+      `SELECT county, COUNT(*) as cnt FROM articles WHERE county IS NOT NULL GROUP BY county`
+    )
+    .all<{ county: string; cnt: number }>();
+
+  const map = new Map<string, number>();
+  for (const row of rows.results ?? []) {
+    if (row.county) {
+      map.set(row.county, Number(row.cnt ?? 0));
+    }
+  }
+
+  return map;
+}
+
 export async function queryArticles(env: Env, options: {
   category: Category;
   counties: string[];

@@ -157,7 +157,8 @@ export const MASTER_SOURCE_SEEDS: string[] = [
 	'https://www.usnews.com/rss/education',
 	'https://www.usnews.com/rss/health',
 	'https://www.usnews.com/rss/money',
-	'https://www.usnews.com/rss/news'
+	'https://www.usnews.com/rss/news',
+	'https://www.theblaze.com/feeds/feed.rss',
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [

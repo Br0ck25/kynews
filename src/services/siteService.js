@@ -466,6 +466,13 @@ export default class SiteService {
     });
   }
 
+  async adminBackfillCounties({ threshold = 5 } = {}) {
+    return this.request("/api/admin/backfill-counties", {
+      method: "POST",
+      body: JSON.stringify({ threshold }),
+    });
+  }
+
   async getAdminArticles({ category = "all", search = "", cursor = null, limit = 25 } = {}) {
     const params = new URLSearchParams();
     params.set("category", category);

@@ -1,5 +1,5 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import worker from '../src/index';
 import { __testables } from '../src/index';
 import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
@@ -315,7 +315,55 @@ describe('structured search source extraction', () => {
 			__testables.isRobotsBypassAllowed('https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest'),
 		).toBe(true);
 		expect(__testables.isRobotsBypassAllowed('https://www.wymt.com/search/?query=kentucky')).toBe(true);
-		expect(__testables.isRobotsBypassAllowed('https://www.kentucky.com/search/?q=kentucky&page=2')).toBe(false);
+		expect(__testables.isRobotsBypassAllowed('https://www.kentucky.com/search/?q=kentucky&page=2')).toBe(true);
 		expect(__testables.isRobotsBypassAllowed('https://www.wymt.com/weather')).toBe(false);
 	});
+	it('recognizes and handles county-specific search urls as structured sources', () => {
+		expect(__testables.isStructuredSearchSource('https://www.kentucky.com/search/?q=Fayette')).toBe(true);
+		expect(__testables.isRobotsBypassAllowed('https://www.kentucky.com/search/?q=Fayette')).toBe(true);
+		expect(__testables.isStructuredSearchSource('https://www.wymt.com/search/?query=Jefferson')).toBe(true);
+		expect(__testables.isRobotsBypassAllowed('https://www.wymt.com/search/?query=Jefferson')).toBe(true);
+	});
+
+	it('buildCountySearchUrls returns both kentucky.com and wymt search strings', () => {
+		const urls = __testables.buildCountySearchUrls('Fayette');
+		expect(urls).toEqual([
+			'https://www.kentucky.com/search/?q=Fayette&page=1&sort=newest',
+			'https://www.wymt.com/search/?query=Fayette',
+		]);
+	});
 });
+
+// new helper tests
+
+describe('database utilities', () => {
+	it('getCountyCounts retrieves correct map', async () => {
+		await ensureSchemaAndFixture();
+		const map = await __testables.getCountyCounts(env);
+		expect(map.get('Fayette')).toBe(1);
+		expect(map.get('Jefferson')).toBe(1);
+	});
+});
+
+// backfill endpoint tests
+
+describe('admin backfill endpoint', () => {
+	it('requires admin key and returns results, invoking ingest', async () => {
+		await ensureSchemaAndFixture();
+		const spy = vi.spyOn(__testables, 'runIngest').mockResolvedValue();
+		const authSpy = vi.spyOn(__testables, 'isAdminAuthorized').mockReturnValue(true);
+
+		const response = await SELF.fetch('https://example.com/api/admin/backfill-counties', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'secret' },
+			body: JSON.stringify({ threshold: 2 }),
+		});
+		expect(response.status).toBe(200);
+		const payload = await response.json();
+		expect(payload.ok).toBe(true);
+		expect(payload.results.some((r) => r.county === 'Fayette' && r.before === 1)).toBe(true);
+		expect(spy).toHaveBeenCalled();
+		expect(authSpy).toHaveBeenCalled();
+		spy.mockRestore();
+		authSpy.mockRestore();
+	});});

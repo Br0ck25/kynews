@@ -12,6 +12,7 @@ import {
 	unblockArticleByBlockedId,
 	updateArticlePublishedAt,
 	updateArticleClassification,
+	getCountyCounts,
 } from './lib/db';
 import {
 	HIGH_PRIORITY_SOURCE_SEEDS,
@@ -33,6 +34,7 @@ import {
 } from './lib/http';
 import { ingestSingleUrl } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
+import { KY_COUNTIES } from './data/ky-geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
 import { classifyArticleWithAi } from './lib/classify';
 import type { Category, NewArticle } from './types';
@@ -283,6 +285,36 @@ const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filte
 
 ctx.waitUntil(runIngest(env, sourceUrls, limitPerSource, 'manual'));
 return json({ ok: true, message: 'Admin ingest started', sourcesTried: sourceUrls.length, limitPerSource }, 202);
+}
+
+// Backfill articles for counties that currently have fewer than `threshold` items.
+if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+
+	const body = await parseJsonBody<{ threshold?: number }>(request);
+	const threshold = Math.max(1, Number(body?.threshold ?? 5));
+
+	const countsMap = await getCountyCounts(env);
+	const missing = KY_COUNTIES.filter((c) => (countsMap.get(c) ?? 0) < threshold);
+	const results: Array<{ county: string; before: number; after: number }> = [];
+
+	for (const county of missing) {
+		const before = countsMap.get(county) ?? 0;
+		let current = before;
+		let attempts = 0;
+		while (current < threshold && attempts < 3) {
+			const urls = buildCountySearchUrls(county);
+			await runIngest(env, urls, threshold * 2, 'manual', { rotateSources: false });
+			const newMap = await getCountyCounts(env);
+			current = newMap.get(county) ?? 0;
+			attempts++;
+		}
+		results.push({ county, before, after: current });
+	}
+
+	return json({ ok: true, threshold, results, missingCount: missing.length });
 }
 
 if (url.pathname === '/api/admin/metrics' && request.method === 'GET') {
@@ -1217,14 +1249,62 @@ async function isAllowedByRobots(env: Env, targetUrl: string): Promise<boolean> 
 	}
 }
 
+/**
+ * Helpers identifying search URLs that can be treated as "structured" sources.
+ * We support dynamic county queries so that the backfill endpoint can hit the
+ * same parsing routines used for the statewide search pages.
+ */
+function isKentuckySearchUrl(url: string): boolean {
+	try {
+		const parsed = new URL(url);
+		return (
+			parsed.origin === 'https://www.kentucky.com' &&
+			parsed.pathname === '/search/' &&
+			parsed.searchParams.has('q')
+		);
+	} catch {
+		return false;
+	}
+}
+
+function isWymtSearchUrl(url: string): boolean {
+	try {
+		const parsed = new URL(url);
+		return (
+			parsed.origin === 'https://www.wymt.com' &&
+			parsed.pathname === '/search/' &&
+			parsed.searchParams.has('query')
+		);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Build the two search URLs we hit when backfilling a specific county.
+ */
+function buildCountySearchUrls(county: string): string[] {
+	const enc = encodeURIComponent(county);
+	return [
+		`https://www.kentucky.com/search/?q=${enc}&page=1&sort=newest`,
+		`https://www.wymt.com/search/?query=${enc}`,
+	];
+}
+
 function isStructuredSearchSource(sourceUrl: string): boolean {
 	const normalized = normalizeSourceUrl(sourceUrl);
-	return normalized ? STRUCTURED_SEARCH_SOURCE_URLS.has(normalized) : false;
+	if (!normalized) return false;
+	if (STRUCTURED_SEARCH_SOURCE_URLS.has(normalized)) return true;
+	if (isKentuckySearchUrl(normalized) || isWymtSearchUrl(normalized)) return true;
+	return false;
 }
 
 function isRobotsBypassAllowed(targetUrl: string): boolean {
 	const normalized = normalizeSourceUrl(targetUrl);
-	return normalized ? ROBOTS_BYPASS_URLS.has(normalized) : false;
+	if (!normalized) return false;
+	if (ROBOTS_BYPASS_URLS.has(normalized)) return true;
+	if (isKentuckySearchUrl(normalized) || isWymtSearchUrl(normalized)) return true;
+	return false;
 }
 
 function normalizeSourceUrl(value: string): string | null {
@@ -1306,6 +1386,13 @@ export const __testables = {
 	isStructuredSearchSource,
 	isRobotsBypassAllowed,
 	extractStructuredSearchLinks,
+	isKentuckySearchUrl,
+	isWymtSearchUrl,
+	buildCountySearchUrls,
+	getCountyCounts,
+	// exposing runIngest allows tests to stub the heavy ingestion routine
+	runIngest,
+	isAdminAuthorized,
 };
 
 // ---------------------------------------------------------------------------
