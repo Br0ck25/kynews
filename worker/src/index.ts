@@ -58,6 +58,10 @@ const ROBOTS_BYPASS_URLS = new Set([
 	'https://www.wymt.com/search/?query=kentucky',
 ]);
 
+const PUBLIC_ARTICLE_CACHE_HEADERS = {
+	'cache-control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+};
+
 interface SeedSourceStatus {
 sourceUrl: string;
 discoveredFeeds: number;
@@ -659,7 +663,7 @@ if (!Number.isFinite(id) || id <= 0) return badRequest('Invalid article id');
 
 const article = await getArticleById(env, id);
 if (!article) return json({ error: 'Not found' }, 404);
-return json({ item: article });
+return json({ item: article }, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 }
 
 if (categoryMatch && request.method === 'GET') {
@@ -685,7 +689,7 @@ limit,
 cursor,
 });
 
-return json(result);
+return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 }
 
 return json({ error: 'Not found' }, 404);

@@ -12,7 +12,6 @@ import {
   Typography,
   CircularProgress,
   Box,
-  Button,
 } from "@material-ui/core";
 import CloseIcon from "@material-ui/icons/Close";
 import Skeletons from "../components/skeletons-component";
@@ -64,6 +63,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
   // Ref-based loading guard: prevents double-fetches without forcing the
   // IntersectionObserver to disconnect/reconnect every time loading toggled.
   const isLoadingMoreRef = useRef(false);
+  const isMountedRef = useRef(true);
   // Track current category+counties key to detect dependency changes
   const countyKey = (selectedCounties || []).join("|");
   const effectiveCounties = category === "national" ? [] : selectedCounties || [];
@@ -75,6 +75,13 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
 
   // Reset and fetch first page whenever category or county selection changes
   useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
     setAllPosts([]);
     setCursor(null);
     setHasMore(true);
@@ -82,9 +89,12 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
     setErrors("");
     isLoadingMoreRef.current = false; // reset ref on category/county change
 
+    let active = true;
+
     service
       .fetchPage({ category, counties: effectiveCounties, cursor: null, limit: getPageLimit(category) })
       .then(({ posts, nextCursor }) => {
+        if (!active || !isMountedRef.current) return;
         setAllPosts(posts);
         setCursor(nextCursor);
         setHasMore(nextCursor !== null);
@@ -93,9 +103,14 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
         setIsLoading(false);
       })
       .catch((error) => {
+        if (!active || !isMountedRef.current) return;
         setErrors(error.errorMessage || "Failed to load posts.");
         setIsLoading(false);
       });
+
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, countyKey]);
 
@@ -112,6 +127,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
     service
       .fetchPage({ category, counties: effectiveCounties, cursor, limit: getPageLimit(category) })
       .then(({ posts, nextCursor }) => {
+        if (!isMountedRef.current) return;
         setAllPosts((prev) => [...prev, ...posts]);
         setCursor(nextCursor);
         setHasMore(nextCursor !== null);
@@ -119,6 +135,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
         setIsLoadingMore(false);
       })
       .catch(() => {
+        if (!isMountedRef.current) return;
         // silently fail on load-more; user can scroll up and back down to retry
         isLoadingMoreRef.current = false;
         setIsLoadingMore(false);
@@ -129,18 +146,20 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
-    if (typeof IntersectionObserver === "undefined") return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          loadMore();
-        }
-      },
-      { rootMargin: "400px" } // fire 400px before sentinel reaches viewport
-    );
+    let observer;
+    if (typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            loadMore();
+          }
+        },
+        { rootMargin: "400px" } // fire 400px before sentinel reaches viewport
+      );
 
-    observer.observe(el);
+      observer.observe(el);
+    }
 
     // Fallback: also check on window scroll in case the IntersectionObserver
     // misses a trigger (e.g., very tall viewports or unusual scroll containers).
@@ -152,12 +171,27 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
       }
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
+    // Initial check so infinite scroll works without any manual interaction.
+    handleScroll();
 
     return () => {
-      observer.disconnect();
+      if (observer) observer.disconnect();
       window.removeEventListener("scroll", handleScroll);
     };
   }, [loadMore]);
+
+  // If viewport is taller than content, keep auto-loading until the sentinel
+  // is below the preload threshold or there are no more pages.
+  useEffect(() => {
+    if (isLoading || isLoadingMoreRef.current || !hasMore) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    if (rect.top <= window.innerHeight + 400) {
+      loadMore();
+    }
+  }, [allPosts.length, hasMore, isLoading, loadMore]);
 
   const handleCountyChange = (event) => {
     dispatch(setSelectedCounties(event.target.value));
@@ -221,22 +255,6 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
           {isLoadingMore && (
             <Box className={classes.loaderWrap}>
               <CircularProgress size={32} />
-            </Box>
-          )}
-
-          {/* Manual fallback button: shown when there are more articles but
-              the IntersectionObserver has not fired (e.g. browser quirks or
-              very fast scrolling past the sentinel). */}
-          {hasMore && !isLoadingMore && (
-            <Box style={{ textAlign: "center", padding: "16px 0" }}>
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={loadMore}
-                aria-label="Load more articles"
-              >
-                Load More
-              </Button>
             </Box>
           )}
 

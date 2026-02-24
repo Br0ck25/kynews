@@ -15,10 +15,13 @@ export function corsPreflightResponse(): Response {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
-export function json(data: unknown, status = 200): Response {
+export function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: JSON_HEADERS,
+    headers: {
+      ...JSON_HEADERS,
+      ...headers,
+    },
   });
 }
 
