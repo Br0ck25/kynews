@@ -73,9 +73,13 @@ export function wordCount(input: string): number {
 }
 
 export function toIsoDate(value: string | number | Date | undefined | null): string {
-  if (!value) return new Date().toISOString();
+  return toIsoDateOrNull(value) ?? new Date().toISOString();
+}
+
+export function toIsoDateOrNull(value: string | number | Date | undefined | null): string | null {
+  if (!value) return null;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return new Date().toISOString();
+  if (Number.isNaN(date.getTime())) return null;
   return date.toISOString();
 }
 

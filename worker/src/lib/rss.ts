@@ -1,9 +1,9 @@
-import { cachedTextFetch, toIsoDate } from './http';
+import { cachedTextFetch, toIsoDateOrNull } from './http';
 
 export interface RssItem {
   title: string;
   link: string;
-  publishedAt: string;
+  publishedAt: string | null;
   description?: string;
 }
 
@@ -62,7 +62,7 @@ async function fetchAndParseFeedInternal(
     return {
       title: decodeXmlEntity(firstTagValue(itemXml, 'title') ?? 'Untitled'),
       link,
-      publishedAt: toIsoDate(firstTagValue(itemXml, 'pubDate')),
+      publishedAt: toIsoDateOrNull(firstTagValue(itemXml, 'pubDate')),
       description: decodeXmlEntity(firstTagValue(itemXml, 'description') ?? ''),
     } satisfies RssItem;
   });
@@ -79,7 +79,7 @@ async function fetchAndParseFeedInternal(
       return {
         title: decodeXmlEntity(firstTagValue(entryXml, 'title') ?? 'Untitled'),
         link: decodeXmlEntity(rawLink),
-        publishedAt: toIsoDate(firstTagValue(entryXml, 'updated') ?? firstTagValue(entryXml, 'published')),
+        publishedAt: toIsoDateOrNull(firstTagValue(entryXml, 'updated') ?? firstTagValue(entryXml, 'published')),
         description: decodeXmlEntity(firstTagValue(entryXml, 'summary') ?? ''),
       } satisfies RssItem;
     })
@@ -123,7 +123,7 @@ async function fetchAndParseFeedInternal(
         return {
           title: deriveTitleFromUrl(loc),
           link: loc,
-          publishedAt: toIsoDate(lastMod),
+          publishedAt: toIsoDateOrNull(lastMod),
           description: '',
         } satisfies RssItem;
       })

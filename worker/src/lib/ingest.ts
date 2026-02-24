@@ -4,7 +4,7 @@ import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed } from './classify';
 import { findArticleByHash, insertArticle } from './db';
-import { cachedTextFetch, sha256Hex, toIsoDate, wordCount } from './http';
+import { cachedTextFetch, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { scrapeArticleHtml } from './scrape';
 
 export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<IngestResult> {
@@ -104,12 +104,13 @@ async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<E
   if (!isHtml) {
     const description = source.providedDescription?.trim() ?? '';
     const title = source.providedTitle?.trim() || source.url;
+    const resolvedPublishedAt = toIsoDateOrNull(source.feedPublishedAt) ?? new Date().toISOString();
     return {
       canonicalUrl: source.url,
       sourceUrl: source.sourceUrl ?? source.url,
       title,
       author: null,
-      publishedAt: toIsoDate(source.feedPublishedAt),
+      publishedAt: resolvedPublishedAt,
       contentHtml: description,
       contentText: description,
       classificationText: [source.providedTitle, source.providedDescription].filter(Boolean).join(' '),
@@ -132,12 +133,17 @@ async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<E
     source.providedTitle ||
     '';
 
+  const resolvedPublishedAt =
+    scraped.publishedAt ??
+    toIsoDateOrNull(source.feedPublishedAt) ??
+    new Date().toISOString();
+
   return {
     canonicalUrl: scraped.canonicalUrl,
     sourceUrl: source.sourceUrl ?? source.url,
     title: readability?.title || scraped.title || source.providedTitle || source.url,
     author: scraped.author,
-    publishedAt: scraped.publishedAt || toIsoDate(source.feedPublishedAt),
+    publishedAt: resolvedPublishedAt,
     contentHtml: readableHtml || scraped.contentHtml,
     contentText: synthesizedText,
     classificationText: readableText || rssText,

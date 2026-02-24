@@ -1,4 +1,4 @@
-import { toIsoDate } from './http';
+import { toIsoDateOrNull } from './http';
 
 const META_REGEXPS: Record<string, RegExp[]> = {
   title: [
@@ -30,7 +30,7 @@ export interface ScrapedDocument {
   canonicalUrl: string;
   title: string;
   author: string | null;
-  publishedAt: string;
+  publishedAt: string | null;
   contentHtml: string;
   contentText: string;
   imageUrl: string | null;
@@ -44,7 +44,7 @@ export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocum
 
   const canonical = findMeta('canonical', html) ?? sourceUrl;
   const author = findMeta('author', html);
-  const publishedAt = toIsoDate(findMeta('publishedAt', html));
+  const publishedAt = toIsoDateOrNull(findMeta('publishedAt', html));
   const imageUrl = findMeta('image', html);
 
   const articleHtml =

@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
 import { __testables } from '../src/index';
 import { detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
+import { toIsoDateOrNull } from '../src/lib/http';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
@@ -220,6 +221,19 @@ describe('classification utilities', () => {
 	it('detects semantic sports category from content', () => {
 		const category = detectSemanticCategory('The Wildcats won a basketball game tonight.');
 		expect(category).toBe('sports');
+	});
+});
+
+describe('date parsing utilities', () => {
+	it('returns null for empty or invalid values in strict parser', () => {
+		expect(toIsoDateOrNull(undefined)).toBeNull();
+		expect(toIsoDateOrNull(null)).toBeNull();
+		expect(toIsoDateOrNull('')).toBeNull();
+		expect(toIsoDateOrNull('not-a-date')).toBeNull();
+	});
+
+	it('returns ISO string for valid date values in strict parser', () => {
+		expect(toIsoDateOrNull('2026-02-24T12:34:56Z')).toBe('2026-02-24T12:34:56.000Z');
 	});
 });
 

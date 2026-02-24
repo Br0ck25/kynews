@@ -66,7 +66,7 @@ url: string;
 sourceUrl: string;
 title?: string;
 reason: string;
-publishedAt?: string;
+publishedAt?: string | null;
 decision: 'duplicate' | 'rejected';
 category?: string;
 id?: number;
@@ -152,7 +152,7 @@ return json({ error: 'Unable to parse feed', feedCandidates: uniqueFeeds }, 422)
 }
 
 allItems.sort(
-	(a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+	(a, b) => toSortTimestamp(b.publishedAt) - toSortTimestamp(a.publishedAt),
 );
 
 const results = [] as Awaited<ReturnType<typeof ingestSingleUrl>>[];
@@ -162,7 +162,7 @@ try {
 const result = await ingestSingleUrl(env, {
 url: item.link,
 sourceUrl: sourceUrl ?? feedUrl ?? uniqueFeeds[0],
-feedPublishedAt: item.publishedAt,
+feedPublishedAt: item.publishedAt ?? undefined,
 providedTitle: item.title,
 providedDescription: item.description,
 });
@@ -556,6 +556,12 @@ if (error instanceof Error) return error.message;
 return 'unknown error';
 }
 
+function toSortTimestamp(value: string | null | undefined): number {
+	if (!value) return 0;
+	const parsed = Date.parse(value);
+	return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function normalizeLimitPerSource(limitPerSource: number | undefined): number {
 if (!Number.isFinite(limitPerSource)) return DEFAULT_SEED_LIMIT_PER_SOURCE;
 const numeric = Math.floor(limitPerSource as number);
@@ -618,7 +624,7 @@ status.errors.push(`feed parse failed (${feedUrl}): ${safeError(error)}`);
 
 if (status.selectedFeed && feedItems.length > 0) {
 feedItems.sort(
-	(a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+	(a, b) => toSortTimestamp(b.publishedAt) - toSortTimestamp(a.publishedAt),
 );
 const limitedItems = limitPerSource > 0 ? feedItems.slice(0, limitPerSource) : feedItems;
 for (const item of limitedItems) {
@@ -626,7 +632,7 @@ try {
 const result = await ingestSingleUrl(env, {
 url: item.link,
 sourceUrl,
-feedPublishedAt: item.publishedAt,
+feedPublishedAt: item.publishedAt ?? undefined,
 providedTitle: item.title,
 providedDescription: item.description,
 });
