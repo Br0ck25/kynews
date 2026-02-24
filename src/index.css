@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:wght@700;900&display=swap');
+/* Google Fonts are loaded asynchronously via <link> tags in public/index.html
+   to avoid render blocking. Do NOT re-add @import here. */
 
 body {
   margin: 0;

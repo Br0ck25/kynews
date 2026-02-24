@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
   <meta name="theme-color" content="#0d47a1" />
   <meta name="description" content="Kentucky News - local, state, and national updates across today, sports, weather, schools, and obituaries." />
   <meta property="og:type" content="website" />
@@ -17,6 +17,25 @@
   <meta name="twitter:image" content="/img/preview.PNG" />
   <link rel="manifest" href="/manifest.json" />
   <title>Kentucky News</title>
+  <!-- Preconnect to Google Fonts CDN to reduce render-blocking latency -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- Load fonts asynchronously (media=print trick) to avoid render blocking.
+       Est. savings: ~550 ms on FCP/LCP. -->
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:wght@700;900&display=swap"
+    media="print"
+    onload="this.media='all'"
+  />
+  <noscript>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:wght@700;900&display=swap"
+    />
+  </noscript>
+  <!-- Preconnect to the API worker to reduce LCP resource-load delay -->
+  <link rel="preconnect" href="https://worker.jamesbrock25.workers.dev" />
 </head>
 
 <body>

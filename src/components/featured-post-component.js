@@ -56,12 +56,17 @@ export default function FeaturedPost(props) {
       className={classes.mainFeaturedPost}
       style={{ backgroundImage: `url(${post.image})` }}
     >
-      {/* Increase the priority of the hero background image */}
+      {/* Hidden preload image for the LCP background-image.
+          fetchpriority="high" and loading="eager" instruct the browser to
+          discover and download this resource as early as possible, reducing
+          the "Resource load delay" in LCP breakdown. */}
       {
         <img
           style={{ display: "none" }}
           src={post.image}
           alt={post.imageText}
+          fetchpriority="high"
+          loading="eager"
         />
       }
       <div className={classes.overlay} />
@@ -82,7 +87,7 @@ export default function FeaturedPost(props) {
               </div>
             )}
             <Typography
-              component="h1"
+              component="h2"
               variant="h3"
               color="inherit"
               gutterBottom

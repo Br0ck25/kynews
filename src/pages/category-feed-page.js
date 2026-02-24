@@ -12,6 +12,7 @@ import {
   Typography,
   CircularProgress,
   Box,
+  Button,
 } from "@material-ui/core";
 import CloseIcon from "@material-ui/icons/Close";
 import Skeletons from "../components/skeletons-component";
@@ -60,6 +61,9 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
 
   // Sentinel element at the bottom of the list triggers next-page load
   const sentinelRef = useRef(null);
+  // Ref-based loading guard: prevents double-fetches without forcing the
+  // IntersectionObserver to disconnect/reconnect every time loading toggled.
+  const isLoadingMoreRef = useRef(false);
   // Track current category+counties key to detect dependency changes
   const countyKey = (selectedCounties || []).join("|");
   const effectiveCounties = category === "national" ? [] : selectedCounties || [];
@@ -76,6 +80,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
     setHasMore(true);
     setIsLoading(true);
     setErrors("");
+    isLoadingMoreRef.current = false; // reset ref on category/county change
 
     service
       .fetchPage({ category, counties: effectiveCounties, cursor: null, limit: getPageLimit(category) })
@@ -94,10 +99,15 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, countyKey]);
 
-  // Load next page when the sentinel scrolls into view
+  // Load next page when the sentinel scrolls into view.
+  // Uses a ref-based guard (isLoadingMoreRef) so this callback reference stays
+  // stable while a fetch is in-flight.  Keeping the same callback reference
+  // means the IntersectionObserver never has to disconnect and reconnect,
+  // which was the root cause of missed triggers when the sentinel stayed in view.
   const loadMore = useCallback(() => {
-    if (isLoadingMore || !hasMore || !cursor) return;
+    if (isLoadingMoreRef.current || !hasMore || !cursor) return;
 
+    isLoadingMoreRef.current = true;
     setIsLoadingMore(true);
     service
       .fetchPage({ category, counties: effectiveCounties, cursor, limit: getPageLimit(category) })
@@ -105,14 +115,16 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
         setAllPosts((prev) => [...prev, ...posts]);
         setCursor(nextCursor);
         setHasMore(nextCursor !== null);
+        isLoadingMoreRef.current = false;
         setIsLoadingMore(false);
       })
       .catch(() => {
         // silently fail on load-more; user can scroll up and back down to retry
+        isLoadingMoreRef.current = false;
         setIsLoadingMore(false);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, countyKey, cursor, hasMore, isLoadingMore]);
+  }, [category, countyKey, cursor, hasMore]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -125,11 +137,26 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
           loadMore();
         }
       },
-      { rootMargin: "200px" }
+      { rootMargin: "400px" } // fire 400px before sentinel reaches viewport
     );
 
     observer.observe(el);
-    return () => observer.disconnect();
+
+    // Fallback: also check on window scroll in case the IntersectionObserver
+    // misses a trigger (e.g., very tall viewports or unusual scroll containers).
+    const handleScroll = () => {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.top <= window.innerHeight + 400) {
+        loadMore();
+      }
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", handleScroll);
+    };
   }, [loadMore]);
 
   const handleCountyChange = (event) => {
@@ -140,7 +167,10 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
     <div className={classes.root}>
       <SnackbarNoInternet />
 
-      <Typography variant="h5" gutterBottom>
+      {/* Page section title: rendered as h1 so heading levels are sequential
+          (h1 → h2 in FeaturedPost → h3 in article cards).  variant="h5"
+          keeps the same visual size as before. */}
+      <Typography variant="h5" component="h1" gutterBottom>
         {title}
       </Typography>
 
@@ -191,6 +221,22 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
           {isLoadingMore && (
             <Box className={classes.loaderWrap}>
               <CircularProgress size={32} />
+            </Box>
+          )}
+
+          {/* Manual fallback button: shown when there are more articles but
+              the IntersectionObserver has not fired (e.g. browser quirks or
+              very fast scrolling past the sentinel). */}
+          {hasMore && !isLoadingMore && (
+            <Box style={{ textAlign: "center", padding: "16px 0" }}>
+              <Button
+                variant="outlined"
+                color="primary"
+                onClick={loadMore}
+                aria-label="Load more articles"
+              >
+                Load More
+              </Button>
             </Box>
           )}
 

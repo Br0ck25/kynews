@@ -126,9 +126,11 @@ function checkValidServiceWorker(swUrl, config) {
 
 export function unregister() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.ready
-      .then((registration) => {
-        registration.unregister();
+    // Unregister ALL service worker registrations (not just the active one)
+    // to ensure legacy CRA service workers using deprecated APIs are removed.
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => {
+        registrations.forEach((registration) => registration.unregister());
       })
       .catch((error) => {
         console.error(error.message);

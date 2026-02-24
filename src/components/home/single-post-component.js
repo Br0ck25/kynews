@@ -109,12 +109,15 @@ export default function SinglePost(props) {
             <CardMedia className={classes.cardMedia} image={post.image} title={post.imageTitle} />
           </Hidden>
         </Card> */}
+            {/* Alt uses post.title since imageText may not always be set.
+                loading="lazy" defers off-screen images to reduce initial payload. */}
             <CardMedia
               component="img"
-              alt={post.imageTitle}
+              alt={post.title || post.imageText || "Article image"}
               className={classes.media}
               image={post.image}
-              title={post.imageTitle}
+              title={post.title}
+              loading="lazy"
             />
             <CardContent
               onClick={() => handlePost(post)}
@@ -134,7 +137,7 @@ export default function SinglePost(props) {
                   ))}
                 </div>
               )}
-              <Typography gutterBottom variant="h6" component="h2" className={classes.title}>
+              <Typography gutterBottom variant="h6" component="h3" className={classes.title}>
                 {post.title}
               </Typography>
               <Typography
