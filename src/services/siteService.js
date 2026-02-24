@@ -3,16 +3,6 @@ import { KENTUCKY_COUNTIES } from "../constants/counties";
 
 const DEFAULT_IMAGE = "https://source.unsplash.com/random/1200x800?kentucky-news";
 const WORKER_FALLBACK_BASE_URL = "https://worker.jamesbrock25.workers.dev";
-// Determine the admin API base.  In most cases we want it to match the
-// public API base so requests originate from the same origin and don't
-// trigger unnecessary CORS preflight failures (especially when the value is
-// empty).  The old code always fell back to WORKER_FALLBACK_BASE_URL, meaning
-// admin pages were served from the worker.dev domain which required CORS.
-const ADMIN_API_BASE_URL = process.env.REACT_APP_ADMIN_API_BASE_URL || "";
-
-// We'll later normalize in the constructor to ensure an empty string means
-// same-origin.  The fallback value here is intentionally "" (not
-// WORKER_FALLBACK_BASE_URL).
 
 const ADMIN_SESSION_KEY = "ky_admin_panel_key";
 
@@ -147,15 +137,11 @@ export default class SiteService {
       process.env.REACT_APP_API_BASE_URL ||
       "";
 
-    // Normalize admin base URL: empty means same-origin, otherwise use value
-    // specified or fallback to WORKER_FALLBACK_BASE_URL so existing local dev
-    // and tests continue working.
-    if (process.env.REACT_APP_ADMIN_API_BASE_URL !== undefined) {
-      // if explicitly provided (even empty string), honor it; empty => same-origin
-      this.adminBaseUrl = process.env.REACT_APP_ADMIN_API_BASE_URL || this.baseUrl;
-    } else {
-      this.adminBaseUrl = WORKER_FALLBACK_BASE_URL;
-    }
+    // Admin requests use the same base URL as public API so everything stays
+    // same-origin and CORS preflight is never triggered.
+    // Vite only injects VITE_* env vars — REACT_APP_* are always undefined at
+    // runtime, so we cannot rely on them for admin URL configuration.
+    this.adminBaseUrl = this.baseUrl;
 
     this.devSeedAttempted = false;
   }
@@ -183,6 +169,9 @@ export default class SiteService {
     const targetUrl = `${targetBaseUrl}${path}`;
     let response = await fetch(targetUrl, requestOptions);
 
+    // Admin paths must NOT fall back to WORKER_FALLBACK_BASE_URL — doing so
+    // crosses origins and triggers CORS.  The shouldFallback logic below only
+    // applies to public /api/ paths.
     const parseResponse = async (resp) => {
       const contentType = resp.headers.get("content-type") || "";
       const rawText = await resp.text();
@@ -210,8 +199,11 @@ export default class SiteService {
     // response was `ok`, but POST/ADMIN requests currently return a 405 from
     // the frontend app which prevents the retry.  Treat any non-JSON/HTML
     // response as a sign that we've hit the SPA instead of the API.
+    // Never reroute admin paths to the worker.dev fallback — that crosses
+    // origins and causes CORS failures. Admin requests must stay same-origin.
     const shouldFallback =
       path.startsWith("/api/") &&
+      !isAdminPath &&
       this.baseUrl !== WORKER_FALLBACK_BASE_URL &&
       (parsed == null || isHtmlLike || !response.ok);
 
