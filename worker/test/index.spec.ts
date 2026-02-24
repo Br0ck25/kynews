@@ -2,7 +2,7 @@ import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloud
 import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
 import { __testables } from '../src/index';
-import { detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
+import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
 import { toIsoDateOrNull } from '../src/lib/http';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
@@ -221,6 +221,17 @@ describe('classification utilities', () => {
 	it('detects semantic sports category from content', () => {
 		const category = detectSemanticCategory('The Wildcats won a basketball game tonight.');
 		expect(category).toBe('sports');
+	});
+
+	it('ignores kentucky lantern branding in title for national stories', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://kentuckylantern.com/2026/02/03/repub/trump-doubles-down-on-calling-for-the-feds-to-take-over-state-elections/',
+			title: 'Trump doubles down on calling for the feds to take over state elections • Kentucky Lantern',
+			content: 'President Donald Trump repeated calls for federal control of elections in remarks focused on national policy.',
+		});
+
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.category).toBe('national');
 	});
 });
 

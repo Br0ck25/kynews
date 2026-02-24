@@ -81,8 +81,8 @@ export async function classifyArticleWithAi(
   env: Env,
   input: ClassifierInput,
 ): Promise<ClassificationResult> {
-  const title = (input.title || '').trim();
-  const content = (input.content || '').trim();
+  const title = normalizeTitleForClassification((input.title || '').trim(), input.url);
+  const content = normalizeContentForClassification((input.content || '').trim(), input.url);
   const relevance = classifyArticle(title, content);
 
   const semanticText = `${title}\n${content}`;
@@ -115,6 +115,7 @@ export async function classifyArticleWithAi(
     const prompt = [
       'You are a news classifier for a Kentucky local news app.',
       'Analyze the article title and first 1200 characters of content below.',
+      'Important: Ignore publisher/site branding in title or body (for example, "Kentucky Lantern") when deciding Kentucky relevance.',
       '',
       'Task: Return a JSON object with three fields:',
       '  "category" - one of: "sports", "weather", "schools", "obituaries", "today", "national"',
@@ -125,6 +126,7 @@ export async function classifyArticleWithAi(
       '    today      = article mentions Kentucky or KY but does not fit sports/weather/schools/obituaries',
       '    national   = article does NOT primarily concern Kentucky AND does not fit the above categories',
       '  "isKentucky" - true if the article contains the word "Kentucky" or abbreviation "KY" (standalone), false otherwise',
+      '                 but DO NOT count publisher names/branding as location signals.',
       '  "county" - if a specific Kentucky county is prominently mentioned (e.g., "Pike County", "Fayette County"),',
       '             return just the county name WITHOUT the word County (e.g., "Pike"). Otherwise return null.',
       `  Known KY counties include: ${countyList}, ...`,
@@ -416,4 +418,37 @@ function normalizeText(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeTitleForClassification(title: string, sourceUrl: string): string {
+  const host = getHostname(sourceUrl);
+  if (!host) return title;
+
+  if (host === 'kentuckylantern.com' || host.endsWith('.kentuckylantern.com')) {
+    return title
+      .replace(/^\s*kentucky\s+lantern\s*[|•·—–-]\s*/i, '')
+      .replace(/\s*[|•·—–-]\s*kentucky\s+lantern\s*$/i, '')
+      .trim();
+  }
+
+  return title;
+}
+
+function normalizeContentForClassification(content: string, sourceUrl: string): string {
+  const host = getHostname(sourceUrl);
+  if (!host) return content;
+
+  if (host === 'kentuckylantern.com' || host.endsWith('.kentuckylantern.com')) {
+    return content.replace(/\bkentucky\s+lantern\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  return content;
+}
+
+function getHostname(sourceUrl: string): string | null {
+  try {
+    return new URL(sourceUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
 }
