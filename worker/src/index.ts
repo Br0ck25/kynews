@@ -36,8 +36,13 @@ import type { Category } from './types';
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
 const INGEST_METRICS_KEY = 'admin:ingest:latest';
+const INGEST_ROTATION_KEY_PREFIX = 'admin:ingest:rotation:';
 const FALLBACK_CRAWL_MAX_LINKS = 12;
 const FALLBACK_CRAWL_MAX_SECTION_PAGES = 3;
+const SCHEDULED_HIGH_LIMIT_PER_SOURCE = 20;
+const SCHEDULED_NORMAL_LIMIT_PER_SOURCE = 8;
+const SCHEDULED_HIGH_MAX_SOURCES_PER_RUN = 2;
+const SCHEDULED_NORMAL_MAX_SOURCES_PER_RUN = 25;
 
 const STRUCTURED_SEARCH_SOURCE_URLS = new Set([
 	'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
@@ -82,6 +87,7 @@ startedAt: string;
 finishedAt: string;
 durationMs: number;
 sourcesTried: number;
+sourcesAvailable: number;
 processed: number;
 inserted: number;
 duplicate: number;
@@ -92,6 +98,11 @@ sourceErrors: number;
 trigger: 'manual' | 'scheduled-high' | 'scheduled-normal';
 rejectedSamples: IngestDecisionSample[];
 duplicateSamples: IngestDecisionSample[];
+}
+
+interface IngestRunOptions {
+	maxSourcesPerRun?: number;
+	rotateSources?: boolean;
 }
 
 /** All route handling extracted so the outer fetch() can wrap it in a try/catch
@@ -531,12 +542,22 @@ const cron = (_event as ScheduledEvent).cron || '';
 
 if (cron === '*/5 * * * *') {
 const sourceUrls = [...new Set(HIGH_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
-ctx.waitUntil(runIngest(env, sourceUrls, Math.max(DEFAULT_SEED_LIMIT_PER_SOURCE, 0), 'scheduled-high'));
+ctx.waitUntil(
+	runIngest(env, sourceUrls, SCHEDULED_HIGH_LIMIT_PER_SOURCE, 'scheduled-high', {
+		maxSourcesPerRun: SCHEDULED_HIGH_MAX_SOURCES_PER_RUN,
+		rotateSources: true,
+	}),
+);
 return;
 }
 
 const sourceUrls = [...new Set(NORMAL_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
-ctx.waitUntil(runIngest(env, sourceUrls, DEFAULT_SEED_LIMIT_PER_SOURCE, 'scheduled-normal'));
+ctx.waitUntil(
+	runIngest(env, sourceUrls, SCHEDULED_NORMAL_LIMIT_PER_SOURCE, 'scheduled-normal', {
+		maxSourcesPerRun: SCHEDULED_NORMAL_MAX_SOURCES_PER_RUN,
+		rotateSources: true,
+	}),
+);
 },
 };
 
@@ -548,8 +569,16 @@ async function runIngest(
 	sourceUrls: string[],
 	limitPerSource: number,
 	trigger: IngestRunMetrics['trigger'],
+	options: IngestRunOptions = {},
 ): Promise<void> {
 const started = Date.now();
+const { runSources, sourcesAvailable, nextOffset, shouldPersistRotation } = await selectSourcesForRun(
+	env,
+	sourceUrls,
+	trigger,
+	options,
+);
+
 let processed = 0;
 let inserted = 0;
 let duplicate = 0;
@@ -559,7 +588,7 @@ let sourceErrors = 0;
 const rejectedSamples: IngestDecisionSample[] = [];
 const duplicateSamples: IngestDecisionSample[] = [];
 
-for (const sourceUrl of sourceUrls) {
+for (const sourceUrl of runSources) {
 try {
 const status = await ingestSeedSource(env, sourceUrl, limitPerSource);
 processed += status.processed;
@@ -586,7 +615,8 @@ const metrics: IngestRunMetrics = {
 	startedAt: new Date(started).toISOString(),
 	finishedAt: new Date(finished).toISOString(),
 	durationMs,
-	sourcesTried: sourceUrls.length,
+	sourcesTried: runSources.length,
+	sourcesAvailable,
 	processed,
 	inserted,
 	duplicate,
@@ -600,6 +630,11 @@ const metrics: IngestRunMetrics = {
 };
 
 await env.CACHE.put(INGEST_METRICS_KEY, JSON.stringify(metrics), { expirationTtl: 60 * 60 * 24 * 7 }).catch(() => null);
+
+if (shouldPersistRotation && nextOffset != null) {
+	const rotationKey = `${INGEST_ROTATION_KEY_PREFIX}${trigger}`;
+	await env.CACHE.put(rotationKey, String(nextOffset), { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => null);
+}
 }
 
 function isHttpUrl(input: string): boolean {
@@ -630,9 +665,53 @@ return Math.min(numeric, MAX_SEED_LIMIT_PER_SOURCE);
 }
 
 function buildManualIngestSources(includeSchools: boolean): string[] {
-	return includeSchools
-		? [...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS, ...HIGH_PRIORITY_SOURCE_SEEDS]
-		: [...MASTER_SOURCE_SEEDS, ...HIGH_PRIORITY_SOURCE_SEEDS];
+	const combined = includeSchools
+		? [...HIGH_PRIORITY_SOURCE_SEEDS, ...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS]
+		: [...HIGH_PRIORITY_SOURCE_SEEDS, ...MASTER_SOURCE_SEEDS];
+
+	return [...new Set(combined)];
+}
+
+async function selectSourcesForRun(
+	env: Env,
+	sourceUrls: string[],
+	trigger: IngestRunMetrics['trigger'],
+	options: IngestRunOptions,
+): Promise<{ runSources: string[]; sourcesAvailable: number; nextOffset: number | null; shouldPersistRotation: boolean }> {
+	const sourcesAvailable = sourceUrls.length;
+	if (sourcesAvailable === 0) {
+		return { runSources: [], sourcesAvailable: 0, nextOffset: null, shouldPersistRotation: false };
+	}
+
+	const maxSources =
+		Number.isFinite(options.maxSourcesPerRun) && Number(options.maxSourcesPerRun) > 0
+			? Math.min(Math.floor(Number(options.maxSourcesPerRun)), sourcesAvailable)
+			: sourcesAvailable;
+
+	if (!options.rotateSources || sourcesAvailable <= 1) {
+		return {
+			runSources: sourceUrls.slice(0, maxSources),
+			sourcesAvailable,
+			nextOffset: null,
+			shouldPersistRotation: false,
+		};
+	}
+
+	const rotationKey = `${INGEST_ROTATION_KEY_PREFIX}${trigger}`;
+	const rawOffset = await env.CACHE.get(rotationKey).catch(() => null);
+	const parsedOffset = Number.parseInt(rawOffset || '0', 10);
+	const startOffset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset % sourcesAvailable : 0;
+
+	const rotated = [...sourceUrls.slice(startOffset), ...sourceUrls.slice(0, startOffset)];
+	const runSources = rotated.slice(0, maxSources);
+	const nextOffset = (startOffset + runSources.length) % sourcesAvailable;
+
+	return {
+		runSources,
+		sourcesAvailable,
+		nextOffset,
+		shouldPersistRotation: true,
+	};
 }
 
 function isAdminAuthorized(request: Request, env: Env): boolean {
