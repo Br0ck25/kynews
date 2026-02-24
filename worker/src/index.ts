@@ -1,7 +1,9 @@
 import {
 	blockArticleByIdAndDelete,
 	deleteArticleById,
+	findArticleByHash,
 	getArticleById,
+	insertArticle,
 	listBlockedArticles,
 	getSourceStats,
 	listAdminArticles,
@@ -26,12 +28,14 @@ import {
 	parseCommaList,
 	parseJsonBody,
 	parsePositiveInt,
+	sha256Hex,
+	wordCount,
 } from './lib/http';
 import { ingestSingleUrl } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
 import { classifyArticleWithAi } from './lib/classify';
-import type { Category } from './types';
+import type { Category, NewArticle } from './types';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -479,6 +483,170 @@ if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid block
 const removed = await unblockArticleByBlockedId(env, id);
 if (!removed) return json({ error: 'Blocked item not found' }, 404);
 return json({ ok: true, id });
+}
+
+// Preview a Facebook post by URL and extract title/body/image for manual article creation.
+// Requires FACEBOOK_ACCESS_TOKEN to be set in worker secrets/env vars.
+if (url.pathname === '/api/admin/facebook/preview' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+
+	const body = await parseJsonBody<{ url?: string }>(request);
+	const fbUrl = body?.url?.trim();
+
+	if (!fbUrl) return badRequest('Missing required field: url');
+
+	// Try to parse the post ID from the Facebook URL
+	const postId = extractFacebookPostId(fbUrl);
+	const fbToken = ((env as unknown as { FACEBOOK_ACCESS_TOKEN?: string }).FACEBOOK_ACCESS_TOKEN || '').trim();
+
+	if (!fbToken) {
+		return json({
+			ok: false,
+			message: 'FACEBOOK_ACCESS_TOKEN is not configured in worker environment variables. Fill fields manually.',
+			title: null,
+			body: null,
+			imageUrl: null,
+			publishedAt: null,
+		});
+	}
+
+	if (!postId) {
+		return json({
+			ok: false,
+			message: 'Could not extract a post ID from the provided URL. Fill fields manually.',
+			title: null,
+			body: null,
+			imageUrl: null,
+			publishedAt: null,
+		});
+	}
+
+	try {
+		const apiUrl = `https://graph.facebook.com/v19.0/${postId}?fields=message,full_picture,created_time&access_token=${encodeURIComponent(fbToken)}`;
+		const fbResponse = await fetch(apiUrl, { headers: { accept: 'application/json' } });
+		const fbData = await fbResponse.json() as { message?: string; full_picture?: string; created_time?: string; error?: { message?: string } };
+
+		if (fbData.error || !fbData.message) {
+			return json({
+				ok: false,
+				message: fbData.error?.message || 'Post not found or has no text message.',
+				title: null,
+				body: null,
+				imageUrl: null,
+				publishedAt: null,
+			});
+		}
+
+		const { title, body: postBody } = deriveFacebookTitleAndBody(fbData.message);
+
+		return json({
+			ok: true,
+			title,
+			body: postBody,
+			imageUrl: fbData.full_picture || null,
+			publishedAt: fbData.created_time || null,
+		});
+	} catch (err) {
+		return json({ ok: false, message: safeError(err), title: null, body: null, imageUrl: null, publishedAt: null }, 500);
+	}
+}
+
+// Manually create an article (from a Facebook post or any other source) without going through
+// the normal URL-scraping pipeline.  The body text is used as-is for content; classification
+// runs normally so category/county are still determined by AI unless overridden by the caller.
+if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+
+	const body = await parseJsonBody<{
+		title?: string;
+		body?: string;
+		imageUrl?: string;
+		sourceUrl?: string;
+		county?: string;
+		published?: boolean;
+		publishedAt?: string;
+	}>(request);
+
+	const title = body?.title?.trim();
+	const postBody = body?.body?.trim();
+
+	if (!title) return badRequest('Missing required field: title');
+	if (!postBody) return badRequest('Missing required field: body');
+
+	const sourceUrl = body?.sourceUrl?.trim() || '';
+	const imageUrl = body?.imageUrl?.trim() || null;
+	const providedCounty = body?.county?.trim() || null;
+	// published=true means use current time; published=false means future-date it far out (draft)
+	const published = body?.published !== false;
+	const publishedAt = (body?.publishedAt || '').trim() || new Date().toISOString();
+
+	// Use the Facebook/source URL as the canonical URL when valid; otherwise derive one from a
+	// hash of the title + timestamp so duplicate detection still works on re-submit.
+	const canonicalUrl = sourceUrl && isHttpUrl(sourceUrl)
+		? sourceUrl
+		: `https://localkynews.com/manual/${await sha256Hex(title + publishedAt)}`;
+
+	const canonicalHash = await sha256Hex(canonicalUrl);
+
+	// Duplicate guard – same URL already stored
+	const existing = await findArticleByHash(env, canonicalHash);
+	if (existing) {
+		return json({ status: 'duplicate', id: existing.id, message: 'An article with this URL already exists.' });
+	}
+
+	// Run through existing AI classifier for category consistency (schools, today, etc.)
+	// but always force isKentucky=true and prefer the admin-supplied county.
+	const classification = await classifyArticleWithAi(env, {
+		url: canonicalUrl,
+		title,
+		content: postBody,
+	});
+
+	classification.isKentucky = true;
+	if (providedCounty) {
+		classification.county = providedCounty;
+	}
+
+	// Build simple HTML from the plain-text body preserving paragraph breaks
+	const contentHtml = `<p>${postBody.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>')}</p>`;
+	const words = wordCount(postBody);
+
+	const newArticle: NewArticle = {
+		canonicalUrl,
+		sourceUrl: sourceUrl || canonicalUrl,
+		urlHash: canonicalHash,
+		title,
+		author: null,
+		// Draft: publish far in the future so it won't surface until explicitly set live
+		publishedAt: published ? publishedAt : '9999-12-31T00:00:00.000Z',
+		category: classification.category,
+		isKentucky: true,
+		county: classification.county,
+		city: classification.city,
+		summary: '',
+		seoDescription: '',
+		rawWordCount: words,
+		summaryWordCount: 0,
+		contentText: postBody,
+		contentHtml,
+		imageUrl,
+		rawR2Key: null,
+	};
+
+	const articleId = await insertArticle(env, newArticle);
+
+	return json({
+		status: 'inserted',
+		id: articleId,
+		category: newArticle.category,
+		isKentucky: true,
+		county: newArticle.county,
+		canonicalUrl,
+	});
 }
 
 const categoryMatch = url.pathname.match(/^\/api\/articles\/([a-z-]+)$/i);
@@ -1133,6 +1301,75 @@ export const __testables = {
 	isRobotsBypassAllowed,
 	extractStructuredSearchLinks,
 };
+
+// ---------------------------------------------------------------------------
+// Facebook helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a Facebook post ID from common post URL formats:
+ *  - https://www.facebook.com/{page}/posts/{id}
+ *  - https://www.facebook.com/{page}/photos/{id}
+ *  - https://www.facebook.com/permalink.php?story_fbid={id}&id={pageId}
+ *  - https://www.facebook.com/story.php?story_fbid={id}&id={pageId}  (returns pageId_id)
+ *  - https://www.facebook.com/{page}?fbid={id}
+ *
+ * Returns the Graph-API-compatible object ID string, or null if it cannot be parsed.
+ */
+function extractFacebookPostId(fbUrl: string): string | null {
+	try {
+		const parsed = new URL(fbUrl);
+		if (!parsed.hostname.includes('facebook.com')) return null;
+
+		// /posts/{id} and /photos/{id} patterns
+		const postMatch = parsed.pathname.match(/\/(?:posts|photos|videos)\/(\d+)/);
+		if (postMatch?.[1]) return postMatch[1];
+
+		// permalink.php?story_fbid={postId}&id={pageId}
+		const storyFbid = parsed.searchParams.get('story_fbid');
+		const pageIdParam = parsed.searchParams.get('id');
+		if (storyFbid && pageIdParam) return `${pageIdParam}_${storyFbid}`;
+
+		// ?fbid=
+		const fbid = parsed.searchParams.get('fbid');
+		if (fbid) return fbid;
+
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Derive a title and body from a raw Facebook post message string.
+ *
+ * Short post (no paragraph breaks AND under 280 chars):
+ *   → title = entire message, body = entire message
+ *
+ * Long post:
+ *   → title = first non-empty line (if ≤ 150 chars), or first 120 chars with "…"
+ *   → body  = entire message
+ */
+function deriveFacebookTitleAndBody(message: string): { title: string; body: string } {
+	const trimmed = message.trim();
+	const hasMultipleParagraphs = trimmed.includes('\n\n');
+
+	// Short post — the whole thing is the title
+	if (!hasMultipleParagraphs && trimmed.length < 280) {
+		return { title: trimmed, body: trimmed };
+	}
+
+	// Long post — use the first non-empty line as the title
+	const firstLine = trimmed.split('\n').find((l) => l.trim().length > 0)?.trim() ?? '';
+
+	if (firstLine && firstLine.length <= 150) {
+		return { title: firstLine, body: trimmed };
+	}
+
+	// First line too long – truncate
+	const autoTitle = trimmed.slice(0, 120).trim() + (trimmed.length > 120 ? '…' : '');
+	return { title: autoTitle, body: trimmed };
+}
 
 function parseRobotsForGenericBot(content: string): { allow: string[]; disallow: string[] } {
 	const allow: string[] = [];

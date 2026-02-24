@@ -495,6 +495,29 @@ export default class SiteService {
     });
   }
 
+  /**
+   * Preview a Facebook post by URL.
+   * Returns { ok, title, body, imageUrl, publishedAt, message? }
+   * When ok=false the message explains why (no token, bad URL, etc.) and title/body/imageUrl are null.
+   */
+  async previewFacebookPost(fbUrl) {
+    return this.request("/api/admin/facebook/preview", {
+      method: "POST",
+      body: JSON.stringify({ url: fbUrl }),
+    });
+  }
+
+  /**
+   * Manually create an article from supplied fields (e.g. a Facebook post pasted by an admin).
+   * Returns { status: 'inserted'|'duplicate', id, category, county, canonicalUrl }
+   */
+  async createManualArticle({ title, body, imageUrl, sourceUrl, county, published, publishedAt }) {
+    return this.request("/api/admin/manual-article", {
+      method: "POST",
+      body: JSON.stringify({ title, body, imageUrl, sourceUrl, county, published, publishedAt }),
+    });
+  }
+
   setAdminPanelKey(value) {
     const key = String(value || "").trim();
     if (!key) {

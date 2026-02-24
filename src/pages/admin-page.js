@@ -8,10 +8,12 @@ import {
   Chip,
   CircularProgress,
   FormControl,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Paper,
   Select,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -22,6 +24,7 @@ import {
 } from "@material-ui/core";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import SiteService from "../services/siteService";
+import { KENTUCKY_COUNTIES } from "../constants/counties";
 
 const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 const CATEGORIES = ["today", "national", "sports", "weather", "schools", "obituaries"];
@@ -50,6 +53,18 @@ export default function AdminPage() {
   const [unblockingId, setUnblockingId] = useState(null);
 
   const [edits, setEdits] = useState({});
+
+  // --- Manual Article Form state ---
+  const [fbPostUrl, setFbPostUrl] = useState("");
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualBody, setManualBody] = useState("");
+  const [manualImageUrl, setManualImageUrl] = useState("");
+  const [manualCounty, setManualCounty] = useState("");
+  const [manualPublished, setManualPublished] = useState(true);
+  const [manualLoading, setManualLoading] = useState(false);
+  const [manualFbLoading, setManualFbLoading] = useState(false);
+  const [manualSuccess, setManualSuccess] = useState(null);
+  const [manualError, setManualError] = useState("");
 
   const loadData = async () => {
     if (!authorized) return;
@@ -309,6 +324,71 @@ export default function AdminPage() {
 
   const getLocalArticleLink = (id) => `https://localkynews.com/post?articleId=${id}`;
 
+  // ---------------------------------------------------------------------------
+  // Manual Article handlers
+  // ---------------------------------------------------------------------------
+
+  /** Try to auto-fill title/body/image from a Facebook post URL via the worker. */
+  const loadFromFacebook = async () => {
+    if (!fbPostUrl.trim()) return;
+    setManualFbLoading(true);
+    setManualError("");
+    setManualSuccess(null);
+    try {
+      const result = await service.previewFacebookPost(fbPostUrl.trim());
+      if (result?.ok) {
+        if (result.title) setManualTitle(result.title);
+        if (result.body) setManualBody(result.body);
+        if (result.imageUrl) setManualImageUrl(result.imageUrl);
+      } else {
+        // Not an error – just couldn't auto-fill; show a notice
+        setManualError(result?.message || "Could not auto-fill from Facebook. Fill fields manually.");
+      }
+    } catch (err) {
+      setManualError(err?.errorMessage || "Failed to load Facebook post.");
+    } finally {
+      setManualFbLoading(false);
+    }
+  };
+
+  /** Submit the manual article form to the worker for storage. */
+  const submitManualArticle = async () => {
+    if (!manualTitle.trim()) { setManualError("Title is required."); return; }
+    if (!manualBody.trim())  { setManualError("Body is required."); return; }
+    setManualLoading(true);
+    setManualError("");
+    setManualSuccess(null);
+    try {
+      const result = await service.createManualArticle({
+        title: manualTitle.trim(),
+        body: manualBody.trim(),
+        imageUrl: manualImageUrl.trim() || null,
+        sourceUrl: fbPostUrl.trim() || null,
+        county: manualCounty || null,
+        published: manualPublished,
+        publishedAt: new Date().toISOString(),
+      });
+      if (result?.status === "inserted") {
+        setManualSuccess(`Article created! ID: ${result.id} | Category: ${result.category} | County: ${result.county || "none"}`);
+        // Reset form
+        setFbPostUrl("");
+        setManualTitle("");
+        setManualBody("");
+        setManualImageUrl("");
+        setManualCounty("");
+        setManualPublished(true);
+      } else if (result?.status === "duplicate") {
+        setManualError(`Duplicate – an article with this URL already exists (ID: ${result.id}).`);
+      } else {
+        setManualError("Unexpected response from server.");
+      }
+    } catch (err) {
+      setManualError(err?.errorMessage || "Failed to create article.");
+    } finally {
+      setManualLoading(false);
+    }
+  };
+
   const triggerIngest = async () => {
     setError("");
     try {
@@ -396,6 +476,123 @@ export default function AdminPage() {
           </Box>
         </Paper>
       )}
+
+      {/* ------------------------------------------------------------------- */}
+      {/* Manual Article Creation                                               */}
+      {/* ------------------------------------------------------------------- */}
+      <Paper style={{ padding: 16, marginBottom: 16 }}>
+        <Typography variant="h6" gutterBottom>
+          Create Manual Article
+        </Typography>
+        <Typography variant="body2" color="textSecondary" gutterBottom>
+          Paste a Facebook post URL to auto-fill fields (requires FACEBOOK_ACCESS_TOKEN in worker env), or fill manually.
+          Articles are always tagged as Kentucky content (isKentucky=true, category determined by AI classifier).
+        </Typography>
+
+        {/* Facebook URL row */}
+        <Box style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+          <TextField
+            variant="outlined"
+            size="small"
+            label="Facebook Post URL (optional)"
+            placeholder="https://www.facebook.com/leslieCoBOE/posts/…"
+            value={fbPostUrl}
+            onChange={(e) => setFbPostUrl(e.target.value)}
+            style={{ minWidth: 380, flex: 1 }}
+          />
+          <Button
+            variant="outlined"
+            color="primary"
+            disabled={manualFbLoading || !fbPostUrl.trim()}
+            onClick={loadFromFacebook}
+          >
+            {manualFbLoading ? "Loading…" : "Load from Facebook"}
+          </Button>
+        </Box>
+
+        {/* Title */}
+        <TextField
+          fullWidth
+          variant="outlined"
+          size="small"
+          label="Title"
+          value={manualTitle}
+          onChange={(e) => setManualTitle(e.target.value)}
+          style={{ marginBottom: 12 }}
+        />
+
+        {/* Body */}
+        <TextField
+          fullWidth
+          variant="outlined"
+          size="small"
+          label="Body"
+          multiline
+          rows={8}
+          value={manualBody}
+          onChange={(e) => setManualBody(e.target.value)}
+          style={{ marginBottom: 12 }}
+        />
+
+        {/* Image URL */}
+        <TextField
+          fullWidth
+          variant="outlined"
+          size="small"
+          label="Image URL (optional)"
+          value={manualImageUrl}
+          onChange={(e) => setManualImageUrl(e.target.value)}
+          style={{ marginBottom: 12 }}
+        />
+
+        {/* County + Publish row */}
+        <Box style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+          <FormControl variant="outlined" size="small" style={{ minWidth: 200 }}>
+            <InputLabel>County (optional)</InputLabel>
+            <Select
+              value={manualCounty}
+              onChange={(e) => setManualCounty(e.target.value)}
+              label="County (optional)"
+            >
+              <MenuItem value=""><em>None / let AI decide</em></MenuItem>
+              {KENTUCKY_COUNTIES.map((c) => (
+                <MenuItem key={c} value={c}>{c}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={manualPublished}
+                onChange={(e) => setManualPublished(e.target.checked)}
+                color="primary"
+              />
+            }
+            label={manualPublished ? "Publish immediately" : "Save as draft"}
+          />
+
+          <Button
+            variant="contained"
+            color="primary"
+            disabled={manualLoading || !manualTitle.trim() || !manualBody.trim()}
+            onClick={submitManualArticle}
+          >
+            {manualLoading ? "Saving…" : "Create Article"}
+          </Button>
+        </Box>
+
+        {manualError && (
+          <Typography color="error" variant="body2" style={{ marginTop: 6 }}>
+            {manualError}
+          </Typography>
+        )}
+        {manualSuccess && (
+          <Typography style={{ color: "green", marginTop: 6 }} variant="body2">
+            {manualSuccess}
+          </Typography>
+        )}
+      </Paper>
 
       <Paper style={{ padding: 16, marginBottom: 16 }}>
         <Typography variant="h6" gutterBottom>
