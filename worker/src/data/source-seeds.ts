@@ -154,6 +154,10 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://wklw.com/feed/',
   'https://wsipam.com/feed/',
   'https://wp.kentuckystatepolice.ky.gov/feed/',
+	'https://www.usnews.com/rss/education',
+	'https://www.usnews.com/rss/health',
+	'https://www.usnews.com/rss/money',
+	'https://www.usnews.com/rss/news'
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [
@@ -170,6 +174,7 @@ export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=247',
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=187491',
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=565',
+	'https://news.google.com/rss',
 
 ];
 

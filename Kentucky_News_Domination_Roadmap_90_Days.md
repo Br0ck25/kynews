@@ -48,7 +48,7 @@ Accuracy is critical.
 
 ### 3. AI Summary Standard
 
-Summary rules: - 30--40% of original length - Neutral tone - Bullet key
+Summary rules: - 55--65% of original length - Neutral tone - Bullet key
 facts first - Clear separation of summary and context
 
 Standard format:

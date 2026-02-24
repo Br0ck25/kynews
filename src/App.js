@@ -7,7 +7,9 @@ import NationalPage from "./pages/national-page";
 import SportsPage from "./pages/sports-page";
 import WeatherPage from "./pages/weather-page";
 import SchoolsPage from "./pages/schools-page";
-import ObituariesPage from "./pages/obituaries-page";
+// ObituariesPage and LostFoundPage kept for future use
+// import ObituariesPage from "./pages/obituaries-page";
+// import LostFoundPage from "./pages/lost-found-page";
 import SettingsPage from "./pages/settings-page";
 import LocalPage from "./pages/local-page";
 import CountyPage from "./pages/county-page";
@@ -17,7 +19,6 @@ import SearchPage from "./pages/search-page";
 import SavedPage from "./pages/saved-page";
 import PostPage from "./pages/post-page";
 import FavoritesPage from "./pages/favorites-page";
-import LostFoundPage from "./pages/lost-found-page";
 import AdminPage from "./pages/admin-page";
 import SectionsHeader from "./components/home/sections-component";
 import { Container, Box } from "@material-ui/core";
@@ -51,8 +52,7 @@ const SECTIONS = [
   { title: "Sports", url: "/sports" },
   { title: "Weather", url: "/weather" },
   { title: "Schools", url: "/schools" },
-  { title: "Obituaries", url: "/obituaries" },
-  { title: "Lost & Found", url: "/lost-found" },
+  // Obituaries and Lost & Found hidden — may be re-enabled later
 ];
 
 function App() {
@@ -89,9 +89,10 @@ function App() {
                   <Route path="/schools">
                     <SchoolsPage />
                   </Route>
-                  <Route path="/obituaries">
-                    <ObituariesPage />
-                  </Route>
+                  {/* Obituaries and Lost & Found routes disabled — pages kept for future use
+                  <Route path="/obituaries"><ObituariesPage /></Route>
+                  <Route path="/lost-found"><LostFoundPage /></Route>
+                  */}
                   <Route path="/search">
                     <SearchPage />
                   </Route>
@@ -103,9 +104,6 @@ function App() {
                   </Route>
                   <Route path="/news/:countySlug">
                     <CountyPage />
-                  </Route>
-                  <Route path="/lost-found">
-                    <LostFoundPage />
                   </Route>
                   <Route path="/favorites">
                     <FavoritesPage />

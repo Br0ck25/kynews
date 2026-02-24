@@ -4,6 +4,25 @@ import CategoryFeedPage from "./category-feed-page";
 import SiteService from "../services/siteService";
 import { GetValue, SaveValue } from "../services/storageService";
 
+// WMO Weather interpretation codes → human-readable condition + emoji
+function getWeatherCondition(code) {
+  if (code === 0) return { label: "Clear Sky", emoji: "☀️" };
+  if (code === 1) return { label: "Mainly Clear", emoji: "🌤️" };
+  if (code === 2) return { label: "Partly Cloudy", emoji: "⛅" };
+  if (code === 3) return { label: "Overcast", emoji: "☁️" };
+  if (code === 45 || code === 48) return { label: "Foggy", emoji: "🌫️" };
+  if (code >= 51 && code <= 55) return { label: "Drizzle", emoji: "🌦️" };
+  if (code >= 56 && code <= 57) return { label: "Freezing Drizzle", emoji: "🌧️" };
+  if (code >= 61 && code <= 65) return { label: "Rain", emoji: "🌧️" };
+  if (code >= 66 && code <= 67) return { label: "Freezing Rain", emoji: "🌨️" };
+  if (code >= 71 && code <= 77) return { label: "Snow", emoji: "❄️" };
+  if (code >= 80 && code <= 82) return { label: "Rain Showers", emoji: "🌧️" };
+  if (code >= 85 && code <= 86) return { label: "Snow Showers", emoji: "🌨️" };
+  if (code === 95) return { label: "Thunderstorm", emoji: "⛈️" };
+  if (code >= 96) return { label: "Thunderstorm + Hail", emoji: "⛈️" };
+  return { label: "Mixed", emoji: "🌡️" };
+}
+
 const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 const WEATHER_ZIP_KEY = "weather_zip";
 
@@ -77,7 +96,10 @@ export default function WeatherPage() {
               {weather.city}, {weather.state} ({weather.zip})
             </Typography>
             <Typography variant="body2" gutterBottom>
-              Current: {weather.current?.temperature_2m ?? "N/A"}°F, Wind {weather.current?.wind_speed_10m ?? "N/A"} mph
+              {weather.current?.weather_code != null
+                ? (() => { const c = getWeatherCondition(weather.current.weather_code); return `${c.emoji} ${c.label} · `; })()
+                : ""}
+              {weather.current?.temperature_2m ?? "N/A"}°F · Wind {weather.current?.wind_speed_10m ?? "N/A"} mph
             </Typography>
 
             <Typography variant="subtitle2" style={{ marginTop: 8 }}>7-Day Forecast</Typography>
@@ -88,12 +110,27 @@ export default function WeatherPage() {
                     <Card variant="outlined">
                       <CardContent style={{ padding: 10 }}>
                         <Typography variant="subtitle2">{getWeekday(day)}</Typography>
+                        {weather.daily.weather_code?.[idx] != null && (() => {
+                          const cond = getWeatherCondition(weather.daily.weather_code[idx]);
+                          return (
+                            <Typography variant="body2" style={{ fontWeight: 500 }}>
+                              {cond.emoji} {cond.label}
+                            </Typography>
+                          );
+                        })()}
                         <Typography variant="body2" color="textSecondary">
-                          High {weather.daily.temperature_2m_max?.[idx] ?? "N/A"}°F
+                          High {weather.daily.temperature_2m_max?.[idx] ?? "N/A"}°F · Low {weather.daily.temperature_2m_min?.[idx] ?? "N/A"}°F
                         </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          Low {weather.daily.temperature_2m_min?.[idx] ?? "N/A"}°F
-                        </Typography>
+                        {weather.daily.precipitation_probability_max?.[idx] != null && (
+                          <Typography variant="body2" color="textSecondary">
+                            💧 {weather.daily.precipitation_probability_max[idx]}% chance of precip
+                          </Typography>
+                        )}
+                        {weather.daily.precipitation_sum?.[idx] != null && weather.daily.precipitation_sum[idx] > 0 && (
+                          <Typography variant="body2" color="textSecondary">
+                            🌂 {weather.daily.precipitation_sum[idx].toFixed(2)}" total
+                          </Typography>
+                        )}
                       </CardContent>
                     </Card>
                   </Grid>

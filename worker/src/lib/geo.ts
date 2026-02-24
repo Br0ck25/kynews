@@ -33,6 +33,25 @@ const OUT_OF_STATE_WINDOW = 150;
 const KY_PRESENT_RE = /\bkentucky\b|\bky\b/i;
 
 /**
+ * Cities that share their name with many well-known places, universities, brands,
+ * or common words outside Kentucky. For these, a bare global "Kentucky" context
+ * is NOT sufficient — a location signal must appear nearby the city mention OR
+ * "KY" / "Ky." must exist in the same vicinity, even when the full article has
+ * heavy KY context (e.g. a UK basketball article).
+ */
+const HIGH_AMBIGUITY_CITIES = new Set<string>([
+  'columbia',   // Columbia, SC / MO / MD / TN / OH — also Columbia Records, brand
+  'franklin',   // Franklin, TN / PA / OH and many others
+  'springfield',// Springfield, MO / IL / OH etc.
+  'henderson',  // Henderson, NV / NC etc.
+  'paris',      // Paris, France / TX etc.
+  'london',     // London, UK / OH etc.
+  'canton',     // Canton, OH etc.
+  'auburn',     // Auburn, AL / ME etc.
+  'stanford',   // Stanford University, CA
+]);
+
+/**
  * Unambiguous Kentucky signals used only in detectKentuckyGeo's final fallback.
  * Deliberately does NOT include "X county" strings — those must go through
  * detectCounty so the out-of-state context guard runs. The previous version
@@ -140,7 +159,17 @@ export function detectCity(input: string): string | null {
 
     const hasLocationSignals = hasLocationSignalNearby(normalized, city);
 
+    // High-ambiguity city names (e.g. "columbia", "auburn") require a nearby
+    // location signal even when the article has global KY context.  A story
+    // about Kentucky basketball at Auburn (Alabama) must not be assigned a KY
+    // county just because "Auburn" exists somewhere in the scraped text.
+    const isHighAmbiguity = HIGH_AMBIGUITY_CITIES.has(city);
+
     if (!hasLocationSignals && !hasKentuckyContext && likelyCount < 2) {
+      continue;
+    }
+
+    if (isHighAmbiguity && !hasLocationSignals) {
       continue;
     }
 

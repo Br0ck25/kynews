@@ -39,10 +39,10 @@ const useStyles = makeStyles((theme) => ({
 }));
 
 const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
-const HIGH_LIMIT_CATEGORIES = new Set(["today", "national", "sports", "obituaries"]);
+const PAGE_LIMIT = 20;
 
-function getPageLimit(category) {
-  return HIGH_LIMIT_CATEGORIES.has(category) ? 100 : 20;
+function getPageLimit(_category) {
+  return PAGE_LIMIT;
 }
 
 export default function CategoryFeedPage({ category, title, countyFilterEnabled = false }) {

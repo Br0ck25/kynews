@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import PropTypes from "prop-types";
-import { makeStyles } from "@material-ui/core/styles";
+import { makeStyles, useTheme } from "@material-ui/core/styles";
+import useMediaQuery from "@material-ui/core/useMediaQuery";
 import Toolbar from "@material-ui/core/Toolbar";
 import Tab from "@material-ui/core/Tab";
 import Tabs from "@material-ui/core/Tabs";
@@ -14,7 +15,7 @@ const useStyles = makeStyles((theme) => ({
     flex: 1,
   },
   toolbarSecondary: {
-    justifyContent: "space-between",
+    justifyContent: "center",
     overflowX: "auto",
   },
   toolbarLink: {
@@ -38,6 +39,8 @@ function a11yProps(index) {
 
 export default function SectionsHeader(props) {
   const classes = useStyles();
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const history = useHistory();
   const location = useLocation();
   const { sections } = props;
@@ -89,7 +92,8 @@ export default function SectionsHeader(props) {
           onChange={handleTabChange}
           indicatorColor="primary"
           textColor="primary"
-          variant="scrollable"
+          variant={isDesktop ? "standard" : "scrollable"}
+          centered={isDesktop}
           scrollButtons="auto"
           aria-label="scrollable auto tabs example"
         >
