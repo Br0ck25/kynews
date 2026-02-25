@@ -1,6 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import "./App.css";
-import { BrowserRouter as Router, Switch, Route, Link as RouterLink } from "react-router-dom";
+import { BrowserRouter as Router, Switch, Route, Link as RouterLink, Redirect, useParams } from "react-router-dom";
 
 // ObituariesPage and LostFoundPage kept for future use
 // import ObituariesPage from "./pages/obituaries-page";
@@ -24,7 +24,7 @@ const WeatherPage = lazy(() => import("./pages/weather-page"));
 const SchoolsPage = lazy(() => import("./pages/schools-page"));
 const SettingsPage = lazy(() => import("./pages/settings-page"));
 const LocalPage = lazy(() => import("./pages/local-page"));
-const CountyPage = lazy(() => import("./pages/county-page"));
+// CountyPage is loaded by KentuckyNewsPage internally — no direct route here
 const SearchPage = lazy(() => import("./pages/search-page"));
 const SavedPage = lazy(() => import("./pages/saved-page"));
 const PostPage = lazy(() => import("./pages/post-page"));
@@ -34,6 +34,17 @@ const AboutPage = lazy(() => import("./pages/about-page"));
 const ContactPage = lazy(() => import("./pages/contact-page"));
 const EditorialPolicyPage = lazy(() => import("./pages/editorial-policy-page"));
 const PrivacyPolicyPage = lazy(() => import("./pages/privacy-policy-page"));
+const ArticleSlugPage = lazy(() => import("./pages/article-slug-page"));
+const KentuckyNewsPage = lazy(() => import("./pages/kentucky-news-page"));
+
+/**
+ * Redirects legacy /news/:countySlug URLs to the new canonical /news/kentucky/:countySlug.
+ * This handles the 301-style client-side redirect for old bookmarked/indexed county URLs.
+ */
+function LegacyCountyRedirect() {
+  const { countySlug } = useParams();
+  return <Redirect to={`/news/kentucky/${countySlug}`} />;
+}
 
 function AppTagSync() {
   const dispatch = useDispatch();
@@ -114,8 +125,20 @@ function App() {
                     <Route exact path="/news">
                       <LocalPage />
                     </Route>
-                    <Route path="/news/:countySlug">
-                      <CountyPage />
+                    {/* New SEO-friendly article URL routes — most specific first */}
+                    <Route exact path="/news/kentucky/:countySlug/:articleSlug">
+                      <ArticleSlugPage />
+                    </Route>
+                    <Route exact path="/news/national/:articleSlug">
+                      <ArticleSlugPage />
+                    </Route>
+                    {/* /news/kentucky/:countySlug — dispatches to CountyPage or ArticleSlugPage */}
+                    <Route exact path="/news/kentucky/:countySlug">
+                      <KentuckyNewsPage />
+                    </Route>
+                    {/* Legacy /news/:countySlug — 301 redirect to new canonical URL */}
+                    <Route exact path="/news/:countySlug">
+                      <LegacyCountyRedirect />
                     </Route>
                     <Route path="/favorites">
                       <FavoritesPage />

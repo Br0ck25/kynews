@@ -41,7 +41,7 @@ const SITE_URL = "https://localkynews.com";
 
 /** Inject JSON-LD structured data for a county page */
 function setCountyJsonLd(countyName) {
-  const pageUrl = `${SITE_URL}/news/${countyName.toLowerCase().replace(/\s+/g, "-")}-county`;
+  const pageUrl = `${SITE_URL}/news/kentucky/${countyName.toLowerCase().replace(/\s+/g, "-")}-county`;
   const schema = {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
@@ -124,7 +124,7 @@ export default function CountyPage() {
     meta.setAttribute("content", description);
 
     // Self-referencing canonical (Section 5.2)
-    const pageUrl = `${SITE_URL}/news/${countyName.toLowerCase().replace(/\s+/g, "-")}-county`;
+    const pageUrl = `${SITE_URL}/news/kentucky/${countyName.toLowerCase().replace(/\s+/g, "-")}-county`;
     let canonical = document.querySelector('link[rel="canonical"]');
     if (!canonical) {
       canonical = document.createElement("link");

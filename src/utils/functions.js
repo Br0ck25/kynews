@@ -114,3 +114,31 @@ export function getPostTags(post) {
   // de-duplicate while preserving order
   return [...new Set(result)];
 }
+
+/**
+ * Build the correct internal article URL from a post object.
+ *
+ * Priority:
+ *   1. County article with slug  → /news/kentucky/<countySlug>/<articleSlug>
+ *   2. Statewide KY article      → /news/kentucky/<articleSlug>
+ *   3. National article w/ slug  → /news/national/<articleSlug>
+ *   4. No slug (legacy fallback) → /post?articleId=<id>
+ */
+export function articleToUrl(post) {
+  if (!post) return '/';
+  const slug = post.slug;
+  if (!slug) {
+    return post.id ? `/post?articleId=${post.id}` : '/post';
+  }
+  const isNational = Array.isArray(post.categories)
+    ? post.categories.includes('national')
+    : post.category === 'national';
+  if (post.county) {
+    return `/news/kentucky/${countyToSlug(post.county)}/${slug}`;
+  }
+  if (isNational) {
+    return `/news/national/${slug}`;
+  }
+  // Kentucky statewide article
+  return `/news/kentucky/${slug}`;
+}

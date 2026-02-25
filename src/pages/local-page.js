@@ -31,7 +31,7 @@ export default function LocalPage() {
     // navigate to the slug-based county page
     const slug = countyToSlug(val);
     if (slug) {
-      history.push(`/news/${slug}`);
+      history.push(`/news/kentucky/${slug}`);
     }
   };
 

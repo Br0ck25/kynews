@@ -32,6 +32,7 @@ import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import EditIcon from "@material-ui/icons/Edit";
 import SiteService from "../services/siteService";
 import { KENTUCKY_COUNTIES } from "../constants/counties";
+import { articleToUrl } from "../utils/functions";
 
 const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 const CATEGORIES = ["today", "national", "sports", "weather", "schools", "obituaries"];
@@ -377,7 +378,19 @@ export default function AdminPage() {
     }
   };
 
-  const getLocalArticleLink = (id) => `https://localkynews.com/post?articleId=${id}`;
+  /**
+   * Returns the best local URL for a given article row.
+   * Uses the clean SEO URL when slug is present, otherwise falls back to ?articleId=
+   */
+  const getLocalArticleLink = (row) => {
+    const path = articleToUrl({
+      id: row.id,
+      slug: row.slug ?? null,
+      county: row.county ?? null,
+      categories: row.category ? [row.category] : [],
+    });
+    return `https://localkynews.com${path}`;
+  };
 
   /** Publish a draft article immediately by setting its published_at to now. */
   const publishNow = async (row) => {
@@ -673,7 +686,7 @@ export default function AdminPage() {
                           <TableCell style={{ maxWidth: 220, overflowWrap: "anywhere" }}>{item.sourceUrl || "—"}</TableCell>
                           <TableCell>
                             {item.id
-                              ? <Button size="small" variant="outlined" color="primary" href={getLocalArticleLink(item.id)} target="_blank" rel="noopener noreferrer">Open</Button>
+                              ? <Button size="small" variant="outlined" color="primary" href={getLocalArticleLink({ id: item.id })} target="_blank" rel="noopener noreferrer">Open</Button>
                               : "—"}
                           </TableCell>
                           <TableCell>
@@ -718,7 +731,7 @@ export default function AdminPage() {
                           <TableCell style={{ maxWidth: 220, overflowWrap: "anywhere" }}>{item.sourceUrl || "—"}</TableCell>
                           <TableCell>
                             {item.id
-                              ? <Button size="small" variant="outlined" color="primary" href={getLocalArticleLink(item.id)} target="_blank" rel="noopener noreferrer">Open</Button>
+                              ? <Button size="small" variant="outlined" color="primary" href={getLocalArticleLink({ id: item.id })} target="_blank" rel="noopener noreferrer">Open</Button>
                               : "—"}
                           </TableCell>
                         </TableRow>
@@ -971,7 +984,7 @@ export default function AdminPage() {
                             <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               {!draft && (
                                 <Button size="small" variant="outlined" color="primary"
-                                  href={getLocalArticleLink(row.id)} target="_blank" rel="noopener noreferrer">
+                                  href={getLocalArticleLink(row)} target="_blank" rel="noopener noreferrer">
                                   Live
                                 </Button>
                               )}

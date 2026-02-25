@@ -65,6 +65,7 @@ function mapWorkerArticleToPost(article) {
   const bodyText = article?.contentText ?? "";
   return {
     id: article?.id ?? null,
+    slug: article?.slug ?? null,
     title: article?.title ?? "Untitled",
     date: article?.publishedAt ?? new Date().toISOString(),
     shortDesc: article?.summary ?? article?.seoDescription ?? "",
@@ -411,6 +412,13 @@ export default class SiteService {
       throw toError(null, "Article not found.");
     }
 
+    return mapWorkerArticleToPost(payload.item);
+  }
+
+  async getPostBySlug(slug) {
+    if (!slug) throw toError(null, "Invalid article slug.");
+    const payload = await this.request(`/api/articles/slug/${encodeURIComponent(slug)}`);
+    if (!payload?.item) throw toError(null, "Article not found.");
     return mapWorkerArticleToPost(payload.item);
   }
 

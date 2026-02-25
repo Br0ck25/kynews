@@ -10,7 +10,7 @@ import { Container, Fab } from "@material-ui/core";
 import FavoriteBorderIcon from "@material-ui/icons/FavoriteBorder";
 import ShareIcon from "@material-ui/icons/Share";
 import { SavePost } from "../../services/storageService";
-import { ShareAPI } from "../../utils/functions";
+import { ShareAPI, articleToUrl } from "../../utils/functions";
 import SnackbarNotify from '../snackbar-notify-component';
 // import { useHistory } from 'react-router-dom';
 
@@ -55,13 +55,9 @@ export default function FullScreenPostDialog(props) {
   const handleShare = () => {
     const title = props.post.title;
     const text = `I'm reading this on Kentucky News: ${props.post.title}`;
-    // Share our local article URL when the post has an ID, otherwise fall back
-    // to the external source link (mirroring what the feed card does).
-    const localUrl = props.post.id
-      ? `https://localkynews.com/post?articleId=${props.post.id}`
-      : props.post.originalLink;
-    const url = localUrl || props.post.originalLink;
-
+    // Use the clean SEO URL when available; fall back to legacy ?articleId= URL.
+    const localPath = articleToUrl(props.post);
+    const url = `https://localkynews.com${localPath}`;
     ShareAPI(title, text, url);
   }
 

@@ -231,7 +231,7 @@ async function storeRawPayloadBestEffort(
  * Generate an SEO-friendly URL slug from an article title + hash suffix for uniqueness.
  * e.g. "School Board Meeting Feb 2026" + "ab12cd34..." → "school-board-meeting-feb-2026-ab12cd34"
  */
-function generateArticleSlug(title: string, urlHash: string): string {
+export function generateArticleSlug(title: string, urlHash: string): string {
   const titleSlug = title
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')

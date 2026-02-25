@@ -3,6 +3,7 @@ import {
 	deleteArticleById,
 	findArticleByHash,
 	getArticleById,
+	getArticleBySlug,
 	insertArticle,
 	listBlockedArticles,
 	getSourceStats,
@@ -33,7 +34,7 @@ import {
 	sha256Hex,
 	wordCount,
 } from './lib/http';
-import { ingestSingleUrl } from './lib/ingest';
+import { ingestSingleUrl, generateArticleSlug } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
 import { KY_COUNTIES } from './data/ky-geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
@@ -769,6 +770,16 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 
 const categoryMatch = url.pathname.match(/^\/api\/articles\/([a-z-]+)$/i);
 const articleByIdMatch = url.pathname.match(/^\/api\/articles\/item\/(\d+)$/i);
+const articleBySlugMatch = url.pathname.match(/^\/api\/articles\/slug\/([a-z0-9-]+)$/i);
+
+if (articleBySlugMatch && request.method === 'GET') {
+const slug = articleBySlugMatch[1];
+if (!slug) return badRequest('Invalid article slug');
+const article = await getArticleBySlug(env, slug);
+if (!article) return json({ error: 'Not found' }, 404);
+return json({ item: article }, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
+}
+
 if (articleByIdMatch && request.method === 'GET') {
 const id = Number.parseInt(articleByIdMatch[1] || '0', 10);
 if (!Number.isFinite(id) || id <= 0) return badRequest('Invalid article id');
@@ -842,6 +853,29 @@ return json({ error: 'Not found' }, 404);
 // ---------------------------------------------------------------------------
 
 /**
+ * Build a clean article URL for use in sitemaps and API responses.
+ * Mirrors the frontend articleToUrl() logic in src/utils/functions.js.
+ */
+function countyNameToSlug(countyName: string): string {
+	let cleaned = countyName.trim();
+	if (!/county$/i.test(cleaned)) cleaned += ' County';
+	return cleaned.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function buildArticleUrl(
+	baseUrl: string,
+	slug: string | null,
+	county: string | null,
+	category: string,
+	id: number,
+): string {
+	if (!slug) return `${baseUrl}/post?articleId=${id}`;
+	if (county) return `${baseUrl}/news/kentucky/${countyNameToSlug(county)}/${slug}`;
+	if (category === 'national') return `${baseUrl}/news/national/${slug}`;
+	return `${baseUrl}/news/kentucky/${slug}`;
+}
+
+/**
  * Generate sitemap.xml listing all article URLs.
  * Cached in KV for 1 hour as required by the SEO plan.
  * Limited to 50,000 URLs (Google's per-sitemap limit).
@@ -855,17 +889,18 @@ async function generateSitemap(env: Env): Promise<string> {
 
 	const rows = await env.ky_news_db
 		.prepare(
-			`SELECT id, published_at, updated_at FROM articles
-       WHERE is_kentucky = 1
+			`SELECT id, slug, county, category, published_at, updated_at FROM articles
+       WHERE is_kentucky = 1 OR category = 'national'
        ORDER BY id DESC LIMIT 50000`,
 		)
-		.all<{ id: number; published_at: string; updated_at: string }>();
+		.all<{ id: number; slug: string | null; county: string | null; category: string; published_at: string; updated_at: string }>();
 
 	const baseUrl = 'https://localkynews.com';
 	const urls = (rows.results || []).map((row) => {
 		const lastmod = (row.updated_at || row.published_at || '').split('T')[0];
+		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, row.id);
 		return `  <url>
-    <loc>${baseUrl}/post?articleId=${row.id}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}
+    <loc>${loc}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>`;
@@ -910,7 +945,7 @@ async function generateSitemap(env: Env): Promise<string> {
 		),
 		...counties.map(
 			(c) =>
-				`  <url>\n    <loc>${baseUrl}/news/${c.toLowerCase().replace(/\s/g, '-')}-county</loc>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>`,
+				`  <url>\n    <loc>${baseUrl}/news/kentucky/${c.toLowerCase().replace(/\s/g, '-')}-county</loc>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>`,
 		),
 	];
 
@@ -940,12 +975,12 @@ async function generateNewsSitemap(env: Env): Promise<string> {
 	const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 	const rows = await env.ky_news_db
 		.prepare(
-			`SELECT id, title, published_at FROM articles
-       WHERE is_kentucky = 1 AND published_at >= ?
+			`SELECT id, slug, county, category, title, published_at FROM articles
+       WHERE (is_kentucky = 1 OR category = 'national') AND published_at >= ?
        ORDER BY published_at DESC LIMIT 1000`,
 		)
 		.bind(cutoff)
-		.all<{ id: number; title: string; published_at: string }>();
+		.all<{ id: number; slug: string | null; county: string | null; category: string; title: string; published_at: string }>();
 
 	const baseUrl = 'https://localkynews.com';
 	const items = (rows.results || []).map((row) => {
@@ -958,8 +993,9 @@ async function generateNewsSitemap(env: Env): Promise<string> {
 			.replace(/>/g, '&gt;')
 			.replace(/"/g, '&quot;')
 			.replace(/'/g, '&apos;');
+		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, row.id);
 		return `  <url>
-    <loc>${baseUrl}/post?articleId=${row.id}</loc>
+    <loc>${loc}</loc>
     <news:news>
       <news:publication>
         <news:name>Local KY News</news:name>

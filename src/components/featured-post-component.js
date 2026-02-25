@@ -8,7 +8,8 @@ import Button from "@material-ui/core/Button";
 import Chip from "@material-ui/core/Chip";
 import { useDispatch } from "react-redux";
 import { setPost } from "../redux/actions/actions";
-import { DateFromNow, getPostTags } from "../utils/functions";
+import { DateFromNow, getPostTags, articleToUrl } from "../utils/functions";
+import { Link as RouterLink } from "react-router-dom";
 
 const useStyles = makeStyles((theme) => ({
   mainFeaturedPost: {
@@ -53,6 +54,8 @@ export default function FeaturedPost(props) {
   // Track whether the post image has failed to load so we can fall back to the logo
   const [imgFailed, setImgFailed] = React.useState(false);
   const displayImage = imgFailed ? "/logo.png" : (post.image || "/logo.png");
+  const articleUrl = articleToUrl(post);
+  const hasCleanUrl = Boolean(post.slug);
 
   return (
     <Paper
@@ -117,8 +120,9 @@ export default function FeaturedPost(props) {
             <Button
               size="small"
               color="primary"
-              // onClick={() => history.push(location)}
-              onClick={() => handlePost(post)}
+              component={hasCleanUrl ? RouterLink : "button"}
+              to={hasCleanUrl ? articleUrl : undefined}
+              onClick={hasCleanUrl ? undefined : () => handlePost(post)}
             >
               Continue reading...
             </Button>

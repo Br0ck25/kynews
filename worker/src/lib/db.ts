@@ -59,6 +59,15 @@ export async function getArticleById(env: Env, id: number): Promise<ArticleRecor
   return result ? mapArticleRow(result) : null;
 }
 
+export async function getArticleBySlug(env: Env, slug: string): Promise<ArticleRecord | null> {
+  const result = await env.ky_news_db
+    .prepare(`SELECT * FROM articles WHERE slug = ? LIMIT 1`)
+    .bind(slug)
+    .first<ArticleRow>();
+
+  return result ? mapArticleRow(result) : null;
+}
+
 export async function insertArticle(env: Env, article: NewArticle): Promise<number> {
   const normalizedCounty = normalizeCountyName(article.county);
 

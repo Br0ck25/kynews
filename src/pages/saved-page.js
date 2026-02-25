@@ -66,7 +66,7 @@ export default function SavedPage() {
               const slug = countyToSlug(countyName);
               return (
                 <Box key={countyName} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <RouterLink to={`/news/${slug}`} style={{ textDecoration: "none" }}>
+                  <RouterLink to={`/news/kentucky/${slug}`} style={{ textDecoration: "none" }}>
                     <Chip
                       label={`${countyName} County`}
                       color="primary"

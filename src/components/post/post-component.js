@@ -161,7 +161,7 @@ export default function FeaturedPost(props) {
               <Typography variant="caption" color="textSecondary">Home</Typography>
             </RouterLink>
             {primaryCounty && primarySlug ? (
-              <RouterLink to={`/news/${primarySlug}`} style={{ textDecoration: "none", color: "inherit" }}>
+              <RouterLink to={`/news/kentucky/${primarySlug}`} style={{ textDecoration: "none", color: "inherit" }}>
                 <Typography variant="caption" color="textSecondary">{primaryCounty} County</Typography>
               </RouterLink>
             ) : (
@@ -186,7 +186,7 @@ export default function FeaturedPost(props) {
           {post.county && post.county.split(",").map((c) => c.trim()).filter(Boolean).map((cName) => {
             const cSlug = countyToSlug(cName);
             return hasRouter ? (
-              <RouterLink key={cName} to={`/news/${cSlug}`} style={{ textDecoration: "none" }}>
+              <RouterLink key={cName} to={`/news/kentucky/${cSlug}`} style={{ textDecoration: "none" }}>
                 <Chip label={`${cName} County`} size="small" color="primary" clickable />
               </RouterLink>
             ) : (
@@ -279,7 +279,7 @@ export default function FeaturedPost(props) {
           </Button>
           {primaryCounty && primarySlug && (
             hasRouter ? (
-              <RouterLink to={`/news/${primarySlug}`} style={{ textDecoration: "none" }}>
+              <RouterLink to={`/news/kentucky/${primarySlug}`} style={{ textDecoration: "none" }}>
                 <Button size="small" color="primary" variant="text" style={{ textTransform: "none", fontWeight: 500 }}>
                   More {primaryCounty} County News →
                 </Button>
@@ -292,7 +292,7 @@ export default function FeaturedPost(props) {
                 color="primary"
                 variant="text"
                 component="a"
-                href={`/news/${primarySlug}`}
+                href={`/news/kentucky/${primarySlug}`}
                 style={{ textTransform: "none", fontWeight: 500 }}
               >
                 More {primaryCounty} County News →

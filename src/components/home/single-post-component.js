@@ -11,7 +11,7 @@ import IconButton from "@material-ui/core/IconButton";
 import Chip from "@material-ui/core/Chip";
 import ShareIcon from "@material-ui/icons/Share";
 import FavoriteIcon from "@material-ui/icons/Favorite";
-import { DateFromNow, ShareAPI, getPostTags, countyToSlug } from "../../utils/functions";
+import { DateFromNow, ShareAPI, getPostTags, countyToSlug, articleToUrl } from "../../utils/functions";
 import { Link as RouterLink } from "react-router-dom";
 import { KENTUCKY_COUNTIES } from "../../constants/counties";
 import { Delete } from "@material-ui/icons";
@@ -76,13 +76,16 @@ export default function SinglePost(props) {
   const handleShare = () => {
     const title = post.title;
     const text = `I'm reading this on Kentucky News: ${post.title}`;
-    // Prefer the local article URL so recipients land on our article page, not the external source.
-    // Use the numeric article ID when available (mapped from the worker's id field).
-    const url = post.id
-      ? `https://localkynews.com/post?articleId=${post.id}`
-      : `${window.location.origin}/post`;
+    // Use clean SEO URL when available; fall back to legacy — never expose external source URL.
+    const localPath = articleToUrl(post);
+    const url = localPath.startsWith('/post?')
+      ? `https://localkynews.com${localPath}`
+      : `https://localkynews.com${localPath}`;
     ShareAPI(title, text, url);
   };
+
+  const articleUrl = articleToUrl(post);
+  const hasCleanUrl = Boolean(post.slug);
 
   return (
     <>
@@ -91,7 +94,13 @@ export default function SinglePost(props) {
       )}
       <Grid item xs={12} sm={6} md={4}>
         <Card className={classes.card}>
-          <CardActionArea>
+          {/* If article has a clean slug URL, wrap CardActionArea as a RouterLink for SEO navigation.
+              Otherwise keep the legacy dialog behavior via onClick dispatch. */}
+          <CardActionArea
+            component={hasCleanUrl ? RouterLink : "div"}
+            to={hasCleanUrl ? articleUrl : undefined}
+            onClick={hasCleanUrl ? undefined : () => handlePost(post)}
+          >
             {/* <CardActionArea component="a" href="#"> */}
             {/* <Card className={classes.card}>
           <div className={classes.cardDetails}>
@@ -126,7 +135,7 @@ export default function SinglePost(props) {
               onError={(e) => { e.target.onerror = null; e.target.src = "/logo.png"; }}
             />
             <CardContent
-              onClick={() => handlePost(post)}
+              onClick={hasCleanUrl ? undefined : () => handlePost(post)}
               className={classes.cardContent}
             >
               {postTags.length > 0 && (
@@ -135,7 +144,7 @@ export default function SinglePost(props) {
                     // Route: county name → county page, "National" → /national, others → /local
                     const isCounty = KENTUCKY_COUNTIES.includes(tag);
                     const tagRoute = isCounty
-                      ? `/news/${countyToSlug(tag)}`
+                      ? `/news/kentucky/${countyToSlug(tag)}`
                       : tag === "National"
                       ? "/national"
                       : "/local";
