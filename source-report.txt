@@ -1,0 +1,337 @@
+
+ Γ¢à∩╕Å wrangler 4.67.0 (update available 4.68.1)
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+Resource location: remote 
+
+≡ƒîÇ Executing on remote database ky-news-db (f1669001-2a51-4114-a84e-73cfa7f1c584):
+≡ƒîÇ To execute on your local development database, remove the --remote flag from your wrangler command.
+≡ƒÜú Executed 1 command in 50.59ms
+[
+  {
+    "results": [
+      {
+        "source_url": "https://kentuckylantern.com/feed",
+        "article_count": 102,
+        "latest": "2026-02-24T10:50:21.000Z"
+      },
+      {
+        "source_url": "https://www.newsfromthestates.com/api/v1/articles",
+        "article_count": 101,
+        "latest": "2026-02-25T00:05:23.000Z"
+      },
+      {
+        "source_url": "https://moxie.foxnews.com/google-publisher/latest.xml",
+        "article_count": 69,
+        "latest": "2026-02-24T23:21:41.000Z"
+      },
+      {
+        "source_url": "https://www.whas11.com/feeds/syndication/rss/news",
+        "article_count": 43,
+        "latest": "2026-02-24T22:43:21.000Z"
+      },
+      {
+        "source_url": "https://www.nbcnews.com/feed",
+        "article_count": 39,
+        "latest": "2026-02-24T23:35:14.019Z"
+      },
+      {
+        "source_url": "https://www.wlky.com/topstories-rss?format=rss",
+        "article_count": 32,
+        "latest": "2026-02-24T19:43:00.000Z"
+      },
+      {
+        "source_url": "http://rss.cnn.com/rss/cnn_us.rss?format=rss",
+        "article_count": 27,
+        "latest": "2023-12-03T16:27:00.000Z"
+      },
+      {
+        "source_url": "https://www.wnky.com/feed/",
+        "article_count": 26,
+        "latest": "2026-02-24T22:56:32.000Z"
+      },
+      {
+        "source_url": "https://www.pbs.org/newshour/feeds/rss/headlines",
+        "article_count": 26,
+        "latest": "2026-02-24T22:51:06.000Z"
+      },
+      {
+        "source_url": "https://abcnews.go.com/abcnews/topstories?format=rss",
+        "article_count": 23,
+        "latest": "2026-02-24T23:14:11.000Z"
+      },
+      {
+        "source_url": "https://stateline.org/feed/",
+        "article_count": 21,
+        "latest": "2026-02-24T18:59:34.000Z"
+      },
+      {
+        "source_url": "https://www.wtvq.com/category/news/feed/",
+        "article_count": 19,
+        "latest": "2026-02-24T22:07:16.000Z"
+      },
+      {
+        "source_url": "https://www.foxnews.com/rss",
+        "article_count": 19,
+        "latest": "2026-02-24T23:41:50.000Z"
+      },
+      {
+        "source_url": "https://www.owensborotimes.com/feed/",
+        "article_count": 18,
+        "latest": "2026-02-24T21:40:20.000Z"
+      },
+      {
+        "source_url": "https://kykernel.com/category/news/feed/",
+        "article_count": 17,
+        "latest": "2026-02-24T20:05:48.000Z"
+      },
+      {
+        "source_url": "https://www.lex18.com/index.rss",
+        "article_count": 16,
+        "latest": "2026-02-24T23:48:12.322Z"
+      },
+      {
+        "source_url": "https://kycir.org/index.rss",
+        "article_count": 15,
+        "latest": "2026-02-24T21:39:29.856Z"
+      },
+      {
+        "source_url": "https://www.bgdailynews.com/category/news/feed/",
+        "article_count": 14,
+        "latest": "2026-02-24T20:32:00.000Z"
+      },
+      {
+        "source_url": "https://linknky.com/category/news/feed/",
+        "article_count": 13,
+        "latest": "2026-02-24T21:15:15.000Z"
+      },
+      {
+        "source_url": "https://www.theinteriorjournal.com/category/news/feed/",
+        "article_count": 12,
+        "latest": "2026-02-24T21:00:00.000Z"
+      },
+      {
+        "source_url": "https://www.news-expressky.com/search/?f=rss&t=article",
+        "article_count": 12,
+        "latest": "2026-02-24T20:50:46.000Z"
+      },
+      {
+        "source_url": "https://kycir.org/feed/",
+        "article_count": 12,
+        "latest": "2026-02-20T18:43:27.810Z"
+      },
+      {
+        "source_url": "https://www.wdrb.com/search/?f=rss&t=article&c=news&l=50&s=start_time&sd=desc",
+        "article_count": 11,
+        "latest": "2026-02-24T19:15:00.000Z"
+      },
+      {
+        "source_url": "https://www.newsfromthestates.com/api/v2/article/category?article_category=187491",
+        "article_count": 11,
+        "latest": "2026-02-24T22:38:52.000Z"
+      },
+      {
+        "source_url": "https://www.leoweekly.com/category/news/feed/",
+        "article_count": 11,
+        "latest": "2026-02-24T18:17:57.000Z"
+      },
+      {
+        "source_url": "https://www.lanereport.com/comments/feed/",
+        "article_count": 11,
+        "latest": "2026-02-24T16:16:34.000Z"
+      },
+      {
+        "source_url": "https://www.lex18.com/news/covering-kentucky.rss",
+        "article_count": 10,
+        "latest": "2026-02-24T22:51:55.669Z"
+      },
+      {
+        "source_url": "https://www.amnews.com/feed",
+        "article_count": 10,
+        "latest": "2026-02-23T19:00:00.000Z"
+      },
+      {
+        "source_url": "https://linknky.com/feed/",
+        "article_count": 10,
+        "latest": "2026-02-24T04:56:26.000Z"
+      },
+      {
+        "source_url": "https://www.newsfromthestates.com/api/v2/article/category?article_category=565",
+        "article_count": 9,
+        "latest": "2026-02-23T21:22:50.000Z"
+      },
+      {
+        "source_url": "https://www.newsfromthestates.com/api/v2/article/category?article_category=247",
+        "article_count": 9,
+        "latest": "2026-02-24T14:57:25.000Z"
+      },
+      {
+        "source_url": "https://www.harlanenterprise.net/category/news/feed/",
+        "article_count": 9,
+        "latest": "2026-02-24T21:00:00.000Z"
+      },
+      {
+        "source_url": "https://www.whas11.com/feeds/syndication/rss/about-us",
+        "article_count": 8,
+        "latest": "2025-12-27T20:38:58.000Z"
+      },
+      {
+        "source_url": "https://www.wcpo.com/news/state/state-kentucky.rss",
+        "article_count": 8,
+        "latest": "2026-02-13T22:31:32.260Z"
+      },
+      {
+        "source_url": "https://www.voice-tribune.com/blog-feed.xml",
+        "article_count": 8,
+        "latest": "2026-02-16T16:14:56.408Z"
+      },
+      {
+        "source_url": "https://www.themountaineagle.com/category/news/feed/",
+        "article_count": 8,
+        "latest": "2026-02-18T12:00:00.000Z"
+      },
+      {
+        "source_url": "https://www.state-journal.com/category/news/feed/",
+        "article_count": 8,
+        "latest": "2026-02-24T19:00:00.000Z"
+      },
+      {
+        "source_url": "https://www.k105.com/feed/",
+        "article_count": 8,
+        "latest": "2026-02-24T18:00:21.000Z"
+      },
+      {
+        "source_url": "https://www.falmouthoutlook.com/rss.xml",
+        "article_count": 8,
+        "latest": "2026-02-16T20:24:22.000Z"
+      },
+      {
+        "source_url": "https://wrsrtherooster.com/feed/",
+        "article_count": 8,
+        "latest": "2026-02-20T15:22:08.000Z"
+      },
+      {
+        "source_url": "https://wp.kentuckystatepolice.ky.gov/feed/",
+        "article_count": 8,
+        "latest": "2026-02-24T16:08:44.000Z"
+      },
+      {
+        "source_url": "https://wfpl.org/feed",
+        "article_count": 8,
+        "latest": "2026-02-24T22:00:00.000Z"
+      },
+      {
+        "source_url": "https://smileypete.com/api/rss/content.rss",
+        "article_count": 8,
+        "latest": "2026-02-23T12:53:30.613Z"
+      },
+      {
+        "source_url": "https://nkytribune.com/comments/feed/",
+        "article_count": 8,
+        "latest": "2026-02-24T06:14:52.000Z"
+      },
+      {
+        "source_url": "https://moxie.foxnews.com/google-publisher/latest.xml?format=rss",
+        "article_count": 8,
+        "latest": "2026-02-24T23:30:05.000Z"
+      },
+      {
+        "source_url": "https://kychamberbottomline.com/feed/",
+        "article_count": 8,
+        "latest": "2026-02-20T18:45:05.000Z"
+      },
+      {
+        "source_url": "https://www.themountaineagle.com/feed",
+        "article_count": 7,
+        "latest": "2026-02-18T12:00:00.000Z"
+      },
+      {
+        "source_url": "https://www.lpm.org/kentucky-public-radio.rss",
+        "article_count": 5,
+        "latest": "2026-02-19T20:24:23.570Z"
+      },
+      {
+        "source_url": "https://www.wkms.org/rss.xml",
+        "article_count": 4,
+        "latest": "2026-02-19T21:13:36.768Z"
+      },
+      {
+        "source_url": "https://kentuckylantern.com/feed/localFeed",
+        "article_count": 4,
+        "latest": "2026-02-24T23:29:08.000Z"
+      },
+      {
+        "source_url": "https://www.amnews.com/category/news/feed/",
+        "article_count": 3,
+        "latest": "2026-02-24T21:00:00.000Z"
+      },
+      {
+        "source_url": "https://kypress.com/category/news/feed/",
+        "article_count": 3,
+        "latest": "2026-02-13T09:59:00.000Z"
+      },
+      {
+        "source_url": "https://www.wpsdlocal6.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc&k%5B%5D=%23topstory",
+        "article_count": 2,
+        "latest": "2022-12-29T02:33:00.000Z"
+      },
+      {
+        "source_url": "https://www.lpm.org/feed/",
+        "article_count": 2,
+        "latest": "2026-02-24T15:00:00.000Z"
+      },
+      {
+        "source_url": "https://kentuckylantern.com/feed/?format=rss",
+        "article_count": 2,
+        "latest": "2026-02-24T10:40:20.000Z"
+      },
+      {
+        "source_url": "https://www.wtvq.com/feed/",
+        "article_count": 1,
+        "latest": "2026-02-24T17:02:11.000Z"
+      },
+      {
+        "source_url": "https://www.state-journal.com/feed/",
+        "article_count": 1,
+        "latest": "2026-02-24T14:20:00.000Z"
+      },
+      {
+        "source_url": "https://www.lpm.org/index.rss",
+        "article_count": 1,
+        "latest": "2026-02-24T10:00:00.000Z"
+      },
+      {
+        "source_url": "https://www.facebook.com/share/p/1AgQN2VTsn/",
+        "article_count": 1,
+        "latest": "2026-02-23T17:41:00.000Z"
+      },
+      {
+        "source_url": "https://www.bgdailynews.com/rss/",
+        "article_count": 1,
+        "latest": "2026-02-24T13:30:00.000Z"
+      },
+      {
+        "source_url": "https://smileypete.com/business/index.rss",
+        "article_count": 1,
+        "latest": "2026-02-06T12:55:00.103Z"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "IAD",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 50.5878
+      },
+      "duration": 50.5878,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 75087872,
+      "rows_read": 1915,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

@@ -1,7 +1,7 @@
 export const MASTER_SOURCE_SEEDS: string[] = [
-  'http://rss.cnn.com/rss/cnn_us.rss?format=rss',
+  // http://rss.cnn.com/rss/cnn_us.rss?format=rss  // STALE — last article Dec 2023, removed
   'http://www.messenger-inquirer.com/search/?f=rss&t=article&c=grayson_county&l=50&s=start_time&sd=desc',
-  'http://www.wpsdlocal6.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc&k%5B%5D=%23topstory',
+  // http://www.wpsdlocal6.com/...  // STALE — last article Dec 2022, removed
   'https://abcnews.go.com/abcnews/topstories?format=rss',
   'https://kentuckylantern.com/feed',
   'https://kentuckylantern.com/feed/',
@@ -129,11 +129,13 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://www.wtvq.com/rss',
   'https://www.wtvq.com/rss/',
   'https://www.news-expressky.com/search/?f=rss&t=article',
-  'https://rsshub.app/apnews/topics/apf-topnews',
+  // 'https://rsshub.app/apnews/topics/apf-topnews',  // rsshub.app unreliable
   'https://feeds.npr.org/1001/rss.xml',
+  'https://www.npr.org/rss/rss.php?id=1001',
   'https://www.pbs.org/newshour/feeds/rss/headlines',
   'https://www.wdrb.com/search/?f=rss&t=article&c=news&l=50&s=start_time&sd=desc',
-  'https://rssfeeds.courier-journal.com/courierjournal/news',
+  // 'https://rssfeeds.courier-journal.com/courierjournal/news',  // paywalled
+  'https://www.courier-journal.com/rss/',
   'https://www.lex18.com/news/covering-kentucky.rss',
   'https://feeds.mcclatchy.com/kentucky/sections/latest-news/stories',
   'https://www.wowktv.com/news/kentucky/feed/',
@@ -151,14 +153,23 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://wrsrtherooster.com/feed/',
   'https://www.kentuckystatepolice.ky.gov/news',
   'https://www.k105.com/feed/',
-  'https://wklw.com/feed/',
-  'https://wsipam.com/feed/',
+  // 'https://wklw.com/feed/',  // verified no content
+  // 'https://wsipam.com/feed/',  // verified no content
   'https://wp.kentuckystatepolice.ky.gov/feed/',
-	'https://www.usnews.com/rss/education',
-	'https://www.usnews.com/rss/health',
-	'https://www.usnews.com/rss/money',
-	'https://www.usnews.com/rss/news',
-	'https://www.theblaze.com/feeds/feed.rss',
+  // US News & The Blaze blocked by robots.txt
+  // 'https://www.usnews.com/rss/education',
+  // 'https://www.usnews.com/rss/health',
+  // 'https://www.usnews.com/rss/money',
+  // 'https://www.usnews.com/rss/news',
+  // 'https://www.theblaze.com/feeds/feed.rss',
+  // Additional reliable Kentucky sources
+  'https://www.wkyt.com/news.rss',
+  'https://www.wsaz.com/rss/section/news.rss',
+  'https://spectrumnews1.com/ky/louisville/news/rss',
+  'https://www.paintsville-herald.com/rss_feed_all-articles',
+  'https://www.richmondregister.com/rss',
+  'https://www.thenewsenterprise.com/rss',
+  'https://www.murrayledger.com/rss',
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [
@@ -175,8 +186,11 @@ export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=247',
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=187491',
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=565',
-	'https://news.google.com/rss',
-
+  // Breaking national with strong KY context
+  'https://feeds.npr.org/1001/rss.xml',
+  'https://feeds.mcclatchy.com/kentucky/sections/latest-news/stories',
+  'https://www.wkyt.com/news.rss',
+  'https://news.google.com/rss/search?q=Kentucky+news&hl=en-US&gl=US&ceid=US:en',
 ];
 
 export const NORMAL_PRIORITY_SOURCE_SEEDS: string[] = [
