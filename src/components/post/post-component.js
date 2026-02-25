@@ -113,14 +113,14 @@ export default function FeaturedPost(props) {
         {/* County + Category chips */}
         <Box style={{ padding: "4px 10px 10px", display: "flex", flexWrap: "wrap", gap: 6 }}>
           {post.county && countySlug && (
-            <Chip
-              component={RouterLink}
-              to={`/news/${countySlug}`}
-              label={`${post.county} County`}
-              size="small"
-              color="primary"
-              clickable
-            />
+            <RouterLink to={`/news/${countySlug}`} style={{ textDecoration: "none" }}>
+              <Chip
+                label={`${post.county} County`}
+                size="small"
+                color="primary"
+                clickable
+              />
+            </RouterLink>
           )}
           {categoryLabel && (
             <Chip
@@ -208,14 +208,14 @@ export default function FeaturedPost(props) {
             Read Full Story at {sourceName}
           </Button>
           {post.county && countySlug && (
-            <Typography
-              component={RouterLink}
+            <RouterLink
               to={`/news/${countySlug}`}
-              variant="body2"
               style={{ color: "#1976d2", textDecoration: "none", whiteSpace: "nowrap" }}
             >
-              — More {post.county} County News
-            </Typography>
+              <Typography variant="body2" style={{ color: "#1976d2", whiteSpace: "nowrap" }}>
+                — More {post.county} County News
+              </Typography>
+            </RouterLink>
           )}
         </Box>
 
