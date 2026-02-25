@@ -10,6 +10,40 @@ type AiResultLike = {
   choices?: Array<{ message?: { content?: string | null } }>;
 };
 
+const SUMMARIZER_SYSTEM_PROMPT = `You are a professional news summarizer for a local Kentucky news platform.
+
+Before summarizing, clean the input:
+- Remove copyright notices, legal disclaimers, broadcast restrictions,
+  bylines, author credits, and publication boilerplate.
+- Remove section headers and subheadings. Incorporate any essential
+  information from headers into the body paragraphs naturally.
+
+Summarize the cleaned article to approximately 35–50% of its original
+length. If the original article is under 400 words, cap your summary
+at 200 words maximum.
+
+Your summary must:
+- Begin with who, what, where, and why this is newsworthy.
+- Cover the full arc of the article from start to finish.
+- Always end on a complete sentence. Never end mid-sentence or mid-thought.
+- Be formatted as short, readable paragraphs of 2–3 sentences each.
+  Never output a wall of unbroken text or a single long paragraph.
+- Preserve important facts, names, locations, dates, and figures exactly.
+- Include no more than one direct quote, only if it meaningfully adds
+  to the story.
+
+Your summary must never:
+- End mid-sentence under any circumstances. If you are approaching the
+  word limit, finish the current sentence and stop cleanly.
+- Output section headers, subheadings, or bolded titles of any kind.
+- Output text as one unbroken paragraph.
+- Include copyright notices, bylines, legal text, or publication footers.
+- Add facts, opinions, assumptions, or analysis not in the original.
+- Exaggerate, soften, or reframe any statement.
+
+Return clean, publication-ready paragraphs only. No headlines, labels,
+bullet points, subheadings, or commentary.`;
+
 export async function summarizeArticle(
   env: Env,
   cacheKeySuffix: string,
@@ -34,39 +68,27 @@ export async function summarizeArticle(
   let seo = fallback.seoDescription;
 
   try {
-    const prompt = [
-      `Title: ${title}`,
-      'Task: Write a concise factual summary and SEO description for this news article.',
-      'Rules:',
-      '- Output plain text only in JSON with keys summary and seoDescription.',
-      '- summary should be between 30% and 50% of original article word count.',
-      '- seoDescription must be <= 160 characters.',
-      '- no markdown, no preface, no code fences.',
-      '',
-      'Article:',
-      content.slice(0, 12_000),
-    ].join('\n');
+    const userPrompt = `Title: ${title}\n\nArticle:\n${content.slice(0, 12_000)}`;
 
     const aiRaw = (await env.AI.run(MODEL, {
       messages: [
-        { role: 'system', content: 'You are a precise newsroom summarizer.' },
-        { role: 'user', content: prompt },
+        { role: 'system', content: SUMMARIZER_SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
       ],
       temperature: 0,
       seed: 42,
-      max_completion_tokens: 1400,
+      max_completion_tokens: 2000,
     })) as AiResultLike;
 
-    const aiText = extractAiText(aiRaw);
-    const parsed = parseSummaryJson(aiText);
-
-    if (parsed?.summary) summary = parsed.summary;
-    if (parsed?.seoDescription) seo = parsed.seoDescription;
+    const aiText = extractAiText(aiRaw).trim();
+    if (aiText) {
+      summary = aiText;
+      seo = enforceSeoLength(extractFirstSentence(aiText), aiText);
+    }
   } catch {
     // best effort AI, fallback stays in place
   }
 
-  summary = enforceSummaryWordRange(summary, content, originalWords);
   seo = enforceSeoLength(seo, summary);
 
   const result: SummaryResult = {
@@ -96,28 +118,16 @@ function extractAiText(payload: AiResultLike): string {
   );
 }
 
-function parseSummaryJson(input: string): { summary: string; seoDescription: string } | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-
-  try {
-    const normalized = trimmed.replace(/```json|```/gi, '').trim();
-    const parsed = JSON.parse(normalized) as { summary?: string; seoDescription?: string };
-    if (!parsed.summary && !parsed.seoDescription) return null;
-    return {
-      summary: (parsed.summary ?? '').trim(),
-      seoDescription: (parsed.seoDescription ?? '').trim(),
-    };
-  } catch {
-    return null;
-  }
+function extractFirstSentence(text: string): string {
+  const match = text.match(/^.+?[.!?](?:\s|$)/s);
+  return match ? match[0].trim() : text.slice(0, 160).trim();
 }
 
 function deterministicFallbackSummary(content: string, originalWords: number): {
   summary: string;
   seoDescription: string;
 } {
-  const target = clamp(Math.round(originalWords * 0.6), 30, 250);
+  const target = clamp(Math.round(originalWords * 0.45), 30, 250);
   const words = content.split(/\s+/u).filter(Boolean);
   const summary = words.slice(0, target).join(' ').trim();
 
@@ -125,25 +135,6 @@ function deterministicFallbackSummary(content: string, originalWords: number): {
     summary,
     seoDescription: enforceSeoLength(summary.slice(0, 220), summary),
   };
-}
-
-function enforceSummaryWordRange(summary: string, original: string, originalWords: number): string {
-  const minWords = Math.max(Math.floor(originalWords * 0.55), 10);
-  const maxWords = Math.max(Math.ceil(originalWords * 0.65), minWords + 1);
-
-  const summaryWords = summary.split(/\s+/u).filter(Boolean);
-  const originalWordsArray = original.split(/\s+/u).filter(Boolean);
-
-  let clamped = summaryWords;
-
-  if (summaryWords.length > maxWords) {
-    clamped = summaryWords.slice(0, maxWords);
-  } else if (summaryWords.length < minWords) {
-    const missing = minWords - summaryWords.length;
-    clamped = summaryWords.concat(originalWordsArray.slice(summaryWords.length, summaryWords.length + missing));
-  }
-
-  return clamped.join(' ').replace(/\s+/g, ' ').trim();
 }
 
 function enforceSeoLength(input: string, summary: string): string {
