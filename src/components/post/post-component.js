@@ -68,7 +68,7 @@ export default function FeaturedPost(props) {
     .replace(/<[^>]+>/g, " ")
     .replace(/[ \t]+/g, " ")
     .trim()
-    .split(/\n{2,}/)
+    .split(/\n+/)
     .map((p) => p.trim())
     .filter(Boolean);
 
