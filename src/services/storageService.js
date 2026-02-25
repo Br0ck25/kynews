@@ -26,6 +26,30 @@ export function SavePost(post){
   }
 }
 
+/**
+ * Toggle a Kentucky county in/out of the persisted "saved counties" list.
+ * Returns true if the county is now saved, false if it was just removed.
+ */
+export function ToggleSavedCounty(countyName) {
+  const key = 'savedCounties';
+  const existing = GetValue(key) || [];
+  const alreadySaved = existing.includes(countyName);
+  if (alreadySaved) {
+    SaveValue(key, existing.filter((c) => c !== countyName));
+    return false;
+  } else {
+    SaveValue(key, [...existing, countyName]);
+    return true;
+  }
+}
+
+/**
+ * Returns the list of saved county names from localStorage.
+ */
+export function GetSavedCounties() {
+  return GetValue('savedCounties') || [];
+}
+
 // export function GetValues() {
 //   let items = [];
 //   for (var key in localStorage) {

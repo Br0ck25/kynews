@@ -62,15 +62,41 @@ export default function FeaturedPost(props) {
   const hasRouter = !!router;
   const history = router?.history ?? null;
   const [relatedPosts, setRelatedPosts] = React.useState([]);
+  // Track whether the header image URL returned a 404/error so we can fall back to logo
+  const [headerImgFailed, setHeaderImgFailed] = React.useState(false);
+  const headerImage = headerImgFailed ? "/logo.png" : (post.image || "/logo.png");
   const service = React.useMemo(() => new SiteService(process.env.REACT_APP_API_BASE_URL), []);
 
-  const summaryParagraphs = String(post?.shortDesc || "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[ \t]+/g, " ")
-    .trim()
-    .split(/\n+/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const summaryParagraphs = React.useMemo(() => {
+    const raw = String(post?.shortDesc || "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/[ \t]+/g, " ")
+      .trim();
+
+    if (!raw) return [];
+
+    // Split on explicit newlines first
+    const byNewline = raw
+      .split(/\n+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    // If we already have multiple paragraphs, use them directly
+    if (byNewline.length > 1) return byNewline;
+
+    // Single-paragraph summary: split into 2-3 sentence chunks so the reader
+    // doesn't see a wall of text. Target ~3 sentences per paragraph.
+    const singleText = byNewline[0] || raw;
+    const sentences = singleText.match(/[^.!?]*[.!?]+["'\u201d]?(?:\s|$)/g) || [singleText];
+    if (sentences.length <= 3) return [singleText];
+
+    const chunks = [];
+    for (let i = 0; i < sentences.length; i += 3) {
+      const chunk = sentences.slice(i, i + 3).join("").trim();
+      if (chunk) chunks.push(chunk);
+    }
+    return chunks.length > 0 ? chunks : [singleText];
+  }, [post?.shortDesc]);
 
   const sourceName = extractSourceName(post.originalLink || post.sourceUrl || "");
   // Parse comma-separated county values; use first county for breadcrumb/slug links
@@ -116,8 +142,15 @@ export default function FeaturedPost(props) {
     <main>
       <Paper
         className={classes.mainFeaturedPost}
-        style={{ backgroundImage: `url(${post.image || '/logo.png'})` }}
+        style={{ backgroundImage: `url(${headerImage})` }}
       >
+        {/* Hidden img to detect and handle broken image URLs — falls back to logo */}
+        <img
+          style={{ display: "none" }}
+          src={headerImage}
+          alt=""
+          onError={() => setHeaderImgFailed(true)}
+        />
       </Paper>
       <Divider />
       {/* Breadcrumb navigation (Section 8 — Internal Linking) */}
@@ -246,18 +279,24 @@ export default function FeaturedPost(props) {
           </Button>
           {primaryCounty && primarySlug && (
             hasRouter ? (
-              <RouterLink
-                to={`/news/${primarySlug}`}
-                style={{ color: "#1976d2", textDecoration: "none", whiteSpace: "nowrap" }}
-              >
-                <Typography variant="body2" style={{ color: "#1976d2", whiteSpace: "nowrap" }}>
-                  — More {primaryCounty} County News
-                </Typography>
+              <RouterLink to={`/news/${primarySlug}`} style={{ textDecoration: "none" }}>
+                <Button size="small" color="primary" variant="text" style={{ textTransform: "none", fontWeight: 500 }}>
+                  More {primaryCounty} County News →
+                </Button>
               </RouterLink>
             ) : (
-              <Typography variant="body2" style={{ color: "#1976d2", whiteSpace: "nowrap" }}>
-                — More {primaryCounty} County News
-              </Typography>
+              // Fallback for dialog context where router may not be available:
+              // use a regular <a> so the link is always clickable.
+              <Button
+                size="small"
+                color="primary"
+                variant="text"
+                component="a"
+                href={`/news/${primarySlug}`}
+                style={{ textTransform: "none", fontWeight: 500 }}
+              >
+                More {primaryCounty} County News →
+              </Button>
             )
           )}
         </Box>

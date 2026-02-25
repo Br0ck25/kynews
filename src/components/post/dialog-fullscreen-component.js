@@ -55,7 +55,12 @@ export default function FullScreenPostDialog(props) {
   const handleShare = () => {
     const title = props.post.title;
     const text = `I'm reading this on Kentucky News: ${props.post.title}`;
-    const url = props.post.originalLink;
+    // Share our local article URL when the post has an ID, otherwise fall back
+    // to the external source link (mirroring what the feed card does).
+    const localUrl = props.post.id
+      ? `https://localkynews.com/post?articleId=${props.post.id}`
+      : props.post.originalLink;
+    const url = localUrl || props.post.originalLink;
 
     ShareAPI(title, text, url);
   }

@@ -64,12 +64,13 @@ function migrateToCountyTags(existingTags) {
 function mapWorkerArticleToPost(article) {
   const bodyText = article?.contentText ?? "";
   return {
+    id: article?.id ?? null,
     title: article?.title ?? "Untitled",
     date: article?.publishedAt ?? new Date().toISOString(),
     shortDesc: article?.summary ?? article?.seoDescription ?? "",
     description: article?.contentHtml ?? article?.summary ?? "",
     contentText: bodyText,
-    image: article?.imageUrl ?? DEFAULT_IMAGE,
+    image: article?.imageUrl ?? null,
     imageText: article?.title ?? "Kentucky News",
     link: "/post",
     originalLink: article?.canonicalUrl ?? article?.sourceUrl ?? "",
@@ -541,6 +542,17 @@ export default class SiteService {
     return this.request("/api/admin/manual-article", {
       method: "POST",
       body: JSON.stringify({ title, body, imageUrl, sourceUrl, county, isDraft, publishedAt }),
+    });
+  }
+
+  /**
+   * Update the title and/or summary of an existing article.
+   * Returns { ok: true, id }
+   */
+  async updateAdminArticleContent({ id, title, summary }) {
+    return this.request("/api/admin/article/update-content", {
+      method: "POST",
+      body: JSON.stringify({ id, title, summary }),
     });
   }
 

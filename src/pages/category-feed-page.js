@@ -46,7 +46,7 @@ function getPageLimit(_category) {
   return PAGE_LIMIT;
 }
 
-export default function CategoryFeedPage({ category, title, countyFilterEnabled = false }) {
+export default function CategoryFeedPage({ category, title, countyFilterEnabled = false, filterPosts }) {
   const classes = useStyles();
   const selectedCounties = useSelector((state) => state.selectedCounties);
   const dispatch = useDispatch();
@@ -262,8 +262,24 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
         </Typography>
       ) : (
         <>
-          <FeaturedPost post={allPosts[0]} />
-          <Posts posts={allPosts.filter((_, index) => index !== 0)} />
+          {/* Apply optional client-side filter (e.g. weather-page uses this to
+              strip any misclassified non-weather articles from the feed). */}
+          {(() => {
+            const displayPosts = filterPosts ? allPosts.filter(filterPosts) : allPosts;
+            if (displayPosts.length === 0) {
+              return (
+                <Typography variant="body1">
+                  No articles found for this section yet.
+                </Typography>
+              );
+            }
+            return (
+              <>
+                <FeaturedPost post={displayPosts[0]} />
+                <Posts posts={displayPosts.slice(1)} />
+              </>
+            );
+          })()}
 
           {/* Sentinel: IntersectionObserver watches this element to trigger more loads */}
           <div ref={sentinelRef} style={{ height: 1 }} />

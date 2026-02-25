@@ -18,6 +18,7 @@ import { slugToCounty } from "../utils/functions";
 import { useParams, useHistory } from "react-router-dom";
 import { useDispatch } from "react-redux";
 import { setSelectedCounties } from "../redux/actions/actions";
+import { ToggleSavedCounty } from "../services/storageService";
 
 const useStyles = makeStyles((theme) => ({
   root: {},
@@ -203,7 +204,19 @@ export default function CountyPage() {
       const present = tags.find((t) => t.value === countyName && t.active);
       setSaved(!!present);
       updateSelectionState(tags);
-      setSnackbarMessage(present ? "County saved" : "County removed");
+
+      // Also persist to the dedicated "saved counties" list so users can
+      // quickly return to this county page from the Saved tab.
+      ToggleSavedCounty(countyName);
+
+      if (present) {
+        // Show a helpful message explaining how to use the county in the home feed
+        setSnackbarMessage(
+          `${countyName} County saved. To filter your home feed by county, go to Settings → County Filters.`
+        );
+      } else {
+        setSnackbarMessage(`${countyName} County removed from saved list.`);
+      }
     });
   };
 

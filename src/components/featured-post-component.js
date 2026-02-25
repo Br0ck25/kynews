@@ -50,23 +50,28 @@ export default function FeaturedPost(props) {
   const classes = useStyles();
   const { post } = props;
   const postTags = getPostTags(post);
+  // Track whether the post image has failed to load so we can fall back to the logo
+  const [imgFailed, setImgFailed] = React.useState(false);
+  const displayImage = imgFailed ? "/logo.png" : (post.image || "/logo.png");
 
   return (
     <Paper
       className={classes.mainFeaturedPost}
-      style={{ backgroundImage: `url(${post.image || '/logo.png'})` }}
+      style={{ backgroundImage: `url(${displayImage})` }}
     >
       {/* Hidden preload image for the LCP background-image.
           fetchpriority="high" and loading="eager" instruct the browser to
           discover and download this resource as early as possible, reducing
-          the "Resource load delay" in LCP breakdown. */}
+          the "Resource load delay" in LCP breakdown.
+          onError falls back to logo.png if the image URL is broken. */}
       {
         <img
           style={{ display: "none" }}
-          src={post.image || "/logo.png"}
+          src={displayImage}
           alt={post.imageText}
           fetchpriority="high"
           loading="eager"
+          onError={() => setImgFailed(true)}
         />
       }
       <div className={classes.overlay} />

@@ -76,8 +76,11 @@ export default function SinglePost(props) {
   const handleShare = () => {
     const title = post.title;
     const text = `I'm reading this on Kentucky News: ${post.title}`;
-    // Share the internal app URL so recipients land on our article page, not the original source
-    const url = window.location.origin + "/post?articleId=" + encodeURIComponent(post.originalLink);
+    // Prefer the local article URL so recipients land on our article page, not the external source.
+    // Use the numeric article ID when available (mapped from the worker's id field).
+    const url = post.id
+      ? `https://localkynews.com/post?articleId=${post.id}`
+      : `${window.location.origin}/post`;
     ShareAPI(title, text, url);
   };
 
@@ -120,6 +123,7 @@ export default function SinglePost(props) {
               image={post.image || "/logo.png"}
               title={post.title}
               loading="lazy"
+              onError={(e) => { e.target.onerror = null; e.target.src = "/logo.png"; }}
             />
             <CardContent
               onClick={() => handlePost(post)}

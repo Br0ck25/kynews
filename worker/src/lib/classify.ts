@@ -651,10 +651,29 @@ function stripHardNegatives(text: string): string {
 /**
  * Returns the default county for a known hyperlocal Kentucky source domain,
  * or null if the domain is unknown or covers the whole state.
+ *
+ * Special handling for *.kyschools.us domains: the subdomain IS the county name.
+ * e.g. scott.kyschools.us → "Scott", metcalfe.kyschools.us → "Metcalfe"
  */
 function getSourceDefaultCounty(sourceUrl: string): string | null {
   const host = getHostname(sourceUrl);
   if (!host) return null;
+
+  // Kentucky school districts use [countyname].kyschools.us
+  // Extract county from subdomain and validate against the known KY counties list.
+  if (host.endsWith('.kyschools.us')) {
+    const subdomain = host.replace(/\.kyschools\.us$/, '').toLowerCase();
+    // Subdomains may be multi-part (e.g. www.scott.kyschools.us) — take the
+    // last segment before .kyschools.us as the county name.
+    const parts = subdomain.split('.');
+    const countyCandidate = parts[parts.length - 1];
+    if (countyCandidate) {
+      const matched = KY_COUNTIES.find(
+        (c) => c.toLowerCase() === countyCandidate,
+      );
+      if (matched) return matched;
+    }
+  }
 
   for (const [domain, county] of Object.entries(SOURCE_DEFAULT_COUNTY)) {
     if (host === domain || host.endsWith(`.${domain}`)) return county;

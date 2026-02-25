@@ -7,8 +7,10 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Collapse,
   FormControl,
   FormControlLabel,
+  IconButton,
   InputLabel,
   MenuItem,
   Paper,
@@ -18,13 +20,16 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   Tabs,
   TextField,
+  Tooltip,
   Typography,
 } from "@material-ui/core";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
+import EditIcon from "@material-ui/icons/Edit";
 import SiteService from "../services/siteService";
 import { KENTUCKY_COUNTIES } from "../constants/counties";
 
@@ -68,6 +73,11 @@ export default function AdminPage() {
   const [unblockingId, setUnblockingId] = useState(null);
 
   const [edits, setEdits] = useState({});
+  // State for inline title/summary editing: { [id]: { title, summary } }
+  const [contentEdits, setContentEdits] = useState({});
+  // ID of the article whose inline edit form is currently expanded
+  const [expandedEditId, setExpandedEditId] = useState(null);
+  const [savingContentId, setSavingContentId] = useState(null);
 
   // --- Manual Article Form state ---
   const [fbPostUrl, setFbPostUrl] = useState("");
@@ -185,6 +195,35 @@ export default function AdminPage() {
       setError(err?.errorMessage || "Retag failed.");
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const saveContent = async (row) => {
+    const patch = contentEdits[row.id] || {};
+    const newTitle = patch.title ?? row.title;
+    const newSummary = patch.summary !== undefined ? patch.summary : (row.summary || "");
+    setSavingContentId(row.id);
+    setError("");
+    try {
+      await service.updateAdminArticleContent({
+        id: row.id,
+        title: newTitle,
+        summary: newSummary,
+      });
+      setArticleRows((prev) =>
+        prev.map((item) =>
+          item.id === row.id
+            ? { ...item, title: newTitle, summary: newSummary }
+            : item
+        )
+      );
+      setContentEdits((prev) => ({ ...prev, [row.id]: {} }));
+      setExpandedEditId(null);
+    } catch (err) {
+      console.error(err);
+      setError(err?.errorMessage || "Failed to save content.");
+    } finally {
+      setSavingContentId(null);
     }
   };
 
@@ -858,125 +897,186 @@ export default function AdminPage() {
           {loading ? (
             <CircularProgress size={24} />
           ) : (
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>ID</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Title</TableCell>
-                  <TableCell>Published (UTC)</TableCell>
-                  <TableCell>Category</TableCell>
-                  <TableCell>KY</TableCell>
-                  <TableCell>County</TableCell>
-                  <TableCell>Links</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {visibleArticles.map((row) => {
-                  const draft = isDraftArticle(row);
-                  const edit = edits[row.id] || {};
-                  const currentCategory = edit.category ?? row.category;
-                  const currentKy = edit.isKentucky ?? row.isKentucky;
-                  const currentCounty = edit.county ?? row.county ?? "";
-                  const currentPublishedAt = edit.publishedAt ?? row.publishedAt ?? "";
+            <TableContainer component={Paper} style={{ overflowX: "auto" }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell style={{ width: 50 }}>ID</TableCell>
+                    <TableCell style={{ width: 70 }}>Status</TableCell>
+                    <TableCell style={{ minWidth: 220 }}>Title</TableCell>
+                    <TableCell style={{ width: 180 }}>Published (UTC)</TableCell>
+                    <TableCell style={{ width: 140 }}>Category</TableCell>
+                    <TableCell style={{ width: 60 }}>KY</TableCell>
+                    <TableCell style={{ width: 130 }}>County</TableCell>
+                    <TableCell style={{ width: 110 }}>Links</TableCell>
+                    <TableCell style={{ width: 50 }}>Edit</TableCell>
+                    <TableCell style={{ minWidth: 280 }}>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {visibleArticles.map((row) => {
+                    const draft = isDraftArticle(row);
+                    const edit = edits[row.id] || {};
+                    const currentCategory = edit.category ?? row.category;
+                    const currentKy = edit.isKentucky ?? row.isKentucky;
+                    const currentCounty = edit.county ?? row.county ?? "";
+                    const currentPublishedAt = edit.publishedAt ?? row.publishedAt ?? "";
+                    const contentEdit = contentEdits[row.id] || {};
+                    const isExpanded = expandedEditId === row.id;
 
-                  return (
-                    <TableRow key={row.id} style={draft ? { backgroundColor: "#fffde7" } : {}}>
-                      <TableCell>{row.id}</TableCell>
-                      <TableCell>
-                        {draft
-                          ? <Chip size="small" label="DRAFT" style={{ backgroundColor: "#ff9800", color: "#fff" }} />
-                          : <Chip size="small" label="Live" color="primary" />}
-                      </TableCell>
-                      <TableCell style={{ maxWidth: 360, overflowWrap: "anywhere" }}>{row.title}</TableCell>
-                      <TableCell>
-                        {draft ? (
-                          <Typography variant="caption" color="textSecondary">Not published</Typography>
-                        ) : (
-                          <TextField
-                            variant="outlined" size="small" type="datetime-local"
-                            value={toDateTimeLocalValue(currentPublishedAt)}
-                            onChange={(e) => setEdit(row.id, { publishedAt: fromDateTimeLocalValue(e.target.value) })}
-                            InputLabelProps={{ shrink: true }}
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <FormControl variant="outlined" size="small" style={{ minWidth: 130 }}>
-                          <Select value={currentCategory} onChange={(e) => setEdit(row.id, { category: e.target.value })}>
-                            {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-                          </Select>
-                        </FormControl>
-                      </TableCell>
-                      <TableCell>
-                        <Select value={currentKy ? "yes" : "no"} variant="outlined" size="small"
-                          onChange={(e) => setEdit(row.id, { isKentucky: e.target.value === "yes" })}>
-                          <MenuItem value="yes">yes</MenuItem>
-                          <MenuItem value="no">no</MenuItem>
-                        </Select>
-                      </TableCell>
-                      <TableCell>
-                        <TextField variant="outlined" size="small"
-                          value={currentCounty}
-                          onChange={(e) => setEdit(row.id, { county: e.target.value })}
-                          placeholder="optional" style={{ width: 120 }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {!draft && (
-                            <Button size="small" variant="outlined" color="primary"
-                              href={getLocalArticleLink(row.id)} target="_blank" rel="noopener noreferrer">
-                              Live
-                            </Button>
-                          )}
-                          <Button size="small" variant="outlined"
-                            href={row.canonicalUrl || row.sourceUrl || "#"}
-                            target="_blank" rel="noopener noreferrer"
-                            disabled={!row.canonicalUrl && !row.sourceUrl}>
-                            Source
-                          </Button>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {draft && (
-                            <Button size="small" variant="contained" color="primary"
-                              disabled={publishingNowId === row.id}
-                              onClick={() => publishNow(row)}>
-                              {publishingNowId === row.id ? "Publishing…" : "Publish Now"}
-                            </Button>
-                          )}
-                          <Button size="small" variant="contained" color="primary"
-                            disabled={savingId === row.id}
-                            onClick={() => saveRetag(row)}>
-                            {savingId === row.id ? "Saving…" : "Save tags"}
-                          </Button>
-                          {!draft && (
-                            <Button size="small" variant="outlined" color="primary"
-                              disabled={savingId === row.id}
-                              onClick={() => saveDateTime(row)}>
-                              Save date
-                            </Button>
-                          )}
-                          <Button size="small" variant="outlined" color="secondary"
-                            disabled={deletingId === row.id}
-                            onClick={() => deleteArticle(row, false)}>
-                            Delete
-                          </Button>
-                          <Button size="small" variant="contained" color="secondary"
-                            disabled={deletingId === row.id}
-                            onClick={() => deleteArticle(row, true)}>
-                            {deletingId === row.id ? "Working…" : "Delete + Block"}
-                          </Button>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                    return (
+                      <React.Fragment key={row.id}>
+                        <TableRow style={draft ? { backgroundColor: "#fffde7" } : {}}>
+                          <TableCell>{row.id}</TableCell>
+                          <TableCell>
+                            {draft
+                              ? <Chip size="small" label="DRAFT" style={{ backgroundColor: "#ff9800", color: "#fff" }} />
+                              : <Chip size="small" label="Live" color="primary" />}
+                          </TableCell>
+                          <TableCell style={{ maxWidth: 360, overflowWrap: "anywhere" }}>{row.title}</TableCell>
+                          <TableCell>
+                            {draft ? (
+                              <Typography variant="caption" color="textSecondary">Not published</Typography>
+                            ) : (
+                              <TextField
+                                variant="outlined" size="small" type="datetime-local"
+                                value={toDateTimeLocalValue(currentPublishedAt)}
+                                onChange={(e) => setEdit(row.id, { publishedAt: fromDateTimeLocalValue(e.target.value) })}
+                                InputLabelProps={{ shrink: true }}
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <FormControl variant="outlined" size="small" style={{ minWidth: 130 }}>
+                              <Select value={currentCategory} onChange={(e) => setEdit(row.id, { category: e.target.value })}>
+                                {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                              </Select>
+                            </FormControl>
+                          </TableCell>
+                          <TableCell>
+                            <Select value={currentKy ? "yes" : "no"} variant="outlined" size="small"
+                              onChange={(e) => setEdit(row.id, { isKentucky: e.target.value === "yes" })}>
+                              <MenuItem value="yes">yes</MenuItem>
+                              <MenuItem value="no">no</MenuItem>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <TextField variant="outlined" size="small"
+                              value={currentCounty}
+                              onChange={(e) => setEdit(row.id, { county: e.target.value })}
+                              placeholder="optional" style={{ width: 120 }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {!draft && (
+                                <Button size="small" variant="outlined" color="primary"
+                                  href={getLocalArticleLink(row.id)} target="_blank" rel="noopener noreferrer">
+                                  Live
+                                </Button>
+                              )}
+                              <Button size="small" variant="outlined"
+                                href={row.canonicalUrl || row.sourceUrl || "#"}
+                                target="_blank" rel="noopener noreferrer"
+                                disabled={!row.canonicalUrl && !row.sourceUrl}>
+                                Source
+                              </Button>
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title="Edit title / summary">
+                              <IconButton
+                                size="small"
+                                color={isExpanded ? "primary" : "default"}
+                                onClick={() => setExpandedEditId(isExpanded ? null : row.id)}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell>
+                            <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {draft && (
+                                <Button size="small" variant="contained" color="primary"
+                                  disabled={publishingNowId === row.id}
+                                  onClick={() => publishNow(row)}>
+                                  {publishingNowId === row.id ? "Publishing…" : "Publish Now"}
+                                </Button>
+                              )}
+                              <Button size="small" variant="contained" color="primary"
+                                disabled={savingId === row.id}
+                                onClick={() => saveRetag(row)}>
+                                {savingId === row.id ? "Saving…" : "Save tags"}
+                              </Button>
+                              {!draft && (
+                                <Button size="small" variant="outlined" color="primary"
+                                  disabled={savingId === row.id}
+                                  onClick={() => saveDateTime(row)}>
+                                  Save date
+                                </Button>
+                              )}
+                              <Button size="small" variant="outlined" color="secondary"
+                                disabled={deletingId === row.id}
+                                onClick={() => deleteArticle(row, false)}>
+                                Delete
+                              </Button>
+                              <Button size="small" variant="contained" color="secondary"
+                                disabled={deletingId === row.id}
+                                onClick={() => deleteArticle(row, true)}>
+                                {deletingId === row.id ? "Working…" : "Delete + Block"}
+                              </Button>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={10} style={{ paddingTop: 0, paddingBottom: 0, border: isExpanded ? undefined : "none" }}>
+                            <Collapse in={isExpanded} unmountOnExit>
+                              <Box style={{ padding: "12px 8px 16px", background: "#f9f9f9" }}>
+                                <Typography variant="subtitle2" gutterBottom>Edit Title &amp; Summary — ID {row.id}</Typography>
+                                <TextField
+                                  fullWidth
+                                  label="Title"
+                                  variant="outlined"
+                                  size="small"
+                                  style={{ marginBottom: 10 }}
+                                  value={contentEdit.title !== undefined ? contentEdit.title : row.title || ""}
+                                  onChange={(e) => setContentEdits(prev => ({ ...prev, [row.id]: { ...prev[row.id], title: e.target.value } }))}
+                                />
+                                <TextField
+                                  fullWidth
+                                  multiline
+                                  rows={6}
+                                  label="Summary"
+                                  variant="outlined"
+                                  size="small"
+                                  style={{ marginBottom: 10 }}
+                                  value={contentEdit.summary !== undefined ? contentEdit.summary : row.summary || ""}
+                                  onChange={(e) => setContentEdits(prev => ({ ...prev, [row.id]: { ...prev[row.id], summary: e.target.value } }))}
+                                />
+                                <Box style={{ display: "flex", gap: 8 }}>
+                                  <Button
+                                    size="small"
+                                    variant="contained"
+                                    color="primary"
+                                    disabled={savingContentId === row.id}
+                                    onClick={() => saveContent(row)}
+                                  >
+                                    {savingContentId === row.id ? "Saving…" : "Save Content"}
+                                  </Button>
+                                  <Button size="small" variant="outlined" onClick={() => setExpandedEditId(null)}>
+                                    Cancel
+                                  </Button>
+                                </Box>
+                              </Box>
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      </React.Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
           )}
 
           <Box style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>

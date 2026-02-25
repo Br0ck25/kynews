@@ -12,6 +12,7 @@ import {
 	unblockArticleByBlockedId,
 	updateArticlePublishedAt,
 	updateArticleClassification,
+	updateArticleContent,
 	getCountyCounts,
 } from './lib/db';
 import {
@@ -37,6 +38,7 @@ import { normalizeCountyList } from './lib/geo';
 import { KY_COUNTIES } from './data/ky-geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
 import { classifyArticleWithAi } from './lib/classify';
+import { summarizeArticle } from './lib/ai';
 import type { Category, NewArticle } from './types';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
@@ -520,6 +522,26 @@ await updateArticlePublishedAt(env, id, new Date(parsedTs).toISOString());
 return json({ ok: true, id, publishedAt: new Date(parsedTs).toISOString() });
 }
 
+if (url.pathname === '/api/admin/article/update-content' && request.method === 'POST') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const body = await parseJsonBody<{ id?: number; title?: string; summary?: string }>(request);
+const id = Number(body?.id ?? 0);
+if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+
+const title = typeof body?.title === 'string' ? body.title.trim() : undefined;
+const summary = typeof body?.summary === 'string' ? body.summary.trim() : undefined;
+
+if (title === undefined && summary === undefined) {
+return badRequest('Provide at least one of: title, summary');
+}
+
+await updateArticleContent(env, id, { title, summary });
+return json({ ok: true, id });
+}
+
 if (url.pathname === '/api/admin/article/delete' && request.method === 'POST') {
 if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
@@ -694,6 +716,22 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		: '';
 	const words = wordCount(postBody || title);
 
+	// Use the body as the summary so it displays on the article page.
+	// For longer bodies, run AI summarization; for short posts use the body directly.
+	let manualSummary = postBody;
+	let manualSeoDescription = '';
+	if (postBody) {
+		try {
+			const ai = await summarizeArticle(env, canonicalHash, title, postBody, resolvedPublishedAt);
+			manualSummary = ai.summary || postBody;
+			manualSeoDescription = ai.seoDescription || '';
+		} catch {
+			// AI failed — fall back to using body text directly as the summary
+			manualSummary = postBody;
+			manualSeoDescription = postBody.slice(0, 160).trim();
+		}
+	}
+
 	const newArticle: NewArticle = {
 		canonicalUrl,
 		sourceUrl: sourceUrl || canonicalUrl,
@@ -705,14 +743,15 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		isKentucky: true,
 		county: classification.county,
 		city: classification.city,
-		summary: '',
-		seoDescription: '',
+		summary: manualSummary,
+		seoDescription: manualSeoDescription,
 		rawWordCount: words,
-		summaryWordCount: 0,
+		summaryWordCount: wordCount(manualSummary),
 		contentText: postBody || title,
 		contentHtml,
 		imageUrl,
 		rawR2Key: null,
+		slug: generateArticleSlug(title, canonicalHash),
 	};
 
 	const articleId = await insertArticle(env, newArticle);

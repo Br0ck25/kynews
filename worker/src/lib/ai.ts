@@ -257,6 +257,25 @@ function cleanContentForSummarization(text: string, title: string): string {
   t = t.replace(/Add Fox News on Google\b[^\n]*/gi, '');
   t = t.replace(/^(?:Gesture|Agree|Like|Disagree|Love|Sad|Wow|Angry)\s*$/gim, '');
 
+  // Dateline-only lines: "Feb 25, 2026 | 4:59 pm ET Share" or "Feb 25, 2026 4:33 PM EST"
+  // Matches common date + time + optional timezone + optional "Share" fragments on their own line
+  t = t.replace(
+    /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{1,2},? \d{4}[\s|,]+\d{1,2}:\d{2}\s*(?:am|pm)\s*(?:et|ct|mt|pt|est|cst|mst|pst|edt|cdt|mdt|pdt)?\s*(?:share)?\s*$/gim,
+    '',
+  );
+
+  // Category label + date + time lines: "Politics Feb 25, 2026 4:33 PM EST"
+  t = t.replace(
+    /^[A-Z][a-zA-Z]+ (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{1,2},? \d{4} \d{1,2}:\d{2}\s*(?:am|pm)\s*(?:et|ct|mt|pt|est|cst|mst|pst|edt|cdt|mdt|pdt)?\s*$/gim,
+    '',
+  );
+
+  // Relative timestamp lines: "15 minutes ago", "1 hour ago", "2 days ago"
+  t = t.replace(
+    /^\d+ (?:second|minute|hour|day|week|month)s? ago\s*$/gim,
+    '',
+  );
+
   // "CLICK HERE" CTA lines
   t = t.replace(/^CLICK HERE\b.+$/gim, '');
 

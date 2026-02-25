@@ -119,6 +119,33 @@ export async function updateArticlePublishedAt(env: Env, id: number, publishedAt
     .run();
 }
 
+export async function updateArticleContent(
+  env: Env,
+  id: number,
+  patch: { title?: string; summary?: string },
+): Promise<void> {
+  const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
+  const binds: unknown[] = [];
+
+  if (patch.title !== undefined) {
+    sets.push('title = ?');
+    binds.push(patch.title.trim().slice(0, 500));
+  }
+
+  if (patch.summary !== undefined) {
+    sets.push('summary = ?');
+    binds.push(patch.summary.trim().slice(0, 8000));
+  }
+
+  if (sets.length === 1) return; // nothing to update besides updated_at
+  binds.push(id);
+
+  await env.ky_news_db
+    .prepare(`UPDATE articles SET ${sets.join(', ')} WHERE id = ?`)
+    .bind(...binds)
+    .run();
+}
+
 export async function deleteArticleById(env: Env, id: number): Promise<void> {
   await env.ky_news_db
     .prepare('DELETE FROM articles WHERE id = ?')

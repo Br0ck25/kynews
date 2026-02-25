@@ -203,7 +203,16 @@ export default function WeatherPage() {
         )}
       </Paper>
 
-      <CategoryFeedPage category="weather" title="Kentucky Weather" />
+      <CategoryFeedPage
+        category="weather"
+        title="Kentucky Weather"
+        filterPosts={(post) => {
+          // Only show articles that contain genuine weather-related terms in title or summary.
+          // This filters out any articles that were mis-classified as weather during ingest.
+          const text = `${post.title || ""} ${post.shortDesc || ""}`.toLowerCase();
+          return /weather|storm|tornado|flood|snow|rain|ice\s|wind|temperature|forecast|freez|cold snap|heat wave|thunder|lightning|blizzard|hail|drought|hurricane|tropical storm|winter advisory|winter watch|severe|nws\b|national weather/i.test(text);
+        }}
+      />
     </>
   );
 }
