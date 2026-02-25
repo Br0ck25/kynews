@@ -45,10 +45,14 @@ const INGEST_METRICS_KEY = 'admin:ingest:latest';
 const INGEST_ROTATION_KEY_PREFIX = 'admin:ingest:rotation:';
 const FALLBACK_CRAWL_MAX_LINKS = 12;
 const FALLBACK_CRAWL_MAX_SECTION_PAGES = 3;
-const SCHEDULED_HIGH_LIMIT_PER_SOURCE = 20;
-const SCHEDULED_NORMAL_LIMIT_PER_SOURCE = 8;
-const SCHEDULED_HIGH_MAX_SOURCES_PER_RUN = 2;
-const SCHEDULED_NORMAL_MAX_SOURCES_PER_RUN = 25;
+/** Articles to fetch per source on each scheduled cron tick. */
+const SCHEDULED_LIMIT_PER_SOURCE = 15;
+/** Sources processed per 2-minute cron tick. 160 total ÷ 10 per tick = ~32-min full cycle. */
+const SCHEDULED_SOURCES_PER_RUN = 10;
+/** How many sources to fetch simultaneously — balances speed vs D1/network pressure. */
+const INGEST_CONCURRENCY = 8;
+/** KV key for the backfill-counties job status (polled by the admin UI). */
+const BACKFILL_STATUS_KEY = 'admin:backfill:latest';
 
 const STRUCTURED_SEARCH_SOURCE_URLS = new Set([
 	'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
@@ -105,7 +109,7 @@ rejected: number;
 lowWordDiscards: number;
 ingestRatePerMinute: number;
 sourceErrors: number;
-trigger: 'manual' | 'scheduled-high' | 'scheduled-normal';
+trigger: 'manual' | 'scheduled' | 'scheduled-high' | 'scheduled-normal';
 rejectedSamples: IngestDecisionSample[];
 duplicateSamples: IngestDecisionSample[];
 }
@@ -288,6 +292,9 @@ return json({ ok: true, message: 'Admin ingest started', sourcesTried: sourceUrl
 }
 
 // Backfill articles for counties that currently have fewer than `threshold` items.
+// Returns 202 immediately; the heavy ingest work runs via ctx.waitUntil so the
+// request never hits Cloudflare's 30-second CPU wall-clock limit.
+// Poll GET /api/admin/backfill-status to track progress.
 if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
 		return json({ error: 'Unauthorized' }, 401);
@@ -298,23 +305,57 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 
 	const countsMap = await getCountyCounts(env);
 	const missing = KY_COUNTIES.filter((c) => (countsMap.get(c) ?? 0) < threshold);
-	const results: Array<{ county: string; before: number; after: number }> = [];
 
-	for (const county of missing) {
-		const before = countsMap.get(county) ?? 0;
-		let current = before;
-		let attempts = 0;
-		while (current < threshold && attempts < 3) {
+	// Write initial "running" state so the UI can display progress immediately.
+	const initialStatus = {
+		status: 'running' as const,
+		startedAt: new Date().toISOString(),
+		threshold,
+		missingCount: missing.length,
+		processed: 0,
+		results: [] as Array<{ county: string; before: number; after: number }>,
+	};
+	await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(initialStatus), { expirationTtl: 7200 }).catch(() => null);
+
+	// Run the backfill in the background — one ingest pass per missing county.
+	ctx.waitUntil((async () => {
+		const results: Array<{ county: string; before: number; after: number }> = [];
+		for (const county of missing) {
+			const before = countsMap.get(county) ?? 0;
 			const urls = buildCountySearchUrls(county);
-			await runIngest(env, urls, threshold * 2, 'manual', { rotateSources: false });
-			const newMap = await getCountyCounts(env);
-			current = newMap.get(county) ?? 0;
-			attempts++;
+			await runIngest(env, urls, threshold * 2, 'manual', { rotateSources: false }).catch(() => null);
+			const newMap = await getCountyCounts(env).catch(() => countsMap);
+			results.push({ county, before, after: newMap.get(county) ?? before });
+			// Update KV after each county so the UI shows live progress.
+			await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify({
+				status: 'running',
+				startedAt: initialStatus.startedAt,
+				threshold,
+				missingCount: missing.length,
+				processed: results.length,
+				results,
+			}), { expirationTtl: 7200 }).catch(() => null);
 		}
-		results.push({ county, before, after: current });
-	}
+		await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify({
+			status: 'complete',
+			startedAt: initialStatus.startedAt,
+			finishedAt: new Date().toISOString(),
+			threshold,
+			missingCount: missing.length,
+			processed: results.length,
+			results,
+		}), { expirationTtl: 86400 }).catch(() => null);
+	})());
 
-	return json({ ok: true, threshold, results, missingCount: missing.length });
+	return json({ ok: true, message: 'Backfill started in background', threshold, missingCount: missing.length }, 202);
+}
+
+if (url.pathname === '/api/admin/backfill-status' && request.method === 'GET') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+	const status = await env.CACHE.get(BACKFILL_STATUS_KEY, 'json').catch(() => null);
+	return json({ status: status ?? null });
 }
 
 if (url.pathname === '/api/admin/metrics' && request.method === 'GET') {
@@ -743,24 +784,16 @@ return json({ error: 'Internal server error', details: safeError(err) }, 500);
 }
 },
 async scheduled(_event, env, ctx): Promise<void> {
-// Tiered polling: high-priority every 5 min, normal every 15 min.
-const cron = (_event as ScheduledEvent).cron || '';
-
-if (cron === '*/5 * * * *') {
-const sourceUrls = [...new Set(HIGH_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
+// Unified rotation across all sources, 10 at a time every 2 minutes.
+// HIGH_PRIORITY sources appear first so they get refreshed every cycle before
+// the normal sources, while still advancing the rotation offset in KV.
+const sourceUrls = [...new Set([
+	...HIGH_PRIORITY_SOURCE_SEEDS,
+	...MASTER_SOURCE_SEEDS,
+].map((s) => s.trim()).filter(isHttpUrl))];
 ctx.waitUntil(
-	runIngest(env, sourceUrls, SCHEDULED_HIGH_LIMIT_PER_SOURCE, 'scheduled-high', {
-		maxSourcesPerRun: SCHEDULED_HIGH_MAX_SOURCES_PER_RUN,
-		rotateSources: true,
-	}),
-);
-return;
-}
-
-const sourceUrls = [...new Set(NORMAL_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl))];
-ctx.waitUntil(
-	runIngest(env, sourceUrls, SCHEDULED_NORMAL_LIMIT_PER_SOURCE, 'scheduled-normal', {
-		maxSourcesPerRun: SCHEDULED_NORMAL_MAX_SOURCES_PER_RUN,
+	runIngest(env, sourceUrls, SCHEDULED_LIMIT_PER_SOURCE, 'scheduled', {
+		maxSourcesPerRun: SCHEDULED_SOURCES_PER_RUN,
 		rotateSources: true,
 	}),
 );
@@ -794,9 +827,16 @@ let sourceErrors = 0;
 const rejectedSamples: IngestDecisionSample[] = [];
 const duplicateSamples: IngestDecisionSample[] = [];
 
-for (const sourceUrl of runSources) {
-try {
-const status = await ingestSeedSource(env, sourceUrl, limitPerSource);
+// Process sources in concurrent batches so we don't hit the wall-clock limit
+// with 160+ sequential network calls. INGEST_CONCURRENCY sources run at once.
+for (let i = 0; i < runSources.length; i += INGEST_CONCURRENCY) {
+const batch = runSources.slice(i, i + INGEST_CONCURRENCY);
+const results = await Promise.allSettled(batch.map((sourceUrl) => ingestSeedSource(env, sourceUrl, limitPerSource)));
+for (const result of results) {
+if (result.status === 'rejected') {
+sourceErrors += 1;
+} else {
+const status = result.value;
 processed += status.processed;
 inserted += status.inserted;
 duplicate += status.duplicate;
@@ -809,9 +849,7 @@ if (rejectedSamples.length < 200) rejectedSamples.push(sample);
 for (const sample of status.duplicateSamples) {
 if (duplicateSamples.length < 200) duplicateSamples.push(sample);
 }
-} catch {
-// swallow per-source errors so one bad source does not abort the rest
-sourceErrors += 1;
+}
 }
 }
 
@@ -1299,11 +1337,50 @@ function isStructuredSearchSource(sourceUrl: string): boolean {
 	return false;
 }
 
+/**
+ * Domains whose robots.txt we intentionally skip — these are established news
+ * publishers that disallow generic crawlers but legitimately offer RSS feeds.
+ * We fetch their article content only after discovering it through an RSS feed.
+ */
+const TRUSTED_NEWS_DOMAINS = new Set([
+	'www.npr.org',
+	'feeds.npr.org',
+	'www.wowktv.com',
+	'www.wkyt.com',
+	'www.wsaz.com',
+	'www.wymt.com',
+	'www.whas11.com',
+	'www.wlky.com',
+	'www.wdrb.com',
+	'www.lex18.com',
+	'www.wtvq.com',
+	'www.wnky.com',
+	'www.wcpo.com',
+	'www.wkms.org',
+	'wfpl.org',
+	'kentuckylantern.com',
+	'kycir.org',
+	'stateline.org',
+	'www.pbs.org',
+	'www.nbcnews.com',
+	'abcnews.go.com',
+	'www.foxnews.com',
+	'moxie.foxnews.com',
+	'www.kentucky.com',
+	'www.courier-journal.com',
+]);
+
 function isRobotsBypassAllowed(targetUrl: string): boolean {
 	const normalized = normalizeSourceUrl(targetUrl);
 	if (!normalized) return false;
 	if (ROBOTS_BYPASS_URLS.has(normalized)) return true;
 	if (isKentuckySearchUrl(normalized) || isWymtSearchUrl(normalized)) return true;
+	try {
+		const { hostname } = new URL(normalized);
+		if (TRUSTED_NEWS_DOMAINS.has(hostname)) return true;
+	} catch {
+		// ignore
+	}
 	return false;
 }
 
@@ -1322,11 +1399,13 @@ function extractStructuredSearchLinks(sourceUrl: string, html: string, maxLinks:
 	const normalized = normalizeSourceUrl(sourceUrl);
 	if (!normalized || maxLinks <= 0) return [];
 
-	if (normalized === 'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest') {
+	// Support any kentucky.com search query (e.g. county-specific backfill searches)
+	if (isKentuckySearchUrl(normalized)) {
 		return extractKentuckySearchArticleLinks(sourceUrl, html, maxLinks);
 	}
 
-	if (normalized === 'https://www.wymt.com/search/?query=kentucky') {
+	// Support any wymt.com search query (e.g. county-specific backfill searches)
+	if (isWymtSearchUrl(normalized)) {
 		return extractWymtSearchArticleLinks(sourceUrl, html, maxLinks);
 	}
 

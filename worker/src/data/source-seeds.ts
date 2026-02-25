@@ -163,13 +163,11 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   // 'https://www.usnews.com/rss/news',
   // 'https://www.theblaze.com/feeds/feed.rss',
   // Additional reliable Kentucky sources
-  'https://www.wkyt.com/news.rss',
-  'https://www.wsaz.com/rss/section/news.rss',
-  'https://spectrumnews1.com/ky/louisville/news/rss',
-  'https://www.paintsville-herald.com/rss_feed_all-articles',
-  'https://www.richmondregister.com/rss',
-  'https://www.thenewsenterprise.com/rss',
-  'https://www.murrayledger.com/rss',
+  // 'https://www.wkyt.com/news.rss',  // 404 - wrong path, replaced below
+  'https://www.wkyt.com/arc/outboundfeeds/rss/',
+  // 'https://feeds.mcclatchy.com/kentucky/sections/latest-news/stories',  // consistent timeout
+  // 'https://www.courier-journal.com/rss/',  // 406 blocked
+  'https://www.wowktv.com/news/kentucky/feed/',
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [

@@ -448,11 +448,30 @@ export default function AdminPage() {
 
   const backfillCounties = async () => {
     setError("");
+    setBackfillResult({ status: "running", message: "Backfill started — polling for results every 5 seconds...", processed: 0, missingCount: "?" });
     try {
-      const result = await service.adminBackfillCounties({ threshold: 5 });
-      setBackfillResult(result);
+      await service.adminBackfillCounties({ threshold: 5 });
+      let pollCount = 0;
+      const poll = setInterval(async () => {
+        pollCount++;
+        try {
+          const statusData = await service.getBackfillStatus();
+          const s = statusData?.status;
+          if (s?.status === "complete" || s?.status === "error") {
+            clearInterval(poll);
+            setBackfillResult(s);
+          } else if (s?.status === "running") {
+            setBackfillResult({ ...s, message: `Running… ${s.processed ?? 0} / ${s.missingCount ?? "?"} counties processed` });
+          }
+          if (pollCount > 72) {
+            clearInterval(poll);
+            setBackfillResult((prev) => ({ ...(prev || {}), status: "timeout", message: "Backfill is still running. Refresh this page to check again." }));
+          }
+        } catch { /* keep polling */ }
+      }, 5000);
     } catch (err) {
-      setError(err?.errorMessage || "Backfill failed.");
+      setError(err?.errorMessage || "Backfill failed to start.");
+      setBackfillResult(null);
     }
   };
 
@@ -560,8 +579,24 @@ export default function AdminPage() {
 
           {backfillResult && (
             <Paper style={{ padding: 12, marginBottom: 16 }}>
-              <Typography variant="subtitle2" gutterBottom>Backfill Result</Typography>
-              <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(backfillResult, null, 2)}</pre>
+              <Typography variant="subtitle2" gutterBottom>
+                County Backfill — {backfillResult.status === "running" ? "In Progress" : backfillResult.status === "complete" ? "✅ Complete" : backfillResult.status === "timeout" ? "⏳ Still Running" : "Status"}
+              </Typography>
+              {backfillResult.message && (
+                <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>{backfillResult.message}</Typography>
+              )}
+              {backfillResult.status === "running" && (
+                <Typography variant="body2">Counties processed: {backfillResult.processed ?? 0} / {backfillResult.missingCount ?? "?"}</Typography>
+              )}
+              {backfillResult.status === "complete" && (
+                <Typography variant="body2" style={{ marginBottom: 6 }}>
+                  Processed {backfillResult.processed ?? 0} of {backfillResult.missingCount ?? "?"} counties below threshold.
+                  Finished: {backfillResult.finishedAt ? new Date(backfillResult.finishedAt).toLocaleTimeString() : "—"}
+                </Typography>
+              )}
+              {backfillResult.results?.length > 0 && (
+                <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, maxHeight: 300, overflow: "auto" }}>{JSON.stringify(backfillResult.results, null, 2)}</pre>
+              )}
             </Paper>
           )}
 

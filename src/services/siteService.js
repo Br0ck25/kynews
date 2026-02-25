@@ -473,6 +473,10 @@ export default class SiteService {
     });
   }
 
+  async getBackfillStatus() {
+    return this.request("/api/admin/backfill-status");
+  }
+
   async getAdminArticles({ category = "all", search = "", cursor = null, limit = 25 } = {}) {
     const params = new URLSearchParams();
     params.set("category", category);

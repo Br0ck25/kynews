@@ -84,6 +84,8 @@
 	 * https://developers.cloudflare.com/workers/configuration/cron-triggers/
 	 */
 	"triggers": {
-		"crons": ["*/5 * * * *", "*/15 * * * *"]
+		// Single 2-minute cron rotates through all ~160 sources 10 at a time.
+		// Full cycle: ~160 ÷ 10 × 2 min = ~32 minutes. Offset persisted in KV.
+		"crons": ["*/2 * * * *"]
 	}
 }
