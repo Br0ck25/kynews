@@ -10,7 +10,8 @@ import Button from "@material-ui/core/Button";
 import IconButton from "@material-ui/core/IconButton";
 import Chip from "@material-ui/core/Chip";
 import ShareIcon from "@material-ui/icons/Share";
-import { Link as RouterLink, useHistory } from "react-router-dom";
+import { Link as RouterLink } from "react-router-dom";
+import { __RouterContext } from "react-router";
 import { useDispatch } from "react-redux";
 import { setPost } from "../../redux/actions/actions";
 import "./post-component.css";
@@ -52,7 +53,14 @@ export default function FeaturedPost(props) {
   const classes = useStyles();
   const { post } = props;
   const dispatch = useDispatch();
-  const history = useHistory();
+  // determine whether we're rendered inside a Router; __RouterContext is
+  // the internal context used by react-router.  When the post is shown via
+  // the fullscreen dialog (ThemeProvider) the component is outside the
+  // router tree and the context will be undefined, so we avoid using any
+  // Link/history functionality in that case.
+  const router = React.useContext(__RouterContext);
+  const hasRouter = !!router;
+  const history = router?.history ?? null;
   const [relatedPosts, setRelatedPosts] = React.useState([]);
   const service = React.useMemo(() => new SiteService(process.env.REACT_APP_API_BASE_URL), []);
 
@@ -84,7 +92,9 @@ export default function FeaturedPost(props) {
 
   const handleRelatedClick = (relatedPost) => {
     dispatch(setPost(relatedPost));
-    history.push({ pathname: "/post", state: { post: relatedPost } });
+    if (hasRouter && history) {
+      history.push({ pathname: "/post", state: { post: relatedPost } });
+    }
   };
 
   const handleShare = () => {
@@ -113,14 +123,22 @@ export default function FeaturedPost(props) {
         {/* County + Category chips */}
         <Box style={{ padding: "4px 10px 10px", display: "flex", flexWrap: "wrap", gap: 6 }}>
           {post.county && countySlug && (
-            <RouterLink to={`/news/${countySlug}`} style={{ textDecoration: "none" }}>
+            hasRouter ? (
+              <RouterLink to={`/news/${countySlug}`} style={{ textDecoration: "none" }}>
+                <Chip
+                  label={`${post.county} County`}
+                  size="small"
+                  color="primary"
+                  clickable
+                />
+              </RouterLink>
+            ) : (
               <Chip
                 label={`${post.county} County`}
                 size="small"
                 color="primary"
-                clickable
               />
-            </RouterLink>
+            )
           )}
           {categoryLabel && (
             <Chip
@@ -208,14 +226,20 @@ export default function FeaturedPost(props) {
             Read Full Story at {sourceName}
           </Button>
           {post.county && countySlug && (
-            <RouterLink
-              to={`/news/${countySlug}`}
-              style={{ color: "#1976d2", textDecoration: "none", whiteSpace: "nowrap" }}
-            >
+            hasRouter ? (
+              <RouterLink
+                to={`/news/${countySlug}`}
+                style={{ color: "#1976d2", textDecoration: "none", whiteSpace: "nowrap" }}
+              >
+                <Typography variant="body2" style={{ color: "#1976d2", whiteSpace: "nowrap" }}>
+                  — More {post.county} County News
+                </Typography>
+              </RouterLink>
+            ) : (
               <Typography variant="body2" style={{ color: "#1976d2", whiteSpace: "nowrap" }}>
                 — More {post.county} County News
               </Typography>
-            </RouterLink>
+            )
           )}
         </Box>
 
