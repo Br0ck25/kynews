@@ -9,7 +9,9 @@ import Box from "@material-ui/core/Box";
 import Button from "@material-ui/core/Button";
 import IconButton from "@material-ui/core/IconButton";
 import Chip from "@material-ui/core/Chip";
+import Breadcrumbs from "@material-ui/core/Breadcrumbs";
 import ShareIcon from "@material-ui/icons/Share";
+import NavigateNextIcon from "@material-ui/icons/NavigateNext";
 import { Link as RouterLink } from "react-router-dom";
 import { __RouterContext } from "react-router";
 import { useDispatch } from "react-redux";
@@ -112,6 +114,26 @@ export default function FeaturedPost(props) {
       >
       </Paper>
       <Divider />
+      {/* Breadcrumb navigation (Section 8 — Internal Linking) */}
+      {hasRouter && (
+        <Box style={{ padding: "8px 10px 4px" }}>
+          <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />} aria-label="breadcrumb">
+            <RouterLink to="/" style={{ textDecoration: "none", color: "inherit" }}>
+              <Typography variant="caption" color="textSecondary">Home</Typography>
+            </RouterLink>
+            {post.county && countySlug ? (
+              <RouterLink to={`/news/${countySlug}`} style={{ textDecoration: "none", color: "inherit" }}>
+                <Typography variant="caption" color="textSecondary">{post.county} County</Typography>
+              </RouterLink>
+            ) : (
+              <Typography variant="caption" color="textSecondary">News</Typography>
+            )}
+            <Typography variant="caption" color="textPrimary" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block" }}>
+              {String(post.title || "").slice(0, 60)}{post.title?.length > 60 ? "…" : ""}
+            </Typography>
+          </Breadcrumbs>
+        </Box>
+      )}
       <Grid item xs={12} md={9}>
         <Typography variant="h5" gutterBottom style={{ padding: 10 }}>
           {post.title}

@@ -25,13 +25,12 @@ Build a high-authority Local KY News news aggregation platform that:
 Each article will:
 
 - Summarize 35--50% of the original article length
-- Apply a hard cap of 150 words maximum for short articles (under 300 words), regardless of percentage, to avoid over-reproducing brief pieces
+- Apply a hard cap of 1200 words maximum for short articles (under 400 words), regardless of percentage, to avoid over-reproducing brief pieces
 - Preserve factual structure
 - Maintain chronological order
 - Use proper paragraphs and punctuation
 - Avoid adding information not present in the source
 - Avoid assumptions, analysis, or opinion
-- Leave enough detail (quotes, background context, procedural specifics) that readers who want the full story are compelled to click through to the original
 
 ## 2.2 Attribution Structure
 
@@ -45,7 +44,7 @@ Every article page must include — prominently and without exception:
 
 ## 2.3 Editorial Philosophy
 
-This platform summarizes; it does not replace. The summary exists to inform readers of what is happening in Kentucky and to direct them to the original reporting. Publishers should receive traffic from this platform, not lose it.
+This platform summarizes; it does not replace. The summary exists to inform readers of what is happening in Kentucky.
 
 ---
 
@@ -59,7 +58,6 @@ The AI Worker must:
 2. Clean HTML (remove ads, scripts, nav).
 3. Extract structured article body.
 4. Send text to AI model.
-5. Return structured JSON response.
 
 ---
 
@@ -78,25 +76,39 @@ The Worker prompt must enforce:
 ### AI Prompt Template
 
 ```
-You are a professional news summarizer for a local news aggregation platform.
+You are a professional news summarizer for a local Kentucky news platform.
 
-Summarize the following article to approximately 35–50% of its original length.
-If the original article is under 300 words, do not exceed 150 words in your summary.
+Before summarizing, clean the input:
+- Remove copyright notices, legal disclaimers, broadcast restrictions,
+  bylines, author credits, and publication boilerplate.
+- Remove section headers and subheadings. Incorporate any essential
+  information from headers into the body paragraphs naturally.
 
-STRICT RULES:
-- Only use information contained in the article.
-- Do NOT add assumptions.
-- Do NOT infer missing details.
-- Do NOT include opinions.
-- Do NOT reframe meaning.
-- Preserve factual tone.
-- Maintain chronological order.
-- Use proper paragraph formatting.
-- Use correct punctuation.
-- Do not shorten names or locations.
-- Do not exaggerate or soften language.
+Summarize the cleaned article to approximately 35–50% of its original
+length. If the original article is under 400 words, cap your summary
+at 200 words maximum.
 
-Return clean, publication-ready paragraphs only. No headlines, no labels.
+Your summary must:
+- Begin with who, what, where, and why this is newsworthy.
+- Cover the full arc of the article from start to finish.
+- Always end on a complete sentence. Never end mid-sentence or mid-thought.
+- Be formatted as short, readable paragraphs of 2–3 sentences each.
+  Never output a wall of unbroken text or a single long paragraph.
+- Preserve important facts, names, locations, dates, and figures exactly.
+- Include no more than one direct quote, only if it meaningfully adds
+  to the story.
+
+Your summary must never:
+- End mid-sentence under any circumstances. If you are approaching the
+  word limit, finish the current sentence and stop cleanly.
+- Output section headers, subheadings, or bolded titles of any kind.
+- Output text as one unbroken paragraph.
+- Include copyright notices, bylines, legal text, or publication footers.
+- Add facts, opinions, assumptions, or analysis not in the original.
+- Exaggerate, soften, or reframe any statement.
+
+Return clean, publication-ready paragraphs only. No headlines, labels,
+bullet points, subheadings, or commentary.
 
 Article:
 {ARTICLE_TEXT}
@@ -230,8 +242,6 @@ To consistently hit publishing volume targets, a reliable content discovery syst
 
 Recommended publishing volume:
 
-- 15--40 high-quality local articles per day
-- Avoid mass 200+ article dumps
 - Focus only on Kentucky coverage
 - Maintain consistent daily publishing rhythm — Google News rewards regularity
 
@@ -282,7 +292,7 @@ If summary is:
 
 - Less than 35% of original → regenerate
 - More than 50% of original → regenerate
-- More than 150 words for articles under 300 words → truncate and regenerate
+- More than 200 words for articles under 400 words → truncate and regenerate
 
 ---
 

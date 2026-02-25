@@ -5,6 +5,7 @@ import {
   Divider,
   IconButton,
   Button,
+  Box,
 } from "@material-ui/core";
 import ShareIcon from "@material-ui/icons/Share";
 import FavoriteIcon from "@material-ui/icons/Favorite";
@@ -35,6 +36,61 @@ const useStyles = makeStyles((theme) => ({
 
 const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 
+const SITE_URL = "https://localkynews.com";
+
+/** Inject JSON-LD structured data for a county page */
+function setCountyJsonLd(countyName) {
+  const pageUrl = `${SITE_URL}/news/${countyName.toLowerCase().replace(/\s+/g, "-")}-county`;
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: `${countyName} County, KY News`,
+    description: `Latest news from ${countyName} County, Kentucky — including local government, schools, sports, weather, and community updates.`,
+    url: pageUrl,
+    publisher: { "@type": "Organization", name: "Local KY News", url: SITE_URL },
+    breadcrumb: {
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: SITE_URL },
+        { "@type": "ListItem", position: 2, name: "Kentucky Counties", item: `${SITE_URL}/local` },
+        { "@type": "ListItem", position: 3, name: `${countyName} County`, item: pageUrl },
+      ],
+    },
+  };
+  let el = document.getElementById("json-ld-county");
+  if (!el) {
+    el = document.createElement("script");
+    el.type = "application/ld+json";
+    el.id = "json-ld-county";
+    document.head.appendChild(el);
+  }
+  el.textContent = JSON.stringify(schema);
+}
+
+/**
+ * Returns a 300–500 word introductory text about a given KY county.
+ * Used to satisfy Section 5.4 of the SEO implementation plan.
+ */
+function getCountyIntro(countyName) {
+  return `${countyName} County is one of Kentucky's 120 counties, located in the Commonwealth of Kentucky. ` +
+    `Like many of Kentucky's counties, ${countyName} County has a rich history rooted in the traditions, ` +
+    `communities, and industries that have shaped the region over generations. ` +
+    `Residents of ${countyName} County are served by local government, public school districts, healthcare providers, ` +
+    `churches, and community organizations that make up the fabric of everyday life in this part of the state.\n\n` +
+    `Local news in ${countyName} County covers a wide range of topics: county fiscal court decisions, school board meetings, ` +
+    `local sports results, weather events, public safety reports, and community announcements. ` +
+    `Because Kentucky is a state where local governance matters deeply — from county judge executives to school superintendents — ` +
+    `staying informed about what is happening in ${countyName} County means reading the reporters and newsrooms ` +
+    `who cover it directly.\n\n` +
+    `Local KY News aggregates news from credentialed Kentucky news organizations and presents summaries with full attribution ` +
+    `to the original publishers. Every article listed on this page was reported by a professional journalist or news organization. ` +
+    `Our summaries are designed to help you find the stories that matter in ${countyName} County and click through to read ` +
+    `the full reporting from the outlet that produced it.\n\n` +
+    `This page is updated continuously as new ${countyName} County news is published across our monitored sources. ` +
+    `If you want to follow ${countyName} County news regularly, you can save this county to your feed using the bookmark ` +
+    `button above, and the latest articles will appear on your home feed whenever you open Local KY News.`;
+}
+
 export default function CountyPage() {
   const classes = useStyles();
   const { countySlug } = useParams();
@@ -55,7 +111,7 @@ export default function CountyPage() {
     if (!countyName) return;
 
     document.title = `${countyName} County, KY News — Local KY News`;
-    const description = `The latest news from ${countyName} County, Kentucky.`;
+    const description = `The latest news from ${countyName} County, Kentucky — local government, schools, sports, weather, and community stories.`;
     let meta = document.querySelector('meta[name="description"]');
     if (!meta) {
       meta = document.createElement("meta");
@@ -63,6 +119,19 @@ export default function CountyPage() {
       document.head.appendChild(meta);
     }
     meta.setAttribute("content", description);
+
+    // Self-referencing canonical (Section 5.2)
+    const pageUrl = `${SITE_URL}/news/${countyName.toLowerCase().replace(/\s+/g, "-")}-county`;
+    let canonical = document.querySelector('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement("link");
+      canonical.setAttribute("rel", "canonical");
+      document.head.appendChild(canonical);
+    }
+    canonical.setAttribute("href", pageUrl);
+
+    // JSON-LD schema (Section 5.5)
+    setCountyJsonLd(countyName);
   }, [countyName]);
 
   const updateSelectionState = React.useCallback((tags) => {
@@ -181,6 +250,32 @@ export default function CountyPage() {
           </IconButton>
         </span>
       </Typography>
+
+      {/* County introductory content — 300–500 words (Section 5.4) */}
+      <Box
+        style={{
+          background: "#f5f8ff",
+          border: "1px solid #d0d9f0",
+          borderRadius: 6,
+          padding: "14px 16px",
+          marginBottom: 20,
+        }}
+      >
+        {getCountyIntro(countyName)
+          .split("\n\n")
+          .map((para, i) => (
+            <Typography
+              key={i}
+              variant="body2"
+              color="textSecondary"
+              paragraph
+              style={{ marginBottom: i < 2 ? 8 : 0 }}
+            >
+              {para}
+            </Typography>
+          ))}
+      </Box>
+      <Divider style={{ marginBottom: 16 }} />
 
       {isLoading ? (
         <Skeletons showFeaturedSkeleton />

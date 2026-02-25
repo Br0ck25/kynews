@@ -87,6 +87,8 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     contentHtml: extracted.contentHtml,
     imageUrl: extracted.imageUrl,
     rawR2Key,
+    // SEO-friendly slug: title-slug + first 8 chars of urlHash for uniqueness (Section 4)
+    slug: generateArticleSlug(extracted.title, canonicalHash),
   };
 
   // NOTE: Existing rows inserted before this classifier update may have stale Kentucky/county tags.
@@ -189,4 +191,20 @@ async function storeRawPayloadBestEffort(
   } catch {
     return null;
   }
+}
+
+/**
+ * Generate an SEO-friendly URL slug from an article title + hash suffix for uniqueness.
+ * e.g. "School Board Meeting Feb 2026" + "ab12cd34..." → "school-board-meeting-feb-2026-ab12cd34"
+ */
+function generateArticleSlug(title: string, urlHash: string): string {
+  const titleSlug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 60)
+    .replace(/^-|-$/g, '');
+  const hashSuffix = urlHash.slice(0, 8);
+  return titleSlug ? `${titleSlug}-${hashSuffix}` : hashSuffix;
 }

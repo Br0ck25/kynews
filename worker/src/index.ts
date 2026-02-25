@@ -765,7 +765,202 @@ cursor,
 return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 }
 
+// --- Sitemap routes (Section 7: News Sitemap Strategy) ---
+if (url.pathname === '/sitemap-index.xml' && request.method === 'GET') {
+	return new Response(generateSitemapIndex(), {
+		headers: {
+			'content-type': 'application/xml; charset=utf-8',
+			'cache-control': 'public, max-age=3600, s-maxage=3600',
+		},
+	});
+}
+
+if (url.pathname === '/sitemap.xml' && request.method === 'GET') {
+	const xml = await generateSitemap(env);
+	return new Response(xml, {
+		headers: {
+			'content-type': 'application/xml; charset=utf-8',
+			'cache-control': 'public, max-age=3600, s-maxage=3600',
+		},
+	});
+}
+
+if (url.pathname === '/sitemap-news.xml' && request.method === 'GET') {
+	const xml = await generateNewsSitemap(env);
+	return new Response(xml, {
+		headers: {
+			'content-type': 'application/xml; charset=utf-8',
+			'cache-control': 'public, max-age=3600, s-maxage=3600',
+		},
+	});
+}
+
 return json({ error: 'Not found' }, 404);
+}
+
+// ---------------------------------------------------------------------------
+// Sitemap generation (Section 7 of SEO plan)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate sitemap.xml listing all article URLs.
+ * Cached in KV for 1 hour as required by the SEO plan.
+ * Limited to 50,000 URLs (Google's per-sitemap limit).
+ */
+async function generateSitemap(env: Env): Promise<string> {
+	const cacheKey = 'sitemap:main';
+	if (env.CACHE) {
+		const cached = await env.CACHE.get(cacheKey).catch(() => null);
+		if (cached) return cached;
+	}
+
+	const rows = await env.ky_news_db
+		.prepare(
+			`SELECT id, published_at, updated_at FROM articles
+       WHERE is_kentucky = 1
+       ORDER BY id DESC LIMIT 50000`,
+		)
+		.all<{ id: number; published_at: string; updated_at: string }>();
+
+	const baseUrl = 'https://localkynews.com';
+	const urls = (rows.results || []).map((row) => {
+		const lastmod = (row.updated_at || row.published_at || '').split('T')[0];
+		return `  <url>
+    <loc>${baseUrl}/post?articleId=${row.id}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>`;
+	});
+
+	// Add static pages
+	const staticPages = [
+		{ path: '/', priority: '1.0', changefreq: 'hourly' },
+		{ path: '/today', priority: '1.0', changefreq: 'hourly' },
+		{ path: '/national', priority: '0.8', changefreq: 'hourly' },
+		{ path: '/sports', priority: '0.8', changefreq: 'hourly' },
+		{ path: '/weather', priority: '0.8', changefreq: 'hourly' },
+		{ path: '/schools', priority: '0.8', changefreq: 'hourly' },
+		{ path: '/local', priority: '0.9', changefreq: 'daily' },
+		{ path: '/about', priority: '0.6', changefreq: 'monthly' },
+		{ path: '/contact', priority: '0.5', changefreq: 'monthly' },
+		{ path: '/editorial-policy', priority: '0.6', changefreq: 'monthly' },
+		{ path: '/privacy-policy', priority: '0.5', changefreq: 'monthly' },
+	];
+
+	const counties = [
+		'Adair','Allen','Anderson','Ballard','Barren','Bath','Bell','Boone','Bourbon','Boyd',
+		'Boyle','Bracken','Breathitt','Breckinridge','Bullitt','Butler','Caldwell','Calloway',
+		'Campbell','Carlisle','Carroll','Carter','Casey','Christian','Clark','Clay','Clinton',
+		'Crittenden','Cumberland','Daviess','Edmonson','Elliott','Estill','Fayette','Fleming',
+		'Floyd','Franklin','Fulton','Gallatin','Garrard','Grant','Graves','Grayson','Green',
+		'Greenup','Hancock','Hardin','Harlan','Harrison','Hart','Henderson','Henry','Hickman',
+		'Hopkins','Jackson','Jefferson','Jessamine','Johnson','Kenton','Knott','Knox','LaRue',
+		'Laurel','Lawrence','Lee','Leslie','Letcher','Lewis','Lincoln','Livingston','Logan',
+		'Lyon','Madison','Magoffin','Marion','Marshall','Martin','Mason','McCracken','McCreary',
+		'McLean','Meade','Menifee','Mercer','Metcalfe','Monroe','Montgomery','Morgan',
+		'Muhlenberg','Nelson','Nicholas','Ohio','Oldham','Owen','Owsley','Pendleton','Perry',
+		'Pike','Powell','Pulaski','Robertson','Rockcastle','Rowan','Russell','Scott','Shelby',
+		'Simpson','Spencer','Taylor','Todd','Trigg','Trimble','Union','Warren','Washington',
+		'Wayne','Webster','Whitley','Wolfe','Woodford',
+	];
+
+	const staticXml = [
+		...staticPages.map(
+			(p) =>
+				`  <url>\n    <loc>${baseUrl}${p.path}</loc>\n    <changefreq>${p.changefreq}</changefreq>\n    <priority>${p.priority}</priority>\n  </url>`,
+		),
+		...counties.map(
+			(c) =>
+				`  <url>\n    <loc>${baseUrl}/news/${c.toLowerCase().replace(/\s/g, '-')}-county</loc>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>`,
+		),
+	];
+
+	const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${[...staticXml, ...urls].join('\n')}
+</urlset>`;
+
+	if (env.CACHE) {
+		await env.CACHE.put(cacheKey, xml, { expirationTtl: 3600 }).catch(() => {});
+	}
+	return xml;
+}
+
+/**
+ * Generate news-sitemap.xml for articles published in the last 48 hours.
+ * Required for Google News inclusion (Section 7).
+ * Cached in KV for 1 hour.
+ */
+async function generateNewsSitemap(env: Env): Promise<string> {
+	const cacheKey = 'sitemap:news';
+	if (env.CACHE) {
+		const cached = await env.CACHE.get(cacheKey).catch(() => null);
+		if (cached) return cached;
+	}
+
+	const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+	const rows = await env.ky_news_db
+		.prepare(
+			`SELECT id, title, published_at FROM articles
+       WHERE is_kentucky = 1 AND published_at >= ?
+       ORDER BY published_at DESC LIMIT 1000`,
+		)
+		.bind(cutoff)
+		.all<{ id: number; title: string; published_at: string }>();
+
+	const baseUrl = 'https://localkynews.com';
+	const items = (rows.results || []).map((row) => {
+		const pubDate = row.published_at
+			? new Date(row.published_at).toISOString()
+			: new Date().toISOString();
+		const safeTitle = (row.title || '')
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&apos;');
+		return `  <url>
+    <loc>${baseUrl}/post?articleId=${row.id}</loc>
+    <news:news>
+      <news:publication>
+        <news:name>Local KY News</news:name>
+        <news:language>en</news:language>
+      </news:publication>
+      <news:publication_date>${pubDate}</news:publication_date>
+      <news:title>${safeTitle}</news:title>
+    </news:news>
+  </url>`;
+	});
+
+	const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+${items.join('\n')}
+</urlset>`;
+
+	if (env.CACHE) {
+		await env.CACHE.put(cacheKey, xml, { expirationTtl: 3600 }).catch(() => {});
+	}
+	return xml;
+}
+
+/**
+ * Generate a sitemap index pointing to both sitemaps.
+ */
+function generateSitemapIndex(): string {
+	const baseUrl = 'https://localkynews.com';
+	const now = new Date().toISOString().split('T')[0];
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>${baseUrl}/sitemap.xml</loc>
+    <lastmod>${now}</lastmod>
+  </sitemap>
+  <sitemap>
+    <loc>${baseUrl}/sitemap-news.xml</loc>
+    <lastmod>${now}</lastmod>
+  </sitemap>
+</sitemapindex>`;
 }
 
 const handler: ExportedHandler<Env> = {
@@ -790,6 +985,7 @@ async scheduled(_event, env, ctx): Promise<void> {
 const sourceUrls = [...new Set([
 	...HIGH_PRIORITY_SOURCE_SEEDS,
 	...MASTER_SOURCE_SEEDS,
+	...SCHOOL_SOURCE_SEEDS,
 ].map((s) => s.trim()).filter(isHttpUrl))];
 ctx.waitUntil(
 	runIngest(env, sourceUrls, SCHEDULED_LIMIT_PER_SOURCE, 'scheduled', {

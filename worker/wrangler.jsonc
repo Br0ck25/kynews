@@ -48,7 +48,13 @@
 	// frontend never needs to fall back to the slower worker.dev subdomain.
 	"routes": [
 		{ "pattern": "localkynews.com/api/*", "zone_name": "localkynews.com" },
-		{ "pattern": "www.localkynews.com/api/*", "zone_name": "localkynews.com" }
+		{ "pattern": "www.localkynews.com/api/*", "zone_name": "localkynews.com" },
+		{ "pattern": "localkynews.com/sitemap.xml", "zone_name": "localkynews.com" },
+		{ "pattern": "localkynews.com/sitemap-news.xml", "zone_name": "localkynews.com" },
+		{ "pattern": "localkynews.com/sitemap-index.xml", "zone_name": "localkynews.com" },
+		{ "pattern": "www.localkynews.com/sitemap.xml", "zone_name": "localkynews.com" },
+		{ "pattern": "www.localkynews.com/sitemap-news.xml", "zone_name": "localkynews.com" },
+		{ "pattern": "www.localkynews.com/sitemap-index.xml", "zone_name": "localkynews.com" }
 	],
 	/**
 	 * Smart Placement

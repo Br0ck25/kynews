@@ -21,6 +21,7 @@ interface ArticleRow {
   content_html: string;
   image_url: string | null;
   raw_r2_key: string | null;
+  slug: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -81,8 +82,9 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
         content_text,
         content_html,
         image_url,
-        raw_r2_key
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        raw_r2_key,
+        slug
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       article.canonicalUrl,
@@ -103,6 +105,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
       article.contentHtml,
       article.imageUrl,
       article.rawR2Key,
+      article.slug ?? null,
     )
     .run();
 
@@ -296,6 +299,7 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     contentHtml: row.content_html,
     imageUrl: row.image_url,
     rawR2Key: row.raw_r2_key,
+    slug: row.slug ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

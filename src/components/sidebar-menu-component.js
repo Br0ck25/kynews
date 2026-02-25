@@ -14,6 +14,10 @@ import HomeIcon from "@material-ui/icons/Home";
 import FavoriteIcon from "@material-ui/icons/Favorite";
 import SettingsIcon from "@material-ui/icons/Settings";
 import LocationOnIcon from "@material-ui/icons/LocationOn";
+import InfoIcon from "@material-ui/icons/Info";
+import ContactMailIcon from "@material-ui/icons/ContactMail";
+import GavelIcon from "@material-ui/icons/Gavel";
+import LockIcon from "@material-ui/icons/Lock";
 import { useHistory } from "react-router-dom";
 import { isMobile } from "../utils/functions";
 import Constants from "../constants/constants";
@@ -183,6 +187,53 @@ export default function SideBarMenu({ open, handleOpen }) {
               <SettingsIcon />
             </ListItemIcon>
             <ListItemText primary="Settings" />
+          </ListItem>
+        </List>
+        <Divider />
+        <List>
+          <ListItem
+            button
+            key={6}
+            selected={isSelected("/about")}
+            onClick={() => handleChange("/about")}
+          >
+            <ListItemIcon>
+              <InfoIcon />
+            </ListItemIcon>
+            <ListItemText primary="About" />
+          </ListItem>
+          <ListItem
+            button
+            key={7}
+            selected={isSelected("/contact")}
+            onClick={() => handleChange("/contact")}
+          >
+            <ListItemIcon>
+              <ContactMailIcon />
+            </ListItemIcon>
+            <ListItemText primary="Contact" />
+          </ListItem>
+          <ListItem
+            button
+            key={8}
+            selected={isSelected("/editorial-policy")}
+            onClick={() => handleChange("/editorial-policy")}
+          >
+            <ListItemIcon>
+              <GavelIcon />
+            </ListItemIcon>
+            <ListItemText primary="Editorial Policy" />
+          </ListItem>
+          <ListItem
+            button
+            key={9}
+            selected={isSelected("/privacy-policy")}
+            onClick={() => handleChange("/privacy-policy")}
+          >
+            <ListItemIcon>
+              <LockIcon />
+            </ListItemIcon>
+            <ListItemText primary="Privacy Policy" />
           </ListItem>
         </List>
       </Drawer>

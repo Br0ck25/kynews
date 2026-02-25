@@ -5,18 +5,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
   <meta name="theme-color" content="#0d47a1" />
-  <meta name="description" content="Kentucky News - local, state, and national updates across today, sports, weather, schools, and obituaries." />
+  <meta name="description" content="Local KY News — AI-assisted news summaries covering all 120 Kentucky counties. Local government, schools, sports, weather, and more. Original reporting credited to Kentucky news organizations." />
+  <link rel="canonical" href="https://localkynews.com/" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Kentucky News" />
-  <meta property="og:description" content="Read Kentucky Today, National, Sports, Weather, Schools, and Obituaries in one place." />
-  <meta property="og:site_name" content="Kentucky News" />
+  <meta property="og:title" content="Local KY News — Kentucky's Local News Aggregator" />
+  <meta property="og:description" content="AI-assisted news summaries from credentialed Kentucky news organizations. All 120 counties covered. Full attribution to original reporters." />
+  <meta property="og:site_name" content="Local KY News" />
+  <meta property="og:url" content="https://localkynews.com/" />
   <meta property="og:image" content="/img/preview.PNG" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Kentucky News" />
-  <meta name="twitter:description" content="Read Kentucky Today, National, Sports, Weather, Schools, and Obituaries in one place." />
+  <meta name="twitter:title" content="Local KY News — Kentucky's Local News Aggregator" />
+  <meta name="twitter:description" content="AI-assisted news summaries from credentialed Kentucky news organizations. All 120 counties covered." />
   <meta name="twitter:image" content="/img/preview.PNG" />
   <link rel="manifest" href="/manifest.json" />
-  <title>Kentucky News</title>
+  <title>Local KY News — Kentucky's Local News Aggregator</title>
   <!-- DNS-prefetch for Google Fonts stylesheet (avoids exceeding the 4-preconnect limit) -->
   <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
   <!-- Preconnect only for gstatic where actual font binary files are fetched -->
@@ -37,10 +39,46 @@
   </noscript>
   <!-- Preconnect to the API worker to reduce LCP resource-load delay -->
   <link rel="preconnect" href="https://worker.jamesbrock25.workers.dev" />
+  <!-- WebSite + Organization JSON-LD (Section 5.5: Required Schema) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://localkynews.com/#website",
+        "name": "Local KY News",
+        "url": "https://localkynews.com/",
+        "description": "AI-assisted local news summaries covering all 120 Kentucky counties with full attribution to original publishers.",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://localkynews.com/search?q={search_term_string}"
+          },
+          "query-input": "required name=search_term_string"
+        }
+      },
+      {
+        "@type": "Organization",
+        "@id": "https://localkynews.com/#organization",
+        "name": "Local KY News",
+        "url": "https://localkynews.com/",
+        "logo": "https://localkynews.com/img/logo512.png",
+        "sameAs": [],
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "contactType": "editorial",
+          "email": "contact@localkynews.com"
+        }
+      }
+    ]
+  }
+  </script>
 </head>
 
 <body>
-  <noscript>You need to enable JavaScript to run Kentucky News.</noscript>
+  <noscript>You need to enable JavaScript to run Local KY News.</noscript>
   <div id="root"></div>
   <script type="module" src="/src/index.js"></script>
 </body>

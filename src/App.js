@@ -1,6 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import "./App.css";
-import { BrowserRouter as Router, Switch, Route } from "react-router-dom";
+import { BrowserRouter as Router, Switch, Route, Link as RouterLink } from "react-router-dom";
 
 // ObituariesPage and LostFoundPage kept for future use
 // import ObituariesPage from "./pages/obituaries-page";
@@ -30,6 +30,10 @@ const SavedPage = lazy(() => import("./pages/saved-page"));
 const PostPage = lazy(() => import("./pages/post-page"));
 const FavoritesPage = lazy(() => import("./pages/favorites-page"));
 const AdminPage = lazy(() => import("./pages/admin-page"));
+const AboutPage = lazy(() => import("./pages/about-page"));
+const ContactPage = lazy(() => import("./pages/contact-page"));
+const EditorialPolicyPage = lazy(() => import("./pages/editorial-policy-page"));
+const PrivacyPolicyPage = lazy(() => import("./pages/privacy-policy-page"));
 
 function AppTagSync() {
   const dispatch = useDispatch();
@@ -128,12 +132,55 @@ function App() {
                     <Route path="/admin">
                       <AdminPage />
                     </Route>
+                    <Route path="/about">
+                      <AboutPage />
+                    </Route>
+                    <Route path="/contact">
+                      <ContactPage />
+                    </Route>
+                    <Route path="/editorial-policy">
+                      <EditorialPolicyPage />
+                    </Route>
+                    <Route path="/privacy-policy">
+                      <PrivacyPolicyPage />
+                    </Route>
                   </Switch>
                 </Suspense>
               </Box>
             </Container>
             <br />
             <br />
+            {/* Site footer — E-E-A-T / Google News required pages */}
+            <Box
+              component="footer"
+              style={{
+                padding: "16px 16px 8px",
+                borderTop: "1px solid #e0e0e0",
+                textAlign: "center",
+                fontSize: "0.8rem",
+                color: "#888",
+              }}
+            >
+              <Box style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "12px 20px", marginBottom: 6 }}>
+                {[
+                  { label: "About", to: "/about" },
+                  { label: "Contact", to: "/contact" },
+                  { label: "Editorial Policy", to: "/editorial-policy" },
+                  { label: "Privacy Policy", to: "/privacy-policy" },
+                ].map(({ label, to }) => (
+                  <RouterLink
+                    key={to}
+                    to={to}
+                    style={{ color: "#1976d2", textDecoration: "none", fontSize: "0.85rem" }}
+                  >
+                    {label}
+                  </RouterLink>
+                ))}
+              </Box>
+              <Box style={{ fontSize: "0.75rem", color: "#aaa" }}>
+                © {new Date().getFullYear()} Local KY News · Covering all 120 Kentucky counties
+              </Box>
+            </Box>
             <br />
             <br />
             {/* Show bottom nav on all screen sizes */}

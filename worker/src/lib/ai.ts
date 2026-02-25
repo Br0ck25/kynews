@@ -82,8 +82,35 @@ export async function summarizeArticle(
 
     const aiText = extractAiText(aiRaw).trim();
     if (aiText) {
-      summary = aiText;
-      seo = enforceSeoLength(extractFirstSentence(aiText), aiText);
+      // --- Anti-hallucination safeguards (Section 13 of SEO/AI plan) ---
+
+      // 13.2 Length check: enforce 35–50% of original, or ≤200 words for short articles
+      const aiWords = wordCount(aiText);
+      const minWords = Math.round(originalWords * 0.35);
+      const maxWords = originalWords < 400
+        ? 200
+        : Math.round(originalWords * 0.50);
+
+      let validatedText = aiText;
+
+      if (aiWords < minWords && aiWords < 30) {
+        // Too short — fall back to deterministic (keeps the fallback already computed)
+        validatedText = '';
+      } else if (aiWords > maxWords) {
+        // Too long — truncate at sentence boundary
+        validatedText = truncateToSentenceBoundary(aiText, maxWords);
+      }
+
+      // 13.1 Number/date validation: reject if AI introduced numbers not in the original
+      if (validatedText && hasHallucinatedNumbers(content, validatedText)) {
+        // New numeric values detected — fall back to deterministic to avoid misinformation
+        validatedText = '';
+      }
+
+      if (validatedText) {
+        summary = validatedText;
+        seo = enforceSeoLength(extractFirstSentence(validatedText), validatedText);
+      }
     }
   } catch {
     // best effort AI, fallback stays in place
@@ -147,4 +174,56 @@ function enforceSeoLength(input: string, summary: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max));
+}
+
+/**
+ * Truncate text at a sentence boundary at or before maxWords.
+ * Ensures the summary never ends mid-sentence (Section 13.2).
+ */
+function truncateToSentenceBoundary(text: string, maxWords: number): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text;
+
+  // Join only up to maxWords, then find the last sentence-ending punctuation
+  const candidate = words.slice(0, maxWords).join(' ');
+  // Walk backward to find a sentence end
+  const sentenceEndIdx = Math.max(
+    candidate.lastIndexOf('. '),
+    candidate.lastIndexOf('! '),
+    candidate.lastIndexOf('? '),
+    candidate.lastIndexOf('.\n'),
+  );
+  if (sentenceEndIdx > 0) {
+    return candidate.slice(0, sentenceEndIdx + 1).trim();
+  }
+  // Fallback: return the candidate as-is (may not end on period)
+  return candidate.trim();
+}
+
+/**
+ * Check whether the AI summary introduced numeric values (including years,
+ * percentages, counts, dollar amounts) that did not appear in the original.
+ * Returns true if the summary contains hallucinated numbers.
+ * Section 13.1: reject if numerical values differ.
+ */
+function hasHallucinatedNumbers(original: string, summary: string): boolean {
+  // Extract all distinct number tokens from both texts
+  const extractNums = (text: string): Set<string> => {
+    const matches = text.match(/\b\d[\d,._]*%?(?:\s*(?:million|billion|thousand))?\b/gi) ?? [];
+    return new Set(matches.map((n) => n.toLowerCase().replace(/,/g, '')));
+  };
+
+  const originalNums = extractNums(original);
+  const summaryNums = extractNums(summary);
+
+  for (const num of summaryNums) {
+    if (!originalNums.has(num)) {
+      // Allow pure year values (4-digit) if they appear anywhere in the original text
+      // since OCR/scraping sometimes formats them differently (e.g. 2026 vs 2,026)
+      const asYear = num.replace(/,/g, '');
+      if (/^\d{4}$/.test(asYear) && original.includes(asYear)) continue;
+      return true;
+    }
+  }
+  return false;
 }

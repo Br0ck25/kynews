@@ -29,6 +29,8 @@ export interface ArticleRecord {
   contentHtml: string;
   imageUrl: string | null;
   rawR2Key: string | null;
+  /** SEO-friendly URL slug derived from title + id. Added in migration 0004. */
+  slug: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -52,6 +54,8 @@ export interface NewArticle {
   contentHtml: string;
   imageUrl: string | null;
   rawR2Key: string | null;
+  /** SEO-friendly URL slug derived from title + id. Optional — added in migration 0004. */
+  slug?: string | null;
 }
 
 export interface IngestSource {

@@ -110,7 +110,7 @@ async function fetchAndParseFeedInternal(
   // Sitemap urlset with <url><loc>...</loc></url>
   if (/<urlset\b/i.test(xml)) {
     const urlBlocks = parseTagBlocks(xml, 'url').slice(0, MAX_ITEMS_PER_SITEMAP);
-    return urlBlocks
+    return (urlBlocks
       .map((urlXml) => {
         const loc = decodeXmlEntity(firstTagValue(urlXml, 'loc') ?? '');
         if (!loc) return null;
@@ -125,9 +125,9 @@ async function fetchAndParseFeedInternal(
           link: loc,
           publishedAt: toIsoDateOrNull(lastMod),
           description: '',
-        } satisfies RssItem;
+        } as RssItem;
       })
-      .filter((item): item is RssItem => Boolean(item?.link));
+      .filter((item): item is RssItem => item !== null && Boolean(item.link)));
   }
 
   return [];
