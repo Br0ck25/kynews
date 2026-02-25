@@ -105,6 +105,8 @@ export default function CountyPage() {
   const [errors, setErrors] = useState("");
   const [saved, setSaved] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
+  // County intro: first paragraph always visible, rest collapsed by default
+  const [introExpanded, setIntroExpanded] = useState(false);
 
   // update page metadata when county changes
   useEffect(() => {
@@ -251,7 +253,8 @@ export default function CountyPage() {
         </span>
       </Typography>
 
-      {/* County introductory content — 300–500 words (Section 5.4) */}
+      {/* County introductory content — 300–500 words (Section 5.4)
+           First paragraph always visible; remaining paragraphs collapsible. */}
       <Box
         style={{
           background: "#f5f8ff",
@@ -263,17 +266,29 @@ export default function CountyPage() {
       >
         {getCountyIntro(countyName)
           .split("\n\n")
-          .map((para, i) => (
-            <Typography
-              key={i}
-              variant="body2"
-              color="textSecondary"
-              paragraph
-              style={{ marginBottom: i < 2 ? 8 : 0 }}
-            >
-              {para}
-            </Typography>
-          ))}
+          .map((para, i) => {
+            if (i === 0) {
+              return (
+                <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: 8 }}>
+                  {para}
+                </Typography>
+              );
+            }
+            if (!introExpanded) return null;
+            return (
+              <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: i < 2 ? 8 : 0 }}>
+                {para}
+              </Typography>
+            );
+          })}
+        <Button
+          size="small"
+          color="primary"
+          onClick={() => setIntroExpanded((v) => !v)}
+          style={{ padding: "0 0 4px", minWidth: 0, textTransform: "none", fontSize: "0.78rem" }}
+        >
+          {introExpanded ? "Show less" : "Show more"}
+        </Button>
       </Box>
       <Divider style={{ marginBottom: 16 }} />
 

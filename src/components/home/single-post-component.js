@@ -11,7 +11,9 @@ import IconButton from "@material-ui/core/IconButton";
 import Chip from "@material-ui/core/Chip";
 import ShareIcon from "@material-ui/icons/Share";
 import FavoriteIcon from "@material-ui/icons/Favorite";
-import { DateFromNow, ShareAPI, getPostTags } from "../../utils/functions";
+import { DateFromNow, ShareAPI, getPostTags, countyToSlug } from "../../utils/functions";
+import { Link as RouterLink } from "react-router-dom";
+import { KENTUCKY_COUNTIES } from "../../constants/counties";
 import { Delete } from "@material-ui/icons";
 import { GetValue, SaveValue } from "../../services/storageService";
 import { Button, Dialog, DialogActions, DialogTitle } from "@material-ui/core";
@@ -74,8 +76,8 @@ export default function SinglePost(props) {
   const handleShare = () => {
     const title = post.title;
     const text = `I'm reading this on Kentucky News: ${post.title}`;
-    const url = post.originalLink;
-
+    // Share the internal app URL so recipients land on our article page, not the original source
+    const url = window.location.origin + "/post?articleId=" + encodeURIComponent(post.originalLink);
     ShareAPI(title, text, url);
   };
 
@@ -115,7 +117,7 @@ export default function SinglePost(props) {
               component="img"
               alt={post.title || post.imageText || "Article image"}
               className={classes.media}
-              image={post.image}
+              image={post.image || "/logo.png"}
               title={post.title}
               loading="lazy"
             />
@@ -125,16 +127,32 @@ export default function SinglePost(props) {
             >
               {postTags.length > 0 && (
                 <div style={{ marginBottom: 8 }}>
-                  {postTags.map((tag) => (
-                    <Chip
-                      key={tag}
-                      label={tag}
-                      size="small"
-                      variant="outlined"
-                      color="primary"
-                      style={{ marginRight: 4, marginBottom: 4 }}
-                    />
-                  ))}
+                  {postTags.map((tag) => {
+                    // Route: county name → county page, "National" → /national, others → /local
+                    const isCounty = KENTUCKY_COUNTIES.includes(tag);
+                    const tagRoute = isCounty
+                      ? `/news/${countyToSlug(tag)}`
+                      : tag === "National"
+                      ? "/national"
+                      : "/local";
+                    return (
+                      <RouterLink
+                        key={tag}
+                        to={tagRoute}
+                        style={{ textDecoration: "none" }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Chip
+                          label={tag}
+                          size="small"
+                          variant="outlined"
+                          color="primary"
+                          clickable
+                          style={{ marginRight: 4, marginBottom: 4 }}
+                        />
+                      </RouterLink>
+                    );
+                  })}
                 </div>
               )}
               <Typography gutterBottom variant="h6" component="h3" className={classes.title}>

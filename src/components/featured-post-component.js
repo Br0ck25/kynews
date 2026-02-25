@@ -54,7 +54,7 @@ export default function FeaturedPost(props) {
   return (
     <Paper
       className={classes.mainFeaturedPost}
-      style={{ backgroundImage: `url(${post.image})` }}
+      style={{ backgroundImage: `url(${post.image || '/logo.png'})` }}
     >
       {/* Hidden preload image for the LCP background-image.
           fetchpriority="high" and loading="eager" instruct the browser to
@@ -63,7 +63,7 @@ export default function FeaturedPost(props) {
       {
         <img
           style={{ display: "none" }}
-          src={post.image}
+          src={post.image || "/logo.png"}
           alt={post.imageText}
           fetchpriority="high"
           loading="eager"

@@ -1,5 +1,5 @@
 import type { Category, ClassificationResult } from '../types';
-import { detectCounty, detectCity, detectKentuckyGeo } from './geo';
+import { detectCounty, detectCity, detectKentuckyGeo, HIGH_AMBIGUITY_CITIES } from './geo';
 import { KY_COUNTIES } from '../data/ky-geo';
 
 type AiResultLike = {
@@ -324,11 +324,17 @@ export async function classifyArticleWithAi(
       mergedCategory = 'national';
     }
 
+    // If the AI explicitly returns isKentucky: false (i.e. the field was present in the
+    // response, not just omitted), discard any county the fallback heuristic may have
+    // wrongly assigned — e.g. "Adair" from detecting "columbia" in a UK basketball article
+    // set in Columbia, SC.  The ?? chain below is only used when AI did not reject KY.
     const mergedCounty =
-      fallback.county ??
-      aiCounty ??
-      aiGeo.county ??
-      (mergedIsKentucky ? sourceDefaultCounty : null);
+      (!aiIsKentucky && typeof parsed.isKentucky === 'boolean')
+        ? null
+        : (fallback.county ??
+           aiCounty ??
+           aiGeo.county ??
+           (mergedIsKentucky ? sourceDefaultCounty : null));
 
     fallback = {
       isKentucky: mergedIsKentucky,
@@ -525,6 +531,14 @@ function shouldUseAiFallback(title: string, content: string, current: Classifica
   if (current.isKentucky && !current.county) return true;
 
   if (current.isKentucky && current.county && !hasKentuckyOrKy(fullText)) return true;
+
+  // If the county was likely derived from a high-ambiguity city mapping (e.g. "columbia"
+  // → "Adair", "auburn" → no county), always ask the AI to verify — the keyword
+  // heuristic may have bypassed the out-of-state guard due to strong KY article context.
+  if (current.isKentucky && current.county) {
+    const detectedCity = detectCity(fullText);
+    if (detectedCity && HIGH_AMBIGUITY_CITIES.has(detectedCity)) return true;
+  }
 
   if (!current.isKentucky) {
     if (hasKentuckyOrKy(fullText)) return true;

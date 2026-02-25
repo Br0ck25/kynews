@@ -48,7 +48,7 @@ test('renders playable YouTube iframe when article link is a YouTube video', () 
   expect(frame.getAttribute('src')).toContain('https://www.youtube.com/embed/M7lc1UVf-VE');
 });
 
-test('detail actions show share and original article, without save button', () => {
+test('detail actions show read full story button without share or save button', () => {
   const post = {
     title: 'Detail Actions',
     image: '',
@@ -66,7 +66,9 @@ test('detail actions show share and original article, without save button', () =
     </Provider>
   );
 
-  expect(screen.getByLabelText(/Share/i)).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: /Original Article/i })).toBeInTheDocument();
+  // Share button was removed from the post page action row (per design decision)
+  expect(screen.queryByLabelText(/Share/i)).toBeNull();
   expect(screen.queryByLabelText(/Save/i)).toBeNull();
+  // Read Full Story button should still be present
+  expect(screen.getByRole('link', { name: /Read Full Story/i })).toBeInTheDocument();
 });

@@ -8,7 +8,7 @@ import { BrowserRouter as Router, Switch, Route, Link as RouterLink } from "reac
 import LabelBottomNavigation from "./components/bottom-navigation";
 import AppHeader from "./components/app-header";
 import SectionsHeader from "./components/home/sections-component";
-import { Container, Box, CircularProgress } from "@material-ui/core";
+import { Container, Box, CircularProgress, Hidden } from "@material-ui/core";
 import CssBaseline from "@material-ui/core/CssBaseline";
 import { isMobile } from "./utils/functions"; // kept for potential future use
 import { Provider, useDispatch } from "react-redux";
@@ -150,37 +150,39 @@ function App() {
             </Container>
             <br />
             <br />
-            {/* Site footer — E-E-A-T / Google News required pages */}
-            <Box
-              component="footer"
-              style={{
-                padding: "16px 16px 8px",
-                borderTop: "1px solid #e0e0e0",
-                textAlign: "center",
-                fontSize: "0.8rem",
-                color: "#888",
-              }}
-            >
-              <Box style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "12px 20px", marginBottom: 6 }}>
-                {[
-                  { label: "About", to: "/about" },
-                  { label: "Contact", to: "/contact" },
-                  { label: "Editorial Policy", to: "/editorial-policy" },
-                  { label: "Privacy Policy", to: "/privacy-policy" },
-                ].map(({ label, to }) => (
-                  <RouterLink
-                    key={to}
-                    to={to}
-                    style={{ color: "#1976d2", textDecoration: "none", fontSize: "0.85rem" }}
-                  >
-                    {label}
-                  </RouterLink>
-                ))}
+            {/* Site footer — E-E-A-T / Google News required pages; hidden on mobile to save space */}
+            <Hidden smDown>
+              <Box
+                component="footer"
+                style={{
+                  padding: "16px 16px 8px",
+                  borderTop: "1px solid #e0e0e0",
+                  textAlign: "center",
+                  fontSize: "0.8rem",
+                  color: "#888",
+                }}
+              >
+                <Box style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "12px 20px", marginBottom: 6 }}>
+                  {[
+                    { label: "About", to: "/about" },
+                    { label: "Contact", to: "/contact" },
+                    { label: "Editorial Policy", to: "/editorial-policy" },
+                    { label: "Privacy Policy", to: "/privacy-policy" },
+                  ].map(({ label, to }) => (
+                    <RouterLink
+                      key={to}
+                      to={to}
+                      style={{ color: "#1976d2", textDecoration: "none", fontSize: "0.85rem" }}
+                    >
+                      {label}
+                    </RouterLink>
+                  ))}
+                </Box>
+                <Box style={{ fontSize: "0.75rem", color: "#aaa" }}>
+                  © {new Date().getFullYear()} Local KY News · Covering all 120 Kentucky counties
+                </Box>
               </Box>
-              <Box style={{ fontSize: "0.75rem", color: "#aaa" }}>
-                © {new Date().getFullYear()} Local KY News · Covering all 120 Kentucky counties
-              </Box>
-            </Box>
+            </Hidden>
             <br />
             <br />
             {/* Show bottom nav on all screen sizes */}

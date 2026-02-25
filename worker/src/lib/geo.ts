@@ -38,8 +38,11 @@ const KY_PRESENT_RE = /\bkentucky\b|\bky\b/i;
  * is NOT sufficient — a location signal must appear nearby the city mention OR
  * "KY" / "Ky." must exist in the same vicinity, even when the full article has
  * heavy KY context (e.g. a UK basketball article).
+ *
+ * Exported so classify.ts can detect when a county assignment came from one of
+ * these ambiguous cities and trigger an AI double-check.
  */
-const HIGH_AMBIGUITY_CITIES = new Set<string>([
+export const HIGH_AMBIGUITY_CITIES = new Set<string>([
   'columbia',   // Columbia, SC / MO / MD / TN / OH — also Columbia Records, brand
   'franklin',   // Franklin, TN / PA / OH and many others
   'springfield',// Springfield, MO / IL / OH etc.
@@ -177,8 +180,13 @@ export function detectCity(input: string): string | null {
       continue;
     }
 
-    // Without KY context, check whether the city appears alongside a non-KY state.
-    if (!hasKentuckyContext) {
+    // For high-ambiguity cities (e.g. "columbia" \u2192 Adair, "auburn" \u2192 no KY county),
+    // ALWAYS check whether a non-KY state name appears near the city mention \u2014 even
+    // when the article has strong KY context (e.g. a UK basketball article set in
+    // Columbia, SC or Auburn, AL).  Without this guard, hasKentuckyContext=true would
+    // allow any mention of "columbia" to be mapped to Adair County regardless of context.
+    // For non-ambiguous cities, only run the check when KY context is absent.
+    if (!hasKentuckyContext || isHighAmbiguity) {
       const cityIndex = findCityIndex(normalized, city);
       if (cityIndex !== -1 && isMatchDisqualifiedByState(normalized, cityIndex, city.length)) {
         continue;

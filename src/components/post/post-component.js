@@ -7,17 +7,15 @@ import Grid from "@material-ui/core/Grid";
 import Divider from "@material-ui/core/Divider";
 import Box from "@material-ui/core/Box";
 import Button from "@material-ui/core/Button";
-import IconButton from "@material-ui/core/IconButton";
 import Chip from "@material-ui/core/Chip";
 import Breadcrumbs from "@material-ui/core/Breadcrumbs";
-import ShareIcon from "@material-ui/icons/Share";
 import NavigateNextIcon from "@material-ui/icons/NavigateNext";
 import { Link as RouterLink } from "react-router-dom";
 import { __RouterContext } from "react-router";
 import { useDispatch } from "react-redux";
 import { setPost } from "../../redux/actions/actions";
 import "./post-component.css";
-import { ShareAPI, ToDateTime, countyToSlug } from "../../utils/functions";
+import { ToDateTime, countyToSlug } from "../../utils/functions";
 import SiteService from "../../services/siteService";
 
 const useStyles = makeStyles((theme) => ({
@@ -75,22 +73,37 @@ export default function FeaturedPost(props) {
     .filter(Boolean);
 
   const sourceName = extractSourceName(post.originalLink || post.sourceUrl || "");
-  const countySlug = post.county ? countyToSlug(post.county) : null;
+  // Parse comma-separated county values; use first county for breadcrumb/slug links
+  const primaryCounty = post.county ? post.county.split(",")[0].trim() : null;
+  const primarySlug = primaryCounty ? countyToSlug(primaryCounty) : null;
   const categoryLabel = categoryDisplayName(post.categories?.[0]);
 
   const video = React.useMemo(() => findPlayableVideo(post), [post]);
 
   React.useEffect(() => {
-    if (!post.county) return;
-    service
-      .getPosts({ category: "today", counties: [post.county], limit: 7 })
-      .then((posts) => {
-        setRelatedPosts(
-          posts.filter((p) => p.originalLink !== post.originalLink).slice(0, 5)
-        );
-      })
-      .catch(() => {});
-  }, [post.county, post.originalLink, service]);
+    if (post.county) {
+      // Fetch related articles for the primary (first) county
+      const primaryCountyForFetch = post.county.split(",")[0].trim();
+      service
+        .getPosts({ category: "today", counties: [primaryCountyForFetch], limit: 7 })
+        .then((posts) => {
+          setRelatedPosts(
+            posts.filter((p) => p.originalLink !== post.originalLink).slice(0, 5)
+          );
+        })
+        .catch(() => {});
+    } else if (post.categories?.includes("national")) {
+      // For national articles with no county, show related national news
+      service
+        .fetchPage({ category: "national", limit: 7 })
+        .then(({ posts }) => {
+          setRelatedPosts(
+            posts.filter((p) => p.originalLink !== post.originalLink).slice(0, 5)
+          );
+        })
+        .catch(() => {});
+    }
+  }, [post.county, post.originalLink, post.categories, service]);
 
   const handleRelatedClick = (relatedPost) => {
     dispatch(setPost(relatedPost));
@@ -99,18 +112,11 @@ export default function FeaturedPost(props) {
     }
   };
 
-  const handleShare = () => {
-    const title = post.title;
-    const text = `I'm reading this on Kentucky News: ${post.title}`;
-    const url = post.originalLink;
-    ShareAPI(title, text, url);
-  };
-
   return (
     <main>
       <Paper
         className={classes.mainFeaturedPost}
-        style={{ backgroundImage: `url(${post.image})` }}
+        style={{ backgroundImage: `url(${post.image || '/logo.png'})` }}
       >
       </Paper>
       <Divider />
@@ -121,9 +127,9 @@ export default function FeaturedPost(props) {
             <RouterLink to="/" style={{ textDecoration: "none", color: "inherit" }}>
               <Typography variant="caption" color="textSecondary">Home</Typography>
             </RouterLink>
-            {post.county && countySlug ? (
-              <RouterLink to={`/news/${countySlug}`} style={{ textDecoration: "none", color: "inherit" }}>
-                <Typography variant="caption" color="textSecondary">{post.county} County</Typography>
+            {primaryCounty && primarySlug ? (
+              <RouterLink to={`/news/${primarySlug}`} style={{ textDecoration: "none", color: "inherit" }}>
+                <Typography variant="caption" color="textSecondary">{primaryCounty} County</Typography>
               </RouterLink>
             ) : (
               <Typography variant="caption" color="textSecondary">News</Typography>
@@ -142,32 +148,26 @@ export default function FeaturedPost(props) {
           {ToDateTime(post.date)}
         </Typography>
 
-        {/* County + Category chips */}
+        {/* County + Category chips — one chip per county for comma-separated counties */}
         <Box style={{ padding: "4px 10px 10px", display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {post.county && countySlug && (
-            hasRouter ? (
-              <RouterLink to={`/news/${countySlug}`} style={{ textDecoration: "none" }}>
-                <Chip
-                  label={`${post.county} County`}
-                  size="small"
-                  color="primary"
-                  clickable
-                />
+          {post.county && post.county.split(",").map((c) => c.trim()).filter(Boolean).map((cName) => {
+            const cSlug = countyToSlug(cName);
+            return hasRouter ? (
+              <RouterLink key={cName} to={`/news/${cSlug}`} style={{ textDecoration: "none" }}>
+                <Chip label={`${cName} County`} size="small" color="primary" clickable />
               </RouterLink>
             ) : (
-              <Chip
-                label={`${post.county} County`}
-                size="small"
-                color="primary"
-              />
-            )
-          )}
+              <Chip key={cName} label={`${cName} County`} size="small" color="primary" />
+            );
+          })}
           {categoryLabel && (
-            <Chip
-              label={categoryLabel}
-              size="small"
-              variant="outlined"
-            />
+            hasRouter ? (
+              <RouterLink to={categoryRoute(post.categories?.[0])} style={{ textDecoration: "none" }}>
+                <Chip label={categoryLabel} size="small" variant="outlined" clickable />
+              </RouterLink>
+            ) : (
+              <Chip label={categoryLabel} size="small" variant="outlined" />
+            )
           )}
         </Box>
 
@@ -232,9 +232,6 @@ export default function FeaturedPost(props) {
         )}
 
         <Box style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "0 10px 12px" }}>
-          <IconButton color="primary" aria-label="Share" onClick={handleShare} size="small">
-            <ShareIcon />
-          </IconButton>
           <Button
             size="small"
             color="primary"
@@ -247,19 +244,19 @@ export default function FeaturedPost(props) {
           >
             Read Full Story at {sourceName}
           </Button>
-          {post.county && countySlug && (
+          {primaryCounty && primarySlug && (
             hasRouter ? (
               <RouterLink
-                to={`/news/${countySlug}`}
+                to={`/news/${primarySlug}`}
                 style={{ color: "#1976d2", textDecoration: "none", whiteSpace: "nowrap" }}
               >
                 <Typography variant="body2" style={{ color: "#1976d2", whiteSpace: "nowrap" }}>
-                  — More {post.county} County News
+                  — More {primaryCounty} County News
                 </Typography>
               </RouterLink>
             ) : (
               <Typography variant="body2" style={{ color: "#1976d2", whiteSpace: "nowrap" }}>
-                — More {post.county} County News
+                — More {primaryCounty} County News
               </Typography>
             )
           )}
@@ -270,7 +267,7 @@ export default function FeaturedPost(props) {
             <Divider />
             <Box style={{ padding: "12px 10px 8px" }}>
               <Typography variant="h6" gutterBottom>
-                More from {post.county} County
+                {post.county ? `More from ${primaryCounty} County` : "More National News"}
               </Typography>
               {relatedPosts.map((rp) => (
                 <Box
@@ -315,6 +312,19 @@ function categoryDisplayName(category) {
     obituaries: "Obituaries",
   };
   return map[category] || (category ? category.charAt(0).toUpperCase() + category.slice(1) : "Local News");
+}
+
+/** Maps article category to its app route for the clickable category chip. */
+function categoryRoute(category) {
+  const map = {
+    national: "/national",
+    sports: "/sports",
+    weather: "/weather",
+    schools: "/schools",
+    today: "/local",
+    obituaries: "/local",
+  };
+  return map[category] || "/local";
 }
 
 function findPlayableVideo(post) {
