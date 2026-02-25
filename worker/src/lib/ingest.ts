@@ -130,13 +130,18 @@ async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<E
 
   const scraped = scrapeArticleHtml(source.url, fetched.body);
   const readability = extractReadableArticle(fetched.body);
-  const readableText = [readability?.title, readability?.textContent].filter(Boolean).join(' ').trim();
+  // Do NOT prepend the title here — it causes AI to echo the title in summaries.
+  // Keep readableText for classification only; use htmlToStructuredText for summarization.
+  const readableText = (readability?.textContent ?? '').trim();
   const readableHtml = readability?.content?.trim() ?? '';
+  // Paragraph-structured plain text derived from the Readability HTML for better AI input
+  const structuredText = readableHtml ? htmlToStructuredText(readableHtml) : readableText;;
 
   // Never classify from raw HTML. If Readability fails, fallback to RSS title/description only.
   const rssText = [source.providedTitle, source.providedDescription].filter(Boolean).join(' ').trim();
 
   const synthesizedText =
+    structuredText ||
     readableText ||
     scraped.contentText ||
     source.providedDescription ||
@@ -176,6 +181,35 @@ function extractReadableArticle(rawHtml: string): { title?: string; textContent?
   } catch {
     return null;
   }
+}
+
+/**
+ * Convert Readability HTML to paragraph-structured plain text.
+ * Preserves paragraph breaks so the AI can produce proper multi-paragraph summaries.
+ */
+function htmlToStructuredText(html: string): string {
+  // Replace block-level closing tags with double newlines
+  let text = html
+    .replace(/<\/(?:p|div|blockquote|li|h[1-6]|section|article|figure|figcaption)\s*>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '') // strip remaining tags
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#x27;/g, "'")
+    .replace(/&apos;/g, "'");
+
+  // Collapse runs of spaces/tabs (but not newlines)
+  text = text.replace(/[^\S\n]+/g, ' ');
+  // Collapse 3+ newlines to 2
+  text = text.replace(/\n{3,}/g, '\n\n');
+  // Trim each line
+  text = text.split('\n').map((l) => l.trim()).join('\n');
+
+  return text.trim();
 }
 
 async function storeRawPayloadBestEffort(
