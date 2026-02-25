@@ -39,7 +39,7 @@ export async function summarizeArticle(
       'Task: Write a concise factual summary and SEO description for this news article.',
       'Rules:',
       '- Output plain text only in JSON with keys summary and seoDescription.',
-      '- summary should be between 55% and 65% of original article word count.',
+      '- summary should be between 30% and 50% of original article word count.',
       '- seoDescription must be <= 160 characters.',
       '- no markdown, no preface, no code fences.',
       '',
