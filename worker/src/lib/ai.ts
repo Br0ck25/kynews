@@ -108,6 +108,8 @@ export async function summarizeArticle(
       }
 
       if (validatedText) {
+        // Always enforce a clean sentence ending regardless of length (Section 3.2)
+        validatedText = ensureCompleteLastSentence(validatedText);
         summary = validatedText;
         seo = enforceSeoLength(extractFirstSentence(validatedText), validatedText);
       }
@@ -156,7 +158,8 @@ function deterministicFallbackSummary(content: string, originalWords: number): {
 } {
   const target = clamp(Math.round(originalWords * 0.45), 30, 250);
   const words = content.split(/\s+/u).filter(Boolean);
-  const summary = words.slice(0, target).join(' ').trim();
+  const raw = words.slice(0, target).join(' ').trim();
+  const summary = ensureCompleteLastSentence(raw);
 
   return {
     summary,
@@ -174,6 +177,33 @@ function enforceSeoLength(input: string, summary: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max));
+}
+
+/**
+ * Ensure a block of text ends on a complete sentence.
+ * If the last character is not sentence-ending punctuation, trim back to the
+ * previous sentence boundary. Applied to every summary regardless of length.
+ */
+function ensureCompleteLastSentence(text: string): string {
+  const t = text.trim();
+  if (!t) return t;
+  // Already ends cleanly
+  if (/[.!?'"\u201d\u2019]$/.test(t)) return t;
+  // Find the last sentence-ending punctuation followed by a space (or end of string)
+  const lastEnd = Math.max(
+    t.lastIndexOf('. '),
+    t.lastIndexOf('! '),
+    t.lastIndexOf('? '),
+    t.lastIndexOf('.\n'),
+    t.lastIndexOf('!\n'),
+    t.lastIndexOf('?\n'),
+  );
+  if (lastEnd > 0) {
+    return t.slice(0, lastEnd + 1).trim();
+  }
+  // Single-sentence text with no trailing period — add one only if it ends with a word char
+  if (/\w$/.test(t)) return `${t}.`;
+  return t;
 }
 
 /**
