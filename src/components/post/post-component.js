@@ -8,9 +8,14 @@ import Divider from "@material-ui/core/Divider";
 import Box from "@material-ui/core/Box";
 import Button from "@material-ui/core/Button";
 import IconButton from "@material-ui/core/IconButton";
+import Chip from "@material-ui/core/Chip";
 import ShareIcon from "@material-ui/icons/Share";
+import { Link as RouterLink, useHistory } from "react-router-dom";
+import { useDispatch } from "react-redux";
+import { setPost } from "../../redux/actions/actions";
 import "./post-component.css";
-import { ShareAPI, ToDateTime } from "../../utils/functions";
+import { ShareAPI, ToDateTime, countyToSlug } from "../../utils/functions";
+import SiteService from "../../services/siteService";
 
 const useStyles = makeStyles((theme) => ({
   mainFeaturedPost: {
@@ -46,6 +51,11 @@ const useStyles = makeStyles((theme) => ({
 export default function FeaturedPost(props) {
   const classes = useStyles();
   const { post } = props;
+  const dispatch = useDispatch();
+  const history = useHistory();
+  const [relatedPosts, setRelatedPosts] = React.useState([]);
+  const service = React.useMemo(() => new SiteService(process.env.REACT_APP_API_BASE_URL), []);
+
   const summaryParagraphs = String(post?.shortDesc || "")
     .replace(/<[^>]+>/g, " ")
     .replace(/[ \t]+/g, " ")
@@ -54,7 +64,28 @@ export default function FeaturedPost(props) {
     .map((p) => p.trim())
     .filter(Boolean);
 
+  const sourceName = extractSourceName(post.originalLink || post.sourceUrl || "");
+  const countySlug = post.county ? countyToSlug(post.county) : null;
+  const categoryLabel = categoryDisplayName(post.categories?.[0]);
+
   const video = React.useMemo(() => findPlayableVideo(post), [post]);
+
+  React.useEffect(() => {
+    if (!post.county) return;
+    service
+      .getPosts({ category: "today", counties: [post.county], limit: 7 })
+      .then((posts) => {
+        setRelatedPosts(
+          posts.filter((p) => p.originalLink !== post.originalLink).slice(0, 5)
+        );
+      })
+      .catch(() => {});
+  }, [post.county, post.originalLink, service]);
+
+  const handleRelatedClick = (relatedPost) => {
+    dispatch(setPost(relatedPost));
+    history.push({ pathname: "/post", state: { post: relatedPost } });
+  };
 
   const handleShare = () => {
     const title = post.title;
@@ -75,10 +106,53 @@ export default function FeaturedPost(props) {
         <Typography variant="h5" gutterBottom style={{ padding: 10 }}>
           {post.title}
         </Typography>
-        <Typography variant="body2" color="textSecondary" style={{ padding: "0 10px 10px" }}>
+        <Typography variant="body2" color="textSecondary" style={{ padding: "0 10px 4px" }}>
           {ToDateTime(post.date)}
         </Typography>
+
+        {/* County + Category chips */}
+        <Box style={{ padding: "4px 10px 10px", display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {post.county && countySlug && (
+            <Chip
+              component={RouterLink}
+              to={`/news/${countySlug}`}
+              label={`${post.county} County`}
+              size="small"
+              color="primary"
+              clickable
+            />
+          )}
+          {categoryLabel && (
+            <Chip
+              label={categoryLabel}
+              size="small"
+              variant="outlined"
+            />
+          )}
+        </Box>
+
         <Divider />
+
+        {/* Source attribution box */}
+        <Box style={{ margin: "12px 10px", padding: "10px 14px", backgroundColor: "#f5f5f5", borderRadius: 4, borderLeft: "3px solid #1976d2" }}>
+          <Typography variant="caption" display="block" style={{ color: "#555" }}>
+            Summary — Original reporting by{" "}
+            <a href={post.originalLink} target="_blank" rel="noopener noreferrer" style={{ color: "#1976d2", textDecoration: "none" }}>
+              {sourceName}
+            </a>
+          </Typography>
+          {post.author && (
+            <Typography variant="caption" display="block" style={{ color: "#555" }}>
+              Author: {post.author}
+            </Typography>
+          )}
+          <Typography variant="caption" display="block" style={{ marginTop: 4 }}>
+            <a href={post.originalLink} target="_blank" rel="noopener noreferrer" style={{ color: "#1976d2", textDecoration: "none" }}>
+              Read full story at {sourceName}
+            </a>
+          </Typography>
+        </Box>
+
         {video && (
           <Box style={{ padding: "10px 10px 0" }}>
             {video.type === "youtube" || video.type === "vimeo" ? (
@@ -103,8 +177,12 @@ export default function FeaturedPost(props) {
             )}
           </Box>
         )}
+
         {summaryParagraphs.length > 0 && (
-          <div className={"description"} style={{ paddingBottom: 10 }}>
+          <div className={"description"} style={{ padding: "0 10px 10px" }}>
+            <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+              Summary
+            </Typography>
             {summaryParagraphs.map((para, index) => (
               <Typography key={`${post.title}-summary-${index}`} variant="body1" paragraph>
                 {para}
@@ -112,7 +190,8 @@ export default function FeaturedPost(props) {
             ))}
           </div>
         )}
-        <Box style={{ display: "flex", justifyContent: "flex-start", gap: 8, padding: "0 10px 12px" }}>
+
+        <Box style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "0 10px 12px" }}>
           <IconButton color="primary" aria-label="Share" onClick={handleShare} size="small">
             <ShareIcon />
           </IconButton>
@@ -124,13 +203,72 @@ export default function FeaturedPost(props) {
             target="_blank"
             rel="noopener noreferrer"
             disabled={!post.originalLink}
+            style={{ fontWeight: 600 }}
           >
-            Original Article
+            Read Full Story at {sourceName}
           </Button>
+          {post.county && countySlug && (
+            <Typography
+              component={RouterLink}
+              to={`/news/${countySlug}`}
+              variant="body2"
+              style={{ color: "#1976d2", textDecoration: "none", whiteSpace: "nowrap" }}
+            >
+              — More {post.county} County News
+            </Typography>
+          )}
         </Box>
+
+        {relatedPosts.length > 0 && (
+          <>
+            <Divider />
+            <Box style={{ padding: "12px 10px 8px" }}>
+              <Typography variant="h6" gutterBottom>
+                More from {post.county} County
+              </Typography>
+              {relatedPosts.map((rp) => (
+                <Box
+                  key={rp.originalLink}
+                  style={{ paddingBottom: 14, cursor: "pointer" }}
+                  onClick={() => handleRelatedClick(rp)}
+                >
+                  <Typography variant="body2" style={{ color: "#1976d2", fontWeight: 500 }}>
+                    {rp.title}
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary">
+                    {ToDateTime(rp.date)} · {extractSourceName(rp.originalLink || "")}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          </>
+        )}
       </Grid>
     </main>
   );
+}
+
+function extractSourceName(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    const parts = host.split(".");
+    const name = parts.length >= 2 ? parts[parts.length - 2] : host;
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  } catch {
+    return "Source";
+  }
+}
+
+function categoryDisplayName(category) {
+  const map = {
+    today: "Local News",
+    national: "National News",
+    sports: "Sports",
+    weather: "Weather",
+    schools: "Schools",
+    obituaries: "Obituaries",
+  };
+  return map[category] || (category ? category.charAt(0).toUpperCase() + category.slice(1) : "Local News");
 }
 
 function findPlayableVideo(post) {

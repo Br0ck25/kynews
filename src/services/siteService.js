@@ -73,8 +73,10 @@ function mapWorkerArticleToPost(article) {
     imageText: article?.title ?? "Kentucky News",
     link: "/post",
     originalLink: article?.canonicalUrl ?? article?.sourceUrl ?? "",
+    sourceUrl: article?.sourceUrl ?? "",
     categories: article?.category ? [article.category] : [],
     county: article?.county ?? null,
+    author: article?.author ?? null,
     tags: [],
   };
 }
