@@ -59,7 +59,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     : '';
   console.log(`[CLASSIFIED] ${classification.isKentucky ? 'kentucky' : 'national'} - ${extracted.title}${tierSuffix}`);
 
-  const ai = await summarizeArticle(env, canonicalHash, extracted.title, extracted.contentText);
+  const ai = await summarizeArticle(env, canonicalHash, extracted.title, extracted.contentText, extracted.publishedAt);
 
   const rawR2Key = await storeRawPayloadBestEffort(env, canonicalHash, {
     source,

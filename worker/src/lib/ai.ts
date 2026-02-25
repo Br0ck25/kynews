@@ -1,5 +1,5 @@
 import type { SummaryResult } from '../types';
-import { wordCount } from './http';
+import { sha256Hex, wordCount } from './http';
 
 const MODEL = '@cf/zai-org/glm-4.7-flash' as keyof AiModels;
 
@@ -58,19 +58,42 @@ export async function summarizeArticle(
   cacheKeySuffix: string,
   title: string,
   content: string,
+  publishedAt: string,
 ): Promise<SummaryResult> {
   const originalWords = Math.max(wordCount(content), 1);
-  const cacheKey = `summary:${cacheKeySuffix}`;
+  const summaryKey = `summary:${cacheKeySuffix}`;
+  const ttlKey    = `summary-ttl:${cacheKeySuffix}`;
 
   if (env.CACHE) {
     try {
-      const cached = await env.CACHE.get<SummaryResult>(cacheKey, 'json');
-      if (cached?.summary && cached?.seoDescription) return cached;
+      // Check whether the TTL marker is still fresh
+      const ttlMarker = await env.CACHE.get(ttlKey);
+      // Always load the indefinitely-stored summary record (no TTL on this key)
+      const existing = await env.CACHE.get<SummaryResult>(summaryKey, 'json');
+
+      if (ttlMarker && existing?.summary && existing?.seoDescription) {
+        // Within the freshness window — serve as-is
+        return existing;
+      }
+
+      if (existing?.summary && existing.sourceHash) {
+        // Freshness marker expired — check whether source content has changed
+        const currentHash = await sha256Hex(content);
+        if (currentHash === existing.sourceHash) {
+          // Content unchanged — reset the TTL marker and return the existing summary
+          const ttl = summaryTtl(publishedAt);
+          await env.CACHE.put(ttlKey, '1', { expirationTtl: ttl });
+          return existing;
+        }
+        // Content changed — fall through to regenerate
+      }
     } catch {
       // best effort cache read
     }
   }
 
+  // Compute source hash now (used in the stored result)
+  const sourceHash = await sha256Hex(content).catch(() => '');
   const fallback = deterministicFallbackSummary(content, originalWords);
 
   let summary = fallback.summary;
@@ -136,11 +159,16 @@ export async function summarizeArticle(
     summary,
     seoDescription: seo,
     summaryWordCount: wordCount(summary),
+    sourceHash,
   };
 
   if (env.CACHE) {
     try {
-      await env.CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: 7200 });
+      const ttl = summaryTtl(publishedAt);
+      // Store summary indefinitely (no TTL) so it survives the freshness-marker expiry
+      await env.CACHE.put(summaryKey, JSON.stringify(result));
+      // Store a lightweight freshness marker with the tiered TTL
+      await env.CACHE.put(ttlKey, '1', { expirationTtl: ttl });
     } catch {
       // best effort cache write
     }
@@ -189,6 +217,20 @@ function enforceSeoLength(input: string, summary: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max));
+}
+
+/**
+ * Tiered KV TTL (freshness marker) based on article age:
+ *   < 24 h  → 2 h   (active stories may still be updated)
+ *   1–7 d   → 12 h  (mostly settled; check twice a day)
+ *   > 7 d   → 72 h  (stable; check every 3 days)
+ */
+function summaryTtl(publishedAt: string): number {
+  const ageMs = Date.now() - new Date(publishedAt).getTime();
+  const ageHours = ageMs / (1000 * 3600);
+  if (ageHours < 24)   return 7_200;    // 2 hours
+  if (ageHours < 168)  return 43_200;   // 12 hours (7 days)
+  return 259_200;                        // 72 hours
 }
 
 /**

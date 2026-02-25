@@ -99,6 +99,8 @@ export interface SummaryResult {
   summary: string;
   seoDescription: string;
   summaryWordCount: number;
+  /** SHA-256 hex of the source content text at generation time, used for change detection */
+  sourceHash?: string;
 }
 
 export interface ArticleListResponse {
