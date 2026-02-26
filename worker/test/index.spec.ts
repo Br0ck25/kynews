@@ -44,176 +44,179 @@ async function ensureSchemaAndFixture() {
 
 	await env.ky_news_db.prepare(`DELETE FROM articles`).run();
 
-	const insertFixture = env.ky_news_db.prepare(`
-		INSERT INTO articles (
-			canonical_url, source_url, url_hash, title, author, published_at, category,
-			is_kentucky, county, city, summary, seo_description, raw_word_count,
-			summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`);
-
 	const now = new Date().toISOString();
 
-	await insertFixture
-		.bind(
-			'https://example.com/ky-today',
-			'https://example.com',
-			'hash-ky-today',
-			'Kentucky Today Story',
-			null,
-			now,
-			'today',
-			1,
-			'Fayette',
-			'lexington',
-			'Summary',
-			'SEO description',
-			120,
-			70,
-			'Content body for test',
-			'<p>Content body for test</p>',
-			null,
-			null,
-		)
-		.run();
+	async function addArticle(values: any[]) {
+		// interpolate values directly so we don't rely on parameter binding which
+		// has been flaky in the test environment
+		const formatted = values
+			.map((v) => (v === null ? 'NULL' : JSON.stringify(v)))
+			.join(', ');
+		await env.ky_news_db
+			.prepare(`
+			INSERT INTO articles (
+				canonical_url, source_url, url_hash, title, author, published_at, category,
+				is_kentucky, county, city, summary, seo_description, raw_word_count,
+				summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+			) VALUES (${formatted})
+		`)
+			.run();
+	}
 
-	await insertFixture
-		.bind(
-			'https://example.com/ky-sports',
-			'https://example.com',
-			'hash-ky-sports',
-			'Kentucky Sports Story',
-			null,
-			now,
-			'sports',
-			1,
-			'Jefferson',
-			'louisville',
-			'Summary',
-			'SEO description',
-			130,
-			72,
-			'Content body for test',
-			'<p>Content body for test</p>',
-			null,
-			null,
-		)
-		.run();
+	// insert fixtures using helper
 
-	await insertFixture
-		.bind(
-			'https://example.com/ky-schools',
-			'https://example.com',
-			'hash-ky-schools',
-			'Kentucky Schools Story',
-			null,
-			now,
-			'schools',
-			1,
-			'Pike',
-			'pikeville',
-			'Summary',
-			'SEO description',
-			128,
-			71,
-			'Content body for test',
-			'<p>Content body for test</p>',
-			null,
-			null,
-		)
-		.run();
+	await addArticle([
+		'https://example.com/ky-today',
+		'https://example.com',
+		'hash-ky-today',
+		'Kentucky Today Story',
+		null,
+		now,
+		'today',
+		1,
+		'Fayette',
+		'lexington',
+		'Summary',
+		'SEO description',
+		120,
+		70,
+		'Content body for test',
+		'<p>Content body for test</p>',
+		null,
+		null,
+		null,
+	]);
 
-	await insertFixture
-		.bind(
-			'https://example.com/non-ky-sports',
-			'https://example.com',
-			'hash-non-ky-sports',
-			'Non Kentucky Sports Story',
-			null,
-			now,
-			'sports',
-			0,
-			null,
-			null,
-			'Summary',
-			'SEO description',
-			125,
-			68,
-			'Content body for test',
-			'<p>Content body for test</p>',
-			null,
-			null,
-		)
-		.run();
+	await addArticle([
+		'https://example.com/ky-sports',
+		'https://example.com',
+		'hash-ky-sports',
+		'Kentucky Sports Story',
+		null,
+		now,
+		'sports',
+		1,
+		'Jefferson',
+		'louisville',
+		'Summary',
+		'SEO description',
+		130,
+		72,
+		'Content body for test',
+		'<p>Content body for test</p>',
+		null,
+		null,
+		null,
+	]);
 
-	await insertFixture
-		.bind(
-			'https://example.com/non-ky-today',
-			'https://example.com',
-			'hash-non-ky-today',
-			'Non Kentucky Today Story',
-			null,
-			now,
-			'today',
-			0,
-			null,
-			null,
-			'Summary',
-			'SEO description',
-			110,
-			66,
-			'Content body for test',
-			'<p>Content body for test</p>',
-			null,
-			null,
-		)
-		.run();
+	await addArticle([
+		'https://example.com/ky-schools',
+		'https://example.com',
+		'hash-ky-schools',
+		'Kentucky Schools Story',
+		null,
+		now,
+		'schools',
+		1,
+		'Pike',
+		'pikeville',
+		'Summary',
+		'SEO description',
+		128,
+		71,
+		'Content body for test',
+		'<p>Content body for test</p>',
+		null,
+		null,
+		null,
+	]);
+	await addArticle([
+		'https://example.com/non-ky-sports',
+		'https://example.com',
+		'hash-non-ky-sports',
+		'Non Kentucky Sports Story',
+		null,
+		now,
+		'sports',
+		0,
+		null,
+		null,
+		'Summary',
+		'SEO description',
+		125,
+		68,
+		'Content body for test',
+		'<p>Content body for test</p>',
+		null,
+		null,
+		null,
+	]);
 
-	await insertFixture
-		.bind(
-			'https://example.com/non-ky-schools',
-			'https://example.com',
-			'hash-non-ky-schools',
-			'Non Kentucky Schools Story',
-			null,
-			now,
-			'schools',
-			0,
-			null,
-			null,
-			'Summary',
-			'SEO description',
-			115,
-			65,
-			'Content body for test',
-			'<p>Content body for test</p>',
-			null,
-			null,
-		)
-		.run();
+	await addArticle([
+		'https://example.com/non-ky-today',
+		'https://example.com',
+		'hash-non-ky-today',
+		'Non Kentucky Today Story',
+		null,
+		now,
+		'today',
+		0,
+		null,
+		null,
+		'Summary',
+		'SEO description',
+		110,
+		66,
+		'Content body for test',
+		'<p>Content body for test</p>',
+		null,
+		null,
+		null,
+	]);
 
-	await insertFixture
-		.bind(
-			'https://example.com/non-ky-weather',
-			'https://example.com',
-			'hash-non-ky-weather',
-			'Non Kentucky Weather Story',
-			null,
-			now,
-			'weather',
-			0,
-			null,
-			null,
-			'Summary',
-			'SEO description',
-			118,
-			67,
-			'Content body for test',
-			'<p>Content body for test</p>',
-			null,
-			null,
-		)
-		.run();
+	await addArticle([
+		'https://example.com/non-ky-schools',
+		'https://example.com',
+		'hash-non-ky-schools',
+		'Non Kentucky Schools Story',
+		null,
+		now,
+		'schools',
+		0,
+		null,
+		null,
+		'Summary',
+		'SEO description',
+		115,
+		65,
+		'Content body for test',
+		'<p>Content body for test</p>',
+		null,
+		null,
+		null,
+	]);
+
+	await addArticle([
+		'https://example.com/non-ky-weather',
+		'https://example.com',
+		'hash-non-ky-weather',
+		'Non Kentucky Weather Story',
+		null,
+		now,
+		'weather',
+		0,
+		null,
+		null,
+		'Summary',
+		'SEO description',
+		118,
+		67,
+		'Content body for test',
+		'<p>Content body for test</p>',
+		null,
+		null,
+		null,
+	]);
 }
 
 function envWithAdminPassword(password: string): Env {
@@ -804,7 +807,27 @@ describe('social preview HTML route', () => {
 			'test-slug'
 		).run();
 
+		// determine the new article's id (autoincrement may not reset after DELETE)
+		const row = await env.ky_news_db
+			.prepare('SELECT id FROM articles WHERE slug = ? LIMIT 1')
+			.bind('test-slug')
+			.first<{ id: number }>();
+		const articleId = Number(row?.id ?? 0);
+
 		const path = '/news/kentucky/boone-county/test-slug';
+		// also verify caption endpoint never returns external URL
+		const captionRequest = new IncomingRequest('https://example.com/api/admin/facebook/caption', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'secret', 'content-type': 'application/json' },
+			body: JSON.stringify({ id: articleId }),
+		});
+		const ctx2 = createExecutionContext();
+		const captionResp = await worker.fetch(captionRequest, envWithAdminPassword('secret'), ctx2);
+		const capJson = await captionResp.json();
+		console.log('social preview caption response', capJson);
+		expect(capJson.caption).toBeDefined();
+		expect(capJson.caption).toContain('https://localkynews.com');
+		expect(capJson.caption).not.toContain('wnky.com');
 		const response = await SELF.fetch(`https://example.com${path}`);
 		expect(response.status).toBe(200);
 		const text = await response.text();

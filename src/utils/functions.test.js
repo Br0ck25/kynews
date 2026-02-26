@@ -106,6 +106,11 @@ describe('facebook caption helpers', () => {
     expect(caption).toContain('#FayetteCounty');
     expect(caption).toContain('#KentuckyNews');
     expect(caption).toContain(SITE_URL);
+    // even if original url exists we should not include it
+    const postWithUrl = {...post, url:'https://wnky.com/foo'};
+    const caption2 = generateFacebookCaption(postWithUrl);
+    expect(caption2).toContain(SITE_URL);
+    expect(caption2).not.toContain('wnky.com');
 
     const national = { title: 'National', summary: 'Info', isKentucky: false };
     expect(generateFacebookCaption(national)).toBe('');

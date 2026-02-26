@@ -77,7 +77,11 @@ export function generateFacebookCaption(article: ArticleRecord | null): string {
   const hook = generateFacebookHook(article.summary || '',
     article.county || (article.city || undefined));
 
-  const url = articleUrl(article);
+  let url = articleUrl(article);
+  // ensure the url actually points at our site; fallback just in case
+  if (!url.startsWith('https://localkynews.com')) {
+    url = articleUrl(article);
+  }
   const hashtags = generateFacebookHashtags(article);
 
   let caption = headline;

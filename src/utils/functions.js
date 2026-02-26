@@ -193,7 +193,11 @@ export function generateFacebookCaption(post = {}) {
 
   const headline = cleanHeadline(post.title || '');
   const hook = generateHook(post.summary || '', post.county || post.city || '');
-  const link = `${SITE_URL}${articleToUrl(post)}`;
+  // always point at our own site; ignore any stray url property
+  let link = `${SITE_URL}${articleToUrl(post)}`;
+  if (!link.startsWith(SITE_URL)) {
+    link = `${SITE_URL}${articleToUrl(post)}`;
+  }
 
   const hashtags = [];
   if (post.county) {
