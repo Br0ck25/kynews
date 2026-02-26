@@ -168,6 +168,7 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   // 'https://feeds.mcclatchy.com/kentucky/sections/latest-news/stories',  // consistent timeout
   // 'https://www.courier-journal.com/rss/',  // 406 blocked
   'https://www.wowktv.com/news/kentucky/feed/',
+	'https://nkytribune.com/feed/',
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [
@@ -283,8 +284,6 @@ export const SCHOOL_SOURCE_SEEDS: string[] = [
 ];
 
 export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
-  'https://www.wymt.com/search/?query=kentucky',
-  'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
   'https://kentuckylantern.com/feed/localFeed',
   'https://stateline.org/feed/',
   'https://stateline.org/feed/localFeed',
