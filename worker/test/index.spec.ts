@@ -36,6 +36,7 @@ async function ensureSchemaAndFixture() {
 			content_html TEXT NOT NULL,
 			image_url TEXT,
 			raw_r2_key TEXT,
+			slug TEXT,
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
@@ -47,8 +48,8 @@ async function ensureSchemaAndFixture() {
 		INSERT INTO articles (
 			canonical_url, source_url, url_hash, title, author, published_at, category,
 			is_kentucky, county, city, summary, seo_description, raw_word_count,
-			summary_word_count, content_text, content_html, image_url, raw_r2_key
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`);
 
 	const now = new Date().toISOString();
@@ -766,5 +767,49 @@ describe('admin facebook post endpoint', () => {
 		expect(resp.status).toBe(500);
 		const body = await resp.json();
 		expect(body.error).toMatch(/credentials/i);
+	});
+});
+// tests for server-side social preview route
+
+describe('social preview HTML route', () => {
+	it('returns og meta tags and redirect script for kentucky article', async () => {
+		await ensureSchemaAndFixture();
+		// insert sample article with image and slug
+		const now = new Date().toISOString();
+		await env.ky_news_db.prepare(`
+			INSERT INTO articles (
+				canonical_url, source_url, url_hash, title, author, published_at, category,
+				is_kentucky, county, city, summary, seo_description, raw_word_count,
+				summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind(
+			'https://example.com/ky-test',
+			'https://example.com',
+			'test-hash',
+			'Test Title',
+			null,
+			now,
+			'today',
+			1,
+			'Boone',
+			'boone',
+			'Summary',
+			'SEO',
+			100,
+			50,
+			'body',
+			'<p>body</p>',
+			'https://localkynews.com/img/test.jpg',
+			null,
+			'test-slug'
+		).run();
+
+		const path = '/news/kentucky/boone-county/test-slug';
+		const response = await SELF.fetch(`https://example.com${path}`);
+		expect(response.status).toBe(200);
+		const text = await response.text();
+		expect(text).toContain('<meta property="og:title" content="Test Title"');
+		expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
+		expect(text).toContain('window.location.href');
 	});
 });

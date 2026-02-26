@@ -104,14 +104,19 @@ that the front‑end consumes. When running locally the Worker runs on `localhos
 SPA fetches from a relative path, but after publishing to **Cloudflare Pages** you have two
 options:
 
-1. **Route the Worker under the Pages domain.** Add a route in
+* **Route the Worker under the Pages domain.** Add routes in
    `worker/wrangler.jsonc` such as:
    ```jsonc
-   "routes": ["kynews.pages.dev/api/*"]
+   "routes": [
+     "kynews.pages.dev/api/*",
+     "kynews.pages.dev/news/*"      // <— needed for Facebook/OG previews
+   ]
    ```
    then deploy the Worker with `cd worker && npx wrangler publish`. Requests made by the
-   site to `/api/...` will automatically hit the Worker, so you don’t need any extra
-   configuration.
+   site to `/api/*` will automatically hit the Worker, and sharing article URLs
+   (paths under `/news/…`) will trigger the social‑preview handler as well.
+   You can use `localkynews.com` or your custom domain in place of
+   `kynews.pages.dev`.
 
 2. **Use an explicit base URL.** Set the environment variable
    `REACT_APP_API_BASE_URL` for your Pages project (or in `.env` for local testing) to

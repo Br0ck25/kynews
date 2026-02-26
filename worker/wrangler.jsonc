@@ -54,7 +54,9 @@
 		{ "pattern": "localkynews.com/sitemap-index.xml", "zone_name": "localkynews.com" },
 		{ "pattern": "www.localkynews.com/sitemap.xml", "zone_name": "localkynews.com" },
 		{ "pattern": "www.localkynews.com/sitemap-news.xml", "zone_name": "localkynews.com" },
-		{ "pattern": "www.localkynews.com/sitemap-index.xml", "zone_name": "localkynews.com" }
+		{ "pattern": "www.localkynews.com/sitemap-index.xml", "zone_name": "localkynews.com" },
+		{ "pattern": "localkynews.com/news/*", "zone_name": "localkynews.com" },
+		{ "pattern": "www.localkynews.com/news/*", "zone_name": "localkynews.com" }
 	],
 	/**
 	 * Smart Placement

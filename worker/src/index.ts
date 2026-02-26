@@ -933,6 +933,43 @@ cursor,
 return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 }
 
+// --- Server-side social preview for article URLs ------------------------------------------------
+// Facebook (and other scrapers) do not execute JavaScript. Since the
+// front-end is a SPA, sharing a `/news/...` path would normally return the
+// bare index.html with the generic template OG tags (preview.PNG), which is
+// why the wrong image was showing up earlier.  To fix this we intercept those
+// requests here in the worker, look up the article by slug, and return a
+// minimal HTML page containing the appropriate meta tags.  The body includes
+// a redirect script so regular browsers still load the SPA.
+if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
+	const segments = url.pathname.split('/').filter((s) => s.length > 0);
+	const slug = segments[segments.length - 1] || '';
+	if (slug) {
+		const article = await getArticleBySlug(env, slug);
+		if (article) {
+			const pageUrl = `https://localkynews.com${url.pathname}`;
+			const desc = (article.seoDescription || article.summary || '')
+				.replace(/<[^>]+>/g, ' ')
+				.replace(/\s+/g, ' ')
+				.trim()
+				.slice(0, 160);
+			const metas = [];
+			metas.push('<meta property="og:type" content="article"/>');
+			metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
+			metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
+			if (article.imageUrl) {
+				metas.push(`<meta property="og:image" content="${escapeHtml(article.imageUrl)}"/>`);
+			}
+			metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
+			metas.push(`<meta property="og:site_name" content="Local KY News"/>`);
+			const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}';</script></body></html>`;
+			return new Response(html, {
+				headers: { 'content-type': 'text/html; charset=utf-8' },
+			});
+		}
+	}
+}
+
 // --- Sitemap routes (Section 7: News Sitemap Strategy) ---
 if (url.pathname === '/sitemap-index.xml' && request.method === 'GET') {
 	return new Response(generateSitemapIndex(), {
@@ -1269,6 +1306,15 @@ if (shouldPersistRotation && nextOffset != null) {
 	const rotationKey = `${INGEST_ROTATION_KEY_PREFIX}${trigger}`;
 	await env.CACHE.put(rotationKey, String(nextOffset), { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => null);
 }
+}
+
+// escape characters that would break HTML attributes
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
 }
 
 function isHttpUrl(input: string): boolean {
