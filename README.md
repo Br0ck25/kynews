@@ -30,6 +30,54 @@ See GIFs below on desktop and mobile devices:
 
 ![mobile version](preview_images/tech_news_en_mobile.gif)
 
+## Facebook Auto-Posting
+
+The worker now includes helpers for generating Facebook post captions from
+article records and a minimal API surface that can be wired into an
+scheduler or admin UI. The logic is intentionally Kentucky‑centric: it
+returns a blank string for national articles so that automated routines
+can skip those.
+
+### Generating captions
+
+Use the shared utility (frontend `src/utils/functions.js` or worker
+`worker/src/lib/facebook.ts`) to create a caption string. It takes an
+article object with fields like `title`, `summary`, `county`, `city`,
+`category` and will:
+
+1. Clean the headline of branding/trailing junk.
+2. Produce a 1‑sentence hook from the summary (40‑word limit).
+3. Prefix the hook with the county if not already present.
+4. Append a `Read more:` link and a couple of hashtags (`#<County>County`,
+   `#KentuckyNews`).
+
+You can call the new Worker endpoint `/api/admin/facebook/caption` with a
+JSON body `{ "id": <articleId> }` to retrieve the caption for an
+existing article. Only administrators may use this endpoint.
+
+### Posting to Facebook
+
+A companion endpoint `/api/admin/facebook/post` accepts the same body and
+will format a caption then send it to the Graph API. The request will
+fail with a 500 status if the necessary environment variables are not
+set:
+
+* `FACEBOOK_PAGE_ID` – the numeric ID of the target page
+* `FACEBOOK_PAGE_ACCESS_TOKEN` – a page access token with `publish_pages`
+  permission
+
+For local development, placeholders for these variables are shown in the
+`.env` file; actual secrets should be added via `wrangler secret` or the
+Pages dashboard instead of in source control.
+
+Rules
+
+* Only Kentucky articles (county or isKentucky flag) are posted.
+* National articles yield an empty caption and are ignored.
+
+You’re free to call these endpoints from a CRON job, GitHub Action, or
+any other scheduler that discovers new articles as they arrive.
+
 ## Cloudflare Deployment Notes
 
 This project uses a separate Cloudflare Worker to serve the `/api/articles` endpoints

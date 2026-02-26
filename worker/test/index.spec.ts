@@ -6,6 +6,11 @@ import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } 
 import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
+import {
+	cleanFacebookHeadline,
+	generateFacebookHook,
+	generateFacebookCaption,
+} from '../src/lib/facebook';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
@@ -540,6 +545,15 @@ describe('title similarity dedupe', () => {
 		expect(match?.similarity ?? 0).toBeGreaterThanOrEqual(0.9);
 	});
 
+	it('facebook helper functions behave as expected', () => {
+		expect(cleanFacebookHeadline('Test title | Local KY News')).toBe('Test title');
+		expect(generateFacebookHook('First sentence. Second one.')).toBe('First sentence.');
+		// county prefix
+		expect(generateFacebookHook('Something happened', 'Wake')).toMatch(/Wake County/i);
+		// caption returns blank for non-KY
+		expect(generateFacebookCaption({ title: 'a', summary: 'b', is_kentucky: 0 })).toBe('');
+	});
+
 	it('allows distinct titles well below the threshold', async () => {
 		await ensureSchemaAndFixture();
 		const match = await findHighlySimilarTitle(env, 'County commission advances road paving contract');
@@ -638,5 +652,108 @@ describe('admin article link updates', () => {
 		const response = await worker.fetch(request, envWithAdminPassword('secret'), ctx);
 
 		expect(response.status).toBe(409);
+	});
+});
+// --- facebook caption endpoint tests --------------------------------------------------
+describe('admin facebook caption endpoint', () => {
+	it('returns generated caption for kentucky article', async () => {
+		await ensureSchemaAndFixture();
+		const row = await env.ky_news_db
+			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
+			.bind('https://example.com/ky-today')
+			.first<{ id: number }>();
+		const articleId = Number(row?.id ?? 0);
+		expect(articleId).toBeGreaterThan(0);
+
+		const request = new IncomingRequest('https://example.com/api/admin/facebook/caption', {
+			method: 'POST',
+			headers: {
+				'x-admin-key': 'secret',
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({ id: articleId }),
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, envWithAdminPassword('secret'), ctx);
+		expect(response.status).toBe(200);
+		const payload = await response.json<{ ok: boolean; caption: string }>();
+		expect(payload.ok).toBe(true);
+		expect(payload.caption).toContain('Fayette');
+		expect(payload.caption).toContain('#KentuckyNews');
+	});
+
+	it('responds with empty caption for non-kentucky article', async () => {
+		await ensureSchemaAndFixture();
+		await env.ky_news_db.prepare(`
+			INSERT INTO articles (
+				canonical_url, source_url, url_hash, title, author, published_at, category,
+				is_kentucky, county, city, summary, seo_description, raw_word_count,
+				summary_word_count, content_text, content_html, image_url, raw_r2_key
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind(
+			'https://example.com/national',
+			'https://example.com',
+			'national-hash',
+			'National Story',
+			null,
+			new Date().toISOString(),
+			'national',
+			0,
+			null,
+			null,
+			'National summary',
+			'SEO',
+			100,
+			50,
+			'body',
+			'<p>body</p>',
+			null,
+			null,
+		).run();
+
+		const { id: nid } = await env.ky_news_db
+			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
+			.bind('https://example.com/national')
+			.first<{ id: number }>();
+
+		const request = new IncomingRequest('https://example.com/api/admin/facebook/caption', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'secret', 'content-type': 'application/json' },
+			body: JSON.stringify({ id: nid }),
+		});
+		const ctx2 = createExecutionContext();
+		const resp2 = await worker.fetch(request, envWithAdminPassword('secret'), ctx2);
+		expect(resp2.status).toBe(200);
+		const payload2 = await resp2.json<{ ok: boolean; caption: string }>();
+		expect(payload2.ok).toBe(true);
+		expect(payload2.caption).toBe('');
+	});
+});
+
+// facebook posting endpoint tests
+
+describe('admin facebook post endpoint', () => {
+	it('returns error when Facebook credentials are missing', async () => {
+		await ensureSchemaAndFixture();
+		const row = await env.ky_news_db
+			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
+			.bind('https://example.com/ky-today')
+			.first<{ id: number }>();
+		const articleId = Number(row?.id ?? 0);
+		expect(articleId).toBeGreaterThan(0);
+
+		const request = new IncomingRequest('https://example.com/api/admin/facebook/post', {
+			method: 'POST',
+			headers: {
+				'x-admin-key': 'secret',
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({ id: articleId }),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(request, envWithAdminPassword('secret'), ctx);
+		expect(resp.status).toBe(500);
+		const body = await resp.json();
+		expect(body.error).toMatch(/credentials/i);
 	});
 });

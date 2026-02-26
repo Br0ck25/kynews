@@ -43,6 +43,7 @@ import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
 import { classifyArticleWithAi } from './lib/classify';
 import { summarizeArticle } from './lib/ai';
 import type { Category, NewArticle } from './types';
+import { generateFacebookCaption } from './lib/facebook';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -700,6 +701,65 @@ if (url.pathname === '/api/admin/facebook/preview' && request.method === 'POST')
 		imageUrl: null,
 		publishedAt: null,
 	});
+}
+
+// new endpoint to generate a caption for an article for Facebook autoposting
+if (url.pathname === '/api/admin/facebook/caption' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+
+	const body = await parseJsonBody<{ id?: number }>(request);
+	const id = Number(body?.id ?? 0);
+	if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+
+	const article = await getArticleById(env, id);
+	if (!article) return json({ error: 'Article not found' }, 404);
+
+	const caption = generateFacebookCaption(article);
+	return json({ ok: true, caption });
+}
+
+// optionally post the generated caption link to a Facebook page using Graph API
+if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+
+	const body = await parseJsonBody<{ id?: number }>(request);
+	const id = Number(body?.id ?? 0);
+	if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+
+	const article = await getArticleById(env, id);
+	if (!article) return json({ error: 'Article not found' }, 404);
+
+	const caption = generateFacebookCaption(article);
+	if (!caption) {
+		return json({ ok: false, reason: 'article not Kentucky or missing data' });
+	}
+
+	const pageId = ((env as any).FACEBOOK_PAGE_ID || '').trim();
+	const pageToken = ((env as any).FACEBOOK_PAGE_ACCESS_TOKEN || '').trim();
+	if (!pageId || !pageToken) {
+		return json({ error: 'Facebook credentials not configured' }, 500);
+	}
+
+	// perform Graph API request
+	try {
+		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({
+				message: caption,
+				link: article.canonicalUrl || article.sourceUrl || '',
+				access_token: pageToken,
+			}),
+		});
+		const postData = await postResp.json();
+		return json({ ok: true, result: postData });
+	} catch (err) {
+		return json({ error: 'Failed to post to Facebook', details: String(err) }, 500);
+	}
 }
 
 // Manually create an article (from a Facebook post or any other source) without going through

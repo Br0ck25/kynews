@@ -5,6 +5,7 @@ import SinglePost from './single-post-component';
 // minimal redux store provider for dispatch; we can use same store
 import { Provider } from 'react-redux';
 import store from '../../redux/store/store';
+import { MemoryRouter as Router } from 'react-router-dom';
 
 const basePost = {
   title: 'Test Article',
@@ -22,7 +23,9 @@ const basePost = {
 test('renders tags for post', () => {
   render(
     <Provider store={store}>
-      <SinglePost post={basePost} />
+      <Router>
+        <SinglePost post={basePost} />
+      </Router>
     </Provider>
   );
 

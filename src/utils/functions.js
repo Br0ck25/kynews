@@ -142,3 +142,66 @@ export function articleToUrl(post) {
   // Kentucky statewide article
   return `/news/kentucky/${slug}`;
 }
+
+// ---------------------------------------------------------------------------
+// Facebook caption helper (for building auto-post templates)
+// ---------------------------------------------------------------------------
+
+/**
+ * Clean up a headline for use in a Facebook post. Strips common
+ * trailing branding segments separated by pipes or dashes.
+ */
+export function cleanHeadline(title) {
+  if (!title || typeof title !== 'string') return '';
+  let cleaned = title.trim();
+  // remove trailing " - Something" or " | Something" or similar
+  cleaned = cleaned.replace(/\s*[-–—|]\s*[^-–—|]+$/, '').trim();
+  return cleaned;
+}
+
+/**
+ * Pick a short hook from the article summary. Uses the first sentence
+ * and trims to 40 words if necessary.
+ */
+export function generateHook(summary = '', county = '') {
+  const text = (summary || '').trim();
+  if (!text) return '';
+  const sentences = text.split(/(?<=[.?!])\s+/);
+  let hook = sentences[0] || text;
+  const words = hook.split(/\s+/);
+  if (words.length > 40) {
+    hook = words.slice(0, 40).join(' ') + '…';
+  }
+  // if county is provided and not already mentioned, prefix a location phrase
+  if (county && !new RegExp(county, 'i').test(hook)) {
+    hook = `In ${county} County, ${hook.charAt(0).toLowerCase() === hook.charAt(0) ? hook : hook}`;
+  }
+  return hook;
+}
+
+/**
+ * Build a caption suitable for Facebook auto-posting. Returns an empty string
+ * for non-Kentucky articles (no county and isKentucky false).
+ */
+export function generateFacebookCaption(post = {}) {
+  if (!post || typeof post !== 'object') return '';
+  const isKy = Boolean(post.county) || Boolean(post.isKentucky);
+  if (!isKy) return '';
+
+  const headline = cleanHeadline(post.title || '');
+  const hook = generateHook(post.summary || '', post.county || post.city || '');
+  const link = post.url || articleToUrl(post);
+
+  const hashtags = [];
+  if (post.county) {
+    const tag = `#${post.county.replace(/\s+/g, '')}County`;
+    hashtags.push(tag);
+  }
+  hashtags.push('#KentuckyNews');
+
+  let caption = headline;
+  if (hook) caption += `\n\n${hook}`;
+  if (link) caption += `\n\nRead more:\n${link}`;
+  if (hashtags.length) caption += `\n\n${hashtags.join(' ')}`;
+  return caption.trim();
+}
