@@ -1,5 +1,6 @@
 import type { ArticleListResponse, ArticleRecord, Category, NewArticle } from '../types';
 import { normalizeCountyList } from './geo';
+import { normalizeCanonicalUrl } from './http';
 
 interface ArticleRow {
   id: number;
@@ -327,7 +328,8 @@ export async function queryArticles(env: Env, options: {
     binds.push(Number.parseInt(options.cursor, 10) || Number.MAX_SAFE_INTEGER);
   }
 
-  binds.push(options.limit + 1);
+  const sqlLimit = Math.min((options.limit * 3) + 5, 300);
+  binds.push(sqlLimit);
 
   // Guard: always ensure a WHERE clause exists (empty-where would be invalid SQL)
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1';
@@ -335,9 +337,19 @@ export async function queryArticles(env: Env, options: {
 
   const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
   const mapped = (rows.results ?? []).map(mapArticleRow);
+  const uniqueItems: ArticleRecord[] = [];
+  const seenCanonical = new Set<string>();
 
-  const hasMore = mapped.length > options.limit;
-  const items = hasMore ? mapped.slice(0, options.limit) : mapped;
+  for (const article of mapped) {
+    const dedupeKey = normalizeCanonicalUrl(article.canonicalUrl || article.sourceUrl || '');
+    if (dedupeKey && seenCanonical.has(dedupeKey)) continue;
+    if (dedupeKey) seenCanonical.add(dedupeKey);
+    uniqueItems.push(article);
+    if (uniqueItems.length > options.limit) break;
+  }
+
+  const hasMore = uniqueItems.length > options.limit;
+  const items = hasMore ? uniqueItems.slice(0, options.limit) : uniqueItems;
 
   return {
     items,

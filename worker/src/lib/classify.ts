@@ -77,6 +77,7 @@ const COUNTY_PATTERNS = KY_COUNTIES.map((county) => ({
 }));
 
 const KENTUCKY_OR_KY_RE = /\bkentucky\b|\bky\b/i;
+const CLASSIFICATION_LEAD_CHARS = 2200;
 
 type RelevanceTier = 'title' | 'body' | 'national';
 
@@ -203,9 +204,10 @@ export async function classifyArticleWithAi(
   const relevance = classifyArticle(cleanTitle, cleanContent);
 
   const semanticText = `${cleanTitle}\n${cleanContent}`;
-  const semanticCategory = detectSemanticCategory(semanticText);
+  const semanticLeadText = `${cleanTitle}\n${cleanContent.slice(0, CLASSIFICATION_LEAD_CHARS)}`;
+  const semanticCategory = detectSemanticCategory(semanticLeadText);
 
-  const hasKhsaa = /\bkhsaa\b/i.test(semanticText);
+  const hasKhsaa = /\bkhsaa\b/i.test(semanticLeadText);
   const isKySchoolsSource = isKySchoolsDomain(input.url);
   const baseIsKentucky = relevance.category === 'kentucky' || hasKhsaa;
   const baseGeo = baseIsKentucky ? detectKentuckyGeo(semanticText) : { county: null, city: null };
@@ -225,14 +227,14 @@ export async function classifyArticleWithAi(
   // Louisville Cardinals / UofL sports: Louisville is in AMBIGUOUS_CITY_TERMS so it
   // doesn't trigger KY by itself. But "Louisville" + any sports keyword is a reliable
   // KY sports signal — UofL is unambiguously a Kentucky institution.
-  if (!baseIsKentucky && category === 'sports' && /\b(louisville|uofl|u of l|cardinals)\b/i.test(semanticText)) {
+  if (!baseIsKentucky && category === 'sports' && /\b(louisville|uofl|u of l|cardinals)\b/i.test(semanticLeadText)) {
     category = 'sports';
     // Will be corrected to national below if we can't confirm KY — but first
     // treat Louisville sports as a KY signal and let the merge handle it.
   }
   const louisvilleSportsSignal =
-    /\b(louisville|uofl|u of l)\b/i.test(semanticText) &&
-    detectSemanticCategory(semanticText) === 'sports';
+    /\b(louisville|uofl|u of l)\b/i.test(semanticLeadText) &&
+    detectSemanticCategory(semanticLeadText) === 'sports';
 
   let fallback: ClassificationResult = {
     isKentucky: baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource,
@@ -245,7 +247,19 @@ export async function classifyArticleWithAi(
   if (fallback.category === 'sports' && !fallback.isKentucky && !hasKhsaa && !isKySchoolsSource) {
     fallback.category = 'national';
   }
-  fallback.category = normalizeCategoryForKentuckyScope(fallback.category, fallback.isKentucky);
+  fallback.category = enforceCategoryEvidence(
+    normalizeCategoryForKentuckyScope(fallback.category, fallback.isKentucky),
+    cleanTitle,
+    semanticLeadText,
+    fallback.isKentucky,
+    isKySchoolsSource,
+  );
+
+  // District-owned *.kyschools.us domains are authoritative for schools context.
+  // Avoid slow/unstable AI calls for these sources.
+  if (isKySchoolsSource) {
+    return fallback;
+  }
 
   if (!shouldUseAiFallback(cleanTitle, cleanContent, fallback)) {
     return fallback;
@@ -353,7 +367,13 @@ export async function classifyArticleWithAi(
       isKentucky: mergedIsKentucky,
       county: mergedCounty,
       city: fallback.city ?? aiGeo.city,
-      category: normalizeCategoryForKentuckyScope(hasKhsaa ? 'sports' : mergedCategory, mergedIsKentucky),
+      category: enforceCategoryEvidence(
+        normalizeCategoryForKentuckyScope(hasKhsaa ? 'sports' : mergedCategory, mergedIsKentucky),
+        cleanTitle,
+        semanticLeadText,
+        mergedIsKentucky,
+        isKySchoolsSource,
+      ),
     };
 
     return fallback;
@@ -738,6 +758,43 @@ function isKentuckyOnlyInStateList(normalizedText: string): boolean {
   }
 
   return foundAny && allInEnumeration;
+}
+
+function enforceCategoryEvidence(
+  category: Category,
+  title: string,
+  leadText: string,
+  isKentucky: boolean,
+  isKySchoolsSource: boolean,
+): Category {
+  if (category === 'today' || category === 'national') {
+    return normalizeCategoryForKentuckyScope(category, isKentucky);
+  }
+
+  if (category === 'schools' && isKySchoolsSource) {
+    return 'schools';
+  }
+
+  const patterns = CATEGORY_PATTERNS[category as keyof typeof CATEGORY_PATTERNS] ?? [];
+  if (patterns.length === 0) return normalizeCategoryForKentuckyScope(category, isKentucky);
+
+  const titleSignal = patterns.some((pattern) => pattern.test(title));
+  const leadSignals = countCategorySignalHits(patterns, leadText);
+  const hasEvidence = titleSignal || leadSignals >= 2;
+
+  if (!hasEvidence) {
+    return isKentucky ? 'today' : 'national';
+  }
+
+  return normalizeCategoryForKentuckyScope(category, isKentucky);
+}
+
+function countCategorySignalHits(patterns: RegExp[], text: string): number {
+  let hits = 0;
+  for (const pattern of patterns) {
+    if (pattern.test(text)) hits += 1;
+  }
+  return hits;
 }
 
 /**

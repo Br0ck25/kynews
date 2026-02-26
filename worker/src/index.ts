@@ -29,6 +29,7 @@ import {
 	corsPreflightResponse,
 	isAllowedCategory,
 	json,
+	normalizeCanonicalUrl,
 	parseCommaList,
 	parseJsonBody,
 	parsePositiveInt,
@@ -173,9 +174,10 @@ const seenLinks = new Set<string>();
 for (const candidate of uniqueFeeds) {
 const parsed = await fetchAndParseFeed(env, candidate).catch(() => []);
 for (const item of parsed) {
-if (!item.link || seenLinks.has(item.link)) continue;
-seenLinks.add(item.link);
-allItems.push(item);
+const normalizedLink = normalizeCanonicalUrl(item.link || '');
+if (!normalizedLink || seenLinks.has(normalizedLink)) continue;
+seenLinks.add(normalizedLink);
+allItems.push({ ...item, link: normalizedLink });
 }
 }
 
@@ -575,8 +577,8 @@ if (sourceUrlInput !== undefined) {
 const existing = await getArticleById(env, id);
 if (!existing) return json({ error: 'Article not found' }, 404);
 
-const canonicalUrl = canonicalUrlInput ?? existing.canonicalUrl;
-const sourceUrl = sourceUrlInput ?? existing.sourceUrl;
+const canonicalUrl = normalizeCanonicalUrl(canonicalUrlInput ?? existing.canonicalUrl);
+const sourceUrl = normalizeCanonicalUrl(sourceUrlInput ?? existing.sourceUrl);
 const urlHash = await sha256Hex(canonicalUrl);
 
 const duplicate = await findArticleByHash(env, urlHash);
@@ -736,8 +738,9 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 
 	// Canonical URL: use source URL when valid, otherwise derive from title hash
 	const canonicalUrl = sourceUrl && isHttpUrl(sourceUrl)
-		? sourceUrl
+		? normalizeCanonicalUrl(sourceUrl)
 		: `https://localkynews.com/manual/${await sha256Hex(title + resolvedPublishedAt)}`;
+	const normalizedSourceUrl = sourceUrl ? normalizeCanonicalUrl(sourceUrl) : canonicalUrl;
 
 	const canonicalHash = await sha256Hex(canonicalUrl);
 
@@ -790,7 +793,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 
 	const newArticle: NewArticle = {
 		canonicalUrl,
-		sourceUrl: sourceUrl || canonicalUrl,
+		sourceUrl: normalizedSourceUrl || canonicalUrl,
 		urlHash: canonicalHash,
 		title,
 		author: null,
@@ -1387,9 +1390,10 @@ const parsedItems = await fetchAndParseFeed(env, feedUrl);
 if (parsedItems.length > 0) {
 if (!status.selectedFeed) status.selectedFeed = feedUrl;
 for (const item of parsedItems) {
-if (!item.link || seenLinks.has(item.link)) continue;
-seenLinks.add(item.link);
-feedItems.push(item);
+const normalizedLink = normalizeCanonicalUrl(item.link || '');
+if (!normalizedLink || seenLinks.has(normalizedLink)) continue;
+seenLinks.add(normalizedLink);
+feedItems.push({ ...item, link: normalizedLink });
 }
 }
 } catch (error) {

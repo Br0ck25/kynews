@@ -4,7 +4,7 @@ import worker from '../src/index';
 import { __testables } from '../src/index';
 import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
 import { detectCounty } from '../src/lib/geo';
-import { sha256Hex, toIsoDateOrNull } from '../src/lib/http';
+import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
@@ -379,6 +379,26 @@ describe('classification utilities', () => {
 		expect(nonKySports.category).toBe('national');
 		expect(nonKySchools.category).toBe('national');
 	});
+
+	it('keeps non-school profile pages out of schools category', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.whas11.com/article/about-us/team-bios/mallory-schnell/417-d50bc603-395f-48b1-87d1-fc939dcbb016',
+			title: 'Mallory Schnell | Team Bios | WHAS11.com',
+			content: 'Mallory Schnell is a reporter covering local and national stories for WHAS11.',
+		});
+
+		expect(classification.category).not.toBe('schools');
+	});
+
+	it('requires real weather evidence before assigning weather category', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://stateline.org/2026/02/20/repub/governors-say-trump-told-them-he-wont-force-immigration-enforcement-surges-on-states/',
+			title: 'Governors say Trump told them he won’t force immigration enforcement surges on states',
+			content: 'Governors discussed immigration enforcement resources and federal policy during a meeting in Washington.',
+		});
+
+		expect(classification.category).not.toBe('weather');
+	});
 });
 
 describe('date parsing utilities', () => {
@@ -391,6 +411,15 @@ describe('date parsing utilities', () => {
 
 	it('returns ISO string for valid date values in strict parser', () => {
 		expect(toIsoDateOrNull('2026-02-24T12:34:56Z')).toBe('2026-02-24T12:34:56.000Z');
+	});
+
+	it('normalizes canonical URLs for dedupe hashing', () => {
+		expect(
+			normalizeCanonicalUrl('https://www.Example.com/news/story/?utm_source=rss&fbclid=abc#section'),
+		).toBe('https://example.com/news/story');
+		expect(
+			normalizeCanonicalUrl('https://example.com/news/story/'),
+		).toBe('https://example.com/news/story');
 	});
 });
 

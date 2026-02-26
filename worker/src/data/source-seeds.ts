@@ -115,7 +115,6 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://www.themountaineagle.com/rss',
   'https://www.themountaineagle.com/rss/',
   'https://www.voice-tribune.com/blog-feed.xml',
-  'https://www.whas11.com/feeds/syndication/rss/about-us',
   'https://www.whas11.com/feeds/syndication/rss/news',
   'https://www.wkms.org/rss.xml',
   'https://www.wkms.org/rss.xml?format=rss',

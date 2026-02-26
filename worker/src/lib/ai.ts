@@ -284,6 +284,8 @@ export async function summarizeArticle(
     // best effort AI, fallback stays in place
   }
 
+  summary = stripBoilerplateFromOutput(summary, title);
+  summary = normalizeParagraphBoundaries(summary);
   summary = fixLeadingParagraphPunctuation(ensureCompleteLastSentence(summary));
   seo = enforceSeoLength(seo, summary);
 
@@ -835,18 +837,13 @@ function isMalformedSummary(text: string): boolean {
 function ensureCompleteLastSentence(text: string): string {
   const t = text.trim();
   if (!t) return t;
-  if (/[.!?'"\u201d\u2019]$/.test(t)) return t;
-  const lastEnd = Math.max(
-    t.lastIndexOf('. '),
-    t.lastIndexOf('! '),
-    t.lastIndexOf('? '),
-    t.lastIndexOf('.\n'),
-    t.lastIndexOf('!\n'),
-    t.lastIndexOf('?\n'),
-  );
-  if (lastEnd > 0) {
-    return t.slice(0, lastEnd + 1).trim();
+  if (/[.!?]["')\]\u201d\u2019]*$/.test(t)) return t;
+
+  const boundaryIndex = findLastSentenceBoundaryIndex(t);
+  if (boundaryIndex > 0) {
+    return t.slice(0, boundaryIndex + 1).trim();
   }
+
   if (/\w$/.test(t)) return `${t}.`;
   return t;
 }
@@ -856,16 +853,41 @@ function truncateToSentenceBoundary(text: string, maxWords: number): string {
   if (words.length <= maxWords) return text;
 
   const candidate = words.slice(0, maxWords).join(' ');
-  const sentenceEndIdx = Math.max(
-    candidate.lastIndexOf('. '),
-    candidate.lastIndexOf('! '),
-    candidate.lastIndexOf('? '),
-    candidate.lastIndexOf('.\n'),
-  );
+  const sentenceEndIdx = findLastSentenceBoundaryIndex(candidate);
   if (sentenceEndIdx > 0) {
     return candidate.slice(0, sentenceEndIdx + 1).trim();
   }
-  return candidate.trim();
+  return ensureCompleteLastSentence(candidate.trim());
+}
+
+function findLastSentenceBoundaryIndex(text: string): number {
+  for (let i = text.length - 1; i >= 0; i -= 1) {
+    const ch = text[i];
+    if (!(ch === '.' || ch === '!' || ch === '?')) continue;
+    if (ch === '.' && (isLikelyAbbreviationAt(text, i) || isDecimalPoint(text, i))) continue;
+    return i;
+  }
+  return -1;
+}
+
+function isLikelyAbbreviationAt(text: string, punctuationIndex: number): boolean {
+  if (punctuationIndex < 0 || text[punctuationIndex] !== '.') return false;
+
+  const start = Math.max(0, punctuationIndex - 24);
+  const window = text.slice(start, punctuationIndex + 1);
+
+  if (/\b(?:[A-Za-z]\.){2,}$/.test(window)) return true; // U.S. / D.C.
+  if (/\b[A-Za-z]\.$/.test(window)) return true; // split initials, e.g. "U."
+  if (/\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Gen|Rep|Sen|Prof|Sr|Jr|St|No|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Ky|a\.m|p\.m)\.$/i.test(window)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isDecimalPoint(text: string, punctuationIndex: number): boolean {
+  if (punctuationIndex <= 0 || punctuationIndex >= text.length - 1) return false;
+  return /\d/.test(text[punctuationIndex - 1] || '') && /\d/.test(text[punctuationIndex + 1] || '');
 }
 
 function hasHallucinatedNumbers(original: string, summary: string): boolean {

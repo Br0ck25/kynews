@@ -4,7 +4,7 @@ import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed } from './classify';
 import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
-import { cachedTextFetch, sha256Hex, toIsoDateOrNull, wordCount } from './http';
+import { cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
 
 const TITLE_SIMILARITY_REJECT_THRESHOLD = 0.9;
@@ -127,15 +127,17 @@ async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<E
     const description = source.providedDescription?.trim() ?? '';
     const title = source.providedTitle?.trim() || source.url;
     const resolvedPublishedAt = toIsoDateOrNull(source.feedPublishedAt) ?? new Date().toISOString();
+    const normalizedCanonical = normalizeCanonicalUrl(source.url);
+    const normalizedSource = normalizeCanonicalUrl(source.sourceUrl ?? source.url);
     return {
-      canonicalUrl: source.url,
-      sourceUrl: source.sourceUrl ?? source.url,
+      canonicalUrl: normalizedCanonical,
+      sourceUrl: normalizedSource,
       title,
       author: null,
       publishedAt: resolvedPublishedAt,
       contentHtml: description,
       contentText: description,
-      classificationText: [source.providedTitle, source.providedDescription].filter(Boolean).join(' '),
+      classificationText: [source.providedTitle, source.providedDescription].filter(Boolean).join(' ').slice(0, 4000),
       imageUrl: null,
     };
   }
@@ -159,21 +161,24 @@ async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<E
     source.providedDescription ||
     source.providedTitle ||
     '';
+  const classificationLead = (structuredText || readableText || rssText || '').slice(0, 4000);
 
   const resolvedPublishedAt =
     scraped.publishedAt ??
     toIsoDateOrNull(source.feedPublishedAt) ??
     new Date().toISOString();
+  const normalizedCanonical = normalizeCanonicalUrl(scraped.canonicalUrl);
+  const normalizedSource = normalizeCanonicalUrl(source.sourceUrl ?? source.url);
 
   return {
-    canonicalUrl: scraped.canonicalUrl,
-    sourceUrl: source.sourceUrl ?? source.url,
+    canonicalUrl: normalizedCanonical,
+    sourceUrl: normalizedSource,
     title: readability?.title || scraped.title || source.providedTitle || source.url,
     author: scraped.author,
     publishedAt: resolvedPublishedAt,
     contentHtml: readableHtml || scraped.contentHtml,
     contentText: synthesizedText,
-    classificationText: readableText || rssText,
+    classificationText: classificationLead,
     imageUrl: scraped.imageUrl,
   };
 }

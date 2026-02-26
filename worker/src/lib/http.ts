@@ -69,6 +69,52 @@ export async function sha256Hex(input: string): Promise<string> {
   return bufferToHex(digest);
 }
 
+/**
+ * Normalize article URLs so semantically-identical links hash to the same value.
+ * This reduces duplicate inserts caused by tracking params, trailing slashes, etc.
+ */
+export function normalizeCanonicalUrl(input: string): string {
+  const raw = (input || '').trim();
+  if (!raw) return raw;
+
+  try {
+    const parsed = new URL(raw);
+
+    if (!(parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
+      return raw;
+    }
+
+    parsed.hash = '';
+    parsed.hostname = parsed.hostname.toLowerCase();
+    if (parsed.hostname.startsWith('www.')) {
+      parsed.hostname = parsed.hostname.slice(4);
+    }
+
+    if ((parsed.protocol === 'http:' && parsed.port === '80') || (parsed.protocol === 'https:' && parsed.port === '443')) {
+      parsed.port = '';
+    }
+
+    const keptParams: Array<[string, string]> = [];
+    for (const [key, value] of parsed.searchParams.entries()) {
+      if (isTrackingQueryParam(key)) continue;
+      keptParams.push([key, value]);
+    }
+    keptParams.sort(([a], [b]) => a.localeCompare(b));
+    parsed.search = '';
+    for (const [key, value] of keptParams) {
+      parsed.searchParams.append(key, value);
+    }
+
+    let pathname = parsed.pathname.replace(/\/{2,}/g, '/');
+    if (pathname.length > 1) pathname = pathname.replace(/\/+$/, '');
+    parsed.pathname = pathname || '/';
+
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
+}
+
 export function wordCount(input: string): number {
   const normalized = input.trim();
   if (!normalized) return 0;
@@ -142,4 +188,20 @@ function bufferToHex(buffer: ArrayBuffer): string {
     chars.push(byte.toString(16).padStart(2, '0'));
   }
   return chars.join('');
+}
+
+function isTrackingQueryParam(key: string): boolean {
+  const lower = key.toLowerCase();
+  return (
+    lower.startsWith('utm_') ||
+    lower.startsWith('fbclid') ||
+    lower.startsWith('gclid') ||
+    lower.startsWith('msclkid') ||
+    lower.startsWith('mc_') ||
+    lower.startsWith('ga_') ||
+    lower === 'ref' ||
+    lower === 'ref_src' ||
+    lower === 'source' ||
+    lower === 'outputtype'
+  );
 }

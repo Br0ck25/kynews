@@ -70,6 +70,7 @@ export default function FeaturedPost(props) {
   const summaryParagraphs = React.useMemo(() => {
     const raw = String(post?.shortDesc || "")
       .replace(/<[^>]+>/g, " ")
+      .replace(/[\u2028\u2029]/g, "\n")
       .replace(/[ \t]+/g, " ")
       .trim();
 
@@ -105,20 +106,7 @@ export default function FeaturedPost(props) {
       mergedParagraphs.push(paragraph);
     });
 
-    if (mergedParagraphs.length > 1) return mergedParagraphs;
-
-    // Single-paragraph summary: split into 2-3 sentence chunks so the reader
-    // doesn't see a wall of text. Target ~3 sentences per paragraph.
-    const singleText = mergedParagraphs[0] || raw;
-    const sentences = singleText.match(/[^.!?]*[.!?]+["'\u201d]?(?:\s|$)/g) || [singleText];
-    if (sentences.length <= 3) return [singleText];
-
-    const chunks = [];
-    for (let i = 0; i < sentences.length; i += 3) {
-      const chunk = sentences.slice(i, i + 3).join("").trim();
-      if (chunk) chunks.push(chunk);
-    }
-    return chunks.length > 0 ? chunks : [singleText];
+    return mergedParagraphs.length > 0 ? mergedParagraphs : [raw];
   }, [post?.shortDesc]);
 
   const sourceName = extractSourceName(post.originalLink || post.sourceUrl || "");

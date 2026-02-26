@@ -97,4 +97,26 @@ describe('summary sanitization', () => {
     const paragraphs = result.summary.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
     expect(paragraphs.every((p) => !/^[,;:)\]]/.test(p))).toBe(true);
   });
+
+  it('does not truncate at abbreviation boundaries like U.S. or D.C.', async () => {
+    const env = makeEnv(
+      'In 2023, 11 percent of the 17.6 million U.S. veterans were women and the number has grown over time',
+    );
+
+    const source = [
+      'In 2023, 11 percent of the 17.6 million U.S. veterans were women.',
+      'State officials said the trend reflects growing service participation by women.',
+    ].join(' ');
+
+    const result = await summarizeArticle(
+      env,
+      'unit-sanitize-4',
+      'Veteran population update',
+      source,
+      new Date().toISOString(),
+    );
+
+    expect(result.summary).toContain('U.S. veterans were women');
+    expect(result.summary).toMatch(/women and the number has grown over time\.$/);
+  });
 });

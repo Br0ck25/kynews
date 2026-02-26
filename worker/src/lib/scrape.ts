@@ -1,4 +1,4 @@
-import { toIsoDateOrNull } from './http';
+import { normalizeCanonicalUrl, toIsoDateOrNull } from './http';
 
 const META_REGEXPS: Record<string, RegExp[]> = {
   title: [
@@ -57,7 +57,7 @@ export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocum
   const contentText = normalizeText(stripHtml(cleanedHtml));
 
   return {
-    canonicalUrl: absolutizeMaybe(canonical, sourceUrl),
+    canonicalUrl: normalizeCanonicalUrl(absolutizeMaybe(canonical, sourceUrl)),
     title: normalizeText(title),
     author: author ? normalizeText(author) : null,
     publishedAt,
