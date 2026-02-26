@@ -119,7 +119,8 @@ options:
    `kynews.pages.dev`.
 
 2. **Use an explicit base URL.** Set the environment variable
-   `REACT_APP_API_BASE_URL` for your Pages project (or in `.env` for local testing) to
+   `REACT_APP_API_BASE_URL` (or, when using Vite locally, the equivalent
+   `VITE_API_BASE_URL`) for your Pages project (or in `.env` for local testing) to
 the full origin of the Worker (e.g. `https://<your-worker-subdomain>.workers.dev`). The
    front‑end will prepend this value when constructing API routes. This approach works
    whether the Worker is routed or not, as long as the variable points at the deployed

@@ -48,7 +48,9 @@ function LegacyCountyRedirect() {
 
 function AppTagSync() {
   const dispatch = useDispatch();
-  const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
+  // SiteService already handles environment detection internally; avoid
+  // referencing `process` directly to keep Vite dev server happy.
+  const service = new SiteService();
 
   React.useEffect(() => {
     service.getTags().then((tags) => {

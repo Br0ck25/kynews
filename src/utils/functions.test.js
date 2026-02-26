@@ -1,4 +1,5 @@
 import { countyToSlug, slugToCounty } from './functions';
+import { SITE_URL } from './functions';
 import { KENTUCKY_COUNTIES } from '../constants/counties';
 
 describe('county slug helpers', () => {

@@ -43,7 +43,12 @@ registerRoute(
 
     return true;
   },
-  createHandlerBoundToURL(process.env.PUBLIC_URL + '/index.html')
+  // infer base URL safely using PUBLIC_URL or Vite's BASE_URL fallback
+  createHandlerBoundToURL(
+    ((typeof process !== 'undefined' && process.env && process.env.PUBLIC_URL) ||
+      import.meta.env.BASE_URL ||
+      '') + '/index.html'
+  )
 );
 
 // An example runtime caching route for requests that aren't handled by the
