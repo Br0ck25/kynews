@@ -84,9 +84,6 @@ export default function SinglePost(props) {
     ShareAPI(title, text, url);
   };
 
-  const articleUrl = articleToUrl(post);
-  const hasCleanUrl = Boolean(post.slug);
-
   return (
     <>
       {openSnackbarNotify && (
@@ -94,13 +91,7 @@ export default function SinglePost(props) {
       )}
       <Grid item xs={12} sm={6} md={4}>
         <Card className={classes.card}>
-          {/* If article has a clean slug URL, wrap CardActionArea as a RouterLink for SEO navigation.
-              Otherwise keep the legacy dialog behavior via onClick dispatch. */}
-          <CardActionArea
-            component={hasCleanUrl ? RouterLink : "div"}
-            to={hasCleanUrl ? articleUrl : undefined}
-            onClick={hasCleanUrl ? undefined : () => handlePost(post)}
-          >
+          <CardActionArea onClick={() => handlePost(post)}>
             {/* <CardActionArea component="a" href="#"> */}
             {/* <Card className={classes.card}>
           <div className={classes.cardDetails}>
@@ -134,10 +125,7 @@ export default function SinglePost(props) {
               loading="lazy"
               onError={(e) => { e.target.onerror = null; e.target.src = "/logo.png"; }}
             />
-            <CardContent
-              onClick={hasCleanUrl ? undefined : () => handlePost(post)}
-              className={classes.cardContent}
-            >
+            <CardContent className={classes.cardContent}>
               {postTags.length > 0 && (
                 <div style={{ marginBottom: 8 }}>
                   {postTags.map((tag) => {
