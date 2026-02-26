@@ -1,4 +1,5 @@
 import { cachedTextFetch, toIsoDateOrNull } from './http';
+import { decodeHtmlEntities } from './scrape';
 
 export interface RssItem {
   title: string;
@@ -149,14 +150,8 @@ function firstTagValue(xml: string, tagName: string): string | null {
 }
 
 function decodeXmlEntity(input: string): string {
-  return input
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .trim();
+  const withoutCdata = input.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
+  return decodeHtmlEntities(withoutCdata).replace(/\u00a0/g, ' ').trim();
 }
 
 function extractLocValues(xml: string): string[] {

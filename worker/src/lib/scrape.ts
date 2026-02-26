@@ -39,7 +39,7 @@ export interface ScrapedDocument {
 export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocument {
   const title =
     findMeta('title', html) ??
-    decodeEntities(matchFirst(html, /<title[^>]*>([\s\S]*?)<\/title>/i) ?? '') ??
+    decodeHtmlEntities(matchFirst(html, /<title[^>]*>([\s\S]*?)<\/title>/i) ?? '') ??
     sourceUrl;
 
   const canonical = findMeta('canonical', html) ?? sourceUrl;
@@ -68,7 +68,7 @@ export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocum
 }
 
 export function normalizeText(input: string): string {
-  return decodeEntities(input)
+  return decodeHtmlEntities(input)
     .replace(/\u00a0/g, ' ')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
@@ -96,7 +96,7 @@ function findMeta(kind: keyof typeof META_REGEXPS, html: string): string | null 
   const patterns = META_REGEXPS[kind];
   for (const pattern of patterns) {
     const matched = matchFirst(html, pattern);
-    if (matched) return decodeEntities(matched);
+    if (matched) return decodeHtmlEntities(matched);
   }
   return null;
 }
@@ -107,17 +107,30 @@ function matchFirst(input: string, regex: RegExp): string | null {
   return matched[1];
 }
 
-function decodeEntities(input: string): string {
+export function decodeHtmlEntities(input: string): string {
   return input
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#(\d+);/g, (_, value: string) => {
-      const num = Number.parseInt(value, 10);
-      return Number.isFinite(num) ? String.fromCharCode(num) : _;
-    });
+    .replace(/&nbsp;?/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&#x27;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#x([0-9a-f]+);?/gi, (_match: string, value: string) =>
+      decodeCodePoint(value, 16, _match),
+    )
+    .replace(/&#([0-9]+);?/g, (_match: string, value: string) =>
+      decodeCodePoint(value, 10, _match),
+    );
+}
+
+function decodeCodePoint(value: string, radix: 10 | 16, fallback: string): string {
+  const num = Number.parseInt(value, radix);
+  if (!Number.isFinite(num) || num <= 0 || num > 0x10ffff) return fallback;
+  try {
+    return String.fromCodePoint(num);
+  } catch {
+    return fallback;
+  }
 }
 
 function absolutizeMaybe(candidate: string, base: string): string {

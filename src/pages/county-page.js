@@ -16,9 +16,7 @@ import Skeletons from "../components/skeletons-component";
 import SnackbarNotify from "../components/snackbar-notify-component";
 import { slugToCounty } from "../utils/functions";
 import { useParams, useHistory } from "react-router-dom";
-import { useDispatch } from "react-redux";
-import { setSelectedCounties } from "../redux/actions/actions";
-import { ToggleSavedCounty } from "../services/storageService";
+import { ToggleSavedCounty, GetSavedCounties } from "../services/storageService";
 
 const useStyles = makeStyles((theme) => ({
   root: {},
@@ -88,15 +86,14 @@ function getCountyIntro(countyName) {
     `Our summaries are designed to help you find the stories that matter in ${countyName} County and click through to read ` +
     `the full reporting from the outlet that produced it.\n\n` +
     `This page is updated continuously as new ${countyName} County news is published across our monitored sources. ` +
-    `If you want to follow ${countyName} County news regularly, you can save this county to your feed using the bookmark ` +
-    `button above, and the latest articles will appear on your home feed whenever you open Local KY News.`;
+    `If you want quick access to ${countyName} County news, you can bookmark this county with the button above and revisit it from the Saved page. ` +
+    `To filter your Home feed by county, use Settings → County Filters.`;
 }
 
 export default function CountyPage() {
   const classes = useStyles();
   const { countySlug } = useParams();
   const history = useHistory();
-  const dispatch = useDispatch();
 
   const countyName = slugToCounty(countySlug);
 
@@ -137,20 +134,12 @@ export default function CountyPage() {
     setCountyJsonLd(countyName);
   }, [countyName]);
 
-  const updateSelectionState = React.useCallback((tags) => {
-    const selected = (tags || []).filter((t) => t.active).map((t) => t.value);
-    dispatch(setSelectedCounties(selected));
-  }, [dispatch]);
-
-  // determine if the county is currently "saved" (selected tag)
+  // Determine whether this county is in the dedicated saved-counties list.
   useEffect(() => {
     if (!countyName) return;
-    service.getTags().then((tags) => {
-      const present = tags.find((t) => t.value === countyName && t.active);
-      setSaved(!!present);
-      updateSelectionState(tags);
-    });
-  }, [countyName, updateSelectionState]);
+    const savedCounties = GetSavedCounties();
+    setSaved(savedCounties.includes(countyName));
+  }, [countyName]);
 
   // fetch county-specific posts (and fallback state posts if needed)
   useEffect(() => {
@@ -200,24 +189,17 @@ export default function CountyPage() {
 
   const handleSave = () => {
     if (!countyName) return;
-    service.saveTags(countyName).then((tags) => {
-      const present = tags.find((t) => t.value === countyName && t.active);
-      setSaved(!!present);
-      updateSelectionState(tags);
+    const nowSaved = ToggleSavedCounty(countyName);
+    setSaved(nowSaved);
 
-      // Also persist to the dedicated "saved counties" list so users can
-      // quickly return to this county page from the Saved tab.
-      ToggleSavedCounty(countyName);
-
-      if (present) {
-        // Show a helpful message explaining how to use the county in the home feed
-        setSnackbarMessage(
-          `${countyName} County saved. To filter your home feed by county, go to Settings → County Filters.`
-        );
-      } else {
-        setSnackbarMessage(`${countyName} County removed from saved list.`);
-      }
-    });
+    if (nowSaved) {
+      // Saving a county only bookmarks it; feed filters are managed in Settings.
+      setSnackbarMessage(
+        `${countyName} County saved. To filter your home feed by county, go to Settings → County Filters.`
+      );
+    } else {
+      setSnackbarMessage(`${countyName} County removed from saved list.`);
+    }
   };
 
   const handleBack = () => {

@@ -1,5 +1,6 @@
 import type { SummaryResult } from '../types';
 import { sha256Hex, wordCount } from './http';
+import { decodeHtmlEntities } from './scrape';
 
 const MODEL = '@cf/zai-org/glm-4.7-flash' as keyof AiModels;
 
@@ -60,7 +61,9 @@ export async function summarizeArticle(
   content: string,
   publishedAt: string,
 ): Promise<SummaryResult> {
-  const originalWords = Math.max(wordCount(content), 1);
+  const cleanedSourceContent = cleanContentForSummarization(content, title);
+  const sourceForSummary = cleanedSourceContent || content;
+  const originalWords = Math.max(wordCount(sourceForSummary), 1);
   const summaryKey = `summary:${cacheKeySuffix}`;
   const ttlKey    = `summary-ttl:${cacheKeySuffix}`;
 
@@ -78,7 +81,7 @@ export async function summarizeArticle(
 
       if (existing?.summary && existing.sourceHash) {
         // Freshness marker expired — check whether source content has changed
-        const currentHash = await sha256Hex(content);
+        const currentHash = await sha256Hex(sourceForSummary);
         if (currentHash === existing.sourceHash) {
           // Content unchanged — reset the TTL marker and return the existing summary
           const ttl = summaryTtl(publishedAt);
@@ -93,16 +96,14 @@ export async function summarizeArticle(
   }
 
   // Compute source hash now (used in the stored result)
-  const sourceHash = await sha256Hex(content).catch(() => '');
-  const fallback = deterministicFallbackSummary(content, originalWords);
+  const sourceHash = await sha256Hex(sourceForSummary).catch(() => '');
+  const fallback = deterministicFallbackSummary(sourceForSummary, originalWords);
 
   let summary = fallback.summary;
   let seo = fallback.seoDescription;
 
   try {
-    // Pre-clean content before sending to AI
-    const cleanedContent = cleanContentForSummarization(content, title);
-    const userPrompt = `Article:\n${cleanedContent.slice(0, 12_000)}`;
+    const userPrompt = `Article:\n${sourceForSummary.slice(0, 12_000)}`;
 
     const aiRaw = (await env.AI.run(MODEL, {
       messages: [
@@ -137,7 +138,7 @@ export async function summarizeArticle(
       }
 
       // 13.1 Number/date validation: reject if AI introduced numbers not in the original
-      if (validatedText && hasHallucinatedNumbers(content, validatedText)) {
+      if (validatedText && hasHallucinatedNumbers(sourceForSummary, validatedText)) {
         // New numeric values detected — fall back to deterministic to avoid misinformation
         validatedText = '';
       }
@@ -145,8 +146,10 @@ export async function summarizeArticle(
       if (validatedText) {
         // Always enforce a clean sentence ending regardless of length (Section 3.2)
         validatedText = ensureCompleteLastSentence(validatedText);
-        summary = validatedText;
-        seo = enforceSeoLength(extractFirstSentence(validatedText), validatedText);
+        if (!isMalformedSummary(validatedText)) {
+          summary = validatedText;
+          seo = enforceSeoLength(extractFirstSentence(validatedText), validatedText);
+        }
       }
     }
   } catch {
@@ -244,13 +247,18 @@ function summaryTtl(publishedAt: string): number {
  * Preserves paragraph structure (double newlines).
  */
 function cleanContentForSummarization(text: string, title: string): string {
-  let t = text;
+  let t = decodeHtmlEntities(text || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n?/g, '\n');
 
   // Remove article title if it appears at the very start (case-insensitive)
   if (title) {
     const escaped = title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     t = t.replace(new RegExp(`^\\s*${escaped}\\s*\n?`, 'i'), '');
   }
+
+  // Remove top-level labels that are not article prose.
+  t = t.replace(/^\s*Summary\s*$/gim, '');
 
   // Publisher-specific boilerplate
   t = t.replace(/NEW\s*You can now listen to Fox News articles!?/gi, '');
@@ -290,6 +298,14 @@ function cleanContentForSummarization(text: string, title: string): string {
 
   // "Published [date]" lines
   t = t.replace(/^Published\s+\w+\s+\d{1,2},\s+\d{4}.*$/gmi, '');
+  // "Published 8:31 pm Wednesday, February 25, 2026" style lines
+  t = t.replace(
+    /^Published\s+\d{1,2}:\d{2}\s*(?:am|pm)\s+\w+,\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},\s+\d{4}.*$/gim,
+    '',
+  );
+  t = t.replace(/^Published\b[^\n]*$/gim, '');
+  t = t.replace(/^Updated\b[^\n]*$/gim, '');
+  t = t.replace(/^Photo by\b[^\n]*$/gim, '');
 
   // "Here is / Source: / Original article: URL" lines
   t = t.replace(/^(?:Here is the original article|Source|Original article|Read more at)[:\s]+https?:\/\/\S+.*$/gim, '');
@@ -327,13 +343,21 @@ function cleanContentForSummarization(text: string, title: string): string {
  * - Social sharing / navigation labels
  */
 function stripBoilerplateFromOutput(text: string, title: string): string {
-  let t = text;
+  let t = decodeHtmlEntities(text || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n?/g, '\n');
 
   // Remove article title if AI started with it
   if (title) {
     const escaped = title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     t = t.replace(new RegExp(`^\\s*${escaped}\\s*\n?`, 'i'), '');
   }
+
+  // Remove summary labels and metadata lines that should never appear.
+  t = t.replace(/^\s*Summary\s*$/gim, '');
+  t = t.replace(/^Published\b[^\n]*$/gim, '');
+  t = t.replace(/^Updated\b[^\n]*$/gim, '');
+  t = t.replace(/^Photo by\b[^\n]*$/gim, '');
 
   // Remove any "CLICK HERE" lines the AI echoed
   t = t.replace(/^CLICK HERE\b.+$/gim, '');
@@ -343,11 +367,93 @@ function stripBoilerplateFromOutput(text: string, title: string): string {
 
   // Remove raw URLs on their own line
   t = t.replace(/^https?:\/\/\S+\s*$/gm, '');
+  // Remove raw social/share labels on their own line
+  t = t.replace(/^(?:Facebook|Twitter|X|Threads|Flipboard|Comments|Print|Email|Share|Instagram)\s*$/gim, '');
 
   // Collapse blank lines
   t = t.replace(/\n{3,}/g, '\n\n');
+  t = normalizeParagraphBoundaries(t);
+  t = repairUnbalancedQuotes(t);
 
   return t.trim();
+}
+
+function normalizeParagraphBoundaries(text: string): string {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\n+/g, ' ').replace(/[ \t]+/g, ' ').trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) return '';
+
+  const merged: string[] = [];
+  for (const paragraph of paragraphs) {
+    if (merged.length === 0) {
+      merged.push(paragraph);
+      continue;
+    }
+
+    const previous = merged[merged.length - 1];
+    const shouldMerge =
+      !endsWithSentenceBoundary(previous) ||
+      (endsWithLikelyAbbreviation(previous) && startsWithLikelyContinuation(paragraph)) ||
+      /^[,;:)\]]/.test(paragraph) ||
+      /^[a-z]/.test(paragraph);
+
+    if (shouldMerge) {
+      merged[merged.length - 1] = `${previous} ${paragraph}`.replace(/\s+/g, ' ').trim();
+      continue;
+    }
+
+    merged.push(paragraph);
+  }
+
+  return merged.join('\n\n');
+}
+
+function endsWithSentenceBoundary(input: string): boolean {
+  return /[.!?]["')\]]*$/.test(input.trim());
+}
+
+function endsWithLikelyAbbreviation(input: string): boolean {
+  const trimmed = input.trim();
+  if (/\b[A-Z]\.$/.test(trimmed)) return true;
+  return /\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Gen|Rep|Sen|Prof|Sr|Jr|St|No)\.$/i.test(trimmed);
+}
+
+function startsWithLikelyContinuation(input: string): boolean {
+  return /^(?:[a-z]|[A-Z]\.|['"(])/.test(input.trim());
+}
+
+function repairUnbalancedQuotes(text: string): string {
+  let output = text;
+
+  const straightQuoteCount = (output.match(/"/g) ?? []).length;
+  if (straightQuoteCount % 2 !== 0) {
+    output = output.replace(/"/g, '');
+  }
+
+  const curlyOpenCount = (output.match(/\u201c/g) ?? []).length;
+  const curlyCloseCount = (output.match(/\u201d/g) ?? []).length;
+  if (curlyOpenCount !== curlyCloseCount) {
+    output = output.replace(/[\u201c\u201d]/g, '');
+  }
+
+  return output;
+}
+
+function isMalformedSummary(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+
+  if (/&(?:#\d+|#x[0-9a-f]+|nbsp|amp|quot|lt|gt);?/i.test(trimmed)) return true;
+  if (/^\s*(?:published|photo by)\b/im.test(trimmed)) return true;
+
+  const straightQuoteCount = (trimmed.match(/"/g) ?? []).length;
+  const curlyOpenCount = (trimmed.match(/\u201c/g) ?? []).length;
+  const curlyCloseCount = (trimmed.match(/\u201d/g) ?? []).length;
+
+  return straightQuoteCount % 2 !== 0 || curlyOpenCount !== curlyCloseCount;
 }
 
 /**

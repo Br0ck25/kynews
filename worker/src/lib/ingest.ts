@@ -5,7 +5,7 @@ import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed } from './classify';
 import { findArticleByHash, insertArticle, isUrlHashBlocked } from './db';
 import { cachedTextFetch, sha256Hex, toIsoDateOrNull, wordCount } from './http';
-import { scrapeArticleHtml } from './scrape';
+import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
 
 export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<IngestResult> {
   const extracted = await fetchAndExtractArticle(env, source);
@@ -135,7 +135,7 @@ async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<E
   const readableText = (readability?.textContent ?? '').trim();
   const readableHtml = readability?.content?.trim() ?? '';
   // Paragraph-structured plain text derived from the Readability HTML for better AI input
-  const structuredText = readableHtml ? htmlToStructuredText(readableHtml) : readableText;;
+  const structuredText = readableHtml ? htmlToStructuredText(readableHtml) : readableText;
 
   // Never classify from raw HTML. If Readability fails, fallback to RSS title/description only.
   const rssText = [source.providedTitle, source.providedDescription].filter(Boolean).join(' ').trim();
@@ -192,18 +192,12 @@ function htmlToStructuredText(html: string): string {
   let text = html
     .replace(/<\/(?:p|div|blockquote|li|h[1-6]|section|article|figure|figcaption)\s*>/gi, '\n\n')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '') // strip remaining tags
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#x27;/g, "'")
-    .replace(/&apos;/g, "'");
+    .replace(/<[^>]+>/g, ''); // strip remaining tags
+
+  text = decodeHtmlEntities(text);
 
   // Collapse runs of spaces/tabs (but not newlines)
-  text = text.replace(/[^\S\n]+/g, ' ');
+  text = text.replace(/\u00a0/g, ' ').replace(/[^\S\n]+/g, ' ');
   // Collapse 3+ newlines to 2
   text = text.replace(/\n{3,}/g, '\n\n');
   // Trim each line

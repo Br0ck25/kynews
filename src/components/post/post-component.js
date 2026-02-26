@@ -75,18 +75,41 @@ export default function FeaturedPost(props) {
 
     if (!raw) return [];
 
-    // Split on explicit newlines first
+    // Split by explicit paragraph breaks and merge obvious mid-sentence splits.
     const byNewline = raw
-      .split(/\n+/)
-      .map((p) => p.trim())
+      .split(/\n{2,}/)
+      .map((p) => p.replace(/\n+/g, " ").trim())
       .filter(Boolean);
 
-    // If we already have multiple paragraphs, use them directly
-    if (byNewline.length > 1) return byNewline;
+    const mergedParagraphs = [];
+    byNewline.forEach((paragraph) => {
+      if (mergedParagraphs.length === 0) {
+        mergedParagraphs.push(paragraph);
+        return;
+      }
+
+      const previous = mergedParagraphs[mergedParagraphs.length - 1];
+      const shouldMerge =
+        !/[.!?]["')\]]*$/.test(previous) ||
+        /\b(?:Mr|Mrs|Ms|Dr|Gov|Rep|Sen|Lt|Gen|St|No)\.$/i.test(previous) ||
+        /^[a-z]/.test(paragraph) ||
+        /^[A-Z]\./.test(paragraph);
+
+      if (shouldMerge) {
+        mergedParagraphs[mergedParagraphs.length - 1] = `${previous} ${paragraph}`
+          .replace(/\s+/g, " ")
+          .trim();
+        return;
+      }
+
+      mergedParagraphs.push(paragraph);
+    });
+
+    if (mergedParagraphs.length > 1) return mergedParagraphs;
 
     // Single-paragraph summary: split into 2-3 sentence chunks so the reader
     // doesn't see a wall of text. Target ~3 sentences per paragraph.
-    const singleText = byNewline[0] || raw;
+    const singleText = mergedParagraphs[0] || raw;
     const sentences = singleText.match(/[^.!?]*[.!?]+["'\u201d]?(?:\s|$)/g) || [singleText];
     if (sentences.length <= 3) return [singleText];
 

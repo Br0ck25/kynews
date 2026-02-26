@@ -11,6 +11,7 @@ test('renders title and plain body text on full post component', () => {
     originalLink: 'http://example.com',
     date: '2020-01-01',
     contentText: 'Paragraph one.\n\nParagraph two.',
+    shortDesc: 'Paragraph one.\n\nParagraph two.',
     isKentucky: true,
     county: 'Campbell',
     tags: [],
@@ -70,5 +71,5 @@ test('detail actions show read full story button without share or save button', 
   expect(screen.queryByLabelText(/Share/i)).toBeNull();
   expect(screen.queryByLabelText(/Save/i)).toBeNull();
   // Read Full Story button should still be present
-  expect(screen.getByRole('link', { name: /Read Full Story/i })).toBeInTheDocument();
+  expect(screen.getAllByRole('link', { name: /Read Full Story/i }).length).toBeGreaterThan(0);
 });
