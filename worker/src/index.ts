@@ -1272,12 +1272,17 @@ if (shouldPersistRotation && nextOffset != null) {
 }
 
 function isHttpUrl(input: string): boolean {
-try {
-const parsed = new URL(input);
-return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-} catch {
-return false;
-}
+  try {
+    const parsed = new URL(input);
+    // filter out ky school district domains entirely
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'kyschools.us' || host.endsWith('.kyschools.us')) {
+      return false;
+    }
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function safeError(error: unknown): string {

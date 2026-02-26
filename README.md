@@ -38,6 +38,12 @@ scheduler or admin UI. The logic is intentionally Kentucky‑centric: it
 returns a blank string for national articles so that automated routines
 can skip those.
 
+> **Note:** All `kyschools.us` domains have been removed from the source
+> seed lists and the school‑URL data file has been cleared.  URLs
+> matching `*.kyschools.us` are also filtered out by the worker to prevent
+> accidental ingestion.  If you previously relied on district sites, they
+> will no longer be crawled.
+
 ### Generating captions
 
 Use the shared utility (frontend `src/utils/functions.js` or worker
