@@ -96,6 +96,29 @@ async function ensureSchemaAndFixture() {
 
 	await insertFixture
 		.bind(
+			'https://example.com/ky-schools',
+			'https://example.com',
+			'hash-ky-schools',
+			'Kentucky Schools Story',
+			null,
+			now,
+			'schools',
+			1,
+			'Pike',
+			'pikeville',
+			'Summary',
+			'SEO description',
+			128,
+			71,
+			'Content body for test',
+			'<p>Content body for test</p>',
+			null,
+			null,
+		)
+		.run();
+
+	await insertFixture
+		.bind(
 			'https://example.com/non-ky-sports',
 			'https://example.com',
 			'hash-non-ky-sports',
@@ -207,7 +230,7 @@ describe('Kentucky News worker API', () => {
 		expect(payload.ok).toBe(true);
 	});
 
-	it('today endpoint includes sports, schools, and weather alongside Kentucky-tagged stories', async () => {
+	it('today endpoint only returns Kentucky-tagged articles', async () => {
 		await ensureSchemaAndFixture();
 
 		const response = await SELF.fetch('https://example.com/api/articles/today?limit=20');
@@ -218,12 +241,11 @@ describe('Kentucky News worker API', () => {
 			nextCursor: string | null;
 		}>();
 		expect(Array.isArray(payload.items)).toBe(true);
-		expect(payload.items.length).toBe(5);
+		expect(payload.items.length).toBe(3);
+		expect(payload.items.every((item) => item.isKentucky)).toBe(true);
 		expect(payload.items.some((item) => item.category === 'sports')).toBe(true);
 		expect(payload.items.some((item) => item.category === 'schools')).toBe(true);
-		expect(payload.items.some((item) => item.category === 'weather')).toBe(true);
 		expect(payload.items.some((item) => item.category === 'today')).toBe(true);
-		expect(payload.items.some((item) => item.isKentucky)).toBe(true);
 		expect(payload).toHaveProperty('nextCursor');
 	});
 
@@ -266,6 +288,21 @@ describe('Kentucky News worker API', () => {
 		expect(Array.isArray(payload.items)).toBe(true);
 		expect(payload.items.length).toBe(1);
 		expect(payload.items[0]?.category).toBe('sports');
+		expect(payload.items[0]?.isKentucky).toBe(true);
+	});
+
+	it('schools endpoint returns kentucky-only schools articles', async () => {
+		await ensureSchemaAndFixture();
+
+		const response = await SELF.fetch('https://example.com/api/articles/schools?limit=20');
+		expect(response.status).toBe(200);
+
+		const payload = await response.json<{
+			items: Array<{ category: string; isKentucky: boolean }>;
+		}>();
+		expect(Array.isArray(payload.items)).toBe(true);
+		expect(payload.items.length).toBe(1);
+		expect(payload.items[0]?.category).toBe('schools');
 		expect(payload.items[0]?.isKentucky).toBe(true);
 	});
 });
@@ -322,6 +359,25 @@ describe('classification utilities', () => {
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Ohio');
 		expect(classification.category).toBe('schools');
+	});
+
+	it('forces non-Kentucky sports/schools/today classifications to national', async () => {
+		const nonKySports = await classifyArticleWithAi(env, {
+			url: 'https://example.com/out-of-state-college-football-recap',
+			title: 'Ohio State beats Michigan in Big Ten football rivalry game',
+			content: 'The game in Columbus drew national attention and focused on playoff implications.',
+		});
+
+		const nonKySchools = await classifyArticleWithAi(env, {
+			url: 'https://example.com/out-of-state-district-policy',
+			title: 'Springfield school board approves district policy changes',
+			content: 'The district said the policy applies to schools across the state of Ohio.',
+		});
+
+		expect(nonKySports.isKentucky).toBe(false);
+		expect(nonKySchools.isKentucky).toBe(false);
+		expect(nonKySports.category).toBe('national');
+		expect(nonKySchools.category).toBe('national');
 	});
 });
 

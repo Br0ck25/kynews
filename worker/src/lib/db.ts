@@ -291,8 +291,7 @@ export async function queryArticles(env: Env, options: {
   const binds: unknown[] = [];
 
   if (options.category === 'today') {
-    where.push('(is_kentucky = 1 OR category IN (?, ?, ?))');
-    binds.push('sports', 'schools', 'weather');
+    where.push('is_kentucky = 1');
   } else if (options.category === 'sports') {
     where.push('category = ?');
     binds.push('sports');

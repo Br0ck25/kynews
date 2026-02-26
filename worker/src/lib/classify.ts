@@ -245,6 +245,7 @@ export async function classifyArticleWithAi(
   if (fallback.category === 'sports' && !fallback.isKentucky && !hasKhsaa && !isKySchoolsSource) {
     fallback.category = 'national';
   }
+  fallback.category = normalizeCategoryForKentuckyScope(fallback.category, fallback.isKentucky);
 
   if (!shouldUseAiFallback(cleanTitle, cleanContent, fallback)) {
     return fallback;
@@ -352,7 +353,7 @@ export async function classifyArticleWithAi(
       isKentucky: mergedIsKentucky,
       county: mergedCounty,
       city: fallback.city ?? aiGeo.city,
-      category: hasKhsaa ? 'sports' : mergedCategory,
+      category: normalizeCategoryForKentuckyScope(hasKhsaa ? 'sports' : mergedCategory, mergedIsKentucky),
     };
 
     return fallback;
@@ -737,4 +738,19 @@ function isKentuckyOnlyInStateList(normalizedText: string): boolean {
   }
 
   return foundAny && allInEnumeration;
+}
+
+/**
+ * Keep Kentucky-only sections clean: non-Kentucky stories are always "national".
+ * This prevents invalid combinations like:
+ * - national + sports
+ * - national + schools
+ * - national + today
+ */
+function normalizeCategoryForKentuckyScope(category: Category, isKentucky: boolean): Category {
+  if (isKentucky) return category;
+  if (category === 'sports' || category === 'schools' || category === 'today') {
+    return 'national';
+  }
+  return category;
 }
