@@ -1,5 +1,8 @@
 import { KENTUCKY_COUNTIES } from '../constants/counties';
 
+// root of the public-facing site; used when building full URLs in captions
+export const SITE_URL = 'https://localkynews.com';
+
 /**
  * Formats a date as "MM/DD/YYYY hh:mm AM/PM ET" using the article's original published timestamp.
  * Falls back to the raw value string if the date is unparseable.
@@ -190,7 +193,7 @@ export function generateFacebookCaption(post = {}) {
 
   const headline = cleanHeadline(post.title || '');
   const hook = generateHook(post.summary || '', post.county || post.city || '');
-  const link = post.url || articleToUrl(post);
+  const link = `${SITE_URL}${articleToUrl(post)}`;
 
   const hashtags = [];
   if (post.county) {

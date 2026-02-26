@@ -105,6 +105,7 @@ describe('facebook caption helpers', () => {
     expect(caption).toContain('Residents gather');
     expect(caption).toContain('#FayetteCounty');
     expect(caption).toContain('#KentuckyNews');
+    expect(caption).toContain(SITE_URL);
 
     const national = { title: 'National', summary: 'Info', isKentucky: false };
     expect(generateFacebookCaption(national)).toBe('');

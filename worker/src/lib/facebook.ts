@@ -46,6 +46,28 @@ export function generateFacebookHashtags(article: ArticleRecord): string {
  * Generate a full Facebook caption for an article. Returns a blank string if the
  * record is not considered Kentucky-centric (no county and is_kentucky false).
  */
+
+// helper: convert a county name into "slug-case" county string
+function countySlug(countyName: string): string {
+  let cleaned = countyName.trim();
+  if (!/county$/i.test(cleaned)) cleaned += ' County';
+  return cleaned.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// build a full URL for an article using our public site origin
+function articleUrl(article: ArticleRecord, baseUrl = 'https://localkynews.com'): string {
+  if (!article.slug) {
+    return `${baseUrl}/post?articleId=${article.id}`;
+  }
+  if (article.county) {
+    return `${baseUrl}/news/kentucky/${countySlug(article.county)}/${article.slug}`;
+  }
+  if (article.category === 'national') {
+    return `${baseUrl}/news/national/${article.slug}`;
+  }
+  return `${baseUrl}/news/kentucky/${article.slug}`;
+}
+
 export function generateFacebookCaption(article: ArticleRecord | null): string {
   if (!article) return '';
   const isKy = Boolean(article.county) || Boolean(article.isKentucky);
@@ -55,7 +77,7 @@ export function generateFacebookCaption(article: ArticleRecord | null): string {
   const hook = generateFacebookHook(article.summary || '',
     article.county || (article.city || undefined));
 
-  const url = article.canonicalUrl || article.sourceUrl || '';
+  const url = articleUrl(article);
   const hashtags = generateFacebookHashtags(article);
 
   let caption = headline;

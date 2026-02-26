@@ -552,6 +552,17 @@ describe('title similarity dedupe', () => {
 		expect(generateFacebookHook('Something happened', 'Wake')).toMatch(/Wake County/i);
 		// caption returns blank for non-KY
 		expect(generateFacebookCaption({ title: 'a', summary: 'b', is_kentucky: 0 })).toBe('');
+		// caption url should point at localkynews.com if slug present
+		const cap = generateFacebookCaption({
+			id: 7,
+			title: 'Foo',
+			summary: 'Bar',
+			county: 'Boone',
+			slug: 'foo',
+			category: 'today',
+			isKentucky: true,
+		});
+		expect(cap).toContain('https://localkynews.com/news/kentucky/boone-county/foo');
 	});
 
 	it('allows distinct titles well below the threshold', async () => {
