@@ -3,9 +3,12 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed } from './classify';
-import { findArticleByHash, insertArticle, isUrlHashBlocked } from './db';
+import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
 import { cachedTextFetch, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
+
+const TITLE_SIMILARITY_REJECT_THRESHOLD = 0.9;
+const RECENT_TITLE_SCAN_LIMIT = 700;
 
 export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<IngestResult> {
   const extracted = await fetchAndExtractArticle(env, source);
@@ -31,6 +34,15 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
       id: duplicate.id,
       urlHash: canonicalHash,
       category: duplicate.category,
+    };
+  }
+
+  const similarTitle = await findHighlySimilarTitle(env, extracted.title);
+  if (similarTitle) {
+    return {
+      status: 'rejected',
+      reason: `title similarity ${(similarTitle.similarity * 100).toFixed(1)}% with existing article #${similarTitle.id}`,
+      urlHash: canonicalHash,
     };
   }
 
@@ -235,4 +247,84 @@ export function generateArticleSlug(title: string, urlHash: string): string {
     .replace(/^-|-$/g, '');
   const hashSuffix = urlHash.slice(0, 8);
   return titleSlug ? `${titleSlug}-${hashSuffix}` : hashSuffix;
+}
+
+export async function findHighlySimilarTitle(
+  env: Env,
+  title: string,
+): Promise<{ id: number; title: string; similarity: number } | null> {
+  const normalizedTarget = normalizeTitleForSimilarity(title);
+  if (!normalizedTarget || normalizedTarget.length < 12) return null;
+
+  const recentTitles = await listRecentArticleTitles(env, RECENT_TITLE_SCAN_LIMIT);
+  let best: { id: number; title: string; similarity: number } | null = null;
+
+  for (const candidate of recentTitles) {
+    if (!candidate?.title) continue;
+
+    const normalizedCandidate = normalizeTitleForSimilarity(candidate.title);
+    if (!normalizedCandidate) continue;
+
+    const maxLen = Math.max(normalizedTarget.length, normalizedCandidate.length);
+    const minLen = Math.min(normalizedTarget.length, normalizedCandidate.length);
+    if (maxLen === 0) continue;
+
+    // Fast skip: Levenshtein similarity cannot exceed the shorter/longer ratio.
+    if ((minLen / maxLen) < TITLE_SIMILARITY_REJECT_THRESHOLD) continue;
+
+    const similarity = titleSimilarity(normalizedTarget, normalizedCandidate);
+    if (similarity < TITLE_SIMILARITY_REJECT_THRESHOLD) continue;
+
+    if (!best || similarity > best.similarity) {
+      best = { id: candidate.id, title: candidate.title, similarity };
+    }
+  }
+
+  return best;
+}
+
+function normalizeTitleForSimilarity(input: string): string {
+  return decodeHtmlEntities(input || '')
+    .toLowerCase()
+    .replace(/['’`]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function titleSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+
+  const distance = levenshteinDistance(a, b);
+  return 1 - (distance / maxLen);
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  let previous = new Array<number>(b.length + 1);
+  let current = new Array<number>(b.length + 1);
+
+  for (let j = 0; j <= b.length; j += 1) previous[j] = j;
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + cost,
+      );
+    }
+    [previous, current] = [current, previous];
+  }
+
+  return previous[b.length] ?? Math.max(a.length, b.length);
 }

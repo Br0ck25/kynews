@@ -5,6 +5,7 @@ import { __testables } from '../src/index';
 import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
 import { detectCounty } from '../src/lib/geo';
 import { sha256Hex, toIsoDateOrNull } from '../src/lib/http';
+import { findHighlySimilarTitle } from '../src/lib/ingest';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
@@ -138,6 +139,52 @@ async function ensureSchemaAndFixture() {
 			null,
 		)
 		.run();
+
+	await insertFixture
+		.bind(
+			'https://example.com/non-ky-schools',
+			'https://example.com',
+			'hash-non-ky-schools',
+			'Non Kentucky Schools Story',
+			null,
+			now,
+			'schools',
+			0,
+			null,
+			null,
+			'Summary',
+			'SEO description',
+			115,
+			65,
+			'Content body for test',
+			'<p>Content body for test</p>',
+			null,
+			null,
+		)
+		.run();
+
+	await insertFixture
+		.bind(
+			'https://example.com/non-ky-weather',
+			'https://example.com',
+			'hash-non-ky-weather',
+			'Non Kentucky Weather Story',
+			null,
+			now,
+			'weather',
+			0,
+			null,
+			null,
+			'Summary',
+			'SEO description',
+			118,
+			67,
+			'Content body for test',
+			'<p>Content body for test</p>',
+			null,
+			null,
+		)
+		.run();
 }
 
 function envWithAdminPassword(password: string): Env {
@@ -160,7 +207,7 @@ describe('Kentucky News worker API', () => {
 		expect(payload.ok).toBe(true);
 	});
 
-	it('today endpoint returns kentucky-only articles regardless of category field', async () => {
+	it('today endpoint includes sports, schools, and weather alongside Kentucky-tagged stories', async () => {
 		await ensureSchemaAndFixture();
 
 		const response = await SELF.fetch('https://example.com/api/articles/today?limit=20');
@@ -171,9 +218,12 @@ describe('Kentucky News worker API', () => {
 			nextCursor: string | null;
 		}>();
 		expect(Array.isArray(payload.items)).toBe(true);
-		expect(payload.items.length).toBe(2);
-		expect(payload.items.every((item) => item.isKentucky)).toBe(true);
+		expect(payload.items.length).toBe(5);
 		expect(payload.items.some((item) => item.category === 'sports')).toBe(true);
+		expect(payload.items.some((item) => item.category === 'schools')).toBe(true);
+		expect(payload.items.some((item) => item.category === 'weather')).toBe(true);
+		expect(payload.items.some((item) => item.category === 'today')).toBe(true);
+		expect(payload.items.some((item) => item.isKentucky)).toBe(true);
 		expect(payload).toHaveProperty('nextCursor');
 	});
 
@@ -260,6 +310,18 @@ describe('classification utilities', () => {
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Fayette');
+	});
+
+	it('tags kyschools.us domains as Kentucky and assigns the county from subdomain', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.ohio.kyschools.us/news/district-updates',
+			title: 'District updates for students and families',
+			content: 'The district shared updates about school operations and upcoming events for families.',
+		});
+
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Ohio');
+		expect(classification.category).toBe('schools');
 	});
 });
 
@@ -351,6 +413,52 @@ describe('database utilities', () => {
 		const map = await __testables.getCountyCounts(env);
 		expect(map.get('Fayette')).toBe(1);
 		expect(map.get('Jefferson')).toBe(1);
+	});
+});
+
+describe('ingest source balancing', () => {
+	it('prevents school-only batches when non-school sources are available', () => {
+		const schoolOnlyRun = [
+			'https://www.adair.kyschools.us/',
+			'https://www.allen.kyschools.us/',
+			'https://www.barren.kyschools.us/',
+			'https://www.bell.kyschools.us/',
+			'https://www.boone.kyschools.us/',
+			'https://www.boyle.kyschools.us/',
+			'https://www.calloway.kyschools.us/',
+			'https://www.carter.kyschools.us/',
+			'https://www.casey.kyschools.us/',
+			'https://www.clay.kyschools.us/',
+		];
+
+		const allSources = [
+			...schoolOnlyRun,
+			'https://kentuckylantern.com/feed',
+			'https://www.wkyt.com/arc/outboundfeeds/rss/',
+		];
+
+		const balanced = __testables.rebalanceSchoolHeavyRunSources(schoolOnlyRun, allSources, 8);
+		expect(balanced.length).toBe(schoolOnlyRun.length);
+
+		for (let i = 0; i < balanced.length; i += 8) {
+			const batch = balanced.slice(i, i + 8);
+			expect(batch.some((source) => !source.includes('.kyschools.us'))).toBe(true);
+		}
+	});
+});
+
+describe('title similarity dedupe', () => {
+	it('rejects titles that are at least 90% similar to existing article titles', async () => {
+		await ensureSchemaAndFixture();
+		const match = await findHighlySimilarTitle(env, 'Kentucky Sports Story');
+		expect(match).not.toBeNull();
+		expect(match?.similarity ?? 0).toBeGreaterThanOrEqual(0.9);
+	});
+
+	it('allows distinct titles well below the threshold', async () => {
+		await ensureSchemaAndFixture();
+		const match = await findHighlySimilarTitle(env, 'County commission advances road paving contract');
+		expect(match).toBeNull();
 	});
 });
 

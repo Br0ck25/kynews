@@ -35,7 +35,7 @@ import {
 	sha256Hex,
 	wordCount,
 } from './lib/http';
-import { ingestSingleUrl, generateArticleSlug } from './lib/ingest';
+import { ingestSingleUrl, generateArticleSlug, findHighlySimilarTitle } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
 import { KY_COUNTIES } from './data/ky-geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
@@ -746,6 +746,16 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		return json({ status: 'duplicate', id: existing.id, message: 'An article with this URL already exists.' });
 	}
 
+	const similarTitle = await findHighlySimilarTitle(env, title);
+	if (similarTitle) {
+		const reason = `title similarity ${(similarTitle.similarity * 100).toFixed(1)}% with article #${similarTitle.id}`;
+		return json({
+			status: 'rejected',
+			reason,
+			message: reason,
+		});
+	}
+
 	// Classify – always force isKentucky=true; prefer admin-supplied county
 	const classifyContent = postBody || title;
 	const classification = await classifyArticleWithAi(env, {
@@ -1133,6 +1143,7 @@ const { runSources, sourcesAvailable, nextOffset, shouldPersistRotation } = awai
 	trigger,
 	options,
 );
+const sourcesForRun = rebalanceSchoolHeavyRunSources(runSources, sourceUrls, INGEST_CONCURRENCY);
 
 let processed = 0;
 let inserted = 0;
@@ -1145,8 +1156,8 @@ const duplicateSamples: IngestDecisionSample[] = [];
 
 // Process sources in concurrent batches so we don't hit the wall-clock limit
 // with 160+ sequential network calls. INGEST_CONCURRENCY sources run at once.
-for (let i = 0; i < runSources.length; i += INGEST_CONCURRENCY) {
-const batch = runSources.slice(i, i + INGEST_CONCURRENCY);
+for (let i = 0; i < sourcesForRun.length; i += INGEST_CONCURRENCY) {
+const batch = sourcesForRun.slice(i, i + INGEST_CONCURRENCY);
 const results = await Promise.allSettled(batch.map((sourceUrl) => ingestSeedSource(env, sourceUrl, limitPerSource)));
 for (const result of results) {
 if (result.status === 'rejected') {
@@ -1175,7 +1186,7 @@ const metrics: IngestRunMetrics = {
 	startedAt: new Date(started).toISOString(),
 	finishedAt: new Date(finished).toISOString(),
 	durationMs,
-	sourcesTried: runSources.length,
+	sourcesTried: sourcesForRun.length,
 	sourcesAvailable,
 	processed,
 	inserted,
@@ -1230,6 +1241,65 @@ function buildManualIngestSources(includeSchools: boolean): string[] {
 		: [...HIGH_PRIORITY_SOURCE_SEEDS, ...MASTER_SOURCE_SEEDS];
 
 	return [...new Set(combined)];
+}
+
+function isKySchoolsSourceUrl(sourceUrl: string): boolean {
+	try {
+		const host = new URL(sourceUrl).hostname.toLowerCase();
+		return host === 'kyschools.us' || host.endsWith('.kyschools.us');
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Prevent school-only ingest batches by ensuring each concurrent batch has at least
+ * one non-kyschools source whenever any non-school sources are available.
+ */
+function rebalanceSchoolHeavyRunSources(
+	runSources: string[],
+	allSources: string[],
+	batchSize: number,
+): string[] {
+	if (runSources.length === 0 || batchSize <= 0) return runSources;
+	if (!allSources.some((url) => !isKySchoolsSourceUrl(url))) return runSources;
+
+	const balanced = [...runSources];
+	const selected = new Set(balanced);
+	const externalNonSchool = allSources.filter(
+		(url) => !isKySchoolsSourceUrl(url) && !selected.has(url),
+	);
+	let externalCursor = 0;
+
+	for (let start = 0; start < balanced.length; start += batchSize) {
+		const end = Math.min(start + batchSize, balanced.length);
+		const hasNonSchool = balanced.slice(start, end).some((url) => !isKySchoolsSourceUrl(url));
+		if (hasNonSchool) continue;
+
+		const targetIndex = end - 1;
+
+		// Prefer a swap with an already-selected non-school source.
+		let swapIndex = -1;
+		for (let i = end; i < balanced.length; i += 1) {
+			if (!isKySchoolsSourceUrl(balanced[i])) {
+				swapIndex = i;
+				break;
+			}
+		}
+
+		if (swapIndex !== -1) {
+			[balanced[targetIndex], balanced[swapIndex]] = [balanced[swapIndex], balanced[targetIndex]];
+			continue;
+		}
+
+		// No in-run non-school source is available to swap; pull one from outside this run.
+		const replacement = externalNonSchool[externalCursor];
+		externalCursor += 1;
+		if (!replacement) break;
+		balanced[targetIndex] = replacement;
+	}
+
+	return balanced;
 }
 
 async function selectSourcesForRun(
@@ -1785,6 +1855,7 @@ export const __testables = {
 	isWymtSearchUrl,
 	buildCountySearchUrls,
 	getCountyCounts,
+	rebalanceSchoolHeavyRunSources,
 	// exposing runIngest allows tests to stub the heavy ingestion routine
 	runIngest,
 	isAdminAuthorized,

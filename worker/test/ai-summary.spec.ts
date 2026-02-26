@@ -69,4 +69,32 @@ describe('summary sanitization', () => {
     expect(result.summary).not.toMatch(/\n\nS\. Rep\./);
     expect(result.summary).toMatch(/Gov\. S\. Rep\./);
   });
+
+  it('never starts a paragraph with a comma', async () => {
+    const env = makeEnv(
+      [
+        'The board adopted a revised transportation policy after public feedback.',
+        '',
+        ', district leaders said the change will reduce delays during peak routes.',
+        'Families will receive updated schedules before the next grading period.',
+      ].join('\n'),
+    );
+
+    const source = [
+      'The district reviewed bus arrival data and heard feedback from parents.',
+      'Leaders approved route changes intended to improve consistency and reduce delays.',
+      'Updated schedules will be distributed ahead of the next grading period.',
+    ].join(' ');
+
+    const result = await summarizeArticle(
+      env,
+      'unit-sanitize-3',
+      'District updates transportation policy',
+      source,
+      new Date().toISOString(),
+    );
+
+    const paragraphs = result.summary.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    expect(paragraphs.every((p) => !/^[,;:)\]]/.test(p))).toBe(true);
+  });
 });

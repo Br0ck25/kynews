@@ -206,6 +206,7 @@ export async function classifyArticleWithAi(
   const semanticCategory = detectSemanticCategory(semanticText);
 
   const hasKhsaa = /\bkhsaa\b/i.test(semanticText);
+  const isKySchoolsSource = isKySchoolsDomain(input.url);
   const baseIsKentucky = relevance.category === 'kentucky' || hasKhsaa;
   const baseGeo = baseIsKentucky ? detectKentuckyGeo(semanticText) : { county: null, city: null };
 
@@ -213,7 +214,11 @@ export async function classifyArticleWithAi(
   const sourceDefaultCounty = getSourceDefaultCounty(input.url);
 
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');
-  if (category === 'sports' && !baseIsKentucky && !hasKhsaa) {
+  if (isKySchoolsSource && category === 'national') {
+    category = 'schools';
+  }
+
+  if (category === 'sports' && !baseIsKentucky && !hasKhsaa && !isKySchoolsSource) {
     category = 'national';
   }
 
@@ -230,14 +235,14 @@ export async function classifyArticleWithAi(
     detectSemanticCategory(semanticText) === 'sports';
 
   let fallback: ClassificationResult = {
-    isKentucky: baseIsKentucky || louisvilleSportsSignal,
-    county: baseGeo.county ?? (baseIsKentucky || louisvilleSportsSignal ? sourceDefaultCounty : null),
+    isKentucky: baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource,
+    county: baseGeo.county ?? (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource ? sourceDefaultCounty : null),
     city: baseGeo.city,
     category: hasKhsaa ? 'sports' : category,
   };
 
   // Re-apply sports guard now that Louisville signal may have changed isKentucky.
-  if (fallback.category === 'sports' && !fallback.isKentucky && !hasKhsaa) {
+  if (fallback.category === 'sports' && !fallback.isKentucky && !hasKhsaa && !isKySchoolsSource) {
     fallback.category = 'national';
   }
 
@@ -313,14 +318,18 @@ export async function classifyArticleWithAi(
         : null;
 
     const aiGeo = aiIsKentucky ? detectKentuckyGeo(`${cleanTitle}\n${cleanContent}`) : { county: null, city: null };
-    const mergedIsKentucky = fallback.isKentucky || aiIsKentucky;
+    const mergedIsKentucky = fallback.isKentucky || aiIsKentucky || isKySchoolsSource;
 
     let mergedCategory = fallback.category;
     if (fallback.category === 'national' && aiCategory && aiCategory !== 'national') {
       mergedCategory = aiCategory;
     }
 
-    if (mergedCategory === 'sports' && !mergedIsKentucky && !hasKhsaa) {
+    if (isKySchoolsSource && mergedCategory === 'national') {
+      mergedCategory = 'schools';
+    }
+
+    if (mergedCategory === 'sports' && !mergedIsKentucky && !hasKhsaa && !isKySchoolsSource) {
       mergedCategory = 'national';
     }
 
@@ -328,13 +337,16 @@ export async function classifyArticleWithAi(
     // response, not just omitted), discard any county the fallback heuristic may have
     // wrongly assigned — e.g. "Adair" from detecting "columbia" in a UK basketball article
     // set in Columbia, SC.  The ?? chain below is only used when AI did not reject KY.
-    const mergedCounty =
-      (!aiIsKentucky && typeof parsed.isKentucky === 'boolean')
-        ? null
-        : (fallback.county ??
-           aiCounty ??
-           aiGeo.county ??
-           (mergedIsKentucky ? sourceDefaultCounty : null));
+    const mergedCounty = isKySchoolsSource
+      ? (fallback.county ?? aiCounty ?? aiGeo.county ?? sourceDefaultCounty)
+      : (
+        (!aiIsKentucky && typeof parsed.isKentucky === 'boolean')
+          ? null
+          : (fallback.county ??
+             aiCounty ??
+             aiGeo.county ??
+             (mergedIsKentucky ? sourceDefaultCounty : null))
+      );
 
     fallback = {
       isKentucky: mergedIsKentucky,
@@ -633,6 +645,12 @@ function getHostname(sourceUrl: string): string | null {
   } catch {
     return null;
   }
+}
+
+function isKySchoolsDomain(sourceUrl: string): boolean {
+  const host = getHostname(sourceUrl);
+  if (!host) return false;
+  return host === 'kyschools.us' || host.endsWith('.kyschools.us');
 }
 
 /**

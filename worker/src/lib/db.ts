@@ -41,6 +41,11 @@ interface BlockedArticleRow {
   created_at: string;
 }
 
+interface RecentTitleRow {
+  id: number;
+  title: string;
+}
+
 export async function findArticleByHash(env: Env, urlHash: string): Promise<ArticleRecord | null> {
   const result = await env.ky_news_db
     .prepare(`SELECT * FROM articles WHERE url_hash = ? LIMIT 1`)
@@ -48,6 +53,19 @@ export async function findArticleByHash(env: Env, urlHash: string): Promise<Arti
     .first<ArticleRow>();
 
   return result ? mapArticleRow(result) : null;
+}
+
+export async function listRecentArticleTitles(env: Env, limit = 600): Promise<Array<{ id: number; title: string }>> {
+  const safeLimit = Math.min(Math.max(Math.floor(limit || 0), 1), 2000);
+  const rows = await env.ky_news_db
+    .prepare(`SELECT id, title FROM articles ORDER BY id DESC LIMIT ?`)
+    .bind(safeLimit)
+    .all<RecentTitleRow>();
+
+  return (rows.results ?? []).map((row) => ({
+    id: row.id,
+    title: row.title,
+  }));
 }
 
 export async function getArticleById(env: Env, id: number): Promise<ArticleRecord | null> {
@@ -273,7 +291,8 @@ export async function queryArticles(env: Env, options: {
   const binds: unknown[] = [];
 
   if (options.category === 'today') {
-    where.push('is_kentucky = 1');
+    where.push('(is_kentucky = 1 OR category IN (?, ?, ?))');
+    binds.push('sports', 'schools', 'weather');
   } else if (options.category === 'sports') {
     where.push('category = ?');
     binds.push('sports');

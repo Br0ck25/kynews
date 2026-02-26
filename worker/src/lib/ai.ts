@@ -273,6 +273,7 @@ export async function summarizeArticle(
 
       if (validatedText) {
         validatedText = ensureCompleteLastSentence(validatedText);
+        validatedText = fixLeadingParagraphPunctuation(validatedText);
         if (!isMalformedSummary(validatedText)) {
           summary = validatedText;
           seo = enforceSeoLength(extractFirstSentence(validatedText), validatedText);
@@ -283,6 +284,7 @@ export async function summarizeArticle(
     // best effort AI, fallback stays in place
   }
 
+  summary = fixLeadingParagraphPunctuation(ensureCompleteLastSentence(summary));
   seo = enforceSeoLength(seo, summary);
 
   const result: SummaryResult = {
@@ -697,6 +699,7 @@ function stripBoilerplateFromOutput(text: string, title: string): string {
   t = t.replace(/^(?:Facebook|Twitter|X|Threads|Flipboard|Comments|Print|Email|Share|Instagram)\s*$/gim, '');
   t = t.replace(/\n{3,}/g, '\n\n');
   t = normalizeParagraphBoundaries(t);
+  t = fixLeadingParagraphPunctuation(t);
   t = repairUnbalancedQuotes(t);
 
   return t.trim();
@@ -734,6 +737,36 @@ function normalizeParagraphBoundaries(text: string): string {
   }
 
   return merged.join('\n\n');
+}
+
+function fixLeadingParagraphPunctuation(text: string): string {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\n+/g, ' ').replace(/[ \t]+/g, ' ').trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) return '';
+
+  const cleaned: string[] = [];
+  for (const paragraph of paragraphs) {
+    if (cleaned.length === 0) {
+      const first = paragraph.replace(/^[,;:)\]]+\s*/, '').trim();
+      if (first) cleaned.push(first);
+      continue;
+    }
+
+    if (/^[,;:)\]]/.test(paragraph)) {
+      const tail = paragraph.replace(/^[,;:)\]]+\s*/, '').trim();
+      if (tail) {
+        cleaned[cleaned.length - 1] = `${cleaned[cleaned.length - 1]} ${tail}`.replace(/\s+/g, ' ').trim();
+      }
+      continue;
+    }
+
+    cleaned.push(paragraph);
+  }
+
+  return cleaned.join('\n\n').trim();
 }
 
 function endsWithSentenceBoundary(input: string): boolean {
