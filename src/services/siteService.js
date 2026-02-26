@@ -550,6 +550,30 @@ export default class SiteService {
   }
 
   /**
+   * Generate a Facebook caption for an existing article.  The worker will
+   * return an empty string for non-Kentucky items.
+   */
+  async facebookCaption(id) {
+    return this.request("/api/admin/facebook/caption", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+  }
+
+  /**
+   * Post the caption/link to the configured Facebook page.  Requires that
+   * FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN are set on the worker.
+   * The returned object mirrors the Graph API response or contains an
+   * error message if something went wrong.
+   */
+  async facebookPost(id) {
+    return this.request("/api/admin/facebook/post", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+  }
+
+  /**
    * Manually create an article from supplied fields (e.g. a Facebook post pasted by an admin).
    * Returns { status: 'inserted'|'duplicate', id, isDraft, category, county, canonicalUrl }
    */

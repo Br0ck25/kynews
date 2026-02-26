@@ -45,6 +45,19 @@ Use the shared utility (frontend `src/utils/functions.js` or worker
 article object with fields like `title`, `summary`, `county`, `city`,
 `category` and will:
 
+### Admin console access
+
+The admin page now includes a **Facebook diagnostics** panel beneath the
+manual article form. You can:
+
+1. Enter an **article ID** and click *Generate caption* – it will show the
+   exact text the worker would post (or `<empty>` if the item is non‑KY).
+2. Click *Post to Facebook* to dispatch the caption/link to the configured
+   page.  Errors (missing credentials, Graph API failures) appear in the
+   panel.
+
+This lets you troubleshoot without firing curl commands or checking logs.
+
 1. Clean the headline of branding/trailing junk.
 2. Produce a 1‑sentence hook from the summary (40‑word limit).
 3. Prefix the hook with the county if not already present.

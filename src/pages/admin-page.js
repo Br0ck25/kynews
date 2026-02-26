@@ -96,6 +96,61 @@ export default function AdminPage() {
   const [manualSuccess, setManualSuccess] = useState(null);
   const [manualError, setManualError] = useState("");
 
+  // --- Facebook diagnostics state ---
+  const [fbDiagId, setFbDiagId] = useState("");
+  const [fbDiagCaption, setFbDiagCaption] = useState(null);
+  const [fbDiagPostResult, setFbDiagPostResult] = useState(null);
+  const [fbDiagError, setFbDiagError] = useState("");
+  const [fbDiagLoading, setFbDiagLoading] = useState(false);
+
+  const handleDiagCaption = async () => {
+    setFbDiagError("");
+    setFbDiagCaption(null);
+    if (!fbDiagId.trim()) return;
+    const id = Number(fbDiagId);
+    if (!Number.isFinite(id) || id <= 0) {
+      setFbDiagError("Invalid article ID");
+      return;
+    }
+    setFbDiagLoading(true);
+    try {
+      const res = await service.facebookCaption(id);
+      if (res.ok) {
+        setFbDiagCaption(res.caption || "");
+      } else {
+        setFbDiagError(res.error || "unknown error");
+      }
+    } catch (err) {
+      setFbDiagError(err?.errorMessage || String(err));
+    } finally {
+      setFbDiagLoading(false);
+    }
+  };
+
+  const handleDiagPost = async () => {
+    setFbDiagError("");
+    setFbDiagPostResult(null);
+    if (!fbDiagId.trim()) return;
+    const id = Number(fbDiagId);
+    if (!Number.isFinite(id) || id <= 0) {
+      setFbDiagError("Invalid article ID");
+      return;
+    }
+    setFbDiagLoading(true);
+    try {
+      const res = await service.facebookPost(id);
+      if (res.ok) {
+        setFbDiagPostResult(res.result || res);
+      } else {
+        setFbDiagError(res.error || "unknown error");
+      }
+    } catch (err) {
+      setFbDiagError(err?.errorMessage || String(err));
+    } finally {
+      setFbDiagLoading(false);
+    }
+  };
+
   const loadData = async () => {
     if (!authorized) return;
     setLoading(true);
@@ -965,6 +1020,50 @@ export default function AdminPage() {
               {manualSuccess && (
                 <Typography style={{ color: "green", marginTop: 10 }} variant="body2">{manualSuccess}</Typography>
               )}
+
+              {/* Facebook diagnostics helper */}
+              <Box style={{ marginTop: 24, padding: 16, border: '1px solid #ccc', borderRadius: 4 }}>
+                <Typography variant="subtitle1" style={{ marginBottom: 8 }}>Facebook diagnostics</Typography>
+                <Box style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <TextField
+                    label="Article ID"
+                    size="small"
+                    variant="outlined"
+                    value={fbDiagId}
+                    onChange={(e) => setFbDiagId(e.target.value)}
+                    style={{ width: 120 }}
+                  />
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    disabled={fbDiagLoading || !fbDiagId.trim()}
+                    onClick={handleDiagCaption}
+                  >
+                    {fbDiagLoading ? '…' : 'Generate caption'}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    disabled={fbDiagLoading || !fbDiagId.trim()}
+                    onClick={handleDiagPost}
+                  >
+                    {fbDiagLoading ? '…' : 'Post to Facebook'}
+                  </Button>
+                </Box>
+                {fbDiagError && (
+                  <Typography color="error" variant="body2" style={{ marginTop: 8 }}>{fbDiagError}</Typography>
+                )}
+                {fbDiagCaption != null && (
+                  <Typography variant="body2" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
+                    <strong>Caption:</strong> {fbDiagCaption || '<empty>'}
+                  </Typography>
+                )}
+                {fbDiagPostResult != null && (
+                  <Typography variant="body2" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
+                    <strong>Post result:</strong> {JSON.stringify(fbDiagPostResult)}
+                  </Typography>
+                )}
+              </Box>
             </AccordionDetails>
           </Accordion>
         </Box>
