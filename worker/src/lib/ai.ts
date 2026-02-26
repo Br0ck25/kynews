@@ -768,7 +768,7 @@ function isInsideOpenQuote(priorText: string, currentParagraph: string): boolean
   return curlyOpen > curlyClose;
 }
 
-
+function repairUnbalancedQuotes(text: string): string {
   let output = text;
 
   const straightQuoteCount = (output.match(/"/g) ?? []).length;
