@@ -17,8 +17,6 @@ import SnackbarNotify from "../components/snackbar-notify-component";
 import { slugToCounty } from "../utils/functions";
 import { useParams, useHistory } from "react-router-dom";
 import { ToggleSavedCounty, GetSavedCounties } from "../services/storageService";
-import CountyQuickFacts from "../components/county-quick-facts";
-import COUNTY_QUICK_FACTS from "../constants/countyFacts";
 
 const useStyles = makeStyles((theme) => ({
   root: {},
@@ -35,33 +33,9 @@ const useStyles = makeStyles((theme) => ({
   },
 }));
 
-const service = new SiteService();
+const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 
 const SITE_URL = "https://localkynews.com";
-
-/**
- * Returns a 300–500 word introductory text about a given KY county.
- * Used to satisfy Section 5.4 of the SEO implementation plan.
- */
-function getCountyIntro(countyName) {
-  return `${countyName} County is one of Kentucky's 120 counties, located in the Commonwealth of Kentucky. ` +
-    `Like many of Kentucky's counties, ${countyName} County has a rich history rooted in the traditions, ` +
-    `communities, and industries that have shaped the region over generations. ` +
-    `Residents of ${countyName} County are served by local government, public school districts, healthcare providers, ` +
-    `churches, and community organizations that make up the fabric of everyday life in this part of the state.\n\n` +
-    `Local news in ${countyName} County covers a wide range of topics: county fiscal court decisions, school board meetings, ` +
-    `local sports results, weather events, public safety reports, and community announcements. ` +
-    `Because Kentucky is a state where local governance matters deeply — from county judge executives to school superintendents — ` +
-    `staying informed about what is happening in ${countyName} County means reading the reporters and newsrooms ` +
-    `who cover it directly.\n\n` +
-    `Local KY News aggregates news from credentialed Kentucky news organizations and presents summaries with full attribution ` +
-    `to the original publishers. Every article listed on this page was reported by a professional journalist or news organization. ` +
-    `Our summaries are designed to help you find the stories that matter in ${countyName} County and click through to read ` +
-    `the full reporting from the outlet that produced it.\n\n` +
-    `This page is updated continuously as new ${countyName} County news is published across our monitored sources. ` +
-    `If you want quick access to ${countyName} County news, you can bookmark this county with the button above and revisit it from the Saved page. ` +
-    `To filter your Home feed by county, use Settings → County Filters.`;
-}
 
 /** Inject JSON-LD structured data for a county page */
 function setCountyJsonLd(countyName) {
@@ -92,6 +66,29 @@ function setCountyJsonLd(countyName) {
   el.textContent = JSON.stringify(schema);
 }
 
+/**
+ * Returns a 300–500 word introductory text about a given KY county.
+ * Used to satisfy Section 5.4 of the SEO implementation plan.
+ */
+function getCountyIntro(countyName) {
+  return `${countyName} County is one of Kentucky's 120 counties, located in the Commonwealth of Kentucky. ` +
+    `Like many of Kentucky's counties, ${countyName} County has a rich history rooted in the traditions, ` +
+    `communities, and industries that have shaped the region over generations. ` +
+    `Residents of ${countyName} County are served by local government, public school districts, healthcare providers, ` +
+    `churches, and community organizations that make up the fabric of everyday life in this part of the state.\n\n` +
+    `Local news in ${countyName} County covers a wide range of topics: county fiscal court decisions, school board meetings, ` +
+    `local sports results, weather events, public safety reports, and community announcements. ` +
+    `Because Kentucky is a state where local governance matters deeply — from county judge executives to school superintendents — ` +
+    `staying informed about what is happening in ${countyName} County means reading the reporters and newsrooms ` +
+    `who cover it directly.\n\n` +
+    `Local KY News aggregates news from credentialed Kentucky news organizations and presents summaries with full attribution ` +
+    `to the original publishers. Every article listed on this page was reported by a professional journalist or news organization. ` +
+    `Our summaries are designed to help you find the stories that matter in ${countyName} County and click through to read ` +
+    `the full reporting from the outlet that produced it.\n\n` +
+    `This page is updated continuously as new ${countyName} County news is published across our monitored sources. ` +
+    `If you want quick access to ${countyName} County news, you can bookmark this county with the button above and revisit it from the Saved page. ` +
+    `To filter your Home feed by county, use Settings → County Filters.`;
+}
 
 export default function CountyPage() {
   const classes = useStyles();
@@ -99,7 +96,6 @@ export default function CountyPage() {
   const history = useHistory();
 
   const countyName = slugToCounty(countySlug);
-  const hasQuickFacts = countyName && Boolean(COUNTY_QUICK_FACTS[countyName]);
 
   const [posts, setPosts] = useState([]);
   const [statePosts, setStatePosts] = useState([]);
@@ -107,6 +103,8 @@ export default function CountyPage() {
   const [errors, setErrors] = useState("");
   const [saved, setSaved] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
+  // County intro: first paragraph always visible, rest collapsed by default
+  const [introExpanded, setIntroExpanded] = useState(false);
 
   // update page metadata when county changes
   useEffect(() => {
@@ -250,35 +248,43 @@ export default function CountyPage() {
         </span>
       </Typography>
 
-      {/* intro section: show quick facts when available otherwise fallback to the
-          old descriptive paragraph for SEO continuity */}
-      {hasQuickFacts ? (
-        <CountyQuickFacts countyName={countyName} />
-      ) : (
-        <Box
-          style={{
-            background: "#f5f8ff",
-            border: "1px solid #d0d9f0",
-            borderRadius: 6,
-            padding: "14px 16px",
-            marginBottom: 20,
-          }}
-        >
-          {getCountyIntro(countyName)
-            .split("\n\n")
-            .map((para, i) => (
-              <Typography
-                key={i}
-                variant="body2"
-                color="textSecondary"
-                paragraph
-                style={{ marginBottom: 8 }}
-              >
+      {/* County introductory content — 300–500 words (Section 5.4)
+           First paragraph always visible; remaining paragraphs collapsible. */}
+      <Box
+        style={{
+          background: "#f5f8ff",
+          border: "1px solid #d0d9f0",
+          borderRadius: 6,
+          padding: "14px 16px",
+          marginBottom: 20,
+        }}
+      >
+        {getCountyIntro(countyName)
+          .split("\n\n")
+          .map((para, i) => {
+            if (i === 0) {
+              return (
+                <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: 8 }}>
+                  {para}
+                </Typography>
+              );
+            }
+            if (!introExpanded) return null;
+            return (
+              <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: i < 2 ? 8 : 0 }}>
                 {para}
               </Typography>
-            ))}
-        </Box>
-      )}
+            );
+          })}
+        <Button
+          size="small"
+          color="primary"
+          onClick={() => setIntroExpanded((v) => !v)}
+          style={{ padding: "0 0 4px", minWidth: 0, textTransform: "none", fontSize: "0.78rem" }}
+        >
+          {introExpanded ? "Show less" : "Show more"}
+        </Button>
+      </Box>
       <Divider style={{ marginBottom: 16 }} />
 
       {isLoading ? (

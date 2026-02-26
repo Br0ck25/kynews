@@ -65,7 +65,7 @@ export default function FeaturedPost(props) {
   // Track whether the header image URL returned a 404/error so we can fall back to logo
   const [headerImgFailed, setHeaderImgFailed] = React.useState(false);
   const headerImage = headerImgFailed ? "/logo.png" : (post.image || "/logo.png");
-  const service = React.useMemo(() => new SiteService(), []);
+  const service = React.useMemo(() => new SiteService(process.env.REACT_APP_API_BASE_URL), []);
 
   const summaryParagraphs = React.useMemo(() => {
     const raw = String(post?.shortDesc || "")

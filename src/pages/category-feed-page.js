@@ -39,7 +39,7 @@ const useStyles = makeStyles((theme) => ({
   },
 }));
 
-const service = new SiteService();
+const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 const PAGE_LIMIT = 20;
 
 function getPageLimit(_category) {

@@ -19,7 +19,7 @@ const useStyles = makeStyles((theme) => ({
   },
 }));
 
-const service = new SiteService();
+const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
 
 export default function HomePage() {
   const classes = useStyles();

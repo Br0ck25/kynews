@@ -135,14 +135,10 @@ export default class SiteService {
     // variable should point at a deployed Worker endpoint (or left blank if
     // the Worker is routed to the same domain via `wrangler` routes).
     const viteBaseUrl = resolveViteApiBaseUrl();
-    const reactEnvUrl =
-      typeof process !== "undefined" && process.env
-        ? process.env.REACT_APP_API_BASE_URL
-        : undefined;
     this.baseUrl =
       baseUrl ||
       viteBaseUrl ||
-      reactEnvUrl ||
+      process.env.REACT_APP_API_BASE_URL ||
       "";
 
     // Admin requests use the same base URL as public API so everything stays

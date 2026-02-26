@@ -70,7 +70,7 @@ export default function PostPage() {
   const reduxPost = useSelector((state) => state.post);
   const [resolvedPost, setResolvedPost] = React.useState(location?.state?.post || reduxPost || null);
   const [loading, setLoading] = React.useState(false);
-  const service = React.useMemo(() => new SiteService(), []);
+  const service = React.useMemo(() => new SiteService(process.env.REACT_APP_API_BASE_URL), []);
 
   // Resolve from ?articleId= query param if not already in state/redux
   React.useEffect(() => {

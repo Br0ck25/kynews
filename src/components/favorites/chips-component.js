@@ -27,7 +27,7 @@ const useStyles = makeStyles((theme) => ({
   },
 }));
 
-const siteService = new SiteService();
+const siteService = new SiteService(process.env.REACT_APP_API_BASE_URL);
 
 export default function ChipsComponent({ showControls = true, onChange }) {
   const classes = useStyles();

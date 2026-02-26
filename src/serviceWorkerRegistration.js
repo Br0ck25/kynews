@@ -19,16 +19,9 @@ const isLocalhost = Boolean(
 );
 
 export function register(config) {
-  // avoid referencing process directly in browser builds (Vite dev server)
-  const isProd =
-    typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production';
-  if (isProd && 'serviceWorker' in navigator) {
+  if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
     // The URL constructor is available in all browsers that support SW.
-    const publicUrl = new URL(
-      (typeof process !== 'undefined' && process.env && process.env.PUBLIC_URL) ||
-        "",
-      window.location.href
-    );
+    const publicUrl = new URL(process.env.PUBLIC_URL, window.location.href);
     if (publicUrl.origin !== window.location.origin) {
       // Our service worker won't work if PUBLIC_URL is on a different origin
       // from what our page is served on. This might happen if a CDN is used to
@@ -37,10 +30,7 @@ export function register(config) {
     }
 
     window.addEventListener('load', () => {
-      const publicUrlValue =
-        (typeof process !== 'undefined' && process.env && process.env.PUBLIC_URL) ||
-        '';
-      const swUrl = `${publicUrlValue}/service-worker.js`;
+      const swUrl = `${process.env.PUBLIC_URL}/service-worker.js`;
 
       if (isLocalhost) {
         // This is running on localhost. Let's check if a service worker still exists or not.
