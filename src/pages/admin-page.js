@@ -906,8 +906,11 @@ export default function AdminPage() {
             </AccordionSummary>
             <AccordionDetails style={{ display: "block" }}>
               <Typography variant="body2" color="textSecondary" style={{ marginBottom: 12 }}>
-                Paste a Facebook post URL to auto-fill — no access token needed, public pages are scraped automatically.
-                Or fill fields manually. All articles are tagged as Kentucky content; category is auto-classified by AI.
+                Paste a Facebook post URL to auto-fill the manual article form. <strong>This just
+                scrapes an *existing* post and will show whatever link was originally
+                posted (e.g. a wnky.com URL).</strong> For generating captions that point to
+                our own site, use the diagnostics box below.  Or fill fields manually.
+                All articles are tagged as Kentucky content; category is auto-classified by AI.
                 Drafts are saved privately and can be published later from the Articles tab.
               </Typography>
 
@@ -1021,9 +1024,20 @@ export default function AdminPage() {
                 <Typography style={{ color: "green", marginTop: 10 }} variant="body2">{manualSuccess}</Typography>
               )}
 
-              {/* Facebook diagnostics helper */}
+              {/* Facebook diagnostics helper
+                  This tool calls the worker endpoint that *generates* a caption for
+                  an existing article.  It is NOT the same as the "Preview Facebook
+                  post" box higher up, which merely fetches the text from a post URL
+                  (and therefore will show whatever link was in that original post).
+                  Use the ID of the article and click "Generate caption"; the link
+                  produced will always point at localkynews.com. */}
               <Box style={{ marginTop: 24, padding: 16, border: '1px solid #ccc', borderRadius: 4 }}>
                 <Typography variant="subtitle1" style={{ marginBottom: 8 }}>Facebook diagnostics</Typography>
+                <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>
+                  Enter an article ID and generate a clean caption – the link will be to
+                  your site, not the original source.  You can also post it directly if
+                  your Facebook credentials are configured.
+                </Typography>
                 <Box style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <TextField
                     label="Article ID"
