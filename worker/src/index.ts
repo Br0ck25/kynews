@@ -14,6 +14,7 @@ import {
 	updateArticlePublishedAt,
 	updateArticleClassification,
 	updateArticleContent,
+	updateArticleLinks,
 	getCountyCounts,
 } from './lib/db';
 import {
@@ -541,6 +542,50 @@ return badRequest('Provide at least one of: title, summary');
 
 await updateArticleContent(env, id, { title, summary });
 return json({ ok: true, id });
+}
+
+if (url.pathname === '/api/admin/article/update-links' && request.method === 'POST') {
+if (!isAdminAuthorized(request, env)) {
+return json({ error: 'Unauthorized' }, 401);
+}
+
+const body = await parseJsonBody<{ id?: number; canonicalUrl?: string; sourceUrl?: string }>(request);
+const id = Number(body?.id ?? 0);
+if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+
+const canonicalUrlInput = typeof body?.canonicalUrl === 'string' ? body.canonicalUrl.trim() : undefined;
+const sourceUrlInput = typeof body?.sourceUrl === 'string' ? body.sourceUrl.trim() : undefined;
+
+if (canonicalUrlInput === undefined && sourceUrlInput === undefined) {
+return badRequest('Provide at least one of: canonicalUrl, sourceUrl');
+}
+
+if (canonicalUrlInput !== undefined) {
+	if (!canonicalUrlInput || !isHttpUrl(canonicalUrlInput)) {
+		return badRequest('canonicalUrl must be an absolute http(s) URL');
+	}
+}
+
+if (sourceUrlInput !== undefined) {
+	if (!sourceUrlInput || !isHttpUrl(sourceUrlInput)) {
+		return badRequest('sourceUrl must be an absolute http(s) URL');
+	}
+}
+
+const existing = await getArticleById(env, id);
+if (!existing) return json({ error: 'Article not found' }, 404);
+
+const canonicalUrl = canonicalUrlInput ?? existing.canonicalUrl;
+const sourceUrl = sourceUrlInput ?? existing.sourceUrl;
+const urlHash = await sha256Hex(canonicalUrl);
+
+const duplicate = await findArticleByHash(env, urlHash);
+if (duplicate && duplicate.id !== id) {
+return json({ error: 'Another article already uses this live URL' }, 409);
+}
+
+await updateArticleLinks(env, id, { canonicalUrl, sourceUrl, urlHash });
+return json({ ok: true, id, canonicalUrl, sourceUrl, urlHash });
 }
 
 if (url.pathname === '/api/admin/article/delete' && request.method === 'POST') {

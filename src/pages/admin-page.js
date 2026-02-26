@@ -48,7 +48,7 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // Tab navigation: 0=Dashboard 1=Create Article 2=Articles 3=Sources 4=Blocked
+  // Tab navigation: 0=Dashboard 1=Create Article 2=Articles 3=Blocked
   const [activeTab, setActiveTab] = useState(0);
 
   const [sources, setSources] = useState([]);
@@ -76,9 +76,12 @@ export default function AdminPage() {
   const [edits, setEdits] = useState({});
   // State for inline title/summary editing: { [id]: { title, summary } }
   const [contentEdits, setContentEdits] = useState({});
+  // State for inline link editing: { [id]: { canonicalUrl, sourceUrl } }
+  const [linkEdits, setLinkEdits] = useState({});
   // ID of the article whose inline edit form is currently expanded
   const [expandedEditId, setExpandedEditId] = useState(null);
   const [savingContentId, setSavingContentId] = useState(null);
+  const [savingLinksId, setSavingLinksId] = useState(null);
 
   // --- Manual Article Form state ---
   const [fbPostUrl, setFbPostUrl] = useState("");
@@ -118,6 +121,7 @@ export default function AdminPage() {
       setHasMoreArticles(Boolean(articleResp.nextCursor));
       setBlockedRows(blockedResp?.items || []);
       setEdits({});
+      setLinkEdits({});
     } catch (err) {
       console.error(err);
       setError(err?.errorMessage || "Unable to load admin data. Check password and worker deployment.");
@@ -146,6 +150,7 @@ export default function AdminPage() {
       setArticleCursor(articleResp.nextCursor || null);
       setHasMoreArticles(Boolean(articleResp.nextCursor));
       setEdits({});
+      setLinkEdits({});
     } catch (err) {
       console.error(err);
       setError(err?.errorMessage || "Unable to filter articles.");
@@ -225,6 +230,47 @@ export default function AdminPage() {
       setError(err?.errorMessage || "Failed to save content.");
     } finally {
       setSavingContentId(null);
+    }
+  };
+
+  const saveLinks = async (row) => {
+    const patch = linkEdits[row.id] || {};
+    const canonicalUrl = (patch.canonicalUrl !== undefined ? patch.canonicalUrl : row.canonicalUrl || "").trim();
+    const sourceUrl = (patch.sourceUrl !== undefined ? patch.sourceUrl : row.sourceUrl || "").trim();
+
+    if (!canonicalUrl || !sourceUrl) {
+      setError("Live URL and Source URL are both required.");
+      return;
+    }
+
+    if (!isValidHttpUrl(canonicalUrl) || !isValidHttpUrl(sourceUrl)) {
+      setError("Live URL and Source URL must both be valid http(s) URLs.");
+      return;
+    }
+
+    setSavingLinksId(row.id);
+    setError("");
+    try {
+      const payload = await service.updateAdminArticleLinks({
+        id: row.id,
+        canonicalUrl,
+        sourceUrl,
+      });
+      const nextCanonicalUrl = payload?.canonicalUrl || canonicalUrl;
+      const nextSourceUrl = payload?.sourceUrl || sourceUrl;
+      setArticleRows((prev) =>
+        prev.map((item) =>
+          item.id === row.id
+            ? { ...item, canonicalUrl: nextCanonicalUrl, sourceUrl: nextSourceUrl }
+            : item
+        )
+      );
+      setLinkEdits((prev) => ({ ...prev, [row.id]: {} }));
+    } catch (err) {
+      console.error(err);
+      setError(err?.errorMessage || "Unable to update article links.");
+    } finally {
+      setSavingLinksId(null);
     }
   };
 
@@ -335,6 +381,7 @@ export default function AdminPage() {
     setMetrics(null);
     setRejections([]);
     setDuplicateItems([]);
+    setLinkEdits({});
   };
 
   const publishRejectedItem = async (item) => {
@@ -589,7 +636,6 @@ export default function AdminPage() {
           <Tab label="Dashboard" />
           <Tab label="Create Article" />
           <Tab label={draftCount > 0 ? `Articles (${draftCount} draft${draftCount !== 1 ? "s" : ""})` : "Articles"} />
-          <Tab label="Sources" />
           <Tab label="Blocked" />
         </Tabs>
       </Paper>
@@ -733,6 +779,55 @@ export default function AdminPage() {
                             {item.id
                               ? <Button size="small" variant="outlined" color="primary" href={getLocalArticleLink({ id: item.id })} target="_blank" rel="noopener noreferrer">Open</Button>
                               : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </AccordionDetails>
+            </Accordion>
+
+            <Accordion defaultExpanded={false}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle2">
+                  Sources ({sourceSummary?.totalConfiguredSources || 0})
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails style={{ display: "block", padding: 0 }}>
+                {sourceSummary && (
+                  <Box style={{ display: "flex", gap: 8, margin: "12px 12px 8px", flexWrap: "wrap" }}>
+                    <Chip label={`Configured: ${sourceSummary.totalConfiguredSources || 0}`} />
+                    <Chip label={`Active: ${sourceSummary.activeSources || 0}`} color="primary" />
+                    <Chip label={`No articles yet: ${sourceSummary.inactiveSources || 0}`} />
+                  </Box>
+                )}
+                {loading ? (
+                  <Box style={{ padding: 12 }}>
+                    <CircularProgress size={24} />
+                  </Box>
+                ) : (
+                  <Table size="small" style={{ marginBottom: 12 }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Source</TableCell>
+                        <TableCell align="right">Articles</TableCell>
+                        <TableCell>Latest Published</TableCell>
+                        <TableCell>Status</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {sources.slice(0, 200).map((row) => (
+                        <TableRow key={row.sourceUrl}>
+                          <TableCell style={{ maxWidth: 420, overflowWrap: "anywhere" }}>{row.sourceUrl}</TableCell>
+                          <TableCell align="right">{row.articleCount}</TableCell>
+                          <TableCell>{row.latestPublishedAt || "—"}</TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={row.status}
+                              color={row.status === "active" ? "primary" : "default"}
+                            />
                           </TableCell>
                         </TableRow>
                       ))}
@@ -935,6 +1030,11 @@ export default function AdminPage() {
                     const currentCounty = edit.county ?? row.county ?? "";
                     const currentPublishedAt = edit.publishedAt ?? row.publishedAt ?? "";
                     const contentEdit = contentEdits[row.id] || {};
+                    const linkEdit = linkEdits[row.id] || {};
+                    const currentCanonicalUrl =
+                      linkEdit.canonicalUrl !== undefined ? linkEdit.canonicalUrl : row.canonicalUrl || "";
+                    const currentSourceUrl =
+                      linkEdit.sourceUrl !== undefined ? linkEdit.sourceUrl : row.sourceUrl || "";
                     const isExpanded = expandedEditId === row.id;
 
                     return (
@@ -985,19 +1085,25 @@ export default function AdminPage() {
                               {!draft && (
                                 <Button size="small" variant="outlined" color="primary"
                                   href={getLocalArticleLink(row)} target="_blank" rel="noopener noreferrer">
-                                  Live
+                                  Local
                                 </Button>
                               )}
                               <Button size="small" variant="outlined"
-                                href={row.canonicalUrl || row.sourceUrl || "#"}
+                                href={row.canonicalUrl || "#"}
                                 target="_blank" rel="noopener noreferrer"
-                                disabled={!row.canonicalUrl && !row.sourceUrl}>
+                                disabled={!row.canonicalUrl}>
+                                Live
+                              </Button>
+                              <Button size="small" variant="outlined"
+                                href={row.sourceUrl || "#"}
+                                target="_blank" rel="noopener noreferrer"
+                                disabled={!row.sourceUrl}>
                                 Source
                               </Button>
                             </Box>
                           </TableCell>
                           <TableCell>
-                            <Tooltip title="Edit title / summary">
+                            <Tooltip title="Edit title / summary / links">
                               <IconButton
                                 size="small"
                                 color={isExpanded ? "primary" : "default"}
@@ -1045,7 +1151,7 @@ export default function AdminPage() {
                           <TableCell colSpan={10} style={{ paddingTop: 0, paddingBottom: 0, border: isExpanded ? undefined : "none" }}>
                             <Collapse in={isExpanded} unmountOnExit>
                               <Box style={{ padding: "12px 8px 16px", background: "#f9f9f9" }}>
-                                <Typography variant="subtitle2" gutterBottom>Edit Title &amp; Summary — ID {row.id}</Typography>
+                                <Typography variant="subtitle2" gutterBottom>Edit Article — ID {row.id}</Typography>
                                 <TextField
                                   fullWidth
                                   label="Title"
@@ -1066,6 +1172,30 @@ export default function AdminPage() {
                                   value={contentEdit.summary !== undefined ? contentEdit.summary : row.summary || ""}
                                   onChange={(e) => setContentEdits(prev => ({ ...prev, [row.id]: { ...prev[row.id], summary: e.target.value } }))}
                                 />
+                                <TextField
+                                  fullWidth
+                                  label="Live URL"
+                                  variant="outlined"
+                                  size="small"
+                                  style={{ marginBottom: 10 }}
+                                  value={currentCanonicalUrl}
+                                  onChange={(e) => setLinkEdits((prev) => ({
+                                    ...prev,
+                                    [row.id]: { ...prev[row.id], canonicalUrl: e.target.value },
+                                  }))}
+                                />
+                                <TextField
+                                  fullWidth
+                                  label="Source URL"
+                                  variant="outlined"
+                                  size="small"
+                                  style={{ marginBottom: 10 }}
+                                  value={currentSourceUrl}
+                                  onChange={(e) => setLinkEdits((prev) => ({
+                                    ...prev,
+                                    [row.id]: { ...prev[row.id], sourceUrl: e.target.value },
+                                  }))}
+                                />
                                 <Box style={{ display: "flex", gap: 8 }}>
                                   <Button
                                     size="small"
@@ -1075,6 +1205,15 @@ export default function AdminPage() {
                                     onClick={() => saveContent(row)}
                                   >
                                     {savingContentId === row.id ? "Saving…" : "Save Content"}
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    variant="contained"
+                                    color="primary"
+                                    disabled={savingLinksId === row.id}
+                                    onClick={() => saveLinks(row)}
+                                  >
+                                    {savingLinksId === row.id ? "Saving…" : "Save Links"}
                                   </Button>
                                   <Button size="small" variant="outlined" onClick={() => setExpandedEditId(null)}>
                                     Cancel
@@ -1103,52 +1242,9 @@ export default function AdminPage() {
       )}
 
       {/* ================================================================ */}
-      {/* TAB 3 — Sources                                                  */}
+      {/* TAB 3 — Blocked                                                  */}
       {/* ================================================================ */}
       {activeTab === 3 && (
-        <Box>
-          <Typography variant="h6" gutterBottom>Source Health</Typography>
-          {sourceSummary && (
-            <Box style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-              <Chip label={`Configured: ${sourceSummary.totalConfiguredSources || 0}`} />
-              <Chip label={`Active: ${sourceSummary.activeSources || 0}`} color="primary" />
-              <Chip label={`No articles yet: ${sourceSummary.inactiveSources || 0}`} />
-            </Box>
-          )}
-          {loading ? (
-            <CircularProgress size={24} />
-          ) : (
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Source</TableCell>
-                  <TableCell align="right">Articles</TableCell>
-                  <TableCell>Latest Published</TableCell>
-                  <TableCell>Status</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {sources.slice(0, 200).map((row) => (
-                  <TableRow key={row.sourceUrl}>
-                    <TableCell style={{ maxWidth: 420, overflowWrap: "anywhere" }}>{row.sourceUrl}</TableCell>
-                    <TableCell align="right">{row.articleCount}</TableCell>
-                    <TableCell>{row.latestPublishedAt || "—"}</TableCell>
-                    <TableCell>
-                      <Chip size="small" label={row.status}
-                        color={row.status === "active" ? "primary" : "default"} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </Box>
-      )}
-
-      {/* ================================================================ */}
-      {/* TAB 4 — Blocked                                                  */}
-      {/* ================================================================ */}
-      {activeTab === 4 && (
         <Box>
           <Typography variant="h6" gutterBottom>Blocked Articles</Typography>
           <Typography variant="body2" color="textSecondary" gutterBottom>
@@ -1208,6 +1304,15 @@ function toDateTimeLocalValue(isoValue) {
   const hours = pad(date.getHours());
   const minutes = pad(date.getMinutes());
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function isValidHttpUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function fromDateTimeLocalValue(value) {

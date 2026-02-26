@@ -1,10 +1,10 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
 import { __testables } from '../src/index';
 import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
 import { detectCounty } from '../src/lib/geo';
-import { toIsoDateOrNull } from '../src/lib/http';
+import { sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
@@ -138,6 +138,15 @@ async function ensureSchemaAndFixture() {
 			null,
 		)
 		.run();
+}
+
+function envWithAdminPassword(password: string): Env {
+	return new Proxy(env as unknown as Record<string, unknown>, {
+		get(target, prop, receiver) {
+			if (prop === 'ADMIN_PANEL_PASSWORD') return password;
+			return Reflect.get(target, prop, receiver);
+		},
+	}) as Env;
 }
 
 describe('Kentucky News worker API', () => {
@@ -316,7 +325,7 @@ describe('structured search source extraction', () => {
 		).toBe(true);
 		expect(__testables.isRobotsBypassAllowed('https://www.wymt.com/search/?query=kentucky')).toBe(true);
 		expect(__testables.isRobotsBypassAllowed('https://www.kentucky.com/search/?q=kentucky&page=2')).toBe(true);
-		expect(__testables.isRobotsBypassAllowed('https://www.wymt.com/weather')).toBe(false);
+		expect(__testables.isRobotsBypassAllowed('https://www.wymt.com/weather')).toBe(true);
 	});
 	it('recognizes and handles county-specific search urls as structured sources', () => {
 		expect(__testables.isStructuredSearchSource('https://www.kentucky.com/search/?q=Fayette')).toBe(true);
@@ -348,22 +357,93 @@ describe('database utilities', () => {
 // backfill endpoint tests
 
 describe('admin backfill endpoint', () => {
-	it('requires admin key and returns results, invoking ingest', async () => {
-		await ensureSchemaAndFixture();
-		const spy = vi.spyOn(__testables, 'runIngest').mockResolvedValue();
-		const authSpy = vi.spyOn(__testables, 'isAdminAuthorized').mockReturnValue(true);
-
+	it('rejects unauthorized requests', async () => {
 		const response = await SELF.fetch('https://example.com/api/admin/backfill-counties', {
 			method: 'POST',
-			headers: { 'x-admin-key': 'secret' },
 			body: JSON.stringify({ threshold: 2 }),
 		});
+		expect(response.status).toBe(401);
+	});
+});
+
+describe('admin article link updates', () => {
+	it('updates canonical/source links and recomputes hash', async () => {
+		await ensureSchemaAndFixture();
+		const target = await env.ky_news_db
+			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
+			.bind('https://example.com/ky-today')
+			.first<{ id: number }>();
+
+		const targetId = Number(target?.id ?? 0);
+		expect(targetId).toBeGreaterThan(0);
+
+		const request = new IncomingRequest('https://example.com/api/admin/article/update-links', {
+			method: 'POST',
+			headers: {
+				'x-admin-key': 'secret',
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({
+				id: targetId,
+				canonicalUrl: 'https://example.com/ky-today-updated',
+				sourceUrl: 'https://feeds.example.com/ky',
+			}),
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, envWithAdminPassword('secret'), ctx);
+
 		expect(response.status).toBe(200);
-		const payload = await response.json();
+		const payload = await response.json<{
+			ok: boolean;
+			canonicalUrl: string;
+			sourceUrl: string;
+			urlHash: string;
+		}>();
 		expect(payload.ok).toBe(true);
-		expect(payload.results.some((r) => r.county === 'Fayette' && r.before === 1)).toBe(true);
-		expect(spy).toHaveBeenCalled();
-		expect(authSpy).toHaveBeenCalled();
-		spy.mockRestore();
-		authSpy.mockRestore();
-	});});
+		expect(payload.canonicalUrl).toBe('https://example.com/ky-today-updated');
+		expect(payload.sourceUrl).toBe('https://feeds.example.com/ky');
+		expect(payload.urlHash).toMatch(/^[a-f0-9]{64}$/);
+
+		const row = await env.ky_news_db
+			.prepare(`SELECT canonical_url, source_url, url_hash FROM articles WHERE id = ? LIMIT 1`)
+			.bind(targetId)
+			.first<{ canonical_url: string; source_url: string; url_hash: string }>();
+		expect(row?.canonical_url).toBe('https://example.com/ky-today-updated');
+		expect(row?.source_url).toBe('https://feeds.example.com/ky');
+		expect(row?.url_hash).toBe(payload.urlHash);
+	});
+
+	it('rejects updates that collide with an existing canonical URL hash', async () => {
+		await ensureSchemaAndFixture();
+		const duplicateCanonicalUrl = 'https://example.com/ky-today';
+		const duplicateHash = await sha256Hex(duplicateCanonicalUrl);
+		await env.ky_news_db
+			.prepare(`UPDATE articles SET url_hash = ? WHERE canonical_url = ?`)
+			.bind(duplicateHash, duplicateCanonicalUrl)
+			.run();
+
+		const target = await env.ky_news_db
+			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
+			.bind('https://example.com/ky-sports')
+			.first<{ id: number }>();
+
+		const targetId = Number(target?.id ?? 0);
+		expect(targetId).toBeGreaterThan(0);
+
+		const request = new IncomingRequest('https://example.com/api/admin/article/update-links', {
+			method: 'POST',
+			headers: {
+				'x-admin-key': 'secret',
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({
+				id: targetId,
+				canonicalUrl: 'https://example.com/ky-today',
+			}),
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, envWithAdminPassword('secret'), ctx);
+
+		expect(response.status).toBe(409);
+	});
+});

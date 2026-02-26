@@ -512,6 +512,13 @@ export default class SiteService {
     });
   }
 
+  async updateAdminArticleLinks({ id, canonicalUrl, sourceUrl }) {
+    return this.request("/api/admin/article/update-links", {
+      method: "POST",
+      body: JSON.stringify({ id, canonicalUrl, sourceUrl }),
+    });
+  }
+
   async deleteAdminArticle({ id, block = false, reason = "" }) {
     return this.request("/api/admin/article/delete", {
       method: "POST",

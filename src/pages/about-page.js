@@ -156,13 +156,6 @@ export default function AboutPage() {
         <Grid container spacing={2}>
           {[
             {
-              name: "James Brock",
-              role: "Founder & Editor in Chief",
-              bio:
-                "Kentucky native and technology professional with a decade of experience building digital platforms. James founded Local KY News to address the gap in accessible local coverage for rural Kentucky counties. He oversees editorial standards, source selection, and platform development.",
-              initials: "JB",
-            },
-            {
               name: "Editorial Standards Board",
               role: "AI Summary Oversight",
               bio:

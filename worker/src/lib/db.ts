@@ -155,6 +155,19 @@ export async function updateArticleContent(
     .run();
 }
 
+export async function updateArticleLinks(
+  env: Env,
+  id: number,
+  patch: { canonicalUrl: string; sourceUrl: string; urlHash: string },
+): Promise<void> {
+  await env.ky_news_db
+    .prepare(
+      'UPDATE articles SET canonical_url = ?, source_url = ?, url_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    )
+    .bind(patch.canonicalUrl, patch.sourceUrl, patch.urlHash, id)
+    .run();
+}
+
 export async function deleteArticleById(env: Env, id: number): Promise<void> {
   await env.ky_news_db
     .prepare('DELETE FROM articles WHERE id = ?')
