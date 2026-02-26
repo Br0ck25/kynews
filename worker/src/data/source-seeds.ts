@@ -135,7 +135,6 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://www.pbs.org/newshour/feeds/rss/headlines',
   'https://www.wdrb.com/search/?f=rss&t=article&c=news&l=50&s=start_time&sd=desc',
   // 'https://rssfeeds.courier-journal.com/courierjournal/news',  // paywalled
-  'https://www.courier-journal.com/rss/',
   'https://www.lex18.com/news/covering-kentucky.rss',
   'https://feeds.mcclatchy.com/kentucky/sections/latest-news/stories',
   'https://www.wowktv.com/news/kentucky/feed/',
