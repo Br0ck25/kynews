@@ -33,7 +33,7 @@ const useStyles = makeStyles((theme) => ({
   },
 }));
 
-const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
+const service = new SiteService();
 
 const SITE_URL = "https://localkynews.com";
 

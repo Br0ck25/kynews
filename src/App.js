@@ -48,7 +48,10 @@ function LegacyCountyRedirect() {
 
 function AppTagSync() {
   const dispatch = useDispatch();
-  const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
+  // SiteService will resolve its own base URL (from import.meta.env or
+  // process.env) so we don't need to pass anything here.  Passing undefined
+  // is harmless but avoids touching `process` during initialization.
+  const service = new SiteService();
 
   React.useEffect(() => {
     service.getTags().then((tags) => {

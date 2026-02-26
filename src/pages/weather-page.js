@@ -23,7 +23,7 @@ function getWeatherCondition(code) {
   return { label: "Mixed", emoji: "🌡️" };
 }
 
-const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
+const service = new SiteService();
 const WEATHER_ZIP_KEY = "weather_zip";
 
 function getWeekday(dateString) {

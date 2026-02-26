@@ -63,7 +63,8 @@ export default function ArticleSlugPage() {
   const [loading, setLoading] = React.useState(true);
 
   const service = React.useMemo(
-    () => new SiteService(process.env.REACT_APP_API_BASE_URL),
+    // baseUrl is resolved internally, so just use the default constructor
+    () => new SiteService(),
     []
   );
 

@@ -16,7 +16,7 @@ const useStyles = makeStyles({
   },
 });
 
-const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
+const service = new SiteService();
 
 export default function SearchPage() {
   const classes = useStyles();

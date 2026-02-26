@@ -34,7 +34,8 @@ import SiteService from "../services/siteService";
 import { KENTUCKY_COUNTIES } from "../constants/counties";
 import { articleToUrl } from "../utils/functions";
 
-const service = new SiteService(process.env.REACT_APP_API_BASE_URL);
+// `SiteService` already handles environment configuration internally.
+const service = new SiteService();
 const CATEGORIES = ["today", "national", "sports", "weather", "schools", "obituaries"];
 
 // Articles stored with this published_at prefix are drafts — not yet live publicly

@@ -1,3 +1,6 @@
+// ensure process.env is available during Vite dev (fixes runtime errors)
+import './env-shim';
+
 import React from 'react';
 import ReactDOM from 'react-dom';
 import './index.css';
