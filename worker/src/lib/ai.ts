@@ -261,6 +261,7 @@ function cleanContentForSummarization(text: string, title: string): string {
   t = t.replace(/^\s*Summary\s*$/gim, '');
 
   // Publisher-specific boilerplate
+  t = t.replace(/Listen to this article with a (?:free|paid)?\s*account[^\n]*/gi, '');
   t = t.replace(/NEW\s*You can now listen to Fox News articles!?/gi, '');
   t = t.replace(/Add Fox News on Google\b[^\n]*/gi, '');
   t = t.replace(/^(?:Gesture|Agree|Like|Disagree|Love|Sad|Wow|Angry)\s*$/gim, '');
@@ -417,12 +418,16 @@ function endsWithSentenceBoundary(input: string): boolean {
 
 function endsWithLikelyAbbreviation(input: string): boolean {
   const trimmed = input.trim();
+  // Single capital letter before a period — likely part of an initialism like U.S. or U.K.
   if (/\b[A-Z]\.$/.test(trimmed)) return true;
-  return /\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Gen|Rep|Sen|Prof|Sr|Jr|St|No)\.$/i.test(trimmed);
+  // Common titles and abbreviations
+  if (/\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Gen|Rep|Sen|Prof|Sr|Jr|St|No|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.$/i.test(trimmed)) return true;
+  return false;
 }
 
 function startsWithLikelyContinuation(input: string): boolean {
-  return /^(?:[a-z]|[A-Z]\.|['"(])/.test(input.trim());
+  // Lowercase start, capital initial (e.g. "S." from "U.\nS."), opening quote/paren, or digit continuation (date split like "5, 2026")
+  return /^(?:[a-z]|[A-Z]\.|['"(]|\d)/.test(input.trim());
 }
 
 function repairUnbalancedQuotes(text: string): string {
