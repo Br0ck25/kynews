@@ -66,8 +66,15 @@ export default function Theme({ children }) {
 
   const handlePost = (post) => dispatch(setPost(post));
   const handleClose = () => {
-    dispatch(setPost(null));
-    dispatch(setFullscreenCounty(null));
+    // If an article is open on top of a county, closing should just remove the
+    // article and leave the county page visible.  Only clear the county if no
+    // article is present.
+    if (post && countySlug) {
+      dispatch(setPost(null));
+    } else {
+      dispatch(setPost(null));
+      dispatch(setFullscreenCounty(null));
+    }
   };
 
   return (

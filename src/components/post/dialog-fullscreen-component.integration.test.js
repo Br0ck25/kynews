@@ -13,10 +13,10 @@ describe('FullScreenPostDialog integration', () => {
     store.dispatch(setFullscreenCounty(null));
   });
 
-  it('when county is open then clicking an article should show only the article', () => {
+  it('when county is open then clicking an article should show only the article, and closing returns to county', () => {
     // open county
     store.dispatch(setFullscreenCounty('jefferson-county'));
-    const { rerender } = render(<Wrapped><FullScreenPostDialog countySlug="jefferson-county" /></Wrapped>);
+    const { rerender, getByLabelText } = render(<Wrapped><FullScreenPostDialog countySlug="jefferson-county" /></Wrapped>);
     // county heading present
     expect(screen.getAllByText(/Jefferson County/i).length).toBeGreaterThan(0);
 
@@ -25,11 +25,14 @@ describe('FullScreenPostDialog integration', () => {
     store.dispatch(setPost(dummy));
     rerender(<Wrapped><FullScreenPostDialog post={dummy} countySlug="jefferson-county" /></Wrapped>);
 
-    // article title appears and county content should not be visible anymore
+    // article title appears
     expect(screen.getByText(/Dummy Article/i)).toBeInTheDocument();
-    // the county heading count should now be just one maybe still? we assert not multiple
-    const matches = screen.queryAllByText(/Jefferson County/i);
-    // Only the content paragraph could still include county name; ensure heading gone
-    expect(matches.some(el => el.tagName === 'H5')).toBe(false);
+
+    // close article via fab
+    fireEvent.click(getByLabelText('close'));
+    // after closing, article should be gone, but county heading should return
+    expect(screen.queryByText(/Dummy Article/i)).toBeNull();
+    const matches = screen.getAllByText(/Jefferson County/i);
+    expect(matches.some(el => el.tagName === 'H5')).toBe(true);
   });
 });
