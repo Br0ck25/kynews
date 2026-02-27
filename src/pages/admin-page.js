@@ -97,6 +97,9 @@ export default function AdminPage() {
   const [manualSuccess, setManualSuccess] = useState(null);
   const [manualError, setManualError] = useState("");
 
+  // --- WYMT Google News RSS ingest state ---
+  const [wymtIngesting, setWymtIngesting] = useState(false);
+
   // --- Facebook diagnostics state ---
   const [fbDiagId, setFbDiagId] = useState("");
   const [fbDiagCaption, setFbDiagCaption] = useState(null);
@@ -588,6 +591,24 @@ export default function AdminPage() {
     }
   };
 
+  const ingestWymtRss = async () => {
+    // Ingest recent WYMT items from Google News RSS (last 1 day)
+    setError("");
+    setWymtIngesting(true);
+    try {
+      await service.ingestRss({
+        feedUrl: "https://news.google.com/rss/search?q=site:wymt.com%20when:1d",
+        sourceUrl: "https://wymt.com",
+      });
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError(err?.errorMessage || "Failed to ingest WYMT RSS feed.");
+    } finally {
+      setWymtIngesting(false);
+    }
+  };
+
   const purgeAndReingest = async () => {
     // eslint-disable-next-line no-alert
     const confirmed = window.confirm("This will DELETE all article rows and start re-ingest. Continue?");
@@ -704,6 +725,9 @@ export default function AdminPage() {
           <Box style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
             <Button variant="contained" color="primary" onClick={triggerIngest}>
               Ingest new articles
+            </Button>
+            <Button variant="outlined" color="primary" onClick={ingestWymtRss} disabled={wymtIngesting}>
+              {wymtIngesting ? "Ingesting WYMT…" : "Ingest WYMT Google News"}
             </Button>
             <Button variant="contained" color="secondary" onClick={purgeAndReingest}>
               Purge + Re-ingest

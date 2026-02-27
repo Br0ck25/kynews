@@ -979,6 +979,14 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
 	}
 }
 
+// SPA fallback for any /news/ path (after preview logic)
+if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
+	// serve the React app shell so client JS can render the appropriate page
+	if (env.ASSETS) {
+		return env.ASSETS.fetch('/index.html');
+	}
+}
+
 // --- Sitemap routes (Section 7: News Sitemap Strategy) ---
 if (url.pathname === '/sitemap-index.xml' && request.method === 'GET') {
 	return new Response(generateSitemapIndex(), {

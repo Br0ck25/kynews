@@ -838,10 +838,18 @@ describe('social preview HTML route', () => {
 		expect(text).toContain('window.location.href');
 		expect(text).toContain('?r=1');
 +
-+		// additional request including flag should bypass preview and not return meta
-+		const response2 = await SELF.fetch(`https://example.com${path}?r=1`);
-+		expect(response2.status).not.toBe(200);
-+		const text2 = await response2.text();
-+		expect(text2).not.toContain('<meta property="og:title"');
+		// additional request including flag should return SPA shell instead of preview
+		const response2 = await SELF.fetch(`https://example.com${path}?r=1`);
+		expect(response2.status).toBe(200);
+		const text2 = await response2.text();
+		expect(text2).toContain('<!doctype html');
+		expect(text2).not.toContain('<meta property="og:title"');
+
+		// hitting a county-level URL (no slug) should also return the SPA shell
+		const countyPath = '/news/kentucky/adair-county';
+		const respCounty = await SELF.fetch(`https://example.com${countyPath}`);
+		expect(respCounty.status).toBe(200);
+		const countyText = await respCounty.text();
+		expect(countyText).toContain('<!doctype html');
 	});
 });
