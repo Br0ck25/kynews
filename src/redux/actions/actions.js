@@ -7,6 +7,7 @@ export const SET_TAGS = "SET_TAGS";
 export const SET_TAB_SELECTED = "SET_TAB_SELECTED";
 export const SET_SEARCH_POSTS = "SET_SEARCH_POSTS";
 export const SET_SELECTED_COUNTIES = "SET_SELECTED_COUNTIES";
+export const SET_FULLSCREEN_COUNTY = "SET_FULLSCREEN_COUNTY";
 
 export function setTitle(title) {
   return { type: SET_TITLE, title: title };
@@ -42,4 +43,8 @@ export function setSearchPosts(searchPosts) {
 
 export function setSelectedCounties(selectedCounties) {
   return { type: SET_SELECTED_COUNTIES, selectedCounties };
+}
+
+export function setFullscreenCounty(countySlug) {
+  return { type: SET_FULLSCREEN_COUNTY, countySlug };
 }

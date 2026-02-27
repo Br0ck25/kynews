@@ -4,17 +4,19 @@ import {
   unstable_createMuiStrictModeTheme as createMuiTheme,
 } from "@material-ui/core/styles";
 import FullScreenPostDialog from "./post/dialog-fullscreen-component";
+// county dialog handled by post dialog now
 import {
   blue,
   indigo,
   grey,
 } from "@material-ui/core/colors";
 import { useDispatch, shallowEqual, useSelector } from "react-redux";
-import { setPost } from "../redux/actions/actions";
+import { setPost, setFullscreenCounty } from "../redux/actions/actions";
 
 export default function Theme({ children }) {
   const dispatch = useDispatch();
   const post = useSelector((state) => state.post, shallowEqual);
+  const countySlug = useSelector((state) => state.fullscreenCounty);
   const darkTheme = useSelector((state) => state.darkTheme);
 
   const palletType = darkTheme ? "dark" : "light";
@@ -63,10 +65,19 @@ export default function Theme({ children }) {
   const theme = createMuiTheme(Theme);
 
   const handlePost = (post) => dispatch(setPost(post));
+  const handleClose = () => {
+    dispatch(setPost(null));
+    dispatch(setFullscreenCounty(null));
+  };
 
   return (
     <ThemeProvider theme={theme}>
-      <FullScreenPostDialog post={post} handlePost={handlePost} />
+      <FullScreenPostDialog
+        post={post}
+        countySlug={countySlug}
+        onClose={handleClose}
+        handlePost={handlePost}
+      />
       {children}
     </ThemeProvider>
   );

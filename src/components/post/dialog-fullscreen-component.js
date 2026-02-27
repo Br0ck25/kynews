@@ -6,6 +6,7 @@ import Divider from "@material-ui/core/Divider";
 import CloseIcon from "@material-ui/icons/Close";
 import { Slide } from "@material-ui/core";
 import FeaturedPost from "./post-component";
+import CountyPage from "../../pages/county-page";
 import { Container, Fab } from "@material-ui/core";
 import FavoriteBorderIcon from "@material-ui/icons/FavoriteBorder";
 import ShareIcon from "@material-ui/icons/Share";
@@ -40,8 +41,11 @@ export default function FullScreenPostDialog(props) {
   const classes = useStyles();
   const [openSnackbarNotify, setOpenSnackbarNotify] = useState(false);
 
+  // props: post, countySlug, onClose, handlePost
   const handleClose = () => {
-    props.handlePost(null);
+    if (props.onClose) {
+      props.onClose();
+    }
   };
 
   const handleSavePost = () => {
@@ -61,7 +65,7 @@ export default function FullScreenPostDialog(props) {
     ShareAPI(title, text, url);
   }
 
-  let open = !!props.post;
+  let open = !!props.post || !!props.countySlug;
 
   return (
     <div>
@@ -99,32 +103,37 @@ export default function FullScreenPostDialog(props) {
         <br />
         <Container>
           {props.post && <FeaturedPost post={props.post} />}
+          {props.countySlug && <CountyPage countySlugProp={props.countySlug} />}
           <Divider />
 
-          <IconButton
-            className={classes.buttons}
-            aria-label="Save"
-            component="span"
-            onClick={handleSavePost}
-            // size="large"
-          >
-            <FavoriteBorderIcon fontSize="large"/>
-          </IconButton>
-          <IconButton
-            className={classes.buttons}
-            aria-label="Share"
-            component="span"
-            // size="large"
-            onClick={handleShare}
-          >
-            <ShareIcon fontSize="large"/>
-          </IconButton>
-
+          {/* only show save/share for actual posts */}
+          {props.post && (
+            <>
+              <IconButton
+                className={classes.buttons}
+                aria-label="Save"
+                component="span"
+                onClick={handleSavePost}
+                // size="large"
+              >
+                <FavoriteBorderIcon fontSize="large"/>
+              </IconButton>
+              <IconButton
+                className={classes/buttons}
+                aria-label="Share"
+                component="span"
+                // size="large"
+                onClick={handleShare}
+              >
+                <ShareIcon fontSize="large"/>
+              </IconButton>
+            </>
+          )}
 
           <Divider />
           <br /> <br />
           <Fab
-            aria-label={"test"}
+            aria-label={"close"}
             className={classes.fab}
             color="primary"
             onClick={handleClose}

@@ -16,6 +16,7 @@ import Skeletons from "../components/skeletons-component";
 import SnackbarNotify from "../components/snackbar-notify-component";
 import { slugToCounty } from "../utils/functions";
 import { useParams, useHistory } from "react-router-dom";
+import { __RouterContext } from "react-router";
 import { ToggleSavedCounty, GetSavedCounties } from "../services/storageService";
 
 const useStyles = makeStyles((theme) => ({
@@ -90,10 +91,16 @@ function getCountyIntro(countyName) {
     `To filter your Home feed by county, use Settings → County Filters.`;
 }
 
-export default function CountyPage() {
+export default function CountyPage({ countySlugProp = null }) {
   const classes = useStyles();
-  const { countySlug } = useParams();
-  const history = useHistory();
+  // Determine if we're within a router context (dialogs may break the context due
+  // to portals).  If no router is present we skip calling hooks that rely on it.
+  const router = React.useContext(__RouterContext);
+  const hasRouter = !!router;
+  const params = hasRouter ? useParams() : {};
+  const history = hasRouter ? useHistory() : null;
+
+  const countySlug = countySlugProp || params.countySlug || "";
 
   const countyName = slugToCounty(countySlug);
 

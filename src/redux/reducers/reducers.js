@@ -8,6 +8,7 @@ import {
   SET_SEARCH_POSTS,
   SET_TAB_SELECTED,
   SET_SELECTED_COUNTIES,
+  SET_FULLSCREEN_COUNTY,
 } from "../actions/actions";
 import Constants from "../../constants/constants";
 import { GetValue, SaveValue } from "../../services/storageService";
@@ -21,6 +22,7 @@ const initialState = {
   post: null,
   tabSelected: { index: 0, value: "" },
   selectedCounties: [],
+  fullscreenCounty: null,
   searchPosts: {
     searchValue: "",
     posts: null,
@@ -83,6 +85,11 @@ function rootReducer(state = initialState, action) {
       return {
         ...state,
         selectedCounties: action.selectedCounties,
+      };
+    case SET_FULLSCREEN_COUNTY:
+      return {
+        ...state,
+        fullscreenCounty: action.countySlug || null,
       };
     default:
       return state;
