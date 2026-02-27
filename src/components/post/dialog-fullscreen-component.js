@@ -103,7 +103,7 @@ export default function FullScreenPostDialog(props) {
         <br />
         <Container>
           {props.post && <FeaturedPost post={props.post} />}
-          {props.countySlug && <CountyPage countySlugProp={props.countySlug} />}
+          {props.countySlug && <CountyPage countySlugProp={props.countySlug} onClose={props.onClose} />}
           <Divider />
 
           {/* only show save/share for actual posts */}

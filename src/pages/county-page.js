@@ -91,7 +91,7 @@ function getCountyIntro(countyName) {
     `To filter your Home feed by county, use Settings → County Filters.`;
 }
 
-export default function CountyPage({ countySlugProp = null }) {
+export default function CountyPage({ countySlugProp = null, onClose = null }) {
   const classes = useStyles();
   // Determine if we're within a router context (dialogs may break the context due
   // to portals).  If no router is present we skip calling hooks that rely on it.
@@ -210,7 +210,12 @@ export default function CountyPage({ countySlugProp = null }) {
   };
 
   const handleBack = () => {
-    history.push("/local");
+    if (countySlugProp && props?.onClose) {
+      // when rendered in a dialog, close it instead of navigating
+      props.onClose();
+    } else if (history) {
+      history.push("/local");
+    }
   };
 
   if (!countyName) {
