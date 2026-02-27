@@ -94,13 +94,14 @@ function getCountyIntro(countyName) {
 export default function CountyPage({ countySlugProp = null, onClose = null }) {
   const classes = useStyles();
   // Determine if we're within a router context (dialogs may break the context due
-  // to portals).  If no router is present we skip calling hooks that rely on it.
+  // to portals).  We'll always call the hooks but only use them when a router
+  // exists so we don't violate the Rules of Hooks by changing call order.
   const router = React.useContext(__RouterContext);
   const hasRouter = !!router;
-  const params = hasRouter ? useParams() : {};
-  const history = hasRouter ? useHistory() : null;
+  const params = useParams();
+  const history = useHistory();
 
-  const countySlug = countySlugProp || params.countySlug || "";
+  const countySlug = countySlugProp || (hasRouter ? params.countySlug : "") || "";
 
   const countyName = slugToCounty(countySlug);
 

@@ -7,6 +7,7 @@ import CloseIcon from "@material-ui/icons/Close";
 import { Slide } from "@material-ui/core";
 import FeaturedPost from "./post-component";
 import CountyPage from "../../pages/county-page";
+import { MemoryRouter } from "react-router-dom";
 import { Container, Fab } from "@material-ui/core";
 import FavoriteBorderIcon from "@material-ui/icons/FavoriteBorder";
 import ShareIcon from "@material-ui/icons/Share";
@@ -103,7 +104,13 @@ export default function FullScreenPostDialog(props) {
         <br />
         <Container>
           {props.post && <FeaturedPost post={props.post} />}
-          {props.countySlug && <CountyPage countySlugProp={props.countySlug} onClose={props.onClose} />}
+          {props.countySlug && (
+            // wrap county page in a router so hooks like useParams work even when
+            // rendered inside the dialog (which is outside the app's main Router)
+            <MemoryRouter initialEntries={[`/news/kentucky/${props.countySlug}`]}>
+              <CountyPage countySlugProp={props.countySlug} onClose={props.onClose} />
+            </MemoryRouter>
+          )}
           <Divider />
 
           {/* only show save/share for actual posts */}
@@ -119,7 +126,7 @@ export default function FullScreenPostDialog(props) {
                 <FavoriteBorderIcon fontSize="large"/>
               </IconButton>
               <IconButton
-                className={classes/buttons}
+                className={classes.buttons}
                 aria-label="Share"
                 component="span"
                 // size="large"
