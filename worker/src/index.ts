@@ -940,32 +940,41 @@ return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 // why the wrong image was showing up earlier.  To fix this we intercept those
 // requests here in the worker, look up the article by slug, and return a
 // minimal HTML page containing the appropriate meta tags.  The body includes
-// a redirect script so regular browsers still load the SPA.
+// a redirect script so regular browsers still load the SPA.  We also add a
+// query-parameter flag to prevent the same browser from re-triggering the
+// preview on the second navigation, which otherwise caused an infinite reload.
 if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
-	const segments = url.pathname.split('/').filter((s) => s.length > 0);
-	const slug = segments[segments.length - 1] || '';
-	if (slug) {
-		const article = await getArticleBySlug(env, slug);
-		if (article) {
-			const pageUrl = `https://localkynews.com${url.pathname}`;
-			const desc = (article.seoDescription || article.summary || '')
-				.replace(/<[^>]+>/g, ' ')
-				.replace(/\s+/g, ' ')
-				.trim()
-				.slice(0, 160);
-			const metas = [];
-			metas.push('<meta property="og:type" content="article"/>');
-			metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
-			metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-			if (article.imageUrl) {
-				metas.push(`<meta property="og:image" content="${escapeHtml(article.imageUrl)}"/>`);
+	// if we've already redirected once, skip preview and fall through so the
+	// SPA assets can be served normally.  `r=1` is simply an arbitrary flag.
+	if (url.searchParams.has('r')) {
+		// let later logic handle it (e.g. static file or 404)
+	} else {
+		const segments = url.pathname.split('/').filter((s) => s.length > 0);
+		const slug = segments[segments.length - 1] || '';
+		if (slug) {
+			const article = await getArticleBySlug(env, slug);
+			if (article) {
+				const pageUrl = `https://localkynews.com${url.pathname}`;
+				const desc = (article.seoDescription || article.summary || '')
+					.replace(/<[^>]+>/g, ' ')
+					.replace(/\s+/g, ' ')
+					.trim()
+					.slice(0, 160);
+				const metas = [];
+				metas.push('<meta property="og:type" content="article"/>');
+				metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
+				metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
+				if (article.imageUrl) {
+					metas.push(`<meta property="og:image" content="${escapeHtml(article.imageUrl)}"/>`);
+				}
+				metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
+				metas.push(`<meta property="og:site_name" content="Local KY News"/>`);
+				// include redirect parameter so second request bypasses this block
+				const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
+				return new Response(html, {
+					headers: { 'content-type': 'text/html; charset=utf-8' },
+				});
 			}
-			metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
-			metas.push(`<meta property="og:site_name" content="Local KY News"/>`);
-			const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}';</script></body></html>`;
-			return new Response(html, {
-				headers: { 'content-type': 'text/html; charset=utf-8' },
-			});
 		}
 	}
 }

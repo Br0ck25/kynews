@@ -12,7 +12,8 @@ import {
 	generateFacebookCaption,
 } from '../src/lib/facebook';
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
+// simplified alias for testing; avoid TypeScript generics to keep Vitest happy
+const IncomingRequest = Request;
 
 async function ensureSchemaAndFixture() {
 	await env.ky_news_db.prepare(`
@@ -833,6 +834,14 @@ describe('social preview HTML route', () => {
 		const text = await response.text();
 		expect(text).toContain('<meta property="og:title" content="Test Title"');
 		expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
+		// redirect script should append flag to avoid infinite reloads
 		expect(text).toContain('window.location.href');
+		expect(text).toContain('?r=1');
++
++		// additional request including flag should bypass preview and not return meta
++		const response2 = await SELF.fetch(`https://example.com${path}?r=1`);
++		expect(response2.status).not.toBe(200);
++		const text2 = await response2.text();
++		expect(text2).not.toContain('<meta property="og:title"');
 	});
 });
