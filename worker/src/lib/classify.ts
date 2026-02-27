@@ -346,7 +346,7 @@ export async function classifyArticleWithAi(
 
     const aiGeo = aiIsKentucky ? detectKentuckyGeo(`${cleanTitle}\n${cleanContent}`) : { county: null, city: null };
     const mergedIsKentucky =
-      fallback.isKentucky || aiIsKentucky || isKySchoolsSource || sourceDefaultCounty !== null;
+      fallback.isKentucky || aiIsKentucky || isKySchoolsSource;
 
     let mergedCategory = fallback.category;
     if (fallback.category === 'national' && aiCategory && aiCategory !== 'national') {
@@ -370,7 +370,8 @@ export async function classifyArticleWithAi(
       : (
         // if the AI explicitly rejects Kentucky we normally drop any county
         // the fallback guessed, but we still want default-county sources to
-        // retain their county tag.
+        // retain their county tag only when the article is already KY.  The
+        // rainy-day weather heuristic below handles uncategorized cases.
         (!aiIsKentucky && typeof parsed.isKentucky === 'boolean' && sourceDefaultCounty === null)
           ? null
           : (fallback.county ??
@@ -391,6 +392,23 @@ export async function classifyArticleWithAi(
         isKySchoolsSource,
       ),
     };
+
+    // for sources that cover multiple counties, we cannot assume every
+    // article is Kentucky just because the domain has a default county.  clear
+    // any KY tag that may have crept in via AI when the text itself provided no
+    // Kentucky signals.
+    if (!baseIsKentucky && sourceDefaultCounty) {
+      fallback.isKentucky = false;
+      fallback.county = null;
+    }
+
+    // weather articles *are* safe to tag since our UI only shows them in a
+    // dedicated weather feed; use the default county if nothing else was found.
+    if (!fallback.isKentucky && sourceDefaultCounty && fallback.category === 'weather') {
+      fallback.isKentucky = true;
+      fallback.county = sourceDefaultCounty;
+    }
+
     return fallback;
   } catch {
     return fallback;

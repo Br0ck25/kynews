@@ -359,10 +359,10 @@ describe('classification utilities', () => {
 		expect(classification.county).toBe('Fayette');
 	});
 
-	// sources with a default county should be tagged as Kentucky regardless of
-	// whether the text contains the word "Kentucky".  this covers bare weather
-	// headlines from wkyt/wymt that previously slipped through as national.
-	it('tags wkyt articles as Kentucky with Fayette county even when no KY context', async () => {
+	// sources with a default county should be tagged as Kentucky only when the
+	// article itself is a weather story.  we avoid blanket-tagging every post
+	// from those multifaceted outlets.
+	it('tags wkyt weather articles as Kentucky with Fayette county even when no KY context', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://www.wkyt.com/2026/02/26/high-pressure-moves-in-quiet-weather-ahead-of-cold-front/',
 			title: 'High pressure moves in, quiet weather expected ahead of cold front',
@@ -374,7 +374,8 @@ describe('classification utilities', () => {
 		expect(classification.category).toBe('weather');
 	});
 
-	it('tags wymt articles as Kentucky with Perry county even when no KY context', async () => {
+
+	it('tags wymt weather articles as Kentucky with Perry county even when no KY context', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://www.wymt.com/2026/02/26/forecast-this-week/',
 			title: 'National Weather Service issues advisory',
@@ -384,6 +385,7 @@ describe('classification utilities', () => {
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Perry');
 	});
+
 
 	// explicit city mention should map to the correct county
 	it('detects Fayette county from a Lexington, KY mention', async () => {
