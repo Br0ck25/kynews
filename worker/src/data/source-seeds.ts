@@ -182,6 +182,8 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   // 'https://www.wkyt.com/arc/outboundfeeds/rss/',
   // 'https://feeds.mcclatchy.com/kentucky/sections/latest-news/stories',  // consistent timeout
   // 'https://www.courier-journal.com/rss/',  // 406 blocked
+  // WYMT Arc outbound RSS feed
+  'https://www.wymt.com/arc/outboundfeeds/rss/?outputType=xml',
   'https://www.wowktv.com/news/kentucky/feed/',
 	'https://nkytribune.com/feed/',
 ];

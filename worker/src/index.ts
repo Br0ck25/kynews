@@ -465,7 +465,8 @@ if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
 }
 const stats = await getSourceStats(env);
-const configuredSources = [...new Set([...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS].map((s) => s.trim()).filter(isHttpUrl))];
+const configuredSources = [...new Set([...MASTER_SOURCE_SEEDS, ...SCHOOL_SOURCE_SEEDS].map((s) => s.trim()).filter(isHttpUrl))]
+	.filter((url) => !isKySchoolsSourceUrl(url));
 const statsMap = new Map(stats.map((item) => [item.sourceUrl, item]));
 
 const merged = configuredSources
@@ -1233,7 +1234,7 @@ const sourceUrls = [...new Set([
 	...HIGH_PRIORITY_SOURCE_SEEDS,
 	...MASTER_SOURCE_SEEDS,
 	...SCHOOL_SOURCE_SEEDS,
-].map((s) => s.trim()).filter(isHttpUrl))];
+].map((s) => s.trim()).filter(isHttpUrl))].filter((url) => !isKySchoolsSourceUrl(url));
 ctx.waitUntil(
 	runIngest(env, sourceUrls, SCHEDULED_LIMIT_PER_SOURCE, 'scheduled', {
 		maxSourcesPerRun: SCHEDULED_SOURCES_PER_RUN,
