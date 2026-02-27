@@ -284,6 +284,18 @@ export async function getCountyCounts(env: Env): Promise<Map<string, number>> {
   return map;
 }
 
+// Query the database schema to determine whether a given column
+// exists.  We intentionally avoid long‑lived caching because migrations may
+// run in the same worker runtime and alter the table structure (tests drop
+// and recreate the table), and caching would otherwise cause stale results.
+async function columnExists(env: Env, table: string, column: string): Promise<boolean> {
+  const rows = await env.ky_news_db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  for (const row of rows.results ?? []) {
+    if (row.name === column) return true;
+  }
+  return false;
+}
+
 export async function queryArticles(env: Env, options: {
   category: Category;
   counties: string[];
@@ -311,10 +323,17 @@ export async function queryArticles(env: Env, options: {
     where.push('is_kentucky = 1');
   } else if (options.category === 'weather') {
     // weather feed: include Kentucky weather OR articles explicitly tagged
-    // national + weather.  The new is_national column makes this query
-    // possible without conflating the two dimensions.
-    where.push('((is_kentucky = 1 AND category = ?) OR (is_national = 1 AND category = ?))');
-    binds.push('weather', 'weather');
+    // national + weather.  The `is_national` column was added later, so older
+    // databases may not have it; fall back gracefully to a simpler query in
+    // that case rather than throwing a SQL error (which resulted in 500s).
+    const supportsIsNational = await columnExists(env, 'articles', 'is_national');
+    if (supportsIsNational) {
+      where.push('((is_kentucky = 1 AND category = ?) OR (is_national = 1 AND category = ?))');
+      binds.push('weather', 'weather');
+    } else {
+      where.push('category = ?');
+      binds.push('weather');
+    }
   } else {
     // national – filter by stored category value
     where.push('category = ?');

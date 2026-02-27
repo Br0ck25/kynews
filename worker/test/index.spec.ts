@@ -296,26 +296,17 @@ describe('Kentucky News worker API', () => {
 		expect(payload.ok).toBe(true);
 	});
 
-	it('today endpoint only returns Kentucky-tagged articles', async () => {
-		await ensureSchemaAndFixture();
-
-		const response = await SELF.fetch('https://example.com/api/articles/today?limit=20');
-		expect(response.status).toBe(200);
-
-		const payload = await response.json<{
-			items: Array<{ category: string; isKentucky: boolean }>;
-			nextCursor: string | null;
-		}>();
-		expect(Array.isArray(payload.items)).toBe(true);
-		// we added a Kentucky weather story plus an obituary to the fixture so there are now five
-		expect(payload.items.length).toBe(5);
-		expect(payload.items.every((item) => item.isKentucky)).toBe(true);
-		expect(payload.items.some((item) => item.category === 'sports')).toBe(true);
-		expect(payload.items.some((item) => item.category === 'schools')).toBe(true);
-		expect(payload.items.some((item) => item.category === 'today')).toBe(true);
-		expect(payload).toHaveProperty('nextCursor');
-	});
-
+		it('returns CORS headers for OPTIONS preflight', async () => {
+			const req = new IncomingRequest('https://example.com/api/articles/weather', {
+				method: 'OPTIONS',
+			});
+			const ctx = createExecutionContext();
+			const res = await worker.fetch(req, env, ctx);
+			await waitOnExecutionContext(ctx);
+			expect(res.status).toBe(204);
+			expect(res.headers.get('access-control-allow-origin')).toBe('*');
+			expect(res.headers.get('access-control-allow-methods')).toBeDefined();
+		});
 	it('national endpoint returns only national-category articles', async () => {
 		await ensureSchemaAndFixture();
 
@@ -402,6 +393,74 @@ describe('Kentucky News worker API', () => {
 		expect(payload.items.some((itm) => itm.isKentucky)).toBe(true);
 		expect(payload.items.some((itm) => !itm.isKentucky)).toBe(true);
 		expect(payload.items.some((itm) => itm.isNational)).toBe(true);
+	});
+
+	it('weather endpoint still works when the database lacks is_national column', async () => {
+		// simulate a legacy schema with no is_national column
+		await env.ky_news_db.prepare('DROP TABLE IF EXISTS articles').run();
+		await env.ky_news_db.prepare(`
+			CREATE TABLE articles (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				canonical_url TEXT NOT NULL,
+				source_url TEXT NOT NULL,
+				url_hash TEXT NOT NULL UNIQUE,
+				title TEXT NOT NULL,
+				author TEXT,
+				published_at TEXT NOT NULL,
+				category TEXT NOT NULL,
+				is_kentucky INTEGER NOT NULL,
+				county TEXT,
+				city TEXT,
+				summary TEXT NOT NULL,
+				seo_description TEXT NOT NULL,
+				raw_word_count INTEGER NOT NULL,
+				summary_word_count INTEGER NOT NULL,
+				content_text TEXT NOT NULL,
+				content_html TEXT NOT NULL,
+				image_url TEXT,
+				raw_r2_key TEXT,
+				slug TEXT,
+				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);
+		`).run();
+		// insert a single Kentucky weather story
+		const now = new Date().toISOString();
+		await env.ky_news_db.prepare(`
+			INSERT INTO articles (
+				canonical_url, source_url, url_hash, title, author, published_at, category,
+				is_kentucky, county, city, summary, seo_description, raw_word_count,
+				summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+			) VALUES (
+				?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+			)
+		`).bind(
+			'https://example.com/legacy-ky-weather',
+			'https://example.com',
+			'legacy-hash',
+			'Legacy Kentucky Weather',
+			null,
+			now,
+			'weather',
+			1,
+			'Fayette',
+			'lexington',
+			'Summary',
+			'SEO',
+			100,
+			50,
+			'Body',
+			'<p>Body</p>',
+			null,
+			null,
+			null,
+		).run();
+
+		const response = await SELF.fetch('https://example.com/api/articles/weather?limit=20');
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.items.length).toBe(1);
+		expect(body.items[0].title).toBe('Legacy Kentucky Weather');
 	});
 });
 

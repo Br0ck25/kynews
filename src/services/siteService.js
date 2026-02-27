@@ -151,10 +151,17 @@ export default class SiteService {
   }
 
   async request(path, options = {}) {
+    // avoid sending a Content-Type header with GET requests; that
+    // turns them into "non-simple" cross-origin requests and forces a
+    // CORS preflight which can fail when falling back to a different
+    // origin (e.g. a raw workers.dev host).  Only include the header when
+    // there is a body to describe.
     const headers = {
-      "Content-Type": "application/json",
       ...(options.headers || {}),
     };
+    if ((options.method || "GET").toUpperCase() !== "GET") {
+      headers["Content-Type"] = "application/json";
+    }
 
     if (path.startsWith("/api/admin/")) {
       const adminKey = this.getAdminPanelKey();
@@ -205,11 +212,17 @@ export default class SiteService {
     // response as a sign that we've hit the SPA instead of the API.
     // Never reroute admin paths to the worker.dev fallback — that crosses
     // origins and causes CORS failures. Admin requests must stay same-origin.
+    // Fallback is only necessary when we clearly hit the SPA instead of the
+    // API (HTML or non-JSON response) or when the original request produced a
+    // client-side error such as 404/405.  We intentionally *do not* retry on
+    // 5xx server errors, since those indicate a real API problem that would
+    // just be duplicated by hitting the fallback host and only generate
+    // confusing CORS errors in the browser.
     const shouldFallback =
       path.startsWith("/api/") &&
       !isAdminPath &&
       this.baseUrl !== WORKER_FALLBACK_BASE_URL &&
-      (parsed == null || isHtmlLike || !response.ok);
+      ((parsed == null || isHtmlLike) || (!response.ok && response.status >= 400 && response.status < 500));
 
     if (shouldFallback) {
       try {
