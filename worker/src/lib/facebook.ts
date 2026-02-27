@@ -38,7 +38,12 @@ export function generateFacebookHashtags(article: ArticleRecord): string {
   if (article.county) {
     tags.push(`#${article.county.replace(/\s+/g, '')}County`);
   }
+  // include a generic Kentucky tag for all KY stories
   tags.push('#KentuckyNews');
+  // weather stories get an extra hashtag
+  if (article.category === 'weather') {
+    tags.push('#Weather');
+  }
   return tags.join(' ');
 }
 

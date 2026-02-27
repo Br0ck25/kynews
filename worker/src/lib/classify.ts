@@ -145,6 +145,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'kentucky.com': 'Fayette',             // Lexington Herald-Leader
   'lex18.com': 'Fayette',
   'wkyt.com': 'Fayette',
+  'wymt.com': 'Perry',
   'jessaminejournalonline.com': 'Jessamine',
   'richmondregister.com': 'Madison',
   'bgdailynews.com': 'Warren',           // Bowling Green
@@ -209,14 +210,25 @@ export async function classifyArticleWithAi(
 
   const hasKhsaa = /\bkhsaa\b/i.test(semanticLeadText);
   const isKySchoolsSource = isKySchoolsDomain(input.url);
-  const baseIsKentucky = relevance.category === 'kentucky' || hasKhsaa;
-  const baseGeo = baseIsKentucky ? detectKentuckyGeo(semanticText) : { county: null, city: null };
 
   // Apply source-domain default county when geo detection finds none.
   const sourceDefaultCounty = getSourceDefaultCounty(input.url);
 
+  // treat articles from a known local source as KY, even if the text lacks an
+  // explicit Kentucky mention. This flag influences both the initial fallback
+  // and later merging logic.
+  const baseIsKentucky =
+    relevance.category === 'kentucky' || hasKhsaa || sourceDefaultCounty !== null;
+  const baseGeo = baseIsKentucky ? detectKentuckyGeo(semanticText) : { county: null, city: null };
+
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');
-  if (isKySchoolsSource && category === 'national') {
+  // District-owned *.kyschools.us domains should generally be treated as
+  // school-related stories unless the semantic classifier already identified a
+  // more specific category (sports/weather/etc).  Previously we only forced
+  // "schools" when the category was national, but expanding baseIsKentucky
+  // caused such articles to fall into the "today" bucket instead, bypassing
+  // this rule.  Now convert both national and today defaults to schools.
+  if (isKySchoolsSource && (category === 'national' || category === 'today')) {
     category = 'schools';
   }
 
@@ -333,7 +345,8 @@ export async function classifyArticleWithAi(
         : null;
 
     const aiGeo = aiIsKentucky ? detectKentuckyGeo(`${cleanTitle}\n${cleanContent}`) : { county: null, city: null };
-    const mergedIsKentucky = fallback.isKentucky || aiIsKentucky || isKySchoolsSource;
+    const mergedIsKentucky =
+      fallback.isKentucky || aiIsKentucky || isKySchoolsSource || sourceDefaultCounty !== null;
 
     let mergedCategory = fallback.category;
     if (fallback.category === 'national' && aiCategory && aiCategory !== 'national') {
@@ -355,7 +368,10 @@ export async function classifyArticleWithAi(
     const mergedCounty = isKySchoolsSource
       ? (fallback.county ?? aiCounty ?? aiGeo.county ?? sourceDefaultCounty)
       : (
-        (!aiIsKentucky && typeof parsed.isKentucky === 'boolean')
+        // if the AI explicitly rejects Kentucky we normally drop any county
+        // the fallback guessed, but we still want default-county sources to
+        // retain their county tag.
+        (!aiIsKentucky && typeof parsed.isKentucky === 'boolean' && sourceDefaultCounty === null)
           ? null
           : (fallback.county ??
              aiCounty ??
@@ -375,7 +391,6 @@ export async function classifyArticleWithAi(
         isKySchoolsSource,
       ),
     };
-
     return fallback;
   } catch {
     return fallback;

@@ -359,6 +359,44 @@ describe('classification utilities', () => {
 		expect(classification.county).toBe('Fayette');
 	});
 
+	// sources with a default county should be tagged as Kentucky regardless of
+	// whether the text contains the word "Kentucky".  this covers bare weather
+	// headlines from wkyt/wymt that previously slipped through as national.
+	it('tags wkyt articles as Kentucky with Fayette county even when no KY context', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.wkyt.com/2026/02/26/high-pressure-moves-in-quiet-weather-ahead-of-cold-front/',
+			title: 'High pressure moves in, quiet weather expected ahead of cold front',
+			content: 'The National Weather Service has issued advisories across the region.',
+		});
+
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Fayette');
+		expect(classification.category).toBe('weather');
+	});
+
+	it('tags wymt articles as Kentucky with Perry county even when no KY context', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.wymt.com/2026/02/26/forecast-this-week/',
+			title: 'National Weather Service issues advisory',
+			content: 'Alerts are in place across multiple states.',
+		});
+
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Perry');
+	});
+
+	// explicit city mention should map to the correct county
+	it('detects Fayette county from a Lexington, KY mention', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://example.com/test',
+			title: 'Heatwave hits Lexington, Ky.',
+			content: 'Temperatures soared in Lexington, Ky. during the early afternoon.',
+		});
+
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Fayette');
+	});
+
 	it('tags kyschools.us domains as Kentucky and assigns the county from subdomain', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://www.ohio.kyschools.us/news/district-updates',
@@ -568,6 +606,17 @@ describe('title similarity dedupe', () => {
 			isKentucky: true,
 		});
 		expect(cap).toContain('https://localkynews.com/news/kentucky/boone-county/foo');
+
+		// weather caption should include the extra hashtag
+		const capWeather = generateFacebookCaption({
+			id: 8,
+			title: 'Storm warning',
+			summary: 'Severe weather expected',
+			county: 'Fayette',
+			category: 'weather',
+			isKentucky: true,
+		});
+		expect(capWeather).toContain('#Weather');
 	});
 
 	it('allows distinct titles well below the threshold', async () => {
@@ -837,7 +886,7 @@ describe('social preview HTML route', () => {
 		// redirect script should append flag to avoid infinite reloads
 		expect(text).toContain('window.location.href');
 		expect(text).toContain('?r=1');
-+
+
 		// additional request including flag should return SPA shell instead of preview
 		const response2 = await SELF.fetch(`https://example.com${path}?r=1`);
 		expect(response2.status).toBe(200);
