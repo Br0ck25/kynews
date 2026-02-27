@@ -2,10 +2,14 @@ import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloud
 import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
 import { __testables } from '../src/index';
+import * as classifyModule from '../src/lib/classify';
 import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
 import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
+import * as dbModule from '../src/lib/db';
+import { insertArticle } from '../src/lib/db';
+import * as aiModule from '../src/lib/ai';
 import {
 	cleanFacebookHeadline,
 	generateFacebookHook,
@@ -743,6 +747,101 @@ describe('database utilities', () => {
 		expect(map.get('Jefferson')).toBe(2);
 	});
 });
+
+describe('db.insertArticle error logging', () => {
+	it('logs a helpful message and propagates the error', async () => {
+		await ensureSchemaAndFixture();
+		const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		// patch prepare().run to always throw
+		const origPrepare = env.ky_news_db.prepare.bind(env.ky_news_db);
+		(env.ky_news_db as any).prepare = (sql: string) => {
+			const stmt = origPrepare(sql);
+			return {
+				...stmt,
+				run: async () => {
+					throw new Error('simulated failure');
+				},
+			};
+		};
+
+		const dummy: any = {
+			canonicalUrl: 'https://foo',
+			sourceUrl: 'https://foo',
+			urlHash: 'h',
+			title: 'T',
+			author: null,
+			publishedAt: new Date().toISOString(),
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		};
+
+		await expect(insertArticle(env as any, dummy)).rejects.toThrow('simulated failure');
+		expect(spy).toHaveBeenCalledWith(
+			'[DB INSERT ERROR]',
+			expect.any(Error),
+			expect.objectContaining({ title: 'T' }),
+		);
+
+		spy.mockRestore();
+		(env.ky_news_db as any).prepare = origPrepare;
+	});
+});
+
+// ingestSingleUrl error handling
+
+describe('ingestSingleUrl error handling', () => {
+	it('returns rejected status when insertArticle throws', async () => {
+		await ensureSchemaAndFixture();
+
+		// stub network fetch for article
+		const originalFetch = global.fetch;
+		(global.fetch as any) = async () =>
+			new Response('<html><body><p>hi</p></body></html>', {
+				status: 200,
+				headers: { 'Content-Type': 'text/html' },
+			});
+
+		// stub classification and summarization to simple values
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			city: null,
+		});
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'sum',
+			seoDescription: 'seo',
+			summaryWordCount: 1,
+		});
+
+		// stub insertArticle to throw via module spy; ingestion will pick up live binding
+		vi.spyOn(dbModule, 'insertArticle').mockRejectedValue(new Error('dbfail'));
+
+		const result = await __testables.ingestSingleUrl(env as any, { url: 'https://example.com' } as any);
+		expect(result.status).toBe('rejected');
+		expect(result.reason).toMatch(/insert failed/);
+
+		// restore mocks
+		vi.restoreAllMocks();
+		global.fetch = originalFetch;
+	});
+});
+
+
 
 describe('ingest source balancing', () => {
 	it('prevents school-only batches when non-school sources are available', () => {

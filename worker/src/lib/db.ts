@@ -91,56 +91,66 @@ export async function getArticleBySlug(env: Env, slug: string): Promise<ArticleR
 export async function insertArticle(env: Env, article: NewArticle): Promise<number> {
   const normalizedCounty = normalizeCountyName(article.county);
 
-  const result = await env.ky_news_db
-    .prepare(
-      `INSERT INTO articles (
-        canonical_url,
-        source_url,
-        url_hash,
-        title,
-        author,
-        published_at,
-        category,
-        is_kentucky,
-        is_national,
-        county,
-        city,
-        summary,
-        seo_description,
-        raw_word_count,
-        summary_word_count,
-        content_text,
-        content_html,
-        image_url,
-        raw_r2_key,
-        slug
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      article.canonicalUrl,
-      article.sourceUrl,
-      article.urlHash,
-      article.title,
-      article.author,
-      article.publishedAt,
-      article.category,
-      article.isKentucky ? 1 : 0,
-      article.isNational ? 1 : 0,
-      normalizedCounty,
-      article.city,
-      article.summary,
-      article.seoDescription,
-      article.rawWordCount,
-      article.summaryWordCount,
-      article.contentText,
-      article.contentHtml,
-      article.imageUrl,
-      article.rawR2Key,
-      article.slug ?? null,
-    )
-    .run();
+  try {
+    const result = await env.ky_news_db
+      .prepare(
+        `INSERT INTO articles (
+          canonical_url,
+          source_url,
+          url_hash,
+          title,
+          author,
+          published_at,
+          category,
+          is_kentucky,
+          is_national,
+          county,
+          city,
+          summary,
+          seo_description,
+          raw_word_count,
+          summary_word_count,
+          content_text,
+          content_html,
+          image_url,
+          raw_r2_key,
+          slug
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        article.canonicalUrl,
+        article.sourceUrl,
+        article.urlHash,
+        article.title,
+        article.author,
+        article.publishedAt,
+        article.category,
+        article.isKentucky ? 1 : 0,
+        article.isNational ? 1 : 0,
+        normalizedCounty,
+        article.city,
+        article.summary,
+        article.seoDescription,
+        article.rawWordCount,
+        article.summaryWordCount,
+        article.contentText,
+        article.contentHtml,
+        article.imageUrl,
+        article.rawR2Key,
+        article.slug ?? null,
+      )
+      .run();
 
-  return Number(result.meta.last_row_id ?? 0);
+    return Number(result.meta.last_row_id ?? 0);
+  } catch (error) {
+    // log full error along with article metadata so issues are visible in worker logs
+    console.error('[DB INSERT ERROR]', error, {
+      url: article.canonicalUrl,
+      title: article.title,
+      hash: article.urlHash,
+    });
+    throw error;
+  }
 }
 
 export async function updateArticlePublishedAt(env: Env, id: number, publishedAt: string): Promise<void> {

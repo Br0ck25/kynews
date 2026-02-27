@@ -117,7 +117,19 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   //
   // Previous TODO: "Run backfillReclassify() against all rows where created_at <
   // [DEPLOYMENT_DATE]" has been satisfied by the reclassify endpoint above.
-  const articleId = await insertArticle(env, newArticle);
+  let articleId: number;
+  try {
+    articleId = await insertArticle(env, newArticle);
+  } catch (error) {
+    // convert error to safe string for logs and response
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[INSERT FAILED]', extracted.title, msg);
+    return {
+      status: 'rejected',
+      reason: `insert failed: ${msg}`,
+      urlHash: canonicalHash,
+    };
+  }
 
   return {
     status: 'inserted',

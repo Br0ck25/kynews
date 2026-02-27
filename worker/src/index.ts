@@ -2056,6 +2056,8 @@ export const __testables = {
 	rebalanceSchoolHeavyRunSources,
 	// exposing runIngest allows tests to stub the heavy ingestion routine
 	runIngest,
+	// make ingestSingleUrl available for unit tests
+	ingestSingleUrl,
 	isAdminAuthorized,
 };
 
