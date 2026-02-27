@@ -103,14 +103,14 @@ export default function FullScreenPostDialog(props) {
         <br />
         <br />
         <Container>
-          {props.post && <FeaturedPost post={props.post} />}
-          {props.countySlug && (
-            // wrap county page in a router so hooks like useParams work even when
-            // rendered inside the dialog (which is outside the app's main Router)
+          {props.post ? (
+            <FeaturedPost post={props.post} />
+          ) : props.countySlug ? (
+            // when no post, show the county page.  wrap in a router so hooks work
             <MemoryRouter initialEntries={[`/news/kentucky/${props.countySlug}`]}>
               <CountyPage countySlugProp={props.countySlug} onClose={props.onClose} />
             </MemoryRouter>
-          )}
+          ) : null}
           <Divider />
 
           {/* only show save/share for actual posts */}
