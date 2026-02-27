@@ -110,12 +110,16 @@ export const MASTER_SOURCE_SEEDS: string[] = [
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [
-  // Kentucky county school district websites — feeds auto-discovered via resolveFeedUrls.
-  // Non-Facebook URLs only; Facebook pages handled separately via admin manual-article flow.
+  // school feeds are deliberately left empty
+  // auto-discovery of district websites has been disabled
 ];
 
 export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
   // high priority list kept empty to avoid additional sources beyond master list
+	'https://www.wymt.com/arc/outboundfeeds/rss/?outputType=xml',
+  'https://www.wkyt.com/arc/outboundfeeds/rss/?outputType=xml',
+  'https://www.lex18.com/index.rss',
+  'https://www.lex18.com/news/covering-kentucky.rss',
 ];
 
 export const NORMAL_PRIORITY_SOURCE_SEEDS: string[] = [

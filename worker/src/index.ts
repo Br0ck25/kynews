@@ -53,7 +53,7 @@ const FALLBACK_CRAWL_MAX_LINKS = 12;
 const FALLBACK_CRAWL_MAX_SECTION_PAGES = 3;
 /** Articles to fetch per source on each scheduled cron tick. */
 const SCHEDULED_LIMIT_PER_SOURCE = 15;
-/** Sources processed per 2-minute cron tick. 160 total ÷ 10 per tick = ~32-min full cycle. */
+/** Sources processed per 2-minute cron tick. ~108 total ÷ 10 per tick ≈ 22‑minute full cycle (rotates through all seeds). */
 const SCHEDULED_SOURCES_PER_RUN = 10;
 /** How many sources to fetch simultaneously — balances speed vs D1/network pressure. */
 const INGEST_CONCURRENCY = 8;
