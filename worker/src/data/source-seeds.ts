@@ -1,8 +1,4 @@
 export const MASTER_SOURCE_SEEDS: string[] = [
-  // http://rss.cnn.com/rss/cnn_us.rss?format=rss  // STALE — last article Dec 2023, removed
-  // STALE or no longer working
-  // 'http://www.messenger-inquirer.com/search/?f=rss&t=article&c=grayson_county&l=50&s=start_time&sd=desc',
-  // http://www.wpsdlocal6.com/...  // STALE — last article Dec 2022, removed
   'https://abcnews.go.com/abcnews/topstories?format=rss',
   'https://kentuckylantern.com/feed',
   'https://kentuckylantern.com/feed/',
@@ -15,177 +11,102 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://kycir.org/index.rss',
   'https://kykernel.com/category/news/feed/',
   'https://kykernel.com/feed',
-  'https://kykernel.com/feed/',
   'https://kykernel.com/feed/?format=rss',
   'https://kykernel.com/feed/atom/',
   'https://kykernel.com/rss',
-  'https://kykernel.com/rss/',
   'https://kypress.com/category/news/feed/',
   'https://kypress.com/feed',
-  'https://kypress.com/feed/',
   'https://kypress.com/rss',
-  'https://kypress.com/rss/',
   'https://linknky.com/category/news/feed/',
   'https://linknky.com/comments/feed/',
   'https://linknky.com/feed',
-  'https://linknky.com/feed/',
   'https://linknky.com/feed/?format=rss',
   'https://linknky.com/news/rss',
-  'https://linknky.com/rss',
   'https://linknky.com/rss/',
   'https://moxie.foxnews.com/google-publisher/latest.xml',
   'https://moxie.foxnews.com/google-publisher/latest.xml?format=rss',
-  // STALE
-  // 'https://nkytribune.com/comments/feed/',
   'https://nkytribune.com/feed/',
   'https://smileypete.com/api/rss/content.rss',
   'https://smileypete.com/business/index.rss',
   'https://wfpl.org/feed',
-  'https://wfpl.org/feed/',
   'https://wfpl.org/feed/?format=rss',
   'https://wfpl.org/index.rss',
   'https://www.amnews.com/category/news/feed/',
   'https://www.amnews.com/feed',
-  'https://www.amnews.com/feed/',
   'https://www.amnews.com/rss',
-  'https://www.amnews.com/rss/',
   'https://www.amnews.com/rss?format=rss',
   'https://www.bgdailynews.com/category/news/feed/',
   'https://www.bgdailynews.com/feed',
-  'https://www.bgdailynews.com/feed/',
   'https://www.bgdailynews.com/rss',
-  'https://www.bgdailynews.com/rss/',
   'https://www.bgdailynews.com/rss?format=rss',
   'https://www.falmouthoutlook.com/rss.xml',
   'https://www.foxnews.com/rss',
   'https://www.foxnews.com/rss.xml',
   'https://www.harlanenterprise.net/category/news/feed/',
   'https://www.harlanenterprise.net/feed',
-  'https://www.harlanenterprise.net/feed/',
   'https://www.harlanenterprise.net/rss',
-  'https://www.harlanenterprise.net/rss/',
-  // STALE
-  // 'https://www.harrisonnewsherald.com/feed',
-  // STALE
-  // 'https://www.harrisonnewsherald.com/feed/',
-  // STALE
-  // 'https://www.harrisonnewsherald.com/rss',
-  // STALE
-  // 'https://www.harrisonnewsherald.com/rss/',
-  // STALE
-  // 'https://www.lanereport.com/comments/feed/',
   'https://www.lanereport.com/feed',
-  'https://www.lanereport.com/feed/',
   'https://www.lanereport.com/feed/?format=rss',
-  // STALE
-  // 'https://www.lanereport.com/news/rss',
   'https://www.lanereport.com/rss',
-  'https://www.lanereport.com/rss/',
   'https://www.leoweekly.com/category/news/feed/',
-  // STALE
-  // 'https://www.leoweekly.com/comments/feed/',
   'https://www.leoweekly.com/feed',
-  'https://www.leoweekly.com/feed/',
   'https://www.leoweekly.com/feed/?format=rss',
   'https://www.leoweekly.com/rss',
-  'https://www.leoweekly.com/rss/',
-  'https://www.lex18.com/index.rss',
   'https://www.lpm.org/feed/',
   'https://www.lpm.org/index.rss',
   'https://www.lpm.org/investigate.rss',
   'https://www.lpm.org/kentucky-public-radio.rss',
   'https://www.lpm.org/news.rss',
   'https://www.nbcnews.com/feed',
-  'https://www.nbcnews.com/feed/',
   'https://www.nbcnews.com/rss',
-  'https://www.nbcnews.com/rss/',
   'https://www.nkytribune.com/category/news/feed/',
   'https://www.nkytribune.com/feed',
-  'https://www.nkytribune.com/feed/',
   'https://www.nkytribune.com/feed/?format=rss',
   'https://www.nkytribune.com/rss',
-  'https://www.nkytribune.com/rss/',
   'https://www.state-journal.com/category/news/feed/',
   'https://www.state-journal.com/feed',
-  'https://www.state-journal.com/feed/',
   'https://www.state-journal.com/rss',
-  'https://www.state-journal.com/rss/',
   'https://www.state-journal.com/rss?format=rss',
   'https://www.theinteriorjournal.com/category/news/feed/',
   'https://www.theinteriorjournal.com/feed',
-  'https://www.theinteriorjournal.com/feed/',
   'https://www.theinteriorjournal.com/rss',
-  'https://www.theinteriorjournal.com/rss/',
   'https://www.theinteriorjournal.com/rss?format=rss',
   'https://www.themountaineagle.com/category/news/feed/',
   'https://www.themountaineagle.com/feed',
-  'https://www.themountaineagle.com/feed/',
   'https://www.themountaineagle.com/feed/?format=rss',
   'https://www.themountaineagle.com/rss',
-  'https://www.themountaineagle.com/rss/',
   'https://www.voice-tribune.com/blog-feed.xml',
   'https://www.whas11.com/feeds/syndication/rss/news',
   'https://www.wkms.org/rss.xml',
   'https://www.wkms.org/rss.xml?format=rss',
   'https://www.wlky.com/topstories-rss?format=rss',
   'https://www.wtvq.com/category/news/feed/',
-  // STALE
-  // 'https://www.wtvq.com/comments/feed/',
   'https://www.wtvq.com/feed',
-  'https://www.wtvq.com/feed/',
   'https://www.wtvq.com/feed/?format=rss',
-  // STALE
-  // 'https://www.wtvq.com/news/rss',
   'https://www.wtvq.com/rss',
-  'https://www.wtvq.com/rss/',
   'https://www.news-expressky.com/search/?f=rss&t=article',
-  // unavailable (403)
-  // 'https://rsshub.app/apnews/topics/apf-topnews',  // rsshub.app unreliable
   'https://feeds.npr.org/1001/rss.xml',
   'https://www.npr.org/rss/rss.php?id=1001',
   'https://www.pbs.org/newshour/feeds/rss/headlines',
   'https://www.wdrb.com/search/?f=rss&t=article&c=news&l=50&s=start_time&sd=desc',
-  // no items (paywalled?)
-  // 'https://rssfeeds.courier-journal.com/courierjournal/news',  // paywalled
-  'https://www.lex18.com/news/covering-kentucky.rss',
   'https://feeds.mcclatchy.com/kentucky/sections/latest-news/stories',
-  'https://www.wowktv.com/news/kentucky/feed/',
   'https://www.wnky.com/feed/',
   'https://kychamberbottomline.com/feed/',
   'https://www.wcpo.com/news/state/state-kentucky.rss',
   'https://www.owensborotimes.com/feed/',
   'https://stateline.org/feed/',
-  'https://stateline.org/feed/localFeed',
-  // NO ITEMS
-  // 'https://www.newsfromthestates.com/api/v1/articles',
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=247',
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=187491',
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=565',
   'https://fox56news.com/feed/',
   'https://wrsrtherooster.com/feed/',
-  // returns no items
-  // 'https://www.kentuckystatepolice.ky.gov/news',
   'https://www.k105.com/feed/',
-  // 'https://wklw.com/feed/',  // verified no content
-  // 'https://wsipam.com/feed/',  // verified no content
   'https://wp.kentuckystatepolice.ky.gov/feed/',
-  // US News & The Blaze blocked by robots.txt
-  // 'https://www.usnews.com/rss/education',
-  // 'https://www.usnews.com/rss/health',
-  // 'https://www.usnews.com/rss/money',
-  // 'https://www.usnews.com/rss/news',
-  // 'https://www.theblaze.com/feeds/feed.rss',
-  // Additional reliable Kentucky sources
-  // 404
-  // 'https://www.wkyt.com/news.rss',  // 404 - wrong path, replaced below
-  // 404
-  // 'https://www.wkyt.com/arc/outboundfeeds/rss/',
-  // 'https://feeds.mcclatchy.com/kentucky/sections/latest-news/stories',  // consistent timeout
-  // 'https://www.courier-journal.com/rss/',  // 406 blocked
-  // WYMT Arc outbound RSS feed
-  'https://www.wymt.com/arc/outboundfeeds/rss/?outputType=xml',
   'https://www.wowktv.com/news/kentucky/feed/',
-	'https://nkytribune.com/feed/',
+  'https://www.wymt.com/arc/outboundfeeds/rss/?outputType=xml',
+  'https://www.wkyt.com/arc/outboundfeeds/rss/?outputType=xml',
+  'https://www.lex18.com/index.rss',
+  'https://www.lex18.com/news/covering-kentucky.rss',
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [
@@ -194,20 +115,7 @@ export const SCHOOL_SOURCE_SEEDS: string[] = [
 ];
 
 export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
-  'https://kentuckylantern.com/feed/localFeed',
-  'https://stateline.org/feed/',
-  'https://stateline.org/feed/localFeed',
-  // NO ITEMS
-  // 'https://www.newsfromthestates.com/api/v1/articles',
-  'https://www.newsfromthestates.com/api/v2/article/category?article_category=247',
-  'https://www.newsfromthestates.com/api/v2/article/category?article_category=187491',
-  'https://www.newsfromthestates.com/api/v2/article/category?article_category=565',
-  // Breaking national with strong KY context
-  'https://feeds.npr.org/1001/rss.xml',
-  'https://feeds.mcclatchy.com/kentucky/sections/latest-news/stories',
-  // HTTP 404
-  // 'https://www.wkyt.com/news.rss',
-  'https://news.google.com/rss/search?q=Kentucky+news&hl=en-US&gl=US&ceid=US:en',
+  // high priority list kept empty to avoid additional sources beyond master list
 ];
 
 export const NORMAL_PRIORITY_SOURCE_SEEDS: string[] = [
