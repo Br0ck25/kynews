@@ -1,3 +1,8 @@
+// See TAGGING_SYSTEM.md in the repository root for the full set of
+// editorial tagging guidelines (Kentucky/National rules, county
+// assignment logic, weather/sports/school tags, etc.).  The algorithms in
+// this file attempt to implement those rules automatically during article
+// ingestion.
 import type { Category, ClassificationResult } from '../types';
 import { detectCounty, detectCity, detectKentuckyGeo, HIGH_AMBIGUITY_CITIES } from './geo';
 import { KY_COUNTIES } from '../data/ky-geo';
@@ -211,7 +216,9 @@ export async function classifyArticleWithAi(
   const hasKhsaa = /\bkhsaa\b/i.test(semanticLeadText);
   const isKySchoolsSource = isKySchoolsDomain(input.url);
 
-  // Apply source-domain default county when geo detection finds none.
+  // detect obvious national cues (word "national", "federal", US, etc.) so we
+  // can apply a separate flag independent of Kentucky relevance.
+  const nationalSignal = /\bnational\b|\bfederal\b|\bunited states\b|\bu\.s\.\s+(?:government|congress|senate|house|military|federal|supreme court|president|department|agency|law|policy|court)\b|\b(?:congress|senate|white house|pentagon|supreme court|federal government|biden|trump|president)\b/i.test(semanticLeadText);
   const sourceDefaultCounty = getSourceDefaultCounty(input.url);
 
   // treat articles from a known local source as KY, even if the text lacks an
@@ -219,6 +226,18 @@ export async function classifyArticleWithAi(
   // and later merging logic.
   const baseIsKentucky =
     relevance.category === 'kentucky' || hasKhsaa || sourceDefaultCounty !== null;
+
+  // County/city detection pipeline (issue #6):
+  // 1. If the article text contains a county name, detectCounty returns it.
+  // 2. If no county, detectCity looks for a KY city and maps it to a county
+  //    via the reference data; the returned `city` is stored regardless.
+  // 3. If a city maps to multiple counties we'd need additional disambiguation
+  //    (not implemented here) or tag all; for now mapping is one-to-one.
+  // 4. If a city is not found in the lookup, we keep county=null and do NOT
+  //    fall back to a source default — per spec we must not invent a county.
+  // 5. Only after steps 1–4 fail AND the article is confirmed Kentucky do we
+  //    consider using the source default county.  This prevents misleading
+  //    tags when text already contains geo information.
   const baseGeo = baseIsKentucky ? detectKentuckyGeo(semanticText) : { county: null, city: null };
 
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');
@@ -248,12 +267,24 @@ export async function classifyArticleWithAi(
     /\b(louisville|uofl|u of l)\b/i.test(semanticLeadText) &&
     detectSemanticCategory(semanticLeadText) === 'sports';
 
+  // build the initial fallback result using keyword heuristics and the
+  // earlier baseGeo detection.  Do not apply the source default county if any
+  // county or city was already detected — the text-derived geography always
+  // takes precedence (issue #1).
   let fallback: ClassificationResult = {
     isKentucky: baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource,
-    county: baseGeo.county ?? (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource ? sourceDefaultCounty : null),
+    county:
+      baseGeo.county ??
+      (!baseGeo.city && (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource)
+        ? sourceDefaultCounty
+        : null),
     city: baseGeo.city,
     category: hasKhsaa ? 'sports' : category,
+    isNational: false, // will populate after we know isKentucky
   };
+
+  // attach national flag based on preliminary cues and ky status
+  fallback.isNational = nationalSignal || !fallback.isKentucky;
 
   // Re-apply sports guard now that Louisville signal may have changed isKentucky.
   if (fallback.category === 'sports' && !fallback.isKentucky && !hasKhsaa && !isKySchoolsSource) {
@@ -365,6 +396,15 @@ export async function classifyArticleWithAi(
     // response, not just omitted), discard any county the fallback heuristic may have
     // wrongly assigned — e.g. "Adair" from detecting "columbia" in a UK basketball article
     // set in Columbia, SC.  The ?? chain below is only used when AI did not reject KY.
+    // determine whether any geo info has already been inferred (county or city)
+    const hadGeo = Boolean(
+      fallback.county ||
+      fallback.city ||
+      aiCounty ||
+      aiGeo.county ||
+      aiGeo.city,
+    );
+
     const mergedCounty = isKySchoolsSource
       ? (fallback.county ?? aiCounty ?? aiGeo.county ?? sourceDefaultCounty)
       : (
@@ -377,7 +417,7 @@ export async function classifyArticleWithAi(
           : (fallback.county ??
              aiCounty ??
              aiGeo.county ??
-             (mergedIsKentucky ? sourceDefaultCounty : null))
+             (mergedIsKentucky && !hadGeo ? sourceDefaultCounty : null))
       );
 
     fallback = {
@@ -391,7 +431,11 @@ export async function classifyArticleWithAi(
         mergedIsKentucky,
         isKySchoolsSource,
       ),
+      isNational: false, // recalc below
     };
+
+    // recompute national flag after merges/overrides
+    fallback.isNational = nationalSignal || !fallback.isKentucky;
 
     // for sources that cover multiple counties, we cannot assume every
     // article is Kentucky just because the domain has a default county.  clear

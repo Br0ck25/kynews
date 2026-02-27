@@ -12,6 +12,7 @@ interface ArticleRow {
   published_at: string;
   category: Category;
   is_kentucky: number;
+  is_national: number;
   county: string | null;
   city: string | null;
   summary: string;
@@ -101,6 +102,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
         published_at,
         category,
         is_kentucky,
+        is_national,
         county,
         city,
         summary,
@@ -112,7 +114,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
         image_url,
         raw_r2_key,
         slug
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       article.canonicalUrl,
@@ -123,6 +125,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
       article.publishedAt,
       article.category,
       article.isKentucky ? 1 : 0,
+      article.isNational ? 1 : 0,
       normalizedCounty,
       article.city,
       article.summary,
@@ -302,11 +305,18 @@ export async function queryArticles(env: Env, options: {
     binds.push('schools');
     where.push('is_kentucky = 1');
   } else if (options.category === 'obituaries') {
+    // obituaries feed: Kentucky obits only (per spec)
     where.push('category = ?');
     binds.push('obituaries');
     where.push('is_kentucky = 1');
+  } else if (options.category === 'weather') {
+    // weather feed: include Kentucky weather OR articles explicitly tagged
+    // national + weather.  The new is_national column makes this query
+    // possible without conflating the two dimensions.
+    where.push('((is_kentucky = 1 AND category = ?) OR (is_national = 1 AND category = ?))');
+    binds.push('weather', 'weather');
   } else {
-    // national, weather – filter by stored category value
+    // national – filter by stored category value
     where.push('category = ?');
     binds.push(options.category);
   }
@@ -368,6 +378,7 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     publishedAt: row.published_at,
     category: row.category,
     isKentucky: row.is_kentucky === 1,
+    isNational: row.is_national === 1,
     county: row.county,
     city: row.city,
     summary: row.summary,
@@ -405,13 +416,19 @@ export async function listArticlesForReclassify(
 export async function updateArticleClassification(
   env: Env,
   id: number,
-  patch: { category: Category; isKentucky: boolean; county: string | null },
+  patch: { category: Category; isKentucky: boolean; isNational?: boolean; county: string | null },
 ): Promise<void> {
   const normalizedCounty = normalizeCountyName(patch.county);
 
   await env.ky_news_db
-    .prepare('UPDATE articles SET category = ?, is_kentucky = ?, county = ? WHERE id = ?')
-    .bind(patch.category, patch.isKentucky ? 1 : 0, normalizedCounty, id)
+    .prepare('UPDATE articles SET category = ?, is_kentucky = ?, is_national = ?, county = ? WHERE id = ?')
+    .bind(
+      patch.category,
+      patch.isKentucky ? 1 : 0,
+      patch.isNational ? 1 : 0,
+      normalizedCounty,
+      id,
+    )
     .run();
 }
 

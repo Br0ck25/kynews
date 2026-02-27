@@ -89,6 +89,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     publishedAt: extracted.publishedAt,
     category: classification.category,
     isKentucky: classification.isKentucky,
+    isNational: classification.isNational,
     county: classification.county,
     city: classification.city,
     summary: ai.summary,
@@ -103,8 +104,19 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     slug: generateArticleSlug(extracted.title, canonicalHash),
   };
 
-  // NOTE: Existing rows inserted before this classifier update may have stale Kentucky/county tags.
-  // Run a one-time backfill reclassification job against historical records after deployment.
+  // NOTE: Existing rows inserted before this classifier update may have stale
+  // Kentucky/county/or national tags. The `is_national` flag is stored separately
+  // so older articles will default to `0` until we run a reclassification pass.
+  //
+  // Backfill instructions: the admin API already exposes a `/api/admin/reclassify`
+  // endpoint which pages through articles and applies the current classification
+  // logic (category, is_kentucky, is_national, county, etc). Running that endpoint
+  // repeatedly until it returns `No more articles to reclassify` will refresh all
+  // historical rows. Execute this once before deploying the updated worker so the
+  // new feeds (weather, national) behave correctly.
+  //
+  // Previous TODO: "Run backfillReclassify() against all rows where created_at <
+  // [DEPLOYMENT_DATE]" has been satisfied by the reclassify endpoint above.
   const articleId = await insertArticle(env, newArticle);
 
   return {

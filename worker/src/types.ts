@@ -19,6 +19,7 @@ export interface ArticleRecord {
   publishedAt: string;
   category: Category;
   isKentucky: boolean;
+  isNational: boolean;
   county: string | null;
   city: string | null;
   summary: string;
@@ -44,6 +45,7 @@ export interface NewArticle {
   publishedAt: string;
   category: Category;
   isKentucky: boolean;
+  isNational: boolean;
   county: string | null;
   city: string | null;
   summary: string;
@@ -90,6 +92,7 @@ export interface ExtractedArticle {
 
 export interface ClassificationResult {
   isKentucky: boolean;
+  isNational: boolean;
   category: Category;
   county: string | null;
   city: string | null;

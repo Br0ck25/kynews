@@ -269,6 +269,7 @@ limitPerSource,
 				const changed =
 					classification.category !== article.category ||
 					classification.isKentucky !== article.isKentucky ||
+					classification.isNational !== article.isNational ||
 					classification.county !== article.county;
 				if (changed) {
 					await updateArticleClassification(env, article.id, classification);
@@ -908,6 +909,13 @@ return json({ item: article }, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 }
 
 if (categoryMatch && request.method === 'GET') {
+// feeds:
+//   today       - all Kentucky articles (is_kentucky=1)
+//   national    - articles whose stored category is "national" (ignore counties)
+//   sports      - Kentucky sports stories (is_kentucky=1 AND category='sports')
+//   weather     - weather stories, KY or national (see db.queryArticles logic)
+//   schools     - Kentucky school stories (is_kentucky=1 AND category='schools')
+//   obituaries  - Kentucky obituaries only (is_kentucky=1 AND category='obituaries')
 const category = categoryMatch[1]?.toLowerCase();
 if (!category || !isAllowedCategory(category)) {
 return badRequest('Invalid category. Allowed: today|national|sports|weather|schools|obituaries');

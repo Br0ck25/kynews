@@ -120,6 +120,7 @@ export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
   'https://www.wkyt.com/arc/outboundfeeds/rss/?outputType=xml',
   'https://www.lex18.com/index.rss',
   'https://www.lex18.com/news/covering-kentucky.rss',
+	'https://mountain-topmedia.com/feed/',
 ];
 
 export const NORMAL_PRIORITY_SOURCE_SEEDS: string[] = [

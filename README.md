@@ -4,6 +4,13 @@ This is a template PWA - Progresive Web Application that uses ReactJs and Materi
 App works offline by saving responses in localStorage. <br/>
 Currently I've done the development in a subfolder ('/pwa/'). To run in the root folder just remove the ("homepage": "/pwa/",) in the package.json file. (Also remove the "set HOST=intranet&& " from scripts->start property in package.json)
 
+## Tagging Guidelines
+
+A separate document outlines the article tagging system used by the
+project (Kentucky vs National, counties, weather/sports/school tags, etc).  See
+[TAGGING_SYSTEM.md](./TAGGING_SYSTEM.md) for details and editorial
+instructions.
+
 <b>Store is now managed by React-Redux.</b>
 <del>Store is managed using React's Context API. </del><br/>
 <i>Switch to <b>"react-context"</b> branch to see the React-Contex version</i><br/>

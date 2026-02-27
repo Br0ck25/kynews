@@ -806,15 +806,39 @@ function isInsideOpenQuote(priorText: string, currentParagraph: string): boolean
 function repairUnbalancedQuotes(text: string): string {
   let output = text;
 
-  const straightQuoteCount = (output.match(/"/g) ?? []).length;
-  if (straightQuoteCount % 2 !== 0) {
-    output = output.replace(/"/g, '');
+  // Straight double quotes: if there's exactly one unmatched quote we can
+  // simply append a closing quote. If there's more than one imbalance (e.g.
+  // three or five quotes), the text is probably garbled so strip them all.
+  const straightCount = (output.match(/"/g) ?? []).length;
+  if (straightCount % 2 !== 0) {
+    if (straightCount === 1) {
+      output += '"';
+    } else {
+      // too many mismatches; drop them entirely as a last resort
+      output = output.replace(/"/g, '');
+    }
   }
 
-  const curlyOpenCount = (output.match(/\u201c/g) ?? []).length;
-  const curlyCloseCount = (output.match(/\u201d/g) ?? []).length;
-  if (curlyOpenCount !== curlyCloseCount) {
-    output = output.replace(/[\u201c\u201d]/g, '');
+  // Curly quotes – handle similarly but track opens vs closes separately
+  let openCount = (output.match(/\u201c/g) ?? []).length;
+  let closeCount = (output.match(/\u201d/g) ?? []).length;
+  if (openCount !== closeCount) {
+    const diff = openCount - closeCount;
+    if (Math.abs(diff) === 1) {
+      if (diff === 1) {
+        // one extra opening curly – close it at end
+        output += '\u201d';
+      } else {
+        // one extra closing curly – drop the last occurrence
+        const idx = output.lastIndexOf('\u201d');
+        if (idx !== -1) {
+          output = output.slice(0, idx) + output.slice(idx + 1);
+        }
+      }
+    } else {
+      // too many mismatches to reasonably repair; strip all curly quotes
+      output = output.replace(/[\u201c\u201d]/g, '');
+    }
   }
 
   return output;

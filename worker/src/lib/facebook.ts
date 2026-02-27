@@ -40,9 +40,19 @@ export function generateFacebookHashtags(article: ArticleRecord): string {
   }
   // include a generic Kentucky tag for all KY stories
   tags.push('#KentuckyNews');
-  // weather stories get an extra hashtag
+  // additional category-specific hashtags
   if (article.category === 'weather') {
     tags.push('#Weather');
+  }
+  if (article.category === 'sports') {
+    tags.push('#KentuckySports');
+  }
+  if (article.category === 'schools') {
+    tags.push('#KentuckyEducation');
+  }
+  // obituaries intentionally get no hashtags; return empty list entirely
+  if (article.category === 'obituaries') {
+    return '';
   }
   return tags.join(' ');
 }

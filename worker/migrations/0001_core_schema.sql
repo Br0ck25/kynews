@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS articles (
   published_at TEXT NOT NULL,
   category TEXT NOT NULL CHECK (category IN ('today','national','sports','weather','schools','obituaries')),
   is_kentucky INTEGER NOT NULL DEFAULT 0 CHECK (is_kentucky IN (0,1)),
+  is_national INTEGER NOT NULL DEFAULT 0 CHECK (is_national IN (0,1)),
   county TEXT,
   city TEXT,
   summary TEXT NOT NULL,
