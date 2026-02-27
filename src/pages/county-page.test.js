@@ -78,3 +78,33 @@ test('save county only updates saved counties and does not alter feed filters', 
   expect(tagsAfter).toEqual(initialTags);
   expect(store.getState().selectedCounties).toEqual(['Fayette']);
 });
+
+// verify share button constructs canonical county URL rather than "local"
+test('share button uses county URL', async () => {
+  jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
+  // mock navigator.share
+  const shareMock = jest.fn().mockResolvedValue();
+  Object.defineProperty(window.navigator, 'share', {
+    configurable: true,
+    value: shareMock,
+  });
+
+  render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={["/news/adair-county"]}>
+        <Route path="/news/:countySlug">
+          <CountyPage />
+        </Route>
+      </MemoryRouter>
+    </Provider>
+  );
+
+  // wait for page to load and then click share
+  fireEvent.click(await screen.findByLabelText(/Share county/i));
+
+  expect(shareMock).toHaveBeenCalledWith({
+    title: 'Adair County, KY News',
+    text: 'Latest from Adair County on Kentucky News',
+    url: 'https://localkynews.com/news/kentucky/adair-county',
+  });
+});

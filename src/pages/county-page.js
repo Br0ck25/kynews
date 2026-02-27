@@ -14,7 +14,7 @@ import FeaturedPost from "../components/featured-post-component";
 import Posts from "../components/home/posts-component";
 import Skeletons from "../components/skeletons-component";
 import SnackbarNotify from "../components/snackbar-notify-component";
-import { slugToCounty } from "../utils/functions";
+import { slugToCounty, getCountyIntro, countyToSlug } from "../utils/functions";
 import { useParams, useHistory } from "react-router-dom";
 import { __RouterContext } from "react-router";
 import { ToggleSavedCounty, GetSavedCounties } from "../services/storageService";
@@ -71,25 +71,6 @@ function setCountyJsonLd(countyName) {
  * Returns a 300–500 word introductory text about a given KY county.
  * Used to satisfy Section 5.4 of the SEO implementation plan.
  */
-function getCountyIntro(countyName) {
-  return `${countyName} County is one of Kentucky's 120 counties, located in the Commonwealth of Kentucky. ` +
-    `Like many of Kentucky's counties, ${countyName} County has a rich history rooted in the traditions, ` +
-    `communities, and industries that have shaped the region over generations. ` +
-    `Residents of ${countyName} County are served by local government, public school districts, healthcare providers, ` +
-    `churches, and community organizations that make up the fabric of everyday life in this part of the state.\n\n` +
-    `Local news in ${countyName} County covers a wide range of topics: county fiscal court decisions, school board meetings, ` +
-    `local sports results, weather events, public safety reports, and community announcements. ` +
-    `Because Kentucky is a state where local governance matters deeply — from county judge executives to school superintendents — ` +
-    `staying informed about what is happening in ${countyName} County means reading the reporters and newsrooms ` +
-    `who cover it directly.\n\n` +
-    `Local KY News aggregates news from credentialed Kentucky news organizations and presents summaries with full attribution ` +
-    `to the original publishers. Every article listed on this page was reported by a professional journalist or news organization. ` +
-    `Our summaries are designed to help you find the stories that matter in ${countyName} County and click through to read ` +
-    `the full reporting from the outlet that produced it.\n\n` +
-    `This page is updated continuously as new ${countyName} County news is published across our monitored sources. ` +
-    `If you want quick access to ${countyName} County news, you can bookmark this county with the button above and revisit it from the Saved page. ` +
-    `To filter your Home feed by county, use Settings → County Filters.`;
-}
 
 export default function CountyPage({ countySlugProp = null, onClose = null }) {
   const classes = useStyles();
@@ -180,7 +161,10 @@ export default function CountyPage({ countySlugProp = null, onClose = null }) {
 
   const handleShare = async () => {
     const title = `${countyName} County, KY News`;
-    const url = window.location.href;
+    // build canonical URL rather than relying on window.location (which will be
+    // "/local" when this page is shown via dialog).
+    const slug = countyToSlug(countyName);
+    const url = `${SITE_URL}/news/kentucky/${slug}`;
     const text = `Latest from ${countyName} County on Kentucky News`;
 
     try {
@@ -211,8 +195,9 @@ export default function CountyPage({ countySlugProp = null, onClose = null }) {
   };
 
   const handleBack = () => {
+    // unused since we no longer show a back button; navigation is handled
+    // by the UI that opened this page/dialog.
     if (countySlugProp && props?.onClose) {
-      // when rendered in a dialog, close it instead of navigating
       props.onClose();
     } else if (history) {
       history.push("/local");
@@ -222,9 +207,6 @@ export default function CountyPage({ countySlugProp = null, onClose = null }) {
   if (!countyName) {
     return (
       <div>
-        <Button size="small" onClick={handleBack} className={classes.backLink}>
-          &larr; All Counties
-        </Button>
         <Typography variant="h5">County not found</Typography>
         <Typography variant="body2">
           The URL you provided does not match a valid Kentucky county.
@@ -235,10 +217,6 @@ export default function CountyPage({ countySlugProp = null, onClose = null }) {
 
   return (
     <div className={classes.root}>
-      <Button size="small" onClick={handleBack} className={classes.backLink}>
-        &larr; All Counties
-      </Button>
-
       <Typography variant="h5" gutterBottom>
         {countyName} County
         <span className={classes.headerActions}>
@@ -277,16 +255,12 @@ export default function CountyPage({ countySlugProp = null, onClose = null }) {
           .map((para, i) => {
             if (i === 0) {
               return (
-                <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: 8 }}>
-                  {para}
-                </Typography>
+                <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: para }} />
               );
             }
             if (!introExpanded) return null;
             return (
-              <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: i < 2 ? 8 : 0 }}>
-                {para}
-              </Typography>
+              <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: i < 2 ? 8 : 0 }} dangerouslySetInnerHTML={{ __html: para }} />
             );
           })}
         <Button

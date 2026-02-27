@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { makeStyles } from "@material-ui/core/styles";
 import { TextField, Grid, Divider, Typography, Box, Chip, Button } from "@material-ui/core";
 import { Link as RouterLink } from "react-router-dom";
+import { useDispatch } from "react-redux";
+import { setFullscreenCounty } from "../redux/actions/actions";
 import Posts from "../components/home/posts-component";
 import { GetValue, GetSavedCounties, ToggleSavedCounty } from "../services/storageService";
 import { countyToSlug } from "../utils/functions";
@@ -17,6 +19,7 @@ const useStyles = makeStyles({
 
 export default function SavedPage() {
   const classes = useStyles();
+  const dispatch = useDispatch();
 
   const [searchVal, setSearchVal] = useState("");
   const [posts, setPosts] = useState();
@@ -66,14 +69,15 @@ export default function SavedPage() {
               const slug = countyToSlug(countyName);
               return (
                 <Box key={countyName} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <RouterLink to={`/news/kentucky/${slug}`} style={{ textDecoration: "none" }}>
+                  <div style={{ textDecoration: "none" }}>
                     <Chip
                       label={`${countyName} County`}
                       color="primary"
                       clickable
                       style={{ fontWeight: 600 }}
+                      onClick={() => dispatch(setFullscreenCounty(slug))}
                     />
-                  </RouterLink>
+                  </div>
                   <Button
                     size="small"
                     style={{ minWidth: 0, padding: "2px 6px", color: "#999", fontSize: 11 }}

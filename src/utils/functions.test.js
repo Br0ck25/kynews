@@ -32,6 +32,27 @@ describe('county slug helpers', () => {
   });
 });
 
+// tests for county intro text
+import { getCountyIntro } from './functions';
+
+describe('county intro generator', () => {
+  it('includes county-specific data when available', () => {
+    const intro = getCountyIntro('Adair');
+    expect(intro).toMatch(/population of approximately 18,903/i);
+    expect(intro).toMatch(/county seat is Columbia/i);
+    expect(intro).toMatch(/Adair County Sheriff/i);
+    expect(intro).toMatch(/<a href="\/settings">Settings/i);
+  });
+
+  it('countyInfo map contains entries for several counties', () => {
+    const { getCountyInfo } = require('../constants/countyInfo');
+    const info = getCountyInfo();
+    expect(info['Adair County']).toBeDefined();
+    expect(info['Adair County'].Population).toBe('18,903');
+    expect(info['Jefferson County']).toBeDefined();
+  });
+});
+
 // additional tests for the tag helper
 import { getPostTags } from './functions';
 

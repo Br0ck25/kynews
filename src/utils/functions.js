@@ -89,6 +89,49 @@ export function slugToCounty(slug) {
 }
 
 // derive display tags for a post object; used by card components.
+
+// county intro generator moved out of county-page for reuse and testability
+import { getCountyInfo } from "../constants/countyInfo";
+
+export function getCountyIntro(countyName) {
+  const infoMap = getCountyInfo();
+  const key = `${countyName} County`;
+  const info = infoMap[key] || {};
+
+  // assemble custom opening using available data
+  let opening = `${countyName} County is one of Kentucky's 120 counties`;
+  if (info['County Seat']) {
+    opening += `; the county seat is ${info['County Seat']}.`;
+  } else {
+    opening += `, located in the Commonwealth of Kentucky.`;
+  }
+  if (info.Population) {
+    opening += ` It has a population of approximately ${info.Population.replace(/[^0-9,]/g, '')}.`;
+  }
+  if (info['Median Household Income']) {
+    opening += ` Median household income is around ${info['Median Household Income']}.`;
+  }
+  opening += `\n\n`;
+
+  let body = `Like many of Kentucky's counties, ${countyName} County has a rich history rooted in the traditions, communities, and industries that have shaped the region over generations. Residents of ${countyName} County are served by local government, public school districts, healthcare providers, churches, and community organizations that make up the fabric of everyday life in this part of the state.`;
+
+  if (info.Sheriff) {
+    body += ` The local sheriff’s office is ${info.Sheriff}.`;
+  }
+  if (info['School District(s)']) {
+    body += ` School services are provided by ${info['School District(s)']}.`;
+  }
+  if (info['Time Zone']) {
+    body += ` The county lies in the ${info['Time Zone']} time zone.`;
+  }
+  body += `\n\n`;
+
+  const footer = `This page is updated continuously as new ${countyName} County news is published across our monitored sources. If you want quick access to ${countyName} County news, you can bookmark this county with the button above and revisit it from the Saved page. To filter your Home feed by county, go to <a href=\"/settings\">Settings \u2192 County Filters</a>.`;
+
+  return opening + body + footer;
+}
+
+// derive display tags for a post object; used by card components.
 // always include "Kentucky" for KY articles, or "National" otherwise.
 // append county names (split on commas) if provided, and any explicit
 // tags already present on the post.
