@@ -864,6 +864,98 @@ describe('admin backfill endpoint', () => {
 		});
 		expect(response.status).toBe(401);
 	});
+
+	it('updates processed count while running', async () => {
+		// start with fresh schema so counts are predictable
+		await ensureSchemaAndFixture();
+
+		// stub runIngest to quickly insert a dummy article for each county
+		const originalRun = __testables.runIngest;
+		__testables.runIngest = async (env, urls) => {
+			try {
+				const url = new URL(urls[0]);
+				const county = url.searchParams.get('q') || url.searchParams.get('query') || 'unknown';
+				await env.ky_news_db.prepare(`
+					INSERT INTO articles (
+						canonical_url, source_url, url_hash, title, author, published_at, category,
+						is_kentucky, is_national, county, city, summary, seo_description, raw_word_count,
+						summary_word_count, content_text, content_html
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`).bind(
+					`https://example.com/${county}/1`,
+					'https://example.com',
+					`hash-${county}-${Date.now()}`,
+					`Backfill ${county}`,
+					null,
+					new Date().toISOString(),
+					'today',
+					1,
+					0,
+					county,
+					null,
+					'Summary',
+					'SEO',
+					100,
+					50,
+					'body',
+					'<p>body</p>'
+				).run();
+			} catch {
+				// ignore
+			}
+		};
+
+		const adminEnv = envWithAdminPassword('pw');
+
+		// intercept CACHE.put so we can observe progress updates directly
+		const seen: any[] = [];
+		const origPut = adminEnv.CACHE.put.bind(adminEnv.CACHE);
+		adminEnv.CACHE.put = async (key, value, opts) => {
+			try {
+				const parsed = JSON.parse(value as string);
+				seen.push(parsed);
+			} catch {}
+			return origPut(key, value, opts);
+		};
+
+		// stub global.fetch to handle the worker self-invocations without using
+		// test-runner helpers like vi.fn or jest.fn (which may not exist in this
+		// environment).
+		const originalFetch = global.fetch;
+		(global.fetch as any) = async (input: RequestInfo, init?: RequestInit) => {
+			let url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
+			if (url.includes('/api/admin/backfill-county')) {
+				const r = new Request(url, init);
+				return SELF.fetch(r, adminEnv, createExecutionContext());
+			}
+			if (originalFetch) {
+				return originalFetch(input, init);
+			}
+			// fallback
+			return new Response(null, { status: 404 });
+		};
+
+		const req = new IncomingRequest('https://example.com/api/admin/backfill-counties', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw' },
+			body: JSON.stringify({ threshold: 100 }),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(202);
+
+		// wait for at least one in-progress update with processed > 0
+		for (let i = 0; i < 20; i++) {
+			if (seen.some((s) => s.processed && s.processed > 0)) break;
+			await new Promise((r) => setTimeout(r, 50));
+		}
+		expect(seen.some((s) => s.processed && s.processed > 0)).toBe(true);
+
+		// restore stubs
+		__testables.runIngest = originalRun;
+		global.fetch = originalFetch;
+	});
 });
 
 // reclassify endpoint tests

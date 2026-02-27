@@ -299,9 +299,54 @@ ctx.waitUntil(runIngest(env, sourceUrls, limitPerSource, 'manual'));
 return json({ ok: true, message: 'Admin ingest started', sourcesTried: sourceUrls.length, limitPerSource }, 202);
 }
 
+// Internal endpoint: process a single county for the backfill job.  This is
+// invoked by the public backfill-counties handler via `fetch` so that each
+// county runs in its own worker invocation and avoids the 30-second waitUntil
+// limit.
+if (url.pathname === '/api/admin/backfill-county' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+
+	const body = await parseJsonBody<{ county?: string; threshold?: number }>(request);
+	const county = body?.county || '';
+	const threshold = Math.max(1, Number(body?.threshold ?? 5));
+	if (!county) return badRequest('Missing county');
+
+	console.log('backfill-county handler for', county, 'threshold', threshold);
+	const before = (await getCountyCounts(env)).get(county) ?? 0;
+	const urls = buildCountySearchUrls(county);
+	await __testables.runIngest(env, urls, threshold * 2, 'manual', { rotateSources: false }).catch((e) => {
+		console.error('runIngest error for', county, e);
+		return null;
+	});
+	// update status object
+	try {
+		const raw = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
+		if (raw) {
+			const statusObj = JSON.parse(raw);
+			if (statusObj && statusObj.status === 'running') {
+				statusObj.processed = (statusObj.processed || 0) + 1;
+				(statusObj.results ||= []).push({ county, before, after: (await getCountyCounts(env)).get(county) ?? before });
+				if (statusObj.processed >= statusObj.missingCount) {
+					statusObj.status = 'complete';
+					statusObj.finishedAt = new Date().toISOString();
+				}
+				const ttl = statusObj.status === 'complete' ? 86400 : 7200;
+				await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e) => {
+					console.error('status put failed for', county, e);
+				});
+			}
+		}
+	} catch (e) {
+		console.error('error updating status for', county, e);
+	}
+
+	return json({ ok: true });
+}
+
 // Backfill articles for counties that currently have fewer than `threshold` items.
 // Returns 202 immediately; the heavy ingest work runs via ctx.waitUntil so the
-// request never hits Cloudflare's 30-second CPU wall-clock limit.
 // Poll GET /api/admin/backfill-status to track progress.
 if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
@@ -325,35 +370,48 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 	};
 	await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(initialStatus), { expirationTtl: 7200 }).catch(() => null);
 
-	// Run the backfill in the background — one ingest pass per missing county.
-	ctx.waitUntil((async () => {
-		const results: Array<{ county: string; before: number; after: number }> = [];
-		for (const county of missing) {
+	// Run the backfill in the background — schedule one async task per county.
+	// Each task updates KV independently so the overall job cannot be canceled
+	// due to a single long-running promise.
+	for (const county of missing) {
+		ctx.waitUntil((async () => {
+			console.log('backfill: processing county', county, 'threshold', threshold);
 			const before = countsMap.get(county) ?? 0;
 			const urls = buildCountySearchUrls(county);
-			await runIngest(env, urls, threshold * 2, 'manual', { rotateSources: false }).catch(() => null);
-			const newMap = await getCountyCounts(env).catch(() => countsMap);
-			results.push({ county, before, after: newMap.get(county) ?? before });
-			// Update KV after each county so the UI shows live progress.
-			await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify({
-				status: 'running',
-				startedAt: initialStatus.startedAt,
-				threshold,
-				missingCount: missing.length,
-				processed: results.length,
-				results,
-			}), { expirationTtl: 7200 }).catch(() => null);
-		}
-		await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify({
-			status: 'complete',
-			startedAt: initialStatus.startedAt,
-			finishedAt: new Date().toISOString(),
-			threshold,
-			missingCount: missing.length,
-			processed: results.length,
-			results,
-		}), { expirationTtl: 86400 }).catch(() => null);
-	})());
+			await __testables.runIngest(env, urls, threshold * 2, 'manual', { rotateSources: false }).catch((e) => {
+				console.error('runIngest error for', county, e);
+				return null;
+			});
+			const newMap = await getCountyCounts(env).catch((e) => {
+				console.error('getCountyCounts error after', county, e);
+				return countsMap;
+			});
+			// read-modify-write the status object for this county
+			try {
+				const raw = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
+				if (raw) {
+					const statusObj = JSON.parse(raw);
+					if (statusObj && statusObj.status === 'running') {
+						statusObj.processed = (statusObj.processed || 0) + 1;
+						(statusObj.results ||= []).push({ county, before, after: newMap.get(county) ?? before });
+						// if this was the last county, mark complete as well
+						if (statusObj.processed >= missing.length) {
+							statusObj.status = 'complete';
+							statusObj.finishedAt = new Date().toISOString();
+						}
+						const ttl = statusObj.status === 'complete' ? 86400 : 7200;
+						await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e) => {
+							console.error('status put failed for', county, e);
+						});
+					}
+				}
+			} catch (e) {
+				console.error('error updating status for', county, e);
+			}
+		})());
+	}
+	// after enqueuing all counties we return immediately; final 'complete'
+	// timestamp will be written by the last task once processed == missing.length.
 
 	return json({ ok: true, message: 'Backfill started in background', threshold, missingCount: missing.length }, 202);
 }
@@ -2001,20 +2059,9 @@ export const __testables = {
 	isAdminAuthorized,
 };
 
-// ---------------------------------------------------------------------------
-// Facebook helpers
-// ---------------------------------------------------------------------------
+// also export runIngest directly for easier import in tests or tooling
+export { runIngest };
 
-/**
- * Extract a Facebook post ID from common post URL formats:
- *  - https://www.facebook.com/{page}/posts/{id}
- *  - https://www.facebook.com/{page}/photos/{id}
- *  - https://www.facebook.com/permalink.php?story_fbid={id}&id={pageId}
- *  - https://www.facebook.com/story.php?story_fbid={id}&id={pageId}  (returns pageId_id)
- *  - https://www.facebook.com/{page}?fbid={id}
- *
- * Returns the Graph-API-compatible object ID string, or null if it cannot be parsed.
- */
 function extractFacebookPostId(fbUrl: string): string | null {
 	try {
 		const parsed = new URL(fbUrl);
