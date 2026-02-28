@@ -141,7 +141,30 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
       )
       .run();
 
-    return Number(result.meta.last_row_id ?? 0);
+    const articleId = Number(result.meta.last_row_id ?? 0);
+
+    // insert county associations
+    if (article.counties && article.counties.length > 0) {
+      for (const county of article.counties) {
+        await env.ky_news_db
+          .prepare(
+            `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
+             VALUES (?, ?, ?)`
+          )
+          .bind(articleId, county, county === article.county ? 1 : 0)
+          .run();
+      }
+    } else if (article.county) {
+      await env.ky_news_db
+        .prepare(
+          `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
+           VALUES (?, ?, 1)`
+        )
+        .bind(articleId, article.county)
+        .run();
+    }
+
+    return articleId;
   } catch (error) {
     // log full error along with article metadata so issues are visible in worker logs
     console.error('[DB INSERT ERROR]', error, {
@@ -280,7 +303,7 @@ export async function unblockArticleByBlockedId(env: Env, id: number): Promise<b
 export async function getCountyCounts(env: Env): Promise<Map<string, number>> {
   const rows = await env.ky_news_db
     .prepare(
-      `SELECT county, COUNT(*) as cnt FROM articles WHERE county IS NOT NULL GROUP BY county`
+      `SELECT county, COUNT(*) as cnt FROM article_counties GROUP BY county`
     )
     .all<{ county: string; cnt: number }>();
 
@@ -292,6 +315,21 @@ export async function getCountyCounts(env: Env): Promise<Map<string, number>> {
   }
 
   return map;
+}
+
+/**
+ * Fetch all counties associated with a specific article.
+ * Returns county names ordered with primary counties first (is_primary DESC)
+ * then by insertion order (id ASC).
+ */
+export async function getArticleCounties(env: Env, articleId: number): Promise<string[]> {
+  const rows = await env.ky_news_db
+    .prepare(
+      'SELECT county FROM article_counties WHERE article_id = ? ORDER BY is_primary DESC, id ASC'
+    )
+    .bind(articleId)
+    .all<{ county: string }>();
+  return (rows.results ?? []).map((r) => r.county);
 }
 
 // Query the database schema to determine whether a given column
@@ -352,7 +390,11 @@ export async function queryArticles(env: Env, options: {
 
   // National should always show all national stories regardless of county filters.
   if (options.category !== 'national' && options.counties.length > 0) {
-    where.push(`county IN (${options.counties.map(() => '?').join(',')})`);
+    where.push(
+      `id IN (SELECT article_id FROM article_counties WHERE county IN (${options.counties
+        .map(() => '?')
+        .join(',')}))`
+    );
     binds.push(...options.counties);
   }
 
@@ -409,6 +451,7 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     isKentucky: row.is_kentucky === 1,
     isNational: row.is_national === 1,
     county: row.county,
+    counties: [],
     city: row.city,
     summary: row.summary,
     seoDescription: row.seo_description,
@@ -442,10 +485,16 @@ export async function listArticlesForReclassify(
 }
 
 /** Update the category, is_kentucky, and county for an existing article row. */
+/**
+ * Update the classification fields for an existing article row.  The
+ * `patch` object may include a list of `counties` in addition to the
+ * primary `county`; the junction table will be completely rewritten to
+ * match the new list (existing rows are deleted first).
+ */
 export async function updateArticleClassification(
   env: Env,
   id: number,
-  patch: { category: Category; isKentucky: boolean; isNational?: boolean; county: string | null },
+  patch: { category: Category; isKentucky: boolean; isNational?: boolean; county: string | null; counties?: string[] },
 ): Promise<void> {
   const normalizedCounty = normalizeCountyName(patch.county);
 
@@ -459,6 +508,32 @@ export async function updateArticleClassification(
       id,
     )
     .run();
+
+  // sync junction table for counties
+  let countiesList: string[] = [];
+  if (patch.counties && patch.counties.length > 0) {
+    countiesList = patch.counties
+      .map((c) => normalizeCountyName(c))
+      .filter((c): c is string => !!c);
+  } else if (normalizedCounty) {
+    countiesList = [normalizedCounty];
+  }
+
+  // clear existing associations, then re-insert
+  await env.ky_news_db
+    .prepare('DELETE FROM article_counties WHERE article_id = ?')
+    .bind(id)
+    .run();
+
+  for (const county of countiesList) {
+    await env.ky_news_db
+      .prepare(
+        `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
+         VALUES (?, ?, ?)`
+      )
+      .bind(id, county, county === normalizedCounty ? 1 : 0)
+      .run();
+  }
 }
 
 function normalizeCountyName(value: string | null): string | null {

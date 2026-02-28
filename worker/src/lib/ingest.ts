@@ -65,8 +65,8 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   });
 
   const tierSuffix = classification.isKentucky
-    ? classification.county
-      ? ` (county: ${classification.county})`
+    ? classification.counties && classification.counties.length
+      ? ` (counties: ${classification.counties.join(', ')})`
       : ''
     : '';
   console.log(`[CLASSIFIED] ${classification.isKentucky ? 'kentucky' : 'national'} - ${extracted.title}${tierSuffix}`);
@@ -91,6 +91,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     isKentucky: classification.isKentucky,
     isNational: classification.isNational,
     county: classification.county,
+    counties: classification.counties,
     city: classification.city,
     summary: ai.summary,
     seoDescription: ai.seoDescription,

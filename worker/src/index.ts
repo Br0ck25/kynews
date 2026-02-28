@@ -327,7 +327,10 @@ if (url.pathname === '/api/admin/backfill-county' && request.method === 'POST') 
 			const statusObj = JSON.parse(raw);
 			if (statusObj && statusObj.status === 'running') {
 				statusObj.processed = (statusObj.processed || 0) + 1;
-				(statusObj.results ||= []).push({ county, before, after: (await getCountyCounts(env)).get(county) ?? before });
+				if (!statusObj.results) {
+					statusObj.results = [];
+				}
+				statusObj.results.push({ county, before, after: (await getCountyCounts(env)).get(county) ?? before });
 				if (statusObj.processed >= statusObj.missingCount) {
 					statusObj.status = 'complete';
 					statusObj.finishedAt = new Date().toISOString();
@@ -393,7 +396,10 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 					const statusObj = JSON.parse(raw);
 					if (statusObj && statusObj.status === 'running') {
 						statusObj.processed = (statusObj.processed || 0) + 1;
-						(statusObj.results ||= []).push({ county, before, after: newMap.get(county) ?? before });
+						if (!statusObj.results) {
+							statusObj.results = [];
+						}
+						statusObj.results.push({ county, before, after: newMap.get(county) ?? before });
 						// if this was the last county, mark complete as well
 						if (statusObj.processed >= missing.length) {
 							statusObj.status = 'complete';
@@ -551,7 +557,7 @@ if (url.pathname === '/api/admin/retag' && request.method === 'POST') {
 if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
 }
-const body = await parseJsonBody<{ id?: number; category?: string; isKentucky?: boolean; county?: string | null }>(request);
+const body = await parseJsonBody<{ id?: number; category?: string; isKentucky?: boolean; county?: string | null; counties?: string[] }>(request);
 const id = Number(body?.id ?? 0);
 if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
 
@@ -559,12 +565,16 @@ const category = (body?.category || '').toLowerCase();
 if (!isAllowedCategory(category)) return badRequest('Invalid category');
 
 await updateArticleClassification(env, id, {
-category: category as Category,
-isKentucky: Boolean(body?.isKentucky),
-county: typeof body?.county === 'string' && body.county.trim() ? body.county.trim() : null,
-});
-
-return json({ ok: true, id });
+      category: category as Category,
+      isKentucky: Boolean(body?.isKentucky),
+      county: typeof body?.county === 'string' && body.county.trim() ? body.county.trim() : null,
+      counties: Array.isArray(body?.counties)
+        ? body!.counties.map((c) => c.trim()).filter(Boolean)
+        : body?.county
+          ? [body.county.trim()]
+          : [],
+    });
+    return json({ ok: true, id });
 }
 
 if (url.pathname === '/api/admin/article/update-datetime' && request.method === 'POST') {
@@ -887,7 +897,10 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 	});
 
 	classification.isKentucky = true;
-	if (providedCounty) classification.county = providedCounty;
+	if (providedCounty) {
+		classification.county = providedCounty;
+		classification.counties = [providedCounty];
+	}
 
 	const contentHtml = postBody
 		? `<p>${postBody.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>')}</p>`
@@ -920,6 +933,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		category: classification.category,
 		isKentucky: true,
 		county: classification.county,
+		counties: classification.counties,
 		city: classification.city,
 		summary: manualSummary,
 		seoDescription: manualSeoDescription,
@@ -1276,7 +1290,7 @@ function generateSitemapIndex(): string {
 </sitemapindex>`;
 }
 
-const handler: ExportedHandler<Env> = {
+export default {
 async fetch(request, env, ctx): Promise<Response> {
 // Handle CORS preflight requests first
 if (request.method === 'OPTIONS') {
@@ -1308,8 +1322,6 @@ ctx.waitUntil(
 );
 },
 };
-
-export default handler;
 
 /** Process sources sequentially and store results - used by both HTTP seed endpoint and cron. */
 async function runIngest(

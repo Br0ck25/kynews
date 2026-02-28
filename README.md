@@ -139,3 +139,10 @@ client-side code will still call `/api/articles` on the Pages host, which will r
 Adjust the Pages build settings to add the environment variable and/or deploy the
 Worker before publishing the site.
 
+## Database schema changes
+
+A new migration `worker/migrations/0006_article_counties.sql` introduces the
+`article_counties` junction table used by the worker to store multiple county
+associations per article. After deploying the updated worker, run this SQL
+against the live D1 database and execute the backfill query contained within
+the file to populate existing rows.

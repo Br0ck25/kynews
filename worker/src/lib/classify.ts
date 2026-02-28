@@ -278,10 +278,16 @@ export async function classifyArticleWithAi(
       (!baseGeo.city && (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource)
         ? sourceDefaultCounty
         : null),
+    // counties array will be populated immediately after initialization
+    counties: [],
     city: baseGeo.city,
     category: hasKhsaa ? 'sports' : category,
     isNational: false, // will populate after we know isKentucky
   };
+  // sync counties with primary county for initial fallback
+  if (fallback.county) {
+    fallback.counties = [fallback.county];
+  }
 
   // attach national flag based on preliminary cues and ky status
   fallback.isNational = nationalSignal || !fallback.isKentucky;
@@ -330,15 +336,19 @@ export async function classifyArticleWithAi(
       '      - The only Kentucky reference is a brand name (KFC, Western Kentucky University rankings, etc.)',
       '      - A county name appears but that county is clearly in another state',
       '    DO NOT count publisher names/branding as location signals.',
-      '  "county" - if a specific Kentucky county is prominently mentioned AND the story is set in Kentucky,',
-      '             return just the county name WITHOUT the word "County" (e.g. "Pike" not "Pike County").',
-      '             County must be one of the official 120 Kentucky counties listed below.',
-      '             If the county is in another state, or you are not confident, return null.',
-      `  All 120 KY counties: ${countyList}`,
-      '',
+      '  "counties" - an array of Kentucky county names that are prominently featured',
+      '                in the article AND where the story is set in Kentucky.',
+      '                Return the most relevant county first (primary).',
+      '                Each county must be one of the official 120 Kentucky counties listed below.',
+      '                If no Kentucky county is clearly identified, return an empty array.',
+      '                Example: ["Fayette", "Clark"] for an article set in both ',
+      '                Lexington and Winchester, Kentucky.',
+      '                Example: ["Perry"] for an article set only in Hazard.',
+      '                Example: [] if no county is identifiable.',
+      `  All 120 KY counties: ${countyList}`,      '',
       'Rules:',
       '  - Respond with ONLY valid JSON. No markdown, no code fences, no extra text.',
-      '  - Example: {"category":"today","isKentucky":true,"county":"Fayette"}',
+      '  - Example: {"category":"today","isKentucky":true,"counties":["Fayette"]}',
       '',
       `Title: ${cleanTitle}`,
       '',
@@ -366,14 +376,20 @@ export async function classifyArticleWithAi(
       category?: string;
       isKentucky?: boolean;
       county?: string | null;
+      counties?: string[];
     };
 
     const aiCategory = VALID_AI_CATEGORIES.has(parsed.category ?? '') ? (parsed.category as Category) : null;
     const aiIsKentucky = typeof parsed.isKentucky === 'boolean' ? parsed.isKentucky : false;
-    const aiCounty =
-      parsed.county && parsed.county !== 'null' && parsed.county.length > 1
-        ? normalizeCountyName(parsed.county)
-        : null;
+
+    // build normalized list of counties from the AI output
+    const aiCountiesRaw: string[] = Array.isArray(parsed.counties)
+      ? parsed.counties
+      : parsed.county ? [parsed.county] : [];
+    const aiCounties = aiCountiesRaw
+      .map((c) => normalizeCountyName(c))
+      .filter((c): c is string => !!c);
+    const aiCounty = aiCounties[0] ?? null;
 
     const aiGeo = aiIsKentucky ? detectKentuckyGeo(`${cleanTitle}\n${cleanContent}`) : { county: null, city: null };
     const mergedIsKentucky =
@@ -420,9 +436,19 @@ export async function classifyArticleWithAi(
              (mergedIsKentucky && !hadGeo ? sourceDefaultCounty : null))
       );
 
+    // determine final counties list using AI output when available, otherwise
+    // fall back to the mergedCounty (if any)
+    const mergedCounties: string[] =
+      aiCounties.length > 0
+        ? aiCounties
+        : mergedCounty
+          ? [mergedCounty]
+          : [];
+
     fallback = {
       isKentucky: mergedIsKentucky,
       county: mergedCounty,
+      counties: mergedCounties,
       city: fallback.city ?? aiGeo.city,
       category: enforceCategoryEvidence(
         normalizeCategoryForKentuckyScope(hasKhsaa ? 'sports' : mergedCategory, mergedIsKentucky),
@@ -452,6 +478,24 @@ export async function classifyArticleWithAi(
       fallback.isKentucky = true;
       fallback.county = sourceDefaultCounty;
     }
+
+    // Sync counties array after the override blocks above.
+    // Only collapse to a single county if an override actually changed
+    // the primary — otherwise preserve the full multi-county AI result.
+    if (!fallback.isKentucky) {
+      // article was stripped of its KY tag — clear all counties
+      fallback.counties = [];
+    } else if (fallback.county && fallback.counties.length === 0) {
+      // no counties were set by AI, but we have a primary from an override
+      fallback.counties = [fallback.county];
+    } else if (fallback.county && fallback.counties[0] !== fallback.county) {
+      // primary county changed by an override — put it first, keep the rest
+      fallback.counties = [
+        fallback.county,
+        ...fallback.counties.filter((c) => c !== fallback.county),
+      ];
+    }
+    // else: counties already correct from mergedCounties — leave untouched
 
     return fallback;
   } catch {

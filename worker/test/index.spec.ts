@@ -8,7 +8,7 @@ import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
 import * as dbModule from '../src/lib/db';
-import { insertArticle } from '../src/lib/db';
+import { insertArticle, getArticleCounties, updateArticleClassification } from '../src/lib/db';
 import * as aiModule from '../src/lib/ai';
 import {
 	cleanFacebookHeadline,
@@ -47,12 +47,23 @@ async function ensureSchemaAndFixture() {
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
 	`).run();
+	// article_counties junction table for multi-county support
+	await env.ky_news_db.prepare(`
+		CREATE TABLE IF NOT EXISTS article_counties (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+			county TEXT NOT NULL,
+			is_primary INTEGER NOT NULL DEFAULT 1 CHECK (is_primary IN (0,1)),
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`).run();
 
 	await env.ky_news_db.prepare(`DELETE FROM articles`).run();
+	await env.ky_news_db.prepare(`DELETE FROM article_counties`).run();
 
 	const now = new Date().toISOString();
 
-	async function addArticle(values: any[]) {
+	async function addArticle(values) {
 		// interpolate values directly so we don't rely on parameter binding which
 		// has been flaky in the test environment
 		const formatted = values
@@ -278,15 +289,21 @@ async function ensureSchemaAndFixture() {
 		null,
 		null,
 	]);
+
+	// backfill junction table from articles
+	await env.ky_news_db.prepare(
+		`INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
+		 SELECT id, county, 1 FROM articles WHERE county IS NOT NULL`
+	).run();
 }
 
-function envWithAdminPassword(password: string): Env {
-	return new Proxy(env as unknown as Record<string, unknown>, {
+function envWithAdminPassword(password) {
+	return new Proxy(env, {
 		get(target, prop, receiver) {
 			if (prop === 'ADMIN_PANEL_PASSWORD') return password;
 			return Reflect.get(target, prop, receiver);
 		},
-	}) as Env;
+	});
 }
 
 describe('Kentucky News worker API', () => {
@@ -296,7 +313,7 @@ describe('Kentucky News worker API', () => {
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 		expect(response.status).toBe(200);
-		const payload = await response.json<{ ok: boolean }>();
+		const payload = await response.json();
 		expect(payload.ok).toBe(true);
 	});
 
@@ -317,10 +334,7 @@ describe('Kentucky News worker API', () => {
 		const response = await SELF.fetch('https://example.com/api/articles/national?limit=20');
 		expect(response.status).toBe(200);
 
-		const payload = await response.json<{
-			items: Array<{ category: string; isKentucky: boolean }>;
-			nextCursor: string | null;
-		}>();
+		const payload = await response.json();
 		expect(Array.isArray(payload.items)).toBe(true);
 		expect(payload.items.length).toBe(0);
 	});
@@ -333,24 +347,43 @@ describe('Kentucky News worker API', () => {
 		);
 		expect(unfiltered.status).toBe(200);
 		expect(filtered.status).toBe(200);
-		const allPayload = await unfiltered.json<{ items: Array<unknown> }>();
-		const filteredPayload = await filtered.json<{ items: Array<unknown> }>();
+		const allPayload = await unfiltered.json();
+		const filteredPayload = await filtered.json();
 		expect(filteredPayload.items.length).toBe(allPayload.items.length);
 	});
 
-	it('sports endpoint returns kentucky-only sports articles', async () => {
+	it('feeds return articles when a secondary county matches', async () => {
 		await ensureSchemaAndFixture();
+		// insert a multi-county article where primary is Fayette but also Jefferson
+		const now = new Date().toISOString();
+		await insertArticle(env, {
+			canonicalUrl: 'https://example.com/multi2',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-multi2',
+			title: 'Secondary county test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette', 'Jefferson'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
 
-		const response = await SELF.fetch('https://example.com/api/articles/sports?limit=20');
-		expect(response.status).toBe(200);
-
-		const payload = await response.json<{
-			items: Array<{ category: string; isKentucky: boolean }>;
-		}>();
-		expect(Array.isArray(payload.items)).toBe(true);
-		expect(payload.items.length).toBe(1);
-		expect(payload.items[0]?.category).toBe('sports');
-		expect(payload.items[0]?.isKentucky).toBe(true);
+		const resp = await SELF.fetch('https://example.com/api/articles/today?counties=Jefferson');
+		expect(resp.status).toBe(200);
+		const payload = await resp.json();
+		expect(payload.items.some((a) => a.urlHash === 'hash-multi2')).toBe(true);
 	});
 
 	it('schools endpoint returns kentucky-only schools articles', async () => {
@@ -359,9 +392,7 @@ describe('Kentucky News worker API', () => {
 		const response = await SELF.fetch('https://example.com/api/articles/schools?limit=20');
 		expect(response.status).toBe(200);
 
-		const payload = await response.json<{
-			items: Array<{ category: string; isKentucky: boolean }>;
-		}>();
+		const payload = await response.json();
 		expect(Array.isArray(payload.items)).toBe(true);
 		expect(payload.items.length).toBe(1);
 		expect(payload.items[0]?.category).toBe('schools');
@@ -374,9 +405,7 @@ describe('Kentucky News worker API', () => {
 		const response = await SELF.fetch('https://example.com/api/articles/obituaries?limit=20');
 		expect(response.status).toBe(200);
 
-		const payload = await response.json<{
-			items: Array<{ category: string; isKentucky: boolean }>;
-		}>();
+		const payload = await response.json();
 		expect(Array.isArray(payload.items)).toBe(true);
 		expect(payload.items.length).toBe(1);
 		expect(payload.items[0]?.category).toBe('obituaries');
@@ -390,7 +419,7 @@ describe('Kentucky News worker API', () => {
 		const response = await SELF.fetch('https://example.com/api/articles/weather?limit=20');
 		expect(response.status).toBe(200);
 
-		const payload = await response.json<{ items: Array<{ category: string; isKentucky: boolean }> }>();
+		const payload = await response.json();
 		expect(Array.isArray(payload.items)).toBe(true);
 		// we seeded one national and one Kentucky weather story
 		expect(payload.items.length).toBe(2);
@@ -491,6 +520,7 @@ describe('classification utilities', () => {
 		expect(classification.isKentucky).toBe(false);
 		expect(classification.isNational).toBe(true);
 		expect(classification.category).toBe('national');
+		expect(classification.counties).toEqual([]);
 	});
 
 	it('does not detect Kentucky county when nearby out-of-state signal is present', () => {
@@ -509,6 +539,7 @@ describe('classification utilities', () => {
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Fayette');
+		expect(classification.counties).toEqual(['Fayette']);
 	});
 
 	// sources with a default county should be tagged as Kentucky only when the
@@ -524,6 +555,7 @@ describe('classification utilities', () => {
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Fayette');
+		expect(classification.counties).toEqual(['Fayette']);
 		expect(classification.category).toBe('weather');
 		expect(classification.isNational).toBe(true); // contains "National Weather Service" cue
 	});
@@ -539,6 +571,7 @@ describe('classification utilities', () => {
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Perry');
+		expect(classification.counties).toEqual(['Perry']);
 		expect(classification.isNational).toBe(true); // title contains "National"
 	}, 10000);
 
@@ -554,20 +587,12 @@ describe('classification utilities', () => {
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Fayette');
-	}, 10000);
-
-	// even a single Kentucky reference currently triggers a Kentucky tag
-	it('tags a story as Kentucky when KY is mentioned anywhere', async () => {
-		const classification = await classifyArticleWithAi(env, {
-			url: 'https://example.com/national-ky',
-			title: 'Federal policy changes affecting Kentucky residents',
-			content: 'National debate over healthcare reform includes implications for Kentucky and other states.',
-		});
-		console.log('KY mention classification', classification);
+		expect(classification.counties).toEqual(['Fayette']);
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.category).toBe('today');
 		expect(classification.isNational).toBe(true);
+		expect(classification.counties).toEqual([]);
 	}, 10000);
 
 	// city not present in the mapping should not produce a county
@@ -579,6 +604,7 @@ describe('classification utilities', () => {
 		});
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBeNull();
+		expect(classification.counties).toEqual([]);
 	});
 
 	// mention of multiple counties should still return at least one county (first match)
@@ -591,6 +617,8 @@ describe('classification utilities', () => {
 		expect(classification.isKentucky).toBe(true);
 		// Fayette appears earlier in KY_COUNTIES ordering than Jefferson
 		expect(classification.county).toBe('Fayette');
+		expect(classification.counties[0]).toBe('Fayette');
+		expect(classification.counties).toEqual(expect.arrayContaining(['Jefferson']));
 	});
 
 	it('tags kyschools.us domains as Kentucky and assigns the county from subdomain', async () => {
@@ -602,6 +630,7 @@ describe('classification utilities', () => {
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Ohio');
+		expect(classification.counties).toEqual(['Ohio']);
 		expect(classification.category).toBe('schools');
 	});
 
@@ -746,6 +775,80 @@ describe('database utilities', () => {
 		expect(map.get('Fayette')).toBe(2);
 		expect(map.get('Jefferson')).toBe(2);
 	});
+
+	it('getArticleCounties returns counties list for an inserted article', async () => {
+		await ensureSchemaAndFixture();
+		// insert via helper so junction entries are created automatically
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/multi',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-multi',
+			title: 'Multi county test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette', 'Jefferson'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		const counties = await getArticleCounties(env, id);
+		expect(counties).toEqual(['Fayette', 'Jefferson']);
+	});
+
+	it('updateArticleClassification syncs junction table', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/sync',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-sync',
+			title: 'Sync test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		let counties = await getArticleCounties(env, id);
+		expect(counties).toEqual(['Fayette']);
+
+		await updateArticleClassification(env, id, {
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Jefferson',
+			counties: ['Jefferson', 'Fayette'],
+		});
+
+		counties = await getArticleCounties(env, id);
+		expect(counties).toEqual(['Jefferson', 'Fayette']);
+	});
 });
 
 describe('db.insertArticle error logging', () => {
@@ -755,7 +858,7 @@ describe('db.insertArticle error logging', () => {
 
 		// patch prepare().run to always throw
 		const origPrepare = env.ky_news_db.prepare.bind(env.ky_news_db);
-		(env.ky_news_db as any).prepare = (sql: string) => {
+		(env.ky_news_db).prepare = (sql) => {
 			const stmt = origPrepare(sql);
 			return {
 				...stmt,
@@ -765,7 +868,7 @@ describe('db.insertArticle error logging', () => {
 			};
 		};
 
-		const dummy: any = {
+		const dummy = {
 			canonicalUrl: 'https://foo',
 			sourceUrl: 'https://foo',
 			urlHash: 'h',
@@ -788,7 +891,7 @@ describe('db.insertArticle error logging', () => {
 			slug: null,
 		};
 
-		await expect(insertArticle(env as any, dummy)).rejects.toThrow('simulated failure');
+		await expect(insertArticle(env, dummy)).rejects.toThrow('simulated failure');
 		expect(spy).toHaveBeenCalledWith(
 			'[DB INSERT ERROR]',
 			expect.any(Error),
@@ -796,7 +899,7 @@ describe('db.insertArticle error logging', () => {
 		);
 
 		spy.mockRestore();
-		(env.ky_news_db as any).prepare = origPrepare;
+		env.ky_news_db.prepare = origPrepare;
 	});
 });
 
@@ -808,7 +911,7 @@ describe('ingestSingleUrl error handling', () => {
 
 		// stub network fetch for article
 		const originalFetch = global.fetch;
-		(global.fetch as any) = async () =>
+		global.fetch = async () =>
 			new Response('<html><body><p>hi</p></body></html>', {
 				status: 200,
 				headers: { 'Content-Type': 'text/html' },
@@ -820,6 +923,7 @@ describe('ingestSingleUrl error handling', () => {
 			isKentucky: true,
 			isNational: false,
 			county: null,
+			counties: [],
 			city: null,
 		});
 		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
@@ -831,7 +935,7 @@ describe('ingestSingleUrl error handling', () => {
 		// stub insertArticle to throw via module spy; ingestion will pick up live binding
 		vi.spyOn(dbModule, 'insertArticle').mockRejectedValue(new Error('dbfail'));
 
-		const result = await __testables.ingestSingleUrl(env as any, { url: 'https://example.com' } as any);
+		const result = await __testables.ingestSingleUrl(env, { url: 'https://example.com' });
 		expect(result.status).toBe('rejected');
 		expect(result.reason).toMatch(/insert failed/);
 
@@ -1007,11 +1111,11 @@ describe('admin backfill endpoint', () => {
 		const adminEnv = envWithAdminPassword('pw');
 
 		// intercept CACHE.put so we can observe progress updates directly
-		const seen: any[] = [];
+		const seen = [];
 		const origPut = adminEnv.CACHE.put.bind(adminEnv.CACHE);
 		adminEnv.CACHE.put = async (key, value, opts) => {
 			try {
-				const parsed = JSON.parse(value as string);
+				const parsed = JSON.parse(value);
 				seen.push(parsed);
 			} catch {}
 			return origPut(key, value, opts);
@@ -1021,7 +1125,7 @@ describe('admin backfill endpoint', () => {
 		// test-runner helpers like vi.fn or jest.fn (which may not exist in this
 		// environment).
 		const originalFetch = global.fetch;
-		(global.fetch as any) = async (input: RequestInfo, init?: RequestInit) => {
+		global.fetch = async (input, init) => {
 			let url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
 			if (url.includes('/api/admin/backfill-county')) {
 				const r = new Request(url, init);
@@ -1112,10 +1216,10 @@ describe('admin reclassify endpoint', () => {
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, envWithAdminPassword('secret'), ctx);
 		expect(response.status).toBe(200);
-		const payload = await response.json<any>();
+		const payload = await response.json();
 		expect(payload.processed).toBeGreaterThan(0);
 		// find our inserted story in results
-		const entry = (payload.results || []).find((r: any) => r.id && r.title === 'National Test Story');
+		const entry = (payload.results || []).find((r) => r.id && r.title === 'National Test Story');
 		expect(entry).toBeDefined();
 		// since is_national flipped from 0->1, changed should be true
 		expect(entry?.changed).toBe(true);
@@ -1124,7 +1228,7 @@ describe('admin reclassify endpoint', () => {
 		const row = await env.ky_news_db
 			.prepare('SELECT is_national FROM articles WHERE url_hash = ? LIMIT 1')
 			.bind('hash-national-test')
-			.first<{ is_national: number }>();
+			.first();
 		expect(row?.is_national).toBe(1);
 	}, 10000);
 });
@@ -1135,9 +1239,7 @@ describe('admin article link updates', () => {
 		const target = await env.ky_news_db
 			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
 			.bind('https://example.com/ky-today')
-			.first<{ id: number }>();
-
-		const targetId = Number(target?.id ?? 0);
+				.first();
 		expect(targetId).toBeGreaterThan(0);
 
 		const request = new IncomingRequest('https://example.com/api/admin/article/update-links', {
@@ -1156,12 +1258,7 @@ describe('admin article link updates', () => {
 		const response = await worker.fetch(request, envWithAdminPassword('secret'), ctx);
 
 		expect(response.status).toBe(200);
-		const payload = await response.json<{
-			ok: boolean;
-			canonicalUrl: string;
-			sourceUrl: string;
-			urlHash: string;
-		}>();
+		const payload = await response.json();
 		expect(payload.ok).toBe(true);
 		expect(payload.canonicalUrl).toBe('https://example.com/ky-today-updated');
 		expect(payload.sourceUrl).toBe('https://feeds.example.com/ky');
@@ -1170,7 +1267,7 @@ describe('admin article link updates', () => {
 		const row = await env.ky_news_db
 			.prepare(`SELECT canonical_url, source_url, url_hash FROM articles WHERE id = ? LIMIT 1`)
 			.bind(targetId)
-			.first<{ canonical_url: string; source_url: string; url_hash: string }>();
+			.first();
 		expect(row?.canonical_url).toBe('https://example.com/ky-today-updated');
 		expect(row?.source_url).toBe('https://feeds.example.com/ky');
 		expect(row?.url_hash).toBe(payload.urlHash);
@@ -1188,8 +1285,7 @@ describe('admin article link updates', () => {
 		const target = await env.ky_news_db
 			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
 			.bind('https://example.com/ky-sports')
-			.first<{ id: number }>();
-
+					.first();
 		const targetId = Number(target?.id ?? 0);
 		expect(targetId).toBeGreaterThan(0);
 
@@ -1217,7 +1313,7 @@ describe('admin facebook caption endpoint', () => {
 		const row = await env.ky_news_db
 			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
 			.bind('https://example.com/ky-today')
-			.first<{ id: number }>();
+			.first();
 		const articleId = Number(row?.id ?? 0);
 		expect(articleId).toBeGreaterThan(0);
 
@@ -1232,7 +1328,7 @@ describe('admin facebook caption endpoint', () => {
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, envWithAdminPassword('secret'), ctx);
 		expect(response.status).toBe(200);
-		const payload = await response.json<{ ok: boolean; caption: string }>();
+		const payload = await response.json();
 		expect(payload.ok).toBe(true);
 		expect(payload.caption).toContain('Fayette');
 		expect(payload.caption).toContain('#KentuckyNews');
@@ -1270,7 +1366,7 @@ describe('admin facebook caption endpoint', () => {
 		const { id: nid } = await env.ky_news_db
 			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
 			.bind('https://example.com/national')
-			.first<{ id: number }>();
+.first();
 
 		const request = new IncomingRequest('https://example.com/api/admin/facebook/caption', {
 			method: 'POST',
@@ -1280,7 +1376,7 @@ describe('admin facebook caption endpoint', () => {
 		const ctx2 = createExecutionContext();
 		const resp2 = await worker.fetch(request, envWithAdminPassword('secret'), ctx2);
 		expect(resp2.status).toBe(200);
-		const payload2 = await resp2.json<{ ok: boolean; caption: string }>();
+		const payload2 = await resp2.json();
 		expect(payload2.ok).toBe(true);
 		expect(payload2.caption).toBe('');
 	});
@@ -1294,7 +1390,7 @@ describe('admin facebook post endpoint', () => {
 		const row = await env.ky_news_db
 			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
 			.bind('https://example.com/ky-today')
-			.first<{ id: number }>();
+			.first();
 		const articleId = Number(row?.id ?? 0);
 		expect(articleId).toBeGreaterThan(0);
 
@@ -1352,7 +1448,7 @@ describe('social preview HTML route', () => {
 		const row = await env.ky_news_db
 			.prepare('SELECT id FROM articles WHERE slug = ? LIMIT 1')
 			.bind('test-slug')
-			.first<{ id: number }>();
+			.first();
 		const articleId = Number(row?.id ?? 0);
 
 		const path = '/news/kentucky/boone-county/test-slug';

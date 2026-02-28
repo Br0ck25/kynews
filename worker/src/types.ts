@@ -21,6 +21,12 @@ export interface ArticleRecord {
   isKentucky: boolean;
   isNational: boolean;
   county: string | null;
+  /**
+   * All counties associated with the article. The first element is considered
+   * the primary county and should always match the `county` field when that is
+   * non-null.
+   */
+  counties: string[];
   city: string | null;
   summary: string;
   seoDescription: string;
@@ -47,6 +53,11 @@ export interface NewArticle {
   isKentucky: boolean;
   isNational: boolean;
   county: string | null;
+  /**
+   * Optionally provide a list of counties for the new article. If omitted the
+   * primary county will be inferred from `county`.
+   */
+  counties?: string[];
   city: string | null;
   summary: string;
   seoDescription: string;
@@ -94,7 +105,10 @@ export interface ClassificationResult {
   isKentucky: boolean;
   isNational: boolean;
   category: Category;
+  /** primary county for backwards compatibility */
   county: string | null;
+  /** all counties including primary; primary is first element when present */
+  counties: string[];
   city: string | null;
 }
 
