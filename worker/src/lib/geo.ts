@@ -15,7 +15,7 @@ const OUT_OF_STATE_NAMES = [
   'oklahoma', 'oregon', 'pennsylvania', 'rhode island', 'south carolina',
   'south dakota', 'tennessee', 'texas', 'utah', 'vermont', 'virginia',
   'washington', 'west virginia', 'wisconsin', 'wyoming',
-] as const;
+];
 
 /**
  * Postal abbreviations for non-Kentucky states, lowercase for matching against
@@ -42,7 +42,7 @@ const KY_PRESENT_RE = /\bkentucky\b|\bky\b/i;
  * Exported so classify.ts can detect when a county assignment came from one of
  * these ambiguous cities and trigger an AI double-check.
  */
-export const HIGH_AMBIGUITY_CITIES = new Set<string>([
+export const HIGH_AMBIGUITY_CITIES = new Set([
   'columbia',   // Columbia, SC / MO / MD / TN / OH — also Columbia Records, brand
   'franklin',   // Franklin, TN / PA / OH and many others
   'springfield',// Springfield, MO / IL / OH etc.
@@ -61,20 +61,31 @@ export const HIGH_AMBIGUITY_CITIES = new Set<string>([
  * included KY_COUNTIES.map(c => `${c} county`) which meant "christian county"
  * in a Missouri article bypassed the guard and set isKentucky = true.
  */
-const KY_UNAMBIGUOUS_KEYWORDS = ['kentucky', 'commonwealth of kentucky'] as const;
+const KY_UNAMBIGUOUS_KEYWORDS = ['kentucky', 'commonwealth of kentucky'];
 
-export interface GeoDetection {
-  isKentucky: boolean;
-  county: string | null;
-  city: string | null;
-}
+/**
+ * @typedef {object} GeoDetection
+ * @property {boolean} isKentucky
+ * @property {string|null} county  primary county for backward compatibility
+ * @property {string[]} counties   all detected counties (primary first)
+ * @property {string|null} city
+ */
 
-export function detectKentuckyGeo(input: string): GeoDetection {
+/**
+ * @param {string} input
+ * @returns {GeoDetection}
+ */
+export function detectKentuckyGeo(input) {
   const haystack = normalizeForSearch(input);
 
-  const county = detectCounty(haystack, input);
-  if (county) {
-    return { isKentucky: true, county, city: null };
+  const counties = detectAllCounties(haystack, input);
+  if (counties.length > 0) {
+    return {
+      isKentucky: true,
+      county: counties[0],
+      counties,
+      city: null,
+    };
   }
 
   const city = detectCity(input);
@@ -82,6 +93,7 @@ export function detectKentuckyGeo(input: string): GeoDetection {
     return {
       isKentucky: true,
       county: KY_CITY_TO_COUNTY[city] ?? null,
+      counties: KY_CITY_TO_COUNTY[city] ? [KY_CITY_TO_COUNTY[city]] : [],
       city,
     };
   }
@@ -91,7 +103,7 @@ export function detectKentuckyGeo(input: string): GeoDetection {
     KY_UNAMBIGUOUS_KEYWORDS.some((token) => haystack.includes(token)) ||
     /\bky\b/.test(haystack);
 
-  return { isKentucky, county: null, city: null };
+  return { isKentucky, county: null, counties: [], city: null };
 }
 
 /**
@@ -109,7 +121,7 @@ export function detectKentuckyGeo(input: string): GeoDetection {
  * @param input    Normalised (lowercase, punctuation→space) text.
  * @param rawInput Original text used for the global KY-presence check. Optional.
  */
-export function detectCounty(input: string, rawInput?: string): string | null {
+export function detectCounty(input, rawInput) {
   const normalized = normalizeForSearch(input);
   const globalText = rawInput ? rawInput.toLowerCase() : normalized;
   const hasKentuckyContext = KY_PRESENT_RE.test(globalText);
@@ -142,6 +154,18 @@ export function detectCounty(input: string, rawInput?: string): string | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Derived data structures
+// ---------------------------------------------------------------------------
+
+// Longest-first ordering ensures multi-word cities (e.g. "Bowling Green")
+// are matched before single-word substrings (e.g. "Green") that may appear
+// inside them. Do not change this ordering.
+const SORTED_CITY_ENTRIES =
+  Object.keys(KY_CITY_TO_COUNTY)
+    .map((c) => ({ city: c, county: KY_CITY_TO_COUNTY[c] }))
+    .sort((a, b) => b.city.length - a.city.length);
+
 /**
  * Detects a Kentucky city name in the input text.
  *
@@ -151,21 +175,31 @@ export function detectCounty(input: string, rawInput?: string): string | null {
  *  3. Single mention that looks like a person's surname is skipped.
  *  4. Without KY context, a non-KY state name near the city disqualifies it.
  */
-export function detectCity(input: string): string | null {
+export function detectCity(input) {
   const raw = String(input || '');
   const normalized = normalizeForSearch(raw);
   const hasKentuckyContext = /\bkentucky\b|\bky\b/.test(normalized);
+  const matchedRanges = [];
 
-  for (const city of Object.keys(KY_CITY_TO_COUNTY)) {
-    const likelyCount = countCityMentions(normalized, city);
-    if (likelyCount === 0) continue;
+  // Iterate cities in longest-first order to give precedence to multi-word
+  // names such as "Bowling Green" over their shorter substrings like "Green".
+  for (const { city } of SORTED_CITY_ENTRIES) {
+    const pattern = buildCityPattern(city);
+    const globalPattern = new RegExp(pattern.source, 'gi');
+    const allMatches = Array.from(normalized.matchAll(globalPattern));
+    if (allMatches.length === 0) continue;
 
+    // filter out any matches that overlap previously accepted ranges
+    const nonOverlapping = allMatches.filter((m) => {
+      const start = m.index;
+      const end = start + m[0].length;
+      return !overlaps(start, end, matchedRanges);
+    });
+    if (nonOverlapping.length === 0) continue;
+
+    const likelyCount = nonOverlapping.length;
+    const cityIndex = nonOverlapping[0].index ?? -1;
     const hasLocationSignals = hasLocationSignalNearby(normalized, city);
-
-    // High-ambiguity city names (e.g. "columbia", "auburn") require a nearby
-    // location signal even when the article has global KY context.  A story
-    // about Kentucky basketball at Auburn (Alabama) must not be assigned a KY
-    // county just because "Auburn" exists somewhere in the scraped text.
     const isHighAmbiguity = HIGH_AMBIGUITY_CITIES.has(city);
 
     if (!hasLocationSignals && !hasKentuckyContext && likelyCount < 2) {
@@ -180,32 +214,28 @@ export function detectCity(input: string): string | null {
       continue;
     }
 
-    // For high-ambiguity cities (e.g. "columbia" \u2192 Adair, "auburn" \u2192 no KY county),
-    // ALWAYS check whether a non-KY state name appears near the city mention \u2014 even
-    // when the article has strong KY context (e.g. a UK basketball article set in
-    // Columbia, SC or Auburn, AL).  Without this guard, hasKentuckyContext=true would
-    // allow any mention of "columbia" to be mapped to Adair County regardless of context.
-    // For non-ambiguous cities, only run the check when KY context is absent.
     if (!hasKentuckyContext || isHighAmbiguity) {
-      const cityIndex = findCityIndex(normalized, city);
-      if (cityIndex !== -1 && isMatchDisqualifiedByState(normalized, cityIndex, city.length)) {
+      if (
+        cityIndex !== -1 &&
+        isMatchDisqualifiedByState(normalized, cityIndex, city.length)
+      ) {
         continue;
       }
     }
 
-    const token = city.includes(' ') ? city : ` ${city} `;
-    if (city.includes(' ')) {
-      if (normalized.includes(city)) return city;
-      continue;
-    }
+    // record the accepted range so that later (shorter) cities don't stomp it
+    const start = nonOverlapping[0].index;
+    const end = start + nonOverlapping[0][0].length;
+    matchedRanges.push({ start, end });
 
-    if (normalized.includes(token)) return city;
+    return city;
   }
+
   return null;
 }
 
-export function normalizeCountyList(values: string[]): string[] {
-  const set = new Set<string>();
+export function normalizeCountyList(values) {
+  const set = new Set();
   for (const value of values) {
     const normalized = value.trim().toLowerCase().replace(/ county$/u, '');
     if (!normalized) continue;
@@ -219,12 +249,154 @@ export function normalizeCountyList(values: string[]): string[] {
 // Private helpers
 // ---------------------------------------------------------------------------
 
-function normalizeForSearch(input: string): string {
+function normalizeForSearch(input) {
   return ` ${input.toLowerCase().replace(/[^a-z0-9\s]/g, ' ')} `.replace(/\s+/g, ' ');
 }
 
-function escapeRegExp(value: string): string {
+/**
+ * Detects all Kentucky county names in the input text, including counties
+ * that appear in shared-suffix enumeration patterns like
+ * "Laurel and Knox County" or "Pike, Floyd, and Knott County".
+ *
+ * This function performs two passes:
+ *
+ *   1. **Standard matching** – identical to `detectCounty` but collecting
+ *      *every* occurrence rather than returning early. Each hit is vetted
+ *      against the out-of-state guard.
+ *
+ *   2. **Shared-suffix enumeration** – identifies constructs where a single
+ *      trailing "County" (or variant) applies to multiple county names
+ *      separated by commas, "and", "or", or "&".  For each such match the
+ *      individual county names are extracted and included in the result.
+ *      This pass also honours the out-of-state disqualification rule.
+ *
+ * The returned array lists counties in the order they were encountered in
+ * the text, and deduplicates any duplicates that may arise between the two
+ * passes.
+ */
+export function detectAllCounties(input, rawInput) {
+  const normalized = normalizeForSearch(input);
+  const globalText = rawInput ? rawInput.toLowerCase() : normalized;
+  const hasKentuckyContext = KY_PRESENT_RE.test(globalText);
+
+  // temporary storage for match locations and associated county names
+  const matches = [];
+
+  // Pass A: direct county patterns (same as detectCounty but collect all)
+  for (const county of KY_COUNTIES) {
+    const escaped = escapeRegExp(county.toLowerCase());
+    const pattern = new RegExp(
+      `\\b${escaped}\\s+(?:county|cnty|co(?=[\\s]|$))\\b`,
+      'gi',
+    );
+    let m;
+    while ((m = pattern.exec(normalized))) {
+      const idx = m.index;
+      if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx, m[0].length)) {
+        continue;
+      }
+      matches.push({ index: idx, names: [county] });
+    }
+  }
+
+  // Pass B: enumeration with shared "County" suffix
+  const countyNamesPattern = KY_COUNTIES.map((c) => escapeRegExp(c.toLowerCase())).join('|');
+  const enumRegex = new RegExp(
+    `\\b((?:${countyNamesPattern})(?:\\s+(?:${countyNamesPattern}))*` +
+      `(?:\\s*(?:and|or|&)\\s*(?:${countyNamesPattern}))*)\\s+(?:county|cnty|co\\b)`,
+    'gi',
+  );
+  let em;
+  while ((em = enumRegex.exec(normalized))) {
+    const idx = em.index;
+    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx, em[0].length)) {
+      continue;
+    }
+    const listText = em[1];
+    const parts = listText.split(/\s*(?:,|and|or|&)\s*/).map((p) => p.trim());
+    const names = [];
+    // break each chunk into actual county names (handles missing commas after normalization)
+    for (const chunk of parts) {
+      if (!chunk) continue;
+      const tokens = chunk.split(/\s+/);
+      let j = 0;
+      while (j < tokens.length) {
+        let matchedCounty = null;
+        for (const county of KY_COUNTIES) {
+          const words = county.toLowerCase().split(' ');
+          if (
+            tokens.slice(j, j + words.length).join(' ') ===
+            words.join(' ')
+          ) {
+            if (
+              !matchedCounty ||
+              words.length > matchedCounty.split(' ').length
+            ) {
+              matchedCounty = county;
+            }
+          }
+        }
+        if (matchedCounty) {
+          names.push(matchedCounty);
+          j += matchedCounty.split(' ').length;
+        } else {
+          j += 1;
+        }
+      }
+    }
+    matches.push({ index: idx, names });
+  }
+
+  // sort by appearance
+  matches.sort((a, b) => a.index - b.index);
+  const results = [];
+  for (const m of matches) {
+    for (const name of m.names) {
+      // the names array can contain values from both passes; ensure we
+      // perform a case-insensitive lookup since some branches push
+      // capitalized strings while others are lowercase.
+      const proper = KY_COUNTIES.find(
+        (c) => c.toLowerCase() === name.toLowerCase(),
+      );
+      if (proper && !results.includes(proper)) {
+        results.push(proper);
+      }
+    }
+  }
+
+  return results;
+}
+
+function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+
+/**
+ * Build a regex that matches the given city name as a whole word or phrase.
+ *
+ * Both single- and multi-word names are treated the same way, with `\b`
+ * word-boundary anchors on either side.  The input is escaped so literal
+ * characters like "." or "(" do not break the pattern.
+ *
+ * The returned regex is case‑insensitive but does **not** include the `g`
+ * flag; callers can add `g` when they need to iterate over multiple matches.
+ */
+function buildCityPattern(city) {
+  return new RegExp(`\\b${escapeRegExp(city.toLowerCase())}\\b`, 'i');
+}
+
+/**
+ * Return true if the given character range overlaps any previously recorded
+ * match ranges.  Used during city detection to prevent shorter city names from
+ * firing when their text is part of a longer, already-accepted match.
+ */
+function overlaps(
+  matchStart,
+  matchEnd,
+  matched,
+) {
+  return matched.some((r) => matchStart < r.end && matchEnd > r.start);
 }
 
 /**
@@ -232,10 +404,10 @@ function escapeRegExp(value: string): string {
  * that places the location in a non-Kentucky US state.
  */
 function isMatchDisqualifiedByState(
-  normalized: string,
-  matchIndex: number,
-  matchLength: number,
-): boolean {
+  normalized,
+  matchIndex,
+  matchLength,
+) {
   const start = Math.max(0, matchIndex - OUT_OF_STATE_WINDOW);
   const end = Math.min(normalized.length, matchIndex + matchLength + OUT_OF_STATE_WINDOW);
   const window = normalized.slice(start, end);
@@ -244,26 +416,20 @@ function isMatchDisqualifiedByState(
     if (window.includes(state)) return true;
   }
 
-  if (OUT_OF_STATE_ABBR_RE.test(window)) return true;
+  // We originally also checked for two-letter state abbreviations (e.g. "IN",
+  // "OH") but in practice this provoked a lot of false positives.  Words like
+  // "in" and "or" are extremely common in English and would almost always
+  // cause a valid Kentucky county hit to be discarded when the surrounding
+  // sentence happened to include that preposition.  Since full state names are
+  // a far more reliable indicator and we already require Kentucky context or an
+  // explicit out‑of‑state mention for a match to be accepted, drop the
+  // abbreviation check entirely.
 
   return false;
 }
 
-/** Returns the char index of the first city mention in normalised text, or -1. */
-function findCityIndex(normalized: string, city: string): number {
-  if (city.includes(' ')) return normalized.indexOf(city);
-  const match = new RegExp(`\\b${escapeRegExp(city)}\\b`).exec(normalized);
-  return match ? match.index : -1;
-}
 
-function countCityMentions(normalizedInput: string, city: string): number {
-  const re = city.includes(' ')
-    ? new RegExp(escapeRegExp(city), 'g')
-    : new RegExp(`\\b${escapeRegExp(city)}\\b`, 'g');
-  return (normalizedInput.match(re) ?? []).length;
-}
-
-function hasLocationSignalNearby(normalizedInput: string, city: string): boolean {
+function hasLocationSignalNearby(normalizedInput, city) {
   const signals = [' in ', ' at ', ' from ', ' near ', ' city of ', ' county ', ' ky ', ' kentucky '];
   const words = normalizedInput.trim().split(/\s+/);
   const cityWords = city.split(' ');
@@ -287,7 +453,7 @@ function hasLocationSignalNearby(normalizedInput: string, city: string): boolean
   return false;
 }
 
-function isLikelyPersonName(rawInput: string, city: string): boolean {
+function isLikelyPersonName(rawInput, city) {
   if (city.includes(' ')) return false;
   const personRe = new RegExp(`\\b${escapeRegExp(city)}\\s+[A-Z][a-z]{2,}\\b`);
   return personRe.test(rawInput);

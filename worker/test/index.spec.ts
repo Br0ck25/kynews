@@ -530,6 +530,17 @@ describe('classification utilities', () => {
 		expect(detectCounty(text, text)).toBeNull();
 	});
 
+	it('classification picks up multiple counties in shared-suffix phrase', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://example.com/knox-laurel',
+			title: 'Attorney charged in federal court',
+			content: "Laurel and Knox County's Commonwealth's Attorney was mentioned in the indictment.",
+		});
+
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.counties).toEqual(['Laurel', 'Knox']);
+	});
+
 	it('applies source default county fallback for Kentucky.com when KY context is present', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://www.kentucky.com/news/politics-government/article999999999.html',

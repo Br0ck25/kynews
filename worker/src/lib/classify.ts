@@ -238,7 +238,9 @@ export async function classifyArticleWithAi(
   // 5. Only after steps 1–4 fail AND the article is confirmed Kentucky do we
   //    consider using the source default county.  This prevents misleading
   //    tags when text already contains geo information.
-  const baseGeo = baseIsKentucky ? detectKentuckyGeo(semanticText) : { county: null, city: null };
+  const baseGeo = baseIsKentucky
+    ? detectKentuckyGeo(semanticText)
+    : { isKentucky: false, county: null, counties: [], city: null };
 
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');
   // District-owned *.kyschools.us domains should generally be treated as
@@ -278,14 +280,13 @@ export async function classifyArticleWithAi(
       (!baseGeo.city && (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource)
         ? sourceDefaultCounty
         : null),
-    // counties array will be populated immediately after initialization
-    counties: [],
+    counties: baseGeo.counties ? [...baseGeo.counties] : [],
     city: baseGeo.city,
     category: hasKhsaa ? 'sports' : category,
     isNational: false, // will populate after we know isKentucky
   };
-  // sync counties with primary county for initial fallback
-  if (fallback.county) {
+  // if we had no counties but have a primary county fallback, ensure array
+  if (fallback.county && fallback.counties.length === 0) {
     fallback.counties = [fallback.county];
   }
 
@@ -391,7 +392,9 @@ export async function classifyArticleWithAi(
       .filter((c): c is string => !!c);
     const aiCounty = aiCounties[0] ?? null;
 
-    const aiGeo = aiIsKentucky ? detectKentuckyGeo(`${cleanTitle}\n${cleanContent}`) : { county: null, city: null };
+    const aiGeo = aiIsKentucky
+      ? detectKentuckyGeo(`${cleanTitle}\n${cleanContent}`)
+      : { isKentucky: false, county: null, counties: [], city: null };
     const mergedIsKentucky =
       fallback.isKentucky || aiIsKentucky || isKySchoolsSource;
 
