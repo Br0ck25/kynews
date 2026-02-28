@@ -210,7 +210,6 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'courier-journal.com': 'Jefferson',
   // Northern Kentucky
   'nky.com': 'Kenton',
-  'nkytribune.com': 'Kenton',
   // State-level sources (no default county — they cover all of KY)
   'kentuckylantern.com': null,
   'kentuckytoday.com': null,

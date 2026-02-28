@@ -539,15 +539,20 @@ export function detectAllCounties(input, rawInput) {
   while ((m = schoolDirectionalRe.exec(normalized))) {
     const countyMatch = m[1];
     const idx2 = m.index + m[0].length - countyMatch.length;
-    const countyName = countyMatch.toLowerCase();
     if (!hasSchoolSportsContext(normalized)) continue;
     if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx2, countyMatch.length)) {
       continue;
     }
-    if (AMBIGUOUS_COUNTY_NAMES.has(countyMatch)) {
+    // map back to properly-cased county for ambiguity check and results
+    const properName = KY_COUNTIES.find(
+      (c) => c.toLowerCase() === countyMatch.toLowerCase()
+    );
+    if (properName && AMBIGUOUS_COUNTY_NAMES.has(properName)) {
       if (!hasKentuckyContext) continue;
     }
-    matches.push({ index: idx2, names: [countyMatch] });
+    if (properName) {
+      matches.push({ index: idx2, names: [properName] });
+    }
   }
 
   // PROCESS PATTERN 2
@@ -561,10 +566,15 @@ export function detectAllCounties(input, rawInput) {
     if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx2, countyMatch.length)) {
       continue;
     }
-    if (AMBIGUOUS_COUNTY_NAMES.has(countyMatch)) {
+    const properName = KY_COUNTIES.find(
+      (c) => c.toLowerCase() === countyMatch.toLowerCase()
+    );
+    if (properName && AMBIGUOUS_COUNTY_NAMES.has(properName)) {
       if (!hasKentuckyContext) continue;
     }
-    matches.push({ index: idx2, names: [countyMatch] });
+    if (properName) {
+      matches.push({ index: idx2, names: [properName] });
+    }
   }
 
   // sort by appearance
