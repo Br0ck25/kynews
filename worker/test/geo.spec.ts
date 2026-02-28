@@ -67,4 +67,48 @@ describe('county detection', () => {
     expect(geo.counties).toEqual(['Fayette']);
     expect(geo.county).toBe('Fayette');
   });
+
+  // edge-case tests added for the recent geo fixes
+  it('ignores ambiguous county names without KY context', () => {
+    expect(detectAllCounties('Todd County fair is coming', 'Todd County fair is coming')).toEqual([]);
+    expect(detectAllCounties('The Ohio River flows by here', 'The Ohio River flows by here')).toEqual([]);
+  });
+
+  it('requires KY context and no out-of-state signal for ambiguous counties', () => {
+    expect(detectAllCounties('Todd County in Kentucky', 'Todd County in Kentucky')).toEqual(['Todd']);
+    const text = 'Todd County near Ohio River in Kentucky';
+    expect(detectAllCounties(text, text)).toEqual([]);
+  });
+
+  it('does not misidentify a county from a substring in Pass B lists', () => {
+    expect(detectAllCounties('Leesburg and Laurel County officials')).toEqual(['Laurel']);
+  });
+
+  it('handles plural “counties” forms correctly', () => {
+    expect(detectAllCounties('Knox and Laurel Counties')).toEqual(['Knox','Laurel']);
+    expect(detectAllCounties('Pike, Floyd, and Knott counties')).toEqual([
+      'Pike','Floyd','Knott',
+    ]);
+  });
+
+  it('splits hyphenated or slash-separated county lists', () => {
+    expect(detectAllCounties('Knox/Laurel County')).toEqual(['Knox','Laurel']);
+    expect(detectAllCounties('Knox-Laurel-Clay County in Kentucky')).toEqual([
+      'Knox','Laurel','Clay',
+    ]);
+  });
+
+  it('does not auto-detect generic noise city names', () => {
+    expect(detectCity('A story from Bliss, Kentucky')).toBe(null);
+  });
+
+  it('suppresses city matches that are part of a federal district phrase', () => {
+    expect(detectCity('The U.S. Attorney for the Eastern District of Kentucky spoke')).toBe(null);
+  });
+
+  it('returns multiple counties for a city that spans them when context is present', () => {
+    const geo = detectKentuckyGeo('Police in Corbin responded to a call');
+    expect(geo.counties).toEqual(['Whitley','Knox','Laurel']);
+    expect(geo.county).toBe('Whitley');
+  });
 });

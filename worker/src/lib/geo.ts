@@ -1,4 +1,4 @@
-import { KY_CITY_TO_COUNTY, KY_COUNTIES } from '../data/ky-geo';
+import { KY_CITY_TO_COUNTY, KY_CITY_TO_COUNTIES, KY_COUNTIES } from '../data/ky-geo';
 
 /**
  * US state names that indicate a county or city match is NOT in Kentucky.
@@ -16,6 +16,66 @@ const OUT_OF_STATE_NAMES = [
   'south dakota', 'tennessee', 'texas', 'utah', 'vermont', 'virginia',
   'washington', 'west virginia', 'wisconsin', 'wyoming',
 ];
+
+/**
+ * Counties whose names are extremely common English words or famous proper
+ * names.  These terms routinely appear in contexts unrelated to a Kentucky
+ * county (e.g. “Lincoln Center”, “green energy”, “Todd Bridges”).  For
+ * entries in this set we only accept a hit when the article has explicit
+ * Kentucky context *and* no nearby out-of-state signal.  This tightens the
+ * matching rules compared with normal counties and helps avoid false
+ * positives.
+ */
+const AMBIGUOUS_COUNTY_NAMES = new Set([
+  'Green',    // color / adjective
+  'Ohio',     // river, state, university etc.
+  'Logan',    // personal name
+  'Lincoln',  // Abe Lincoln, car brand, etc.
+  'Monroe',   // Monroe doctrine, Marilyn Monroe
+  'Mason',    // person name, mason jar
+  'Warren',   // Warren Buffett
+  'Grant',    // grant funding
+  'Lee',      // very common surname
+  'Todd',     // common first/last name
+  'Lawrence', // person name
+  'Fleming',  // person name
+  'Boyd',     // person name
+  'Clay',     // Henry Clay, clay material
+  'Hart',     // person name, common word
+  'Lewis',    // person name
+  'Allen',    // person name
+  'Powell',   // person name
+  'Russell',  // person name
+  'Spencer',  // person name
+  'Taylor',   // person name
+  'Wayne',    // person name
+  'Webster',  // person/dictionary
+]);
+
+/**
+ * Real Kentucky city names whose plain-language forms are so generic that
+ * they produce far more noise than signal when scanned in article bodies.
+ * These names are excluded entirely from automatic city detection; they may
+ * still be suggested by the AI classifier when appropriate.
+ */
+const NOISE_CITY_NAMES = new Set([
+  'ella', 'nell', 'chance', 'bliss', 'lamb', 'amos', 'settle', 'joy',
+  'energy', 'quality', 'faith', 'bee', 'pig', 'art', 'ada', 'cap',
+  'lola', 'flat', 'red', 'ray', 'crude', 'path', 'busy', 'age',
+  'bloom', 'charm', 'tips', 'lick', 'purdy', 'ida', 'eda',
+  'dell', 'emit', 'hip', 'jeff', 'vox', 'finn', 'clay city',
+  'good luck', 'hima', 'mize', 'relief', 'index', 'milo',
+]);
+
+/**
+ * Phrases indicating a federal court district rather than a Kentucky
+ * municipality.  When a city match is immediately followed by “district” the
+ * hit is suppressed to avoid misclassifying text like “Eastern District of
+ * Kentucky” as the city of Eastern (Floyd County).
+ */
+const SUPPRESSED_PHRASES = new Set([
+  'eastern district', 'western district', 'middle district',
+]);
 
 /**
  * Postal abbreviations for non-Kentucky states, lowercase for matching against
@@ -90,10 +150,17 @@ export function detectKentuckyGeo(input) {
 
   const city = detectCity(input);
   if (city) {
+    // A single city can span multiple counties; the plural map contains an
+    // array of all counties that should be returned when a city is matched.
+    // The original `KY_CITY_TO_COUNTY` remains available for callers that
+    // expect the legacy single-county lookup.
+    const cityCounties =
+      KY_CITY_TO_COUNTIES[city] ??
+      (KY_CITY_TO_COUNTY[city] ? [KY_CITY_TO_COUNTY[city]] : []);
     return {
       isKentucky: true,
-      county: KY_CITY_TO_COUNTY[city] ?? null,
-      counties: KY_CITY_TO_COUNTY[city] ? [KY_CITY_TO_COUNTY[city]] : [],
+      county: cityCounties[0] ?? null,
+      counties: cityCounties,
       city,
     };
   }
@@ -133,22 +200,30 @@ export function detectCounty(input, rawInput) {
     // which is the whitespace character class. Using a plain space ` ` would also
     // work but `\s` is more explicit and handles tab-separated text if it ever appears.
     const countyPattern = new RegExp(
-      `\\b${escaped}\\s+(?:county|cnty|co(?=[\\s]|$))\\b`,
+      `\\b${escaped}\\s+(?:county|counties|cnty|co(?=[\\s]|$))\\b`,
       'i',
     );
 
     const match = countyPattern.exec(normalized);
     if (!match) continue;
 
-    if (hasKentuckyContext) {
-      return county;
-    }
+    const disqualified =
+      isMatchDisqualifiedByState(normalized, match.index, match[0].length);
 
-    if (isMatchDisqualifiedByState(normalized, match.index, match[0].length)) {
-      continue;
+    if (AMBIGUOUS_COUNTY_NAMES.has(county)) {
+      // Ambiguous county names require explicit Kentucky context *and*
+      // absence of an out-of-state signal.
+      if (hasKentuckyContext && !disqualified) {
+        return county;
+      }
+    } else {
+      if (hasKentuckyContext) {
+        return county;
+      }
+      if (!disqualified) {
+        return county;
+      }
     }
-
-    return county;
   }
 
   return null;
@@ -163,6 +238,7 @@ export function detectCounty(input, rawInput) {
 // inside them. Do not change this ordering.
 const SORTED_CITY_ENTRIES =
   Object.keys(KY_CITY_TO_COUNTY)
+    .filter((c) => !NOISE_CITY_NAMES.has(c))
     .map((c) => ({ city: c, county: KY_CITY_TO_COUNTY[c] }))
     .sort((a, b) => b.city.length - a.city.length);
 
@@ -184,6 +260,10 @@ export function detectCity(input) {
   // Iterate cities in longest-first order to give precedence to multi-word
   // names such as "Bowling Green" over their shorter substrings like "Green".
   for (const { city } of SORTED_CITY_ENTRIES) {
+    // ignore cities whose names are generic noise words; they are only
+    // ever returned via the AI classifier, not by automatic matching.
+    if (NOISE_CITY_NAMES.has(city)) continue;
+
     const pattern = buildCityPattern(city);
     const globalPattern = new RegExp(pattern.source, 'gi');
     const allMatches = Array.from(normalized.matchAll(globalPattern));
@@ -201,6 +281,17 @@ export function detectCity(input) {
     const cityIndex = nonOverlapping[0].index ?? -1;
     const hasLocationSignals = hasLocationSignalNearby(normalized, city);
     const isHighAmbiguity = HIGH_AMBIGUITY_CITIES.has(city);
+
+    // suppress cases like "Eastern District of Kentucky" – the word
+    // "district" immediately following the city indicates a federal court
+    // context rather than the municipality.
+    if (cityIndex !== -1) {
+      const matchEnd = cityIndex + nonOverlapping[0][0].length;
+      const after = raw.slice(matchEnd, matchEnd + 20);
+      if (/^\s*district\b/i.test(after)) {
+        continue;
+      }
+    }
 
     if (!hasLocationSignals && !hasKentuckyContext && likelyCount < 2) {
       continue;
@@ -286,24 +377,41 @@ export function detectAllCounties(input, rawInput) {
   for (const county of KY_COUNTIES) {
     const escaped = escapeRegExp(county.toLowerCase());
     const pattern = new RegExp(
-      `\\b${escaped}\\s+(?:county|cnty|co(?=[\\s]|$))\\b`,
+      `\\b${escaped}\\s+(?:county|counties|cnty|co(?=[\\s]|$))\\b`,
       'gi',
     );
     let m;
     while ((m = pattern.exec(normalized))) {
       const idx = m.index;
-      if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx, m[0].length)) {
-        continue;
+      const hasOutOfState = isMatchDisqualifiedByState(normalized, idx, m[0].length);
+
+      if (AMBIGUOUS_COUNTY_NAMES.has(county)) {
+        // ambiguous counties require both KY context and no out-of-state signal
+        if (!hasKentuckyContext || hasOutOfState) {
+          continue;
+        }
+      } else {
+        // non-ambiguous counties still follow the original rule: either the
+        // article has KY context or no nearby out-of-state mention.
+        if (!hasKentuckyContext && hasOutOfState) {
+          continue;
+        }
       }
       matches.push({ index: idx, names: [county] });
     }
   }
 
-  // Pass B: enumeration with shared "County" suffix
-  const countyNamesPattern = KY_COUNTIES.map((c) => escapeRegExp(c.toLowerCase())).join('|');
+  // Pass B: enumeration with shared "County" suffix.  Each county name
+  // alternative is wrapped in its own word boundaries to prevent substrings
+  // (e.g. "Lee" inside "Leesburg").  We also recognise plural suffixes and
+  // allow slashes/hyphens as separators.
+  const countyAlt = KY_COUNTIES
+    .map((c) => `(?:\\b${escapeRegExp(c.toLowerCase())}\\b)`)
+    .join('|');
   const enumRegex = new RegExp(
-    `\\b((?:${countyNamesPattern})(?:\\s+(?:${countyNamesPattern}))*` +
-      `(?:\\s*(?:and|or|&)\\s*(?:${countyNamesPattern}))*)\\s+(?:county|cnty|co\\b)`,
+    `((?:${countyAlt})(?:\\s+(?:${countyAlt}))*` + // allow adjacent names separated only by space
+      `(?:\\s*(?:,|/|-|and|or|&)\\s*(?:${countyAlt}))*` +
+      `)\\s+(?:county|counties|cnty|co\\b)`,
     'gi',
   );
   let em;
@@ -313,8 +421,8 @@ export function detectAllCounties(input, rawInput) {
       continue;
     }
     const listText = em[1];
-    const parts = listText.split(/\s*(?:,|and|or|&)\s*/).map((p) => p.trim());
-    const names = [];
+    const parts = listText.split(/\s*(?:,|\/|-|and|or|&)\s*/).map((p) => p.trim());
+    let names = [];
     // break each chunk into actual county names (handles missing commas after normalization)
     for (const chunk of parts) {
       if (!chunk) continue;
@@ -344,7 +452,21 @@ export function detectAllCounties(input, rawInput) {
         }
       }
     }
-    matches.push({ index: idx, names });
+    // apply ambiguous-county filtering on the extracted names as well
+    if (names.length > 0) {
+      const hasOutOfState = isMatchDisqualifiedByState(normalized, idx, em[0].length);
+      if (AMBIGUOUS_COUNTY_NAMES.size > 0) {
+        names = names.filter((county) => {
+          if (AMBIGUOUS_COUNTY_NAMES.has(county)) {
+            return hasKentuckyContext && !hasOutOfState;
+          }
+          return true;
+        });
+      }
+    }
+    if (names.length > 0) {
+      matches.push({ index: idx, names });
+    }
   }
 
   // sort by appearance

@@ -1541,5 +1541,27 @@ export const KY_CITY_TO_COUNTY = {
   "nonesuch": "Woodford",
   "pinckard": "Woodford",
   "versailles": "Woodford",
+  "corbin": "Whitley",
 };
+
+// Build a parallel mapping from city to an array of counties.  By default each
+// city maps to a single-element array matching the original `KY_CITY_TO_COUNTY`.
+// Several Kentucky cities span multiple counties, so we override those
+// entries explicitly below.
+export const KY_CITY_TO_COUNTIES =
+  Object.fromEntries(
+    Object.entries(KY_CITY_TO_COUNTY).map(([city, county]) => [city, [county]]),
+  );
+
+// multi-county municipalities
+KY_CITY_TO_COUNTIES['corbin'] = ['Whitley', 'Knox', 'Laurel'];
+KY_CITY_TO_COUNTIES['prospect'] = ['Jefferson', 'Oldham'];
+KY_CITY_TO_COUNTIES['sparta'] = ['Gallatin', 'Owen'];
+KY_CITY_TO_COUNTIES['upton'] = ['Hardin', 'LaRue'];
+KY_CITY_TO_COUNTIES['germantown'] = ['Mason', 'Bracken'];
+KY_CITY_TO_COUNTIES['corinth'] = ['Grant', 'Scott'];
+KY_CITY_TO_COUNTIES['williamstown'] = ['Grant', 'Pendleton'];
+KY_CITY_TO_COUNTIES['pleasureville'] = ['Henry', 'Shelby'];
+// The city of Shepherdsville is technically only in Bullitt but borders
+// Jefferson; leave it as single-county.
 
