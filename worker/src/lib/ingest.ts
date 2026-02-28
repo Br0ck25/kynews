@@ -7,8 +7,25 @@ import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTi
 import { cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
 
-const TITLE_SIMILARITY_REJECT_THRESHOLD = 0.9;
-const RECENT_TITLE_SCAN_LIMIT = 700;
+const TITLE_SIMILARITY_REJECT_THRESHOLD = 0.85; // lowered from 0.9 to catch more cross-outlet duplicates
+const RECENT_TITLE_SCAN_LIMIT = 300; // reduced scan limit for performance (formerly 700)
+
+// stop words to ignore when selecting the first meaningful word of a title
+const STOP_WORDS = new Set([
+  'the','and','for','are','but','not','you','all','can','her',
+  'was','one','our','out','day','get','has','him','his','how',
+  'its','may','new','now','old','see','two','who','did','let',
+  'put','say','she','too','use','a','an','in','of','on','to','is',
+]);
+
+function firstMeaningfulWord(title: string): string {
+  const words = title.toLowerCase().split(/\s+/);
+  for (const w of words) {
+    const clean = w.replace(/[^a-z]/g, '');
+    if (clean.length >= 4 && !STOP_WORDS.has(clean)) return clean;
+  }
+  return words[0] ?? '';
+}
 
 export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<IngestResult> {
   const extracted = await fetchAndExtractArticle(env, source);
@@ -44,6 +61,25 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
       reason: `title similarity ${(similarTitle.similarity * 100).toFixed(1)}% with existing article #${similarTitle.id}`,
       urlHash: canonicalHash,
     };
+  }
+
+  // content fingerprint dedupe: small hash of first 150 words of text
+  let contentFingerprintKey: string | null = null;
+  if (!similarTitle) {
+    const contentFingerprint = await sha256Hex(
+      extracted.contentText.split(/\s+/).slice(0, 150).join(' ').toLowerCase(),
+    );
+    contentFingerprintKey = `cfp:${contentFingerprint}`;
+    if (env.CACHE) {
+      const existing = await env.CACHE.get(contentFingerprintKey);
+      if (existing) {
+        return {
+          status: 'duplicate',
+          reason: 'content fingerprint match',
+          urlHash: canonicalHash,
+        };
+      }
+    }
   }
 
   const words = wordCount(extracted.contentText);
@@ -132,6 +168,13 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
+  // after successful insert, record fingerprint for a few days if we computed one
+  if (contentFingerprintKey && env.CACHE) {
+    await env.CACHE.put(contentFingerprintKey, String(articleId), {
+      expirationTtl: 60 * 60 * 72,
+    }).catch(() => {});
+  }
+
   return {
     status: 'inserted',
     id: articleId,
@@ -140,7 +183,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   };
 }
 
-async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<ExtractedArticle> {
+export async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<ExtractedArticle> {
   const fetched = await cachedTextFetch(env, source.url, 1200);
   if (fetched.status >= 400) {
     throw new Error(`Failed to fetch URL (${fetched.status}): ${source.url}`);
@@ -286,6 +329,8 @@ export async function findHighlySimilarTitle(
   const normalizedTarget = normalizeTitleForSimilarity(title);
   if (!normalizedTarget || normalizedTarget.length < 12) return null;
 
+  const targetFirstWord = firstMeaningfulWord(normalizedTarget);
+
   const recentTitles = await listRecentArticleTitles(env, RECENT_TITLE_SCAN_LIMIT);
   let best: { id: number; title: string; similarity: number } | null = null;
 
@@ -294,6 +339,9 @@ export async function findHighlySimilarTitle(
 
     const normalizedCandidate = normalizeTitleForSimilarity(candidate.title);
     if (!normalizedCandidate) continue;
+
+    // skip quickly if first meaningful words differ
+    if (firstMeaningfulWord(normalizedCandidate) !== targetFirstWord) continue;
 
     const maxLen = Math.max(normalizedTarget.length, normalizedCandidate.length);
     const minLen = Math.min(normalizedTarget.length, normalizedCandidate.length);
@@ -308,6 +356,8 @@ export async function findHighlySimilarTitle(
     if (!best || similarity > best.similarity) {
       best = { id: candidate.id, title: candidate.title, similarity };
     }
+    // early exit when very close match found
+    if (best && best.similarity >= 0.98) break;
   }
 
   return best;

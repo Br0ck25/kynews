@@ -4,7 +4,7 @@
 // this file attempt to implement those rules automatically during article
 // ingestion.
 import type { Category, ClassificationResult } from '../types';
-import { detectCounty, detectCity, detectKentuckyGeo, HIGH_AMBIGUITY_CITIES } from './geo';
+import { detectCounty, detectCity, detectKentuckyGeo, HIGH_AMBIGUITY_CITIES, escapeRegExp } from './geo';
 import { KY_COUNTIES } from '../data/ky-geo';
 
 type AiResultLike = {
@@ -120,6 +120,34 @@ const KY_BRANDED_SOURCES: Array<{ hosts: string[]; stripPattern: RegExp }> = [
     stripPattern: /\bkentucky\s+sports\s+radio\b|\bksr\b/gi,
   },
   {
+    hosts: ['wbko.com'],
+    stripPattern: /\bwbko\b|\bbg\s+news\b/gi,
+  },
+  {
+    hosts: ['wnky.com'],
+    stripPattern: /\bwnky\b/gi,
+  },
+  {
+    hosts: ['lanereport.com'],
+    stripPattern: /\blane\s+report\b/gi,
+  },
+  {
+    hosts: ['wkyt.com'],
+    stripPattern: /\bwkyt\b/gi,
+  },
+  {
+    hosts: ['wymt.com'],
+    stripPattern: /\bwymt\b/gi,
+  },
+  {
+    hosts: ['lex18.com'],
+    stripPattern: /\blex\s*18\b/gi,
+  },
+  {
+    hosts: ['linknky.com'],
+    stripPattern: /\blink\s+nky\b/gi,
+  },
+  {
     hosts: ['kentucky.com'],
     // Kentucky.com (Herald-Leader) — strip standalone brand references but not
     // legitimate "Kentucky" usage in article text. We strip only the byline/footer form.
@@ -156,6 +184,21 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'richmondregister.com': 'Madison',
   'bgdailynews.com': 'Warren',           // Bowling Green
   'wkuherald.com': 'Warren',
+  // Northern Kentucky (multi-county coverage)
+  'linknky.com': null,
+  'nkytribune.com': 'Kenton',
+  'webn.com': 'Kenton',
+  'wcpo.com': null,
+  // Central Kentucky
+  'wbko.com': 'Warren',           // Bowling Green market
+  'wnky.com': 'Warren',
+  'lanereport.com': null,
+  'kentuckyliving.com': null,
+  // Eastern Kentucky additions
+  'z979.com': 'Floyd',
+  'wkicradio.com': 'Harlan',
+  'wmdj.com': 'Floyd',
+  'wmmt.com': 'Letcher',
   // Western Kentucky
   'paducahsun.com': 'McCracken',
   'murrayledger.com': 'Calloway',
@@ -739,9 +782,6 @@ function normalizeText(value: string): string {
     .trim();
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /**
  * Strips site-name branding from titles for sources that embed "Kentucky" in their brand.

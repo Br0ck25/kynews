@@ -8,7 +8,7 @@ import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
 import * as dbModule from '../src/lib/db';
-import { insertArticle, getArticleCounties, updateArticleClassification } from '../src/lib/db';
+import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById } from '../src/lib/db';
 import * as aiModule from '../src/lib/ai';
 import {
 	cleanFacebookHeadline,
@@ -994,7 +994,7 @@ describe('title similarity dedupe', () => {
 		await ensureSchemaAndFixture();
 		const match = await findHighlySimilarTitle(env, 'Kentucky Sports Story');
 		expect(match).not.toBeNull();
-		expect(match?.similarity ?? 0).toBeGreaterThanOrEqual(0.9);
+		expect(match?.similarity ?? 0).toBeGreaterThanOrEqual(0.85);
 	});
 
 	it('facebook helper functions behave as expected', () => {
@@ -1065,6 +1065,71 @@ describe('title similarity dedupe', () => {
 		await ensureSchemaAndFixture();
 		const match = await findHighlySimilarTitle(env, 'County commission advances road paving contract');
 		expect(match).toBeNull();
+	});
+});
+
+// additional dedupe and admin testing
+
+describe('content fingerprint dedupe', () => {
+	it('marks two different URLs with identical content as duplicates', async () => {
+		await ensureSchemaAndFixture();
+
+		const originalFetch = global.fetch;
+		global.fetch = async () =>
+			new Response('<html><body><p>same body</p></body></html>', {
+				status: 200,
+				headers: { 'Content-Type': 'text/html' },
+			});
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+		});
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'sum',
+			seoDescription: 'seo',
+			summaryWordCount: 1,
+		});
+
+		const r1 = await __testables.ingestSingleUrl(env, { url: 'https://first.com' });
+		expect(r1.status).toBe('inserted');
+		const r2 = await __testables.ingestSingleUrl(env, { url: 'https://second.com' });
+		expect(r2.status).toBe('duplicate');
+		expect(r2.reason).toMatch(/content fingerprint/);
+
+		global.fetch = originalFetch;
+		vi.restoreAllMocks();
+	});
+});
+
+describe('admin endpoints', () => {
+	it('regenerates a summary via admin endpoint', async () => {
+		await ensureSchemaAndFixture();
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'newsum',
+			seoDescription: 'newseo',
+			summaryWordCount: 3,
+		});
+
+		const resp = await SELF.fetch('https://example.com/api/admin/articles/1/regenerate-summary', { method: 'POST' });
+		expect(resp.status).toBe(200);
+		const body = await resp.json();
+		expect(body.summary).toBe('newsum');
+		const updated = await getArticleById(env, 1);
+		expect(updated?.summary).toBe('newsum');
+	});
+
+	it('classification audit endpoint returns stats and items', async () => {
+		await ensureSchemaAndFixture();
+		const resp = await SELF.fetch('https://example.com/api/admin/classification-audit?limit=50');
+		expect(resp.status).toBe(200);
+		const body = await resp.json();
+		expect(Array.isArray(body.items)).toBe(true);
+		expect(body.stats.total).toBeGreaterThanOrEqual(2);
+		expect(typeof body.stats.noCounty).toBe('number');
 	});
 });
 

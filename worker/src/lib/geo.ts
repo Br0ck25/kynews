@@ -19,7 +19,7 @@ const OUT_OF_STATE_NAMES = [
 
 // simple helper used by several regex builders; define before any use so
 // module initialization cannot fail with a temporal dead zone error.
-function escapeRegExp(value) {
+export function escapeRegExp(value: string): string {
   // corrected character class: the `[` is now properly escaped so names
   // containing literal brackets will be handled safely.
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -419,20 +419,34 @@ export function detectAllCounties(input, rawInput) {
 
   // Pass B: enumeration with shared "County" suffix.  Instead of building a
   // giant alternation regex (which could catastrophically backtrack on
-  // pathological input), we scan for a lightweight anchor (the county suffix)
-  // and then inspect a short preceding window for county names using the
-  // same token‑walking logic.  This two-step approach retains the original
-  // behavior while eliminating the regex risk.
-  const anchorRe = /\b(?:county|counties|cnty|co(?=[\s]|$))\b/gi;
+  // pathological input), we scan for simple anchors and then inspect a short
+  // preceding window for county names using the same token‑walking logic.
+  //
+  // Avoid firing on boilerplate phrases like "county road", "county seat",
+  // "county clerk" etc. The anchor regex below uses a negative lookahead so
+  // that the word "county" followed by common non-name nouns is skipped.  The
+  // separate abbreviation matcher for "co" is kept distinct since the
+  // negative lookahead would rarely apply and would make the pattern slower.
+  const anchorRe = /\b(?:county|counties|cnty)(?!\s+(?:road|rd|seat|clerk|judge|executive|attorney|court|line|wide|fair|park|library|school|board|commission|government|official|employee|budget|tax|levy|fee|record|jail|detention|health|department|office|building|center|museum|airport|market|extension|agent|coroner|engineer|surveyor|treasurer|sheriff|constable|magistrate|landfill|garage|barn|farm|fairground|courthouse|emergency|dispatch|animal|control|humane|recycling))\b/gi;
+  const coAbbrevRe = /\bco(?=[\s]|$)/gi;
   let am;
+  // collect positions from both regexes so we can process them in order
+  const anchors: Array<{index: number; text: string}> = [];
   while ((am = anchorRe.exec(normalized))) {
-    const idx = am.index;
-    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx, am[0].length)) {
+    anchors.push({ index: am.index, text: am[0] });
+  }
+  while ((am = coAbbrevRe.exec(normalized))) {
+    anchors.push({ index: am.index, text: am[0] });
+  }
+  anchors.sort((a, b) => a.index - b.index);
+  for (const { index: anchorIdx, text: anchorText } of anchors) {
+    const idx = anchorIdx;
+    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx, anchorText.length)) {
       continue;
     }
 
-    const windowStart = Math.max(0, am.index - 120);
-    let windowText = normalized.slice(windowStart, am.index + am[0].length);
+    const windowStart = Math.max(0, idx - 120);
+    let windowText = normalized.slice(windowStart, idx + anchorText.length);
     // strip the trailing suffix so our splitter only sees the county names
     windowText = windowText.replace(/\s+(?:county|counties|cnty|co\b)$/, '');
 
@@ -440,7 +454,7 @@ export function detectAllCounties(input, rawInput) {
     let names = [];
     for (const chunk of parts) {
       if (!chunk) continue;
-      const tokens = chunk.split(/\s+/);
+      const tokens = chunk.split(/\s+/).filter((t) => t.length > 1);
       let j = 0;
       while (j < tokens.length) {
         let matchedCounty = null;
@@ -481,6 +495,76 @@ export function detectAllCounties(input, rawInput) {
     if (names.length > 0) {
       matches.push({ index: idx, names });
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Pass C: detect county names embedded in high-school style phrases. The
+  // two primary patterns are:
+  //   1. Directional prefix: "North Laurel", "South Warren", etc.  These
+  //      are ambiguous words so we only accept them when there is some sports
+  //      / school context nearby to avoid false hits on phrases like "Western
+  //      Hills".
+  //   2. County name + school suffix: "Johnson Central", "Pike Central",
+  //      "Knott High" etc.  These are already specific enough that no extra
+  //      context check is needed, but we still skip cases where the county is
+  //      followed by the word "county" ("Clay County High").
+  //
+  // Both patterns re-use the same ambigious‑county and out‑of‑state guards as
+  // Pass A, and their results are added to `matches` for downstream sorting.
+
+  const directionalPrefixes =
+    'north|south|east|west|central|upper|lower|western|eastern|' +
+    'northern|southern|northeastern|northwestern|southeastern|southwestern';
+  const countyAlt = KY_COUNTIES
+    .map((c) => `(?:\\b${escapeRegExp(c.toLowerCase())}\\b)`)
+    .join('|');
+  const schoolDirectionalRe = new RegExp(
+    `\\b(?:${directionalPrefixes})\\s+(${countyAlt})\\b`,
+    'gi',
+  );
+  const schoolSuffixes =
+    'central|high|middle|elementary|academy|junior|senior|preparatory|prep';
+  const schoolSuffixRe = new RegExp(
+    `\\b(${countyAlt})\\s+(?:${schoolSuffixes})\\b`,
+    'gi',
+  );
+
+  // helper for pattern1 context check
+  function hasSchoolSportsContext(text) {
+    return /\b(?:school|high school|team|coach|tournament|district|region|game|score|player|roster|season|basketball|football|softball|baseball|volleyball|soccer|wrestling|swimming|track|cross\s+country|tennis|golf|quiz\s+bowl|khsaa|lady|jaguars|cardinals|hawks|panthers|eagles|tigers|bulldogs|warriors|colonels|knights)\b/i.test(text);
+  }
+
+  // PROCESS PATTERN 1
+  let m;
+  while ((m = schoolDirectionalRe.exec(normalized))) {
+    const countyMatch = m[1];
+    const idx2 = m.index + m[0].length - countyMatch.length;
+    const countyName = countyMatch.toLowerCase();
+    if (!hasSchoolSportsContext(normalized)) continue;
+    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx2, countyMatch.length)) {
+      continue;
+    }
+    if (AMBIGUOUS_COUNTY_NAMES.has(countyMatch)) {
+      if (!hasKentuckyContext) continue;
+    }
+    matches.push({ index: idx2, names: [countyMatch] });
+  }
+
+  // PROCESS PATTERN 2
+  while ((m = schoolSuffixRe.exec(normalized))) {
+    const countyMatch = m[1];
+    const idx2 = m.index;
+    // skip if followed shortly by the word "county"
+    if (/^\s+county/i.test(normalized.slice(idx2 + m[0].length, idx2 + m[0].length + 20))) {
+      continue;
+    }
+    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx2, countyMatch.length)) {
+      continue;
+    }
+    if (AMBIGUOUS_COUNTY_NAMES.has(countyMatch)) {
+      if (!hasKentuckyContext) continue;
+    }
+    matches.push({ index: idx2, names: [countyMatch] });
   }
 
   // sort by appearance

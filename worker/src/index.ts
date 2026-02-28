@@ -36,7 +36,7 @@ import {
 	sha256Hex,
 	wordCount,
 } from './lib/http';
-import { ingestSingleUrl, generateArticleSlug, findHighlySimilarTitle } from './lib/ingest';
+import { ingestSingleUrl, generateArticleSlug, findHighlySimilarTitle, fetchAndExtractArticle } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
 import { KY_COUNTIES } from './data/ky-geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
@@ -525,6 +525,84 @@ category: category as Category | 'all',
 return json(result);
 }
 
+// classification audit: return recent articles with basic stats
+if (url.pathname === '/api/admin/classification-audit' && request.method === 'GET') {
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+  const limit = parsePositiveInt(url.searchParams.get('limit'), 50, 100);
+  // fetch recent articles
+  const rows = await env.ky_news_db
+    .prepare(
+      `SELECT id, title, category, is_kentucky, is_national, county, city, source_url, published_at, created_at
+       FROM articles
+       ORDER BY created_at DESC
+       LIMIT ?`
+    )
+    .bind(limit)
+    .all<any>();
+
+  const items: any[] = [];
+  const byCategory: Record<string, number> = {};
+  let kentucky = 0;
+  let national = 0;
+  let withCounty = 0;
+  let withMultiCounty = 0;
+  let noCounty = 0;
+
+  const ids = rows.results.map((r) => r.id);
+  let countiesMap = new Map<number, string[]>();
+  if (ids.length) {
+    const placeholders = ids.map(() => '?').join(',');
+    const countyRows = await env.ky_news_db
+      .prepare(
+        `SELECT article_id, county FROM article_counties WHERE article_id IN (${placeholders})`
+      )
+      .bind(...ids)
+      .all<any>();
+    countiesMap = new Map();
+    for (const cr of countyRows.results || []) {
+      if (!countiesMap.has(cr.article_id)) countiesMap.set(cr.article_id, []);
+      countiesMap.get(cr.article_id)!.push(cr.county);
+    }
+  }
+
+  for (const r of rows.results) {
+    const counties = countiesMap.get(r.id) || [];
+    items.push({
+      id: r.id,
+      title: r.title,
+      category: r.category,
+      isKentucky: !!r.is_kentucky,
+      isNational: !!r.is_national,
+      county: r.county,
+      counties,
+      city: r.city,
+      sourceUrl: r.source_url,
+      publishedAt: r.published_at,
+      createdAt: r.created_at,
+    });
+    byCategory[r.category] = (byCategory[r.category] || 0) + 1;
+    if (r.is_kentucky) kentucky += 1;
+    if (r.is_national) national += 1;
+    if (r.county) withCounty += 1;
+    if (counties.length > 1) withMultiCounty += 1;
+    if (r.is_kentucky && !r.county && counties.length === 0) noCounty += 1;
+  }
+
+  const stats = {
+    total: items.length,
+    kentucky,
+    national,
+    withCounty,
+    withMultiCounty,
+    noCounty,
+    byCategory,
+  };
+
+  return json({ items, stats });
+}
+
 if (url.pathname === '/api/admin/sources' && request.method === 'GET') {
 if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
@@ -614,6 +692,54 @@ return badRequest('Provide at least one of: title, summary');
 
 await updateArticleContent(env, id, { title, summary });
 return json({ ok: true, id });
+}
+
+// regenerate summary for an existing article and update DB
+if (url.pathname.startsWith('/api/admin/articles/') && url.pathname.endsWith('/regenerate-summary') && request.method === 'POST') {
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+  const parts = url.pathname.split('/');
+  const id = Number(parts[4]);
+  if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+  const article = await getArticleById(env, id);
+  if (!article) return json({ error: 'Article not found' }, 404);
+
+  // clear existing cache entries
+  const summaryKey = `summary:${article.urlHash}`;
+  const ttlKey = `summary-ttl:${article.urlHash}`;
+  const feedbackKey = `feedback:${article.urlHash}`;
+  if (env.CACHE) {
+    await env.CACHE.delete(summaryKey).catch(() => {});
+    await env.CACHE.delete(ttlKey).catch(() => {});
+    await env.CACHE.delete(feedbackKey).catch(() => {});
+  }
+
+  // refetch article content; append dummy query to bypass cachedTextFetch cache
+  const refetchUrl = article.canonicalUrl + `?_=${Date.now()}`;
+  const extracted = await fetchAndExtractArticle(env, {
+    url: refetchUrl,
+    sourceUrl: article.sourceUrl || article.canonicalUrl,
+    providedTitle: article.title,
+    providedDescription: '',
+    feedPublishedAt: article.publishedAt,
+  });
+
+  const aiResult = await summarizeArticle(env, article.urlHash, article.title, extracted.contentText, article.publishedAt);
+  const newSummary = aiResult.summary;
+  const newSeo = aiResult.seoDescription;
+
+  // update both summary and seo description directly since updateArticleContent
+  // only handles title/summary.
+  await env.ky_news_db
+    .prepare(
+      'UPDATE articles SET summary = ?, seo_description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    )
+    .bind(newSummary, newSeo, id)
+    .run()
+    .catch(() => {});
+
+  return json({ ok: true, summary: newSummary, seoDescription: newSeo });
 }
 
 if (url.pathname === '/api/admin/article/update-links' && request.method === 'POST') {

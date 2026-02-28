@@ -218,6 +218,9 @@ export async function summarizeArticle(
             return existing;
           }
           // Flagged — fall through to regenerate
+        } else {
+          // source hash changed since last cache; wipe TTL marker so we rebuild
+          await env.CACHE.delete(ttlKey).catch(() => {});
         }
       }
     } catch {

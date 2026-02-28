@@ -103,6 +103,33 @@ describe('county detection', () => {
     ]);
   });
 
+  // new Pass C school-name patterns
+  it('detects county names in directional school phrases when sports context exists', () => {
+    const text = 'North Laurel breezed by Clay County, 66-41';
+    expect(detectAllCounties(text)).toEqual(['Clay', 'Laurel']);
+
+    expect(detectAllCounties('South Warren defeated North Hardin in overtime')).toEqual([
+      'Warren', 'Hardin',
+    ]);
+  });
+
+  it('does not double-count when county appears with "County" suffix already', () => {
+    expect(detectAllCounties('Clay County High School defeated Pike Central')).toEqual([
+      'Clay', 'Pike',
+    ]);
+  });
+
+  it('handles suffix school names even without explicit sports context', () => {
+    expect(detectAllCounties('Johnson Central beat Knott Central 54-48')).toEqual([
+      'Johnson', 'Knott',
+    ]);
+  });
+
+  it('does not match directional pattern without school/sports context', () => {
+    expect(detectAllCounties('She moved to Western Hills neighborhood')).toEqual([]);
+    expect(detectAllCounties('North Carolina defeated South Carolina')).toEqual([]);
+  });
+
   it('does not auto-detect generic noise city names', () => {
     expect(detectCity('A story from Bliss, Kentucky')).toBe(null);
   });
