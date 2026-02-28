@@ -84,6 +84,11 @@ describe('county detection', () => {
     expect(detectAllCounties('Leesburg and Laurel County officials')).toEqual(['Laurel']);
   });
 
+  it('does not reject a Kentucky county simply because "georgia" appears inside Georgetown', () => {
+    const text = 'Scott County meeting near Georgetown';
+    expect(detectAllCounties(text, text)).toEqual(['Scott']);
+  });
+
   it('handles plural “counties” forms correctly', () => {
     expect(detectAllCounties('Knox and Laurel Counties')).toEqual(['Knox','Laurel']);
     expect(detectAllCounties('Pike, Floyd, and Knott counties')).toEqual([

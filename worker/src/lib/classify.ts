@@ -76,7 +76,8 @@ const AMBIGUOUS_CITY_TERMS = new Set<string>([
 const COUNTY_PATTERNS = KY_COUNTIES.map((county) => ({
   county,
   pattern: new RegExp(
-    `\\b${escapeRegExp(county)}\\s+(?:county|cnty|co(?=[\\s]|$))\\b`,
+    // include plural "counties" suffix to stay synced with geo.ts
+    `\\b${escapeRegExp(county)}\\s+(?:county|counties|cnty|co(?=[\\s]|$))\\b`,
     'i',
   ),
 }));

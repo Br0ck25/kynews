@@ -3,22 +3,31 @@ import { normalizeCanonicalUrl, toIsoDateOrNull } from './http';
 const META_REGEXPS: Record<string, RegExp[]> = {
   title: [
     /<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:title["'][^>]*>/i,
     /<meta[^>]+name=["']twitter:title["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']twitter:title["'][^>]*>/i,
   ],
   description: [
     /<meta[^>]+property=["']og:description["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:description["'][^>]*>/i,
     /<meta[^>]+name=["']description["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']description["'][^>]*>/i,
   ],
   image: [
     /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image["'][^>]*>/i,
     /<meta[^>]+name=["']twitter:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']twitter:image["'][^>]*>/i,
   ],
   author: [
     /<meta[^>]+name=["']author["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']author["'][^>]*>/i,
     /<meta[^>]+property=["']article:author["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']article:author["'][^>]*>/i,
   ],
   publishedAt: [
     /<meta[^>]+property=["']article:published_time["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']article:published_time["'][^>]*>/i,
     /<time[^>]+datetime=["']([^"']+)["'][^>]*>/i,
   ],
   canonical: [

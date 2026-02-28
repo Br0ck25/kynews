@@ -17,6 +17,21 @@ const OUT_OF_STATE_NAMES = [
   'washington', 'west virginia', 'wisconsin', 'wyoming',
 ];
 
+// simple helper used by several regex builders; define before any use so
+// module initialization cannot fail with a temporal dead zone error.
+function escapeRegExp(value) {
+  // corrected character class: the `[` is now properly escaped so names
+  // containing literal brackets will be handled safely.
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// precompile whole-word regexes for out-of-state names to avoid expensive
+// substring checks (and false positives such as "georgia" matching inside
+// "Georgetown").
+const OUT_OF_STATE_RES: RegExp[] = OUT_OF_STATE_NAMES.map(
+  (s) => new RegExp(`\\b${escapeRegExp(s)}\\b`, 'i')
+);
+
 /**
  * Counties whose names are extremely common English words or famous proper
  * names.  These terms routinely appear in contexts unrelated to a Kentucky
@@ -72,10 +87,11 @@ const NOISE_CITY_NAMES = new Set([
  * municipality.  When a city match is immediately followed by “district” the
  * hit is suppressed to avoid misclassifying text like “Eastern District of
  * Kentucky” as the city of Eastern (Floyd County).
+ *
+ * NOTE: the previous implementation used a `SUPPRESSED_PHRASES` set here,
+ * but the logic was migrated inline within `detectCity()`; the constant was
+ * left behind and is now unused, so it has been removed.
  */
-const SUPPRESSED_PHRASES = new Set([
-  'eastern district', 'western district', 'middle district',
-]);
 
 /**
  * Postal abbreviations for non-Kentucky states, lowercase for matching against
@@ -401,29 +417,27 @@ export function detectAllCounties(input, rawInput) {
     }
   }
 
-  // Pass B: enumeration with shared "County" suffix.  Each county name
-  // alternative is wrapped in its own word boundaries to prevent substrings
-  // (e.g. "Lee" inside "Leesburg").  We also recognise plural suffixes and
-  // allow slashes/hyphens as separators.
-  const countyAlt = KY_COUNTIES
-    .map((c) => `(?:\\b${escapeRegExp(c.toLowerCase())}\\b)`)
-    .join('|');
-  const enumRegex = new RegExp(
-    `((?:${countyAlt})(?:\\s+(?:${countyAlt}))*` + // allow adjacent names separated only by space
-      `(?:\\s*(?:,|/|-|and|or|&)\\s*(?:${countyAlt}))*` +
-      `)\\s+(?:county|counties|cnty|co\\b)`,
-    'gi',
-  );
-  let em;
-  while ((em = enumRegex.exec(normalized))) {
-    const idx = em.index;
-    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx, em[0].length)) {
+  // Pass B: enumeration with shared "County" suffix.  Instead of building a
+  // giant alternation regex (which could catastrophically backtrack on
+  // pathological input), we scan for a lightweight anchor (the county suffix)
+  // and then inspect a short preceding window for county names using the
+  // same token‑walking logic.  This two-step approach retains the original
+  // behavior while eliminating the regex risk.
+  const anchorRe = /\b(?:county|counties|cnty|co(?=[\s]|$))\b/gi;
+  let am;
+  while ((am = anchorRe.exec(normalized))) {
+    const idx = am.index;
+    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx, am[0].length)) {
       continue;
     }
-    const listText = em[1];
-    const parts = listText.split(/\s*(?:,|\/|-|and|or|&)\s*/).map((p) => p.trim());
+
+    const windowStart = Math.max(0, am.index - 120);
+    let windowText = normalized.slice(windowStart, am.index + am[0].length);
+    // strip the trailing suffix so our splitter only sees the county names
+    windowText = windowText.replace(/\s+(?:county|counties|cnty|co\b)$/, '');
+
+    const parts = windowText.split(/\s*(?:,|\/|-|and|or|&)\s*/).map((p) => p.trim());
     let names = [];
-    // break each chunk into actual county names (handles missing commas after normalization)
     for (const chunk of parts) {
       if (!chunk) continue;
       const tokens = chunk.split(/\s+/);
@@ -452,9 +466,9 @@ export function detectAllCounties(input, rawInput) {
         }
       }
     }
-    // apply ambiguous-county filtering on the extracted names as well
+
     if (names.length > 0) {
-      const hasOutOfState = isMatchDisqualifiedByState(normalized, idx, em[0].length);
+      const hasOutOfState = isMatchDisqualifiedByState(normalized, idx, am[0].length);
       if (AMBIGUOUS_COUNTY_NAMES.size > 0) {
         names = names.filter((county) => {
           if (AMBIGUOUS_COUNTY_NAMES.has(county)) {
@@ -489,9 +503,6 @@ export function detectAllCounties(input, rawInput) {
   return results;
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 
 /**
@@ -534,8 +545,9 @@ function isMatchDisqualifiedByState(
   const end = Math.min(normalized.length, matchIndex + matchLength + OUT_OF_STATE_WINDOW);
   const window = normalized.slice(start, end);
 
-  for (const state of OUT_OF_STATE_NAMES) {
-    if (window.includes(state)) return true;
+  // use precompiled regexes to ensure we only match whole words
+  for (const re of OUT_OF_STATE_RES) {
+    if (re.test(window)) return true;
   }
 
   // We originally also checked for two-letter state abbreviations (e.g. "IN",

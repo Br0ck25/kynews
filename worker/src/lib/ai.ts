@@ -274,9 +274,12 @@ export async function summarizeArticle(
       if (validatedText) {
         validatedText = ensureCompleteLastSentence(validatedText);
         validatedText = fixLeadingParagraphPunctuation(validatedText);
-        if (!isMalformedSummary(validatedText)) {
-          summary = validatedText;
-          seo = enforceSeoLength(extractFirstSentence(validatedText), validatedText);
+        // decode HTML entities before checking for malformed output so that
+        // &amp; and similar tokens don't trigger unnecessary regeneration.
+        const decoded = decodeHtmlEntities(validatedText);
+        if (!isMalformedSummary(decoded)) {
+          summary = decoded;
+          seo = enforceSeoLength(extractFirstSentence(decoded), decoded);
         }
       }
     }
