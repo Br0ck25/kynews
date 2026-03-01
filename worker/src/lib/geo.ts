@@ -120,7 +120,7 @@ const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Powell',   // person name
   'Russell',  // person name
   'Spencer',  // person name
-  'Taylor',   // person name
+  'Taylor',    // person name
   'Wayne',    // person name
   'Webster',  // person/dictionary
   // added to mitigate wire story false positives; each exists in KY_COUNTIES
@@ -130,10 +130,7 @@ const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Madison',  // multiple states
   'Jackson',  // many states
   'Union',    // many states
-  'Scott',    // Indiana, etc.
   'Pike',     // Ohio, Georgia, Mississippi, etc.
-  'Perry',    // many states
-  'Clark',    // Indiana, Ohio, Nevada, etc.
   'Christian',// Illinois, Missouri
   'Marshall', // many states
   'Carroll',  // many states
@@ -216,6 +213,7 @@ export const HIGH_AMBIGUITY_CITIES = new Set([
   'lynch',      // Lynch, Harlan County KY — verb "to lynch", Lynch mob, surname
   'liberty',    // Liberty, Casey County KY — "civil liberty", "Liberty Mutual"
   'center',     // Center, Metcalfe County KY — "research center", etc.
+  'green',      // Green, Elliott County KY — "green energy", "green light", etc.
 ]);
 
 /**

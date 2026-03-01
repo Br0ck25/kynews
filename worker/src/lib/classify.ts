@@ -1165,7 +1165,12 @@ function countCategorySignalHits(patterns: RegExp[], text: string): number {
  */
 function normalizeCategoryForKentuckyScope(category: Category, isKentucky: boolean): Category {
   if (isKentucky) return category;
-  if (category === 'sports' || category === 'schools' || category === 'today') {
+  if (
+    category === 'sports' ||
+    category === 'schools' ||
+    category === 'today' ||
+    category === 'weather'   // weather is Kentucky-scoped; non-KY articles should never be tagged weather
+  ) {
     return 'national';
   }
   return category;
