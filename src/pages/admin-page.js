@@ -61,6 +61,7 @@ export default function AdminPage() {
 
   const [backfillResult, setBackfillResult] = useState(null);
   const [reclassifyResult, setReclassifyResult] = useState(null);
+  const [ingestLogs, setIngestLogs] = useState([]);
 
   const [articleCategoryFilter, setArticleCategoryFilter] = useState("all");
   const [articleSearch, setArticleSearch] = useState("");
@@ -579,11 +580,31 @@ export default function AdminPage() {
     }
   };
 
+  const logAction = (msg) => {
+    setIngestLogs((prev) => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`]);
+  };
+
   const triggerIngest = async () => {
     setError("");
+    setIngestLogs([]);
+    logAction("Starting ingest run...");
     try {
-      await service.adminIngest({ includeSchools: true, limitPerSource: 0 });
-      await loadData();
+      const resp = await service.adminIngest({ includeSchools: true, limitPerSource: 0 });
+      logAction(`Queued ingest for ${resp.sourcesTried} sources`);
+      let seenInserted = metrics?.inserted || 0;
+      let ticks = 0;
+      const poll = setInterval(async () => {
+        ticks += 1;
+        const m = await service.getAdminMetrics();
+        if (m && m.latest) {
+          const { inserted, duplicate, rejected } = m.latest;
+          logAction(`metrics: inserted=${inserted}, dup=${duplicate}, rej=${rejected}`);
+          if (inserted > seenInserted || ticks > 12) {
+            clearInterval(poll);
+            await loadData();
+          }
+        }
+      }, 5000);
     } catch (err) {
       setError(err?.errorMessage || "Unable to start ingest.");
     }
@@ -743,6 +764,13 @@ export default function AdminPage() {
                 <Chip size="small" label={`Low-word: ${metrics.lowWordDiscards ?? 0}`} />
                 <Chip size="small" label={`Duration: ${((metrics.durationMs ?? 0) / 1000).toFixed(1)}s`} />
               </Box>
+              {ingestLogs.length > 0 && (
+                <Box style={{ marginTop: 8, maxHeight: 120, overflowY: "auto" }}>
+                  {ingestLogs.map((l, i) => (
+                    <Typography key={i} variant="caption" display="block">{l}</Typography>
+                  ))}
+                </Box>
+              )}
             </Paper>
           )}
 
