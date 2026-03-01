@@ -519,10 +519,10 @@ export default class SiteService {
     return this.request(`/api/admin/articles?${params.toString()}`);
   }
 
-  async retagArticle({ id, category, isKentucky, county }) {
+  async retagArticle({ id, category, isKentucky, isNational, county }) {
     return this.request("/api/admin/retag", {
       method: "POST",
-      body: JSON.stringify({ id, category, isKentucky, county }),
+      body: JSON.stringify({ id, category, isKentucky, isNational, county }),
     });
   }
 

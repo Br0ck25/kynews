@@ -1132,9 +1132,139 @@ describe('database utilities', () => {
 		const resp = await queryArticles(env, { category: 'today', counties: [], search: 'findme-summary', limit: 10, cursor: null });
 		expect(resp.items.some((i) => i.id === id)).toBe(true);
 	});
-});
 
-describe('db.insertArticle error logging', () => {
+    it('queryArticles includes a KY article when only isKentucky is true and no county', async () => {
+        await ensureSchemaAndFixture();
+        const now = new Date().toISOString();
+        const id = await insertArticle(env, {
+            canonicalUrl: 'https://example.com/kyonly',
+            sourceUrl: 'https://example.com',
+            urlHash: 'hash-kyonly',
+            title: 'No county but KY',
+            author: null,
+            publishedAt: now,
+            category: 'today',
+            isKentucky: true,
+            isNational: false,
+            county: null,
+            counties: [],
+            city: null,
+            summary: 'ky-tag',
+            seoDescription: 'seo',
+            rawWordCount: 1,
+            summaryWordCount: 1,
+            contentText: 'x',
+            contentHtml: '<p>x</p>',
+            imageUrl: null,
+            rawR2Key: null,
+            slug: null,
+        });
+
+        const resp = await queryArticles(env, { category: 'today', counties: [], search: null, limit: 10, cursor: null });
+        expect(resp.items.some((i) => i.id === id)).toBe(true);
+    });
+
+    it('queryArticles returns national weather when isNational=true', async () => {
+        await ensureSchemaAndFixture();
+        const now = new Date().toISOString();
+        const id = await insertArticle(env, {
+            canonicalUrl: 'https://example.com/natweather',
+            sourceUrl: 'https://example.com',
+            urlHash: 'hash-natweather',
+            title: 'National weather alert',
+            author: null,
+            publishedAt: now,
+            category: 'weather',
+            isKentucky: false,
+            isNational: true,
+            county: null,
+            counties: [],
+            city: null,
+            summary: 'storm',
+            seoDescription: 'seo',
+            rawWordCount: 1,
+            summaryWordCount: 1,
+            contentText: 'x',
+            contentHtml: '<p>x</p>',
+            imageUrl: null,
+            rawR2Key: null,
+            slug: null,
+        });
+
+        const resp = await queryArticles(env, { category: 'weather', counties: [], search: null, limit: 10, cursor: null });
+        expect(resp.items.some((i) => i.id === id)).toBe(true);
+    });
+
+    it('queryArticles returns national sports when isNational=true', async () => {
+        await ensureSchemaAndFixture();
+        const now = new Date().toISOString();
+        const id = await insertArticle(env, {
+            canonicalUrl: 'https://example.com/natsports',
+            sourceUrl: 'https://example.com',
+            urlHash: 'hash-natsports',
+            title: 'National football recap',
+            author: null,
+            publishedAt: now,
+            category: 'sports',
+            isKentucky: false,
+            isNational: true,
+            county: null,
+            counties: [],
+            city: null,
+            summary: 'game',
+            seoDescription: 'seo',
+            rawWordCount: 1,
+            summaryWordCount: 1,
+            contentText: 'x',
+            contentHtml: '<p>x</p>',
+            imageUrl: null,
+            rawR2Key: null,
+            slug: null,
+        });
+
+        const resp = await queryArticles(env, { category: 'sports', counties: [], search: null, limit: 10, cursor: null });
+        expect(resp.items.some((i) => i.id === id)).toBe(true);
+    });
+
+    it('updateArticleClassification can set isNational flag', async () => {
+        await ensureSchemaAndFixture();
+        const now = new Date().toISOString();
+        const id = await insertArticle(env, {
+            canonicalUrl: 'https://example.com/natflag',
+            sourceUrl: 'https://example.com',
+            urlHash: 'hash-natflag',
+            title: 'Flag test',
+            author: null,
+            publishedAt: now,
+            category: 'today',
+            isKentucky: true,
+            isNational: false,
+            county: 'Fayette',
+            counties: ['Fayette'],
+            city: null,
+            summary: 's',
+            seoDescription: 'seo',
+            rawWordCount: 1,
+            summaryWordCount: 1,
+            contentText: 'x',
+            contentHtml: '<p>x</p>',
+            imageUrl: null,
+            rawR2Key: null,
+            slug: null,
+        });
+        let row = await getArticleById(env, id);
+        expect(row?.isNational).toBe(false);
+
+        await updateArticleClassification(env, id, {
+            category: 'today',
+            isKentucky: true,
+            isNational: true,
+            county: 'Fayette',
+            counties: ['Fayette'],
+        });
+        row = await getArticleById(env, id);
+        expect(row?.isNational).toBe(true);
+    });
 	it('logs a helpful message and propagates the error', async () => {
 		await ensureSchemaAndFixture();
 		const spy = vi.spyOn(console, 'error').mockImplementation(() => {});

@@ -157,6 +157,14 @@ export function getPostTags(post) {
     result.push(...post.tags.filter((t) => t && typeof t === 'string'));
   }
 
+  // include the article category as a user-visible tag unless it is the
+  // generic "today" bucket.  this allows a weather post to show both
+  // "Weather" and "Kentucky"/"National" badges, etc.
+  if (post.category && post.category !== 'today') {
+    const label = post.category.charAt(0).toUpperCase() + post.category.slice(1);
+    result.push(label);
+  }
+
   // de-duplicate while preserving order
   return [...new Set(result)];
 }
@@ -176,9 +184,12 @@ export function articleToUrl(post) {
   if (!slug) {
     return post.id ? `/post?articleId=${post.id}` : '/post';
   }
-  const isNational = Array.isArray(post.categories)
+  // Determine national status using whichever signal is available.
+  // `post.isNational` is the authoritative flag; fall back to category
+  // for older records or in case the front-end has not been updated yet.
+  const isNational = post.isNational || (Array.isArray(post.categories)
     ? post.categories.includes('national')
-    : post.category === 'national';
+    : post.category === 'national');
   if (post.county) {
     return `/news/kentucky/${countyToSlug(post.county)}/${slug}`;
   }

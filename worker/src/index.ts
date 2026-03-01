@@ -683,16 +683,30 @@ if (url.pathname === '/api/admin/retag' && request.method === 'POST') {
 if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
 }
-const body = await parseJsonBody<{ id?: number; category?: string; isKentucky?: boolean; county?: string | null; counties?: string[] }>(request);
-const id = Number(body?.id ?? 0);
+// allow editors to explicitly flip the national flag in addition to the
+// usual fields.  the frontend will always supply a boolean value.
+const rawBody = await parseJsonBody<{ id?: number; category?: string; isKentucky?: boolean; isNational?: boolean; county?: string | null; counties?: string[] }>(request);
+const body = rawBody || {};
+const id = Number(body.id ?? 0);
 if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
 
 const category = (body?.category || '').toLowerCase();
 if (!isAllowedCategory(category)) return badRequest('Invalid category');
 
+// fetch existing record to avoid accidentally overwriting flags when the
+// client omits them (editing counties/title etc).
+const existing = await getArticleById(env, id);
+const resolvedIsKentucky = Object.prototype.hasOwnProperty.call(body, 'isKentucky')
+  ? Boolean(body.isKentucky)
+  : existing?.isKentucky ?? false;
+const resolvedIsNational = Object.prototype.hasOwnProperty.call(body, 'isNational')
+  ? Boolean(body.isNational)
+  : existing?.isNational ?? false;
+
 await updateArticleClassification(env, id, {
       category: category as Category,
-      isKentucky: Boolean(body?.isKentucky),
+      isKentucky: resolvedIsKentucky,
+      isNational: resolvedIsNational,
       county: typeof body?.county === 'string' && body.county.trim() ? body.county.trim() : null,
       counties: Array.isArray(body?.counties)
         ? body!.counties.map((c) => c.trim()).filter(Boolean)

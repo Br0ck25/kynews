@@ -357,9 +357,18 @@ export async function queryArticles(env: Env, options: {
   if (options.category === 'today') {
     where.push('is_kentucky = 1');
   } else if (options.category === 'sports') {
-    where.push('category = ?');
-    binds.push('sports');
-    where.push('is_kentucky = 1');
+    // sports feed: Kentucky sports stories OR explicitly marked national
+    // sports (new requirement).  Use the same backward-compatible pattern as
+    // weather.
+    const supportsIsNational = await columnExists(env, 'articles', 'is_national');
+    if (supportsIsNational) {
+      where.push('((category = ? AND is_kentucky = 1) OR (category = ? AND is_national = 1))');
+      binds.push('sports', 'sports');
+    } else {
+      where.push('category = ?');
+      binds.push('sports');
+      where.push('is_kentucky = 1');
+    }
   } else if (options.category === 'schools') {
     where.push('category = ?');
     binds.push('schools');
@@ -453,6 +462,8 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     isNational: row.is_national === 1,
     county: row.county,
     counties: [],
+    // provide legacy single-category list so frontend helpers can evolve
+    categories: row.category ? [row.category as Category] : [],
     city: row.city,
     summary: row.summary,
     seoDescription: row.seo_description,

@@ -246,6 +246,7 @@ export default function AdminPage() {
         id: row.id,
         category: patch.category ?? row.category,
         isKentucky: patch.isKentucky ?? row.isKentucky,
+        isNational: patch.isNational ?? row.isNational,
         county: primaryCounty || null,
         counties: countiesList,
       });
@@ -506,6 +507,7 @@ export default function AdminPage() {
       slug: row.slug ?? null,
       county: row.county ?? null,
       categories: row.category ? [row.category] : [],
+      isNational: row.isNational,
     });
     return `https://localkynews.com${path}`;
   };
@@ -1280,6 +1282,7 @@ export default function AdminPage() {
                     <TableCell style={{ minWidth: 165, padding: '4px 8px' }}>Title</TableCell>
                     <TableCell style={{ width: 135, padding: '4px 8px' }}>Published (UTC)</TableCell>
                     <TableCell style={{ width: 105, padding: '4px 8px' }}>Category</TableCell>
+                    <TableCell style={{ width: 45, padding: '4px 8px' }}>Nat</TableCell>
                     <TableCell style={{ width: 45, padding: '4px 8px' }}>KY</TableCell>
                     <TableCell style={{ width: 98, padding: '4px 8px' }}>Counties</TableCell>
                     <TableCell style={{ width: 82, padding: '4px 8px' }}>Links</TableCell>
@@ -1292,6 +1295,7 @@ export default function AdminPage() {
                     const draft = isDraftArticle(row);
                     const edit = edits[row.id] || {};
                     const currentCategory = edit.category ?? row.category;
+                    const currentNat = edit.isNational ?? row.isNational;
                     const currentKy = edit.isKentucky ?? row.isKentucky;
                     // build the editable string for counties (primary + extras)
                     const currentCountiesString =
@@ -1333,10 +1337,27 @@ export default function AdminPage() {
                           </TableCell>
                           <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <FormControl variant="outlined" size="small" style={{ minWidth: 130 }}>
-                              <Select value={currentCategory} onChange={(e) => setEdit(row.id, { category: e.target.value })}>
+                              <Select value={currentCategory} onChange={(e) => {
+                                    const newCat = e.target.value;
+                                    const patchObj = { category: newCat };
+                                    // if the editor switches away from "national" we
+                                    // assume the story should be Kentucky unless the
+                                    // user explicitly flips the KY toggle later.
+                                    if (newCat !== 'national' && !(edit.isKentucky ?? row.isKentucky)) {
+                                      patchObj.isKentucky = true;
+                                    }
+                                    setEdit(row.id, patchObj);
+                                  }}>
                                 {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                               </Select>
                             </FormControl>
+                          </TableCell>
+                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
+                            <Select value={currentNat ? "yes" : "no"} variant="outlined" size="small"
+                              onChange={(e) => setEdit(row.id, { isNational: e.target.value === "yes" })}>
+                              <MenuItem value="yes">yes</MenuItem>
+                              <MenuItem value="no">no</MenuItem>
+                            </Select>
                           </TableCell>
                           <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <Select value={currentKy ? "yes" : "no"} variant="outlined" size="small"

@@ -1,4 +1,4 @@
-import { countyToSlug, slugToCounty, SITE_URL } from './functions';
+import { countyToSlug, slugToCounty, SITE_URL, articleToUrl } from './functions';
 import { KENTUCKY_COUNTIES } from '../constants/counties';
 
 describe('county slug helpers', () => {
@@ -78,6 +78,18 @@ describe('post tag helper', () => {
     expect(getPostTags(post)).toEqual(['National']);
   });
 
+  it('includes the category label when present and not "today"', () => {
+    expect(getPostTags({ isKentucky: true, county: null, category: 'sports' })).toEqual(['Kentucky', 'Sports']);
+    expect(getPostTags({ isKentucky: false, county: '', category: 'weather' })).toEqual(['National', 'Weather']);
+    // generic "today" should not add a duplicate tag
+    expect(getPostTags({ isKentucky: true, county: null, category: 'today' })).toEqual(['Kentucky']);
+  });
+
+  it('still shows Kentucky when flagged even if no county is set', () => {
+    const post = { isKentucky: true, county: null };
+    expect(getPostTags(post)).toEqual(['Kentucky']);
+  });
+
   it('deduplicates tags and ignores invalid entries', () => {
     const post = { isKentucky: true, county: 'Boone', tags: ['Boone', '', null] };
     expect(getPostTags(post)).toEqual(['Kentucky', 'Boone']);
@@ -135,5 +147,17 @@ describe('facebook caption helpers', () => {
 
     const national = { title: 'National', summary: 'Info', isKentucky: false };
     expect(generateFacebookCaption(national)).toBe('');
+  });
+});
+
+// some basic sanity checks for URL generation
+describe('articleToUrl helper', () => {
+  it('uses isNational flag before category when deciding path', () => {
+    const post = { slug: 'foo', isNational: true, category: 'today' };
+    expect(articleToUrl(post)).toBe('/news/national/foo');
+    const post2 = { slug: 'bar', isNational: false, category: 'national' };
+    expect(articleToUrl(post2)).toBe('/news/national/bar'); // category still wins
+    const post3 = { slug: 'baz', isNational: false, county: 'Fayette' };
+    expect(articleToUrl(post3)).toBe('/news/kentucky/fayette-county/baz');
   });
 });
