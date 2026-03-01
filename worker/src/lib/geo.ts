@@ -210,6 +210,12 @@ export const HIGH_AMBIGUITY_CITIES = new Set([
   'canton',     // Canton, OH etc.
   'auburn',     // Auburn, AL / ME etc.
   'stanford',   // Stanford University, CA
+  // added to guard against extremely common English words that trigger
+  // false positives when the city name appears in non-local contexts.
+  'union',      // Union, Boone County KY — "State of the Union", "labor union"
+  'lynch',      // Lynch, Harlan County KY — verb "to lynch", Lynch mob, surname
+  'liberty',    // Liberty, Casey County KY — "civil liberty", "Liberty Mutual"
+  'center',     // Center, Metcalfe County KY — "research center", etc.
 ]);
 
 /**
@@ -422,6 +428,26 @@ export function detectCity(input) {
 
     if (isHighAmbiguity && !hasLocationSignals) {
       continue;
+    }
+
+    // "union" is a special case — even when nearby location signals exist,
+    // exclude matches that are clearly part of political/labor compound
+    // phrases (State of the Union, labor union, etc.). This avoids false
+    // positives when general KY context is present (e.g. a Jefferson County
+    // source default) but the word "union" refers to something else.
+    if (city === 'union') {
+      const UNION_NONLOCATION_RE =
+        /\b(?:state\s+of\s+the\s+union|labor\s+union|trade\s+union|credit\s+union|union\s+(?:workers?|members?|troops?|soldiers?|forces?|army|leaders?|officials?|dues|contract|rep(?:resentative)?|organiz)|european\s+union|african\s+union|soviet\s+union|union\s+pacific|union\s+station|union\s+square)\b/i;
+      if (
+        UNION_NONLOCATION_RE.test(
+          raw.slice(
+            Math.max(0, cityIndex - 60),
+            cityIndex + city.length + 60
+          )
+        )
+      ) {
+        continue;
+      }
     }
 
     if (likelyCount === 1 && isLikelyPersonName(raw, city)) {
