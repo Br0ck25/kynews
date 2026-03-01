@@ -1293,7 +1293,13 @@ export default function AdminPage() {
                     const edit = edits[row.id] || {};
                     const currentCategory = edit.category ?? row.category;
                     const currentKy = edit.isKentucky ?? row.isKentucky;
-                    const currentCounty = edit.county ?? row.county ?? "";
+                    // build the editable string for counties (primary + extras)
+                    const currentCountiesString =
+                      edit.countiesString !== undefined
+                        ? edit.countiesString
+                        : (row.counties && row.counties.length > 0
+                            ? row.counties.join(", ")
+                            : row.county || "");
                     const currentPublishedAt = edit.publishedAt ?? row.publishedAt ?? "";
                     const contentEdit = contentEdits[row.id] || {};
                     const linkEdit = linkEdits[row.id] || {};
