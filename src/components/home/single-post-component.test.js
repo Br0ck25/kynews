@@ -44,13 +44,19 @@ test('renders tags for post', () => {
   expect(screen.getByText(/Boone/i)).toBeInTheDocument();
 });
 
+// mock the SiteService module so we can substitute a fake instance
+jest.mock('../../services/siteService', () => {
+  return jest.fn();
+});
+import SiteService from '../../services/siteService';
+
 // verify share button fetches fresh article and builds correct URL
 test('share button refetches slug and updates path', async () => {
-  // stub service to return national article when called
+  // make the mocked class return a fake service instance
   const fakeService = {
     getPostBySlug: jest.fn().mockResolvedValue({ slug: 'foo', isNational: true, title: 'Test Article' }),
   };
-  jest.spyOn(require('../../components/home/single-post-component'), 'useMemo').mockReturnValue(fakeService);
+  SiteService.mockImplementation(() => fakeService);
 
   // render post with old KY flag
   render(
