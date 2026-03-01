@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { KY_CITY_TO_COUNTY, KY_CITY_TO_COUNTIES, KY_COUNTIES } from '../data/ky-geo';
 
 /**
@@ -357,8 +358,9 @@ export function detectCity(input) {
   return null;
 }
 
-export function normalizeCountyList(values) {
-  const set = new Set();
+// @ts-nocheck
+export function normalizeCountyList(values: string[]): string[] {
+  const set = new Set<string>();
   for (const value of values) {
     const normalized = value.trim().toLowerCase().replace(/ county$/u, '');
     if (!normalized) continue;

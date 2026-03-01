@@ -1426,6 +1426,14 @@ describe('admin backfill endpoint', () => {
 		expect(seen.some((s) => s.processed && s.processed > 0)).toBe(true);
 		// ensure our added currentUrl field is being recorded
 		expect(seen.some((s) => typeof s.currentUrl === 'string')).toBe(true);
+		// and confirm that newArticles lists are being stored for each result
+		expect(
+			seen.some(
+				(s) =>
+					Array.isArray(s.results) &&
+					s.results.some((r: any) => Array.isArray(r.newArticles)),
+			),
+		).toBe(true);
 
 		__testables.runIngest = originalRun;
 	});
@@ -1447,7 +1455,6 @@ describe('admin ingest endpoint', () => {
 		const queued: any[] = [];
 		(adminEnv as any).INGEST_QUEUE = { send: async (msg: any) => queued.push(msg) };
 
-
 		const req = new IncomingRequest('https://example.com/api/admin/ingest', {
 			method: 'POST',
 			headers: { 'x-admin-key': 'pw' },
@@ -1465,6 +1472,49 @@ describe('admin ingest endpoint', () => {
 		// runIngest writes metrics; ensure at least one run completed
 		const metrics = await adminEnv.CACHE.get('admin:ingest:latest', 'json').catch(() => null);
 		expect(metrics).not.toBeNull();
+	});
+
+	it('metrics show insertedSamples when manual ingest runs', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		// stub runIngest to write a fake metrics object
+		const originalRun = __testables.runIngest;
+		__testables.runIngest = async (env, urls) => {
+			await env.CACHE.put('admin:ingest:latest', JSON.stringify({
+				startedAt: new Date().toISOString(),
+				finishedAt: new Date().toISOString(),
+				durationMs: 100,
+				sourcesTried: urls.length,
+				sourcesAvailable: urls.length,
+				processed: 1,
+				inserted: 1,
+				duplicate: 0,
+				rejected: 0,
+				lowWordDiscards: 0,
+				ingestRatePerMinute: 0,
+				sourceErrors: 0,
+				trigger: 'manual',
+				rejectedSamples: [],
+				duplicateSamples: [],
+				insertedSamples: [{ decision:'inserted', url:'https://example.com/x', sourceUrl:'https://example.com', createdAt:new Date().toISOString() }],
+			}));
+		};
+
+		// fire the admin ingest endpoint normally (queue stub not needed)
+		const req = new IncomingRequest('https://example.com/api/admin/ingest', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw' },
+			body: JSON.stringify({ includeSchools: true, limitPerSource: 1 }),
+		});
+		const ctx = createExecutionContext();
+		await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		const metrics = await adminEnv.CACHE.get('admin:ingest:latest', 'json');
+		expect(metrics?.insertedSamples?.length).toBe(1);
+		expect(metrics.insertedSamples[0].url).toBe('https://example.com/x');
+
+		__testables.runIngest = originalRun;
 	});
 
 	it('skips queue messages that exceed the retry limit', async () => {

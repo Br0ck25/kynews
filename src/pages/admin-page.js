@@ -60,7 +60,7 @@ export default function AdminPage() {
   const [publishingUrl, setPublishingUrl] = useState("");
 
   const [backfillResult, setBackfillResult] = useState(null);
-  const [reclassifyResult, setReclassifyResult] = useState(null);
+  const [reclassifyResult, setReclassifyResult] = useState(null); // {status,message,results?}
   const [ingestLogs, setIngestLogs] = useState([]);
 
   const [articleCategoryFilter, setArticleCategoryFilter] = useState("all");
@@ -171,6 +171,10 @@ export default function AdminPage() {
       setSources(sourceResp.items || []);
       setSourceSummary(sourceResp);
       setMetrics(metricsResp?.latest || null);
+      // hide ingest logs if latest run wasn't manual
+      if (metricsResp?.latest?.trigger !== 'manual') {
+        setIngestLogs([]);
+      }
       setRejections(rejectResp?.items || []);
       setDuplicateItems(rejectResp?.duplicateItems || []);
       const initialItems = articleResp.items || [];
@@ -657,7 +661,11 @@ export default function AdminPage() {
     setReclassifyResult({ status: "running", message: "Starting reclassify run..." });
     try {
       const res = await service.adminReclassify({ limit: 20 });
-      setReclassifyResult({ status: "done", message: `Processed ${res.processed} articles; lastId=${res.lastId}` });
+      setReclassifyResult({
+        status: "done",
+        message: `Processed ${res.processed} articles; lastId=${res.lastId}`,
+        results: res.results || [],
+      });
     } catch (err) {
       setReclassifyResult({ status: "error", message: err?.errorMessage || String(err) });
     }
@@ -771,7 +779,17 @@ export default function AdminPage() {
                   ))}
                 </Box>
               )}
-              {metrics.duplicateSamples && metrics.duplicateSamples.length > 0 && (
+              {metrics.insertedSamples && metrics.insertedSamples.length > 0 && ingestLogs.length > 0 && (
+                <Box style={{ marginTop: 8 }}>
+                  <Typography variant="subtitle2">Inserted samples</Typography>
+                  {metrics.insertedSamples.map((s, i) => (
+                    <Typography key={i} variant="caption" display="block">
+                      <a href={s.url} target="_blank" rel="noopener noreferrer">{s.url}</a>
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+              {metrics.duplicateSamples && metrics.duplicateSamples.length > 0 && ingestLogs.length > 0 && (
                 <Box style={{ marginTop: 8 }}>
                   <Typography variant="subtitle2">Duplicate samples</Typography>
                   {metrics.duplicateSamples.map((s, i) => (
@@ -781,7 +799,7 @@ export default function AdminPage() {
                   ))}
                 </Box>
               )}
-              {metrics.rejectedSamples && metrics.rejectedSamples.length > 0 && (
+              {metrics.rejectedSamples && metrics.rejectedSamples.length > 0 && ingestLogs.length > 0 && (
                 <Box style={{ marginTop: 8 }}>
                   <Typography variant="subtitle2">Rejected samples</Typography>
                   {metrics.rejectedSamples.map((s, i) => (
@@ -817,7 +835,32 @@ export default function AdminPage() {
                 </Typography>
               )}
               {backfillResult.results?.length > 0 && (
-                <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, maxHeight: 300, overflow: "auto" }}>{JSON.stringify(backfillResult.results, null, 2)}</pre>
+                <Box style={{ maxHeight: 400, overflowY: "auto" }}>
+                  {backfillResult.results.map((r, i) => (
+                    <Box key={i} style={{ marginBottom: 8 }}>
+                      <Typography variant="body2">
+                        <strong>{r.county}</strong> – before {r.before} after {r.after}
+                      </Typography>
+                      {r.url && (
+                        <Typography variant="caption" style={{ display: "block" }}>
+                          Search URL: <a href={r.url} target="_blank" rel="noopener noreferrer">{r.url}</a>
+                        </Typography>
+                      )}
+                      {r.newArticles && r.newArticles.length > 0 && (
+                        <Box style={{ marginLeft: 12, marginTop: 2 }}>
+                          <Typography variant="caption">Inserted articles:</Typography>
+                          <ul style={{ margin: 2, paddingLeft: 18 }}>
+                            {r.newArticles.map((u: string) => (
+                              <li key={u} style={{ fontSize: 10 }}>
+                                <a href={u} target="_blank" rel="noopener noreferrer">{u}</a>
+                              </li>
+                            ))}
+                          </ul>
+                        </Box>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
               )}
             </Paper>
           )}
@@ -828,6 +871,15 @@ export default function AdminPage() {
               </Typography>
               {reclassifyResult.message && (
                 <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>{reclassifyResult.message}</Typography>
+              )}
+              {reclassifyResult.results && reclassifyResult.results.length > 0 && (
+                <Box style={{ maxHeight: 200, overflowY: "auto", marginTop: 8 }}>
+                  {reclassifyResult.results.map((r, i) => (
+                    <Typography key={i} variant="caption" display="block">
+                      #{r.id} {r.title} → {r.oldCategory} ➝ {r.newCategory} {r.changed ? "(changed)" : ""}
+                    </Typography>
+                  ))}
+                </Box>
               )}
             </Paper>
           )}

@@ -539,7 +539,7 @@ export async function updateArticleClassification(
 function normalizeCountyName(value: string | null): string | null {
   if (!value) return null;
   const normalized = normalizeCountyList([value]);
-  return normalized[0] ?? null;
+  return (normalized[0] as string) ?? null;
 }
 
 export async function listAdminArticles(env: Env, options: {

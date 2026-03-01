@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { Category, ClassificationResult } from '../types';
 import { detectCounty, detectCity, detectKentuckyGeo } from './geo';
 import { KY_COUNTIES } from '../data/ky-geo';

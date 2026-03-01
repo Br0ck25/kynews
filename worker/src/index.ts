@@ -52,11 +52,11 @@ const INGEST_ROTATION_KEY_PREFIX = 'admin:ingest:rotation:';
 const FALLBACK_CRAWL_MAX_LINKS = 12;
 const FALLBACK_CRAWL_MAX_SECTION_PAGES = 3;
 /** Articles to fetch per source on each scheduled cron tick. */
-const SCHEDULED_LIMIT_PER_SOURCE = 15;
+const SCHEDULED_LIMIT_PER_SOURCE = 25;
 /** Sources processed per 2-minute cron tick. ~108 total ÷ 10 per tick ≈ 22‑minute full cycle (rotates through all seeds). */
 const SCHEDULED_SOURCES_PER_RUN = 10;
 /** How many sources to fetch simultaneously — balances speed vs D1/network pressure. */
-const INGEST_CONCURRENCY = 8;
+const INGEST_CONCURRENCY = 10;
 /** KV key for the backfill-counties job status (polled by the admin UI). */
 const BACKFILL_STATUS_KEY = 'admin:backfill:latest';
 
@@ -79,14 +79,16 @@ type QueueJob =
 declare global {
 	interface Env {
 		INGEST_QUEUE?: Queue<QueueJob>;
+		// asset binding provided by wrangler to serve static files
+		ASSETS?: { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
 	}
 }
 
-const STRUCTURED_SEARCH_SOURCE_URLS = new Set([
+const STRUCTURED_SEARCH_SOURCE_URLS = new Set<string>([
 
 ]);
 
-const ROBOTS_BYPASS_URLS = new Set([
+const ROBOTS_BYPASS_URLS = new Set<string>([
 
 ]);
 
@@ -107,15 +109,17 @@ lowWordDiscards: number;
 errors: string[];
 rejectedSamples: IngestDecisionSample[];
 duplicateSamples: IngestDecisionSample[];
+insertedSamples: IngestDecisionSample[];
 }
 
 interface IngestDecisionSample {
 url: string;
 sourceUrl: string;
 title?: string;
-reason: string;
+reason?: string;
 publishedAt?: string | null;
-decision: 'duplicate' | 'rejected';
+// 'inserted' added so we can sample successful crawls too
+decision: 'duplicate' | 'rejected' | 'inserted';
 category?: string;
 id?: number;
 urlHash?: string;
@@ -138,6 +142,7 @@ sourceErrors: number;
 trigger: 'manual' | 'scheduled' | 'scheduled-high' | 'scheduled-normal';
 rejectedSamples: IngestDecisionSample[];
 duplicateSamples: IngestDecisionSample[];
+insertedSamples: IngestDecisionSample[];
 }
 
 interface IngestRunOptions {
@@ -348,6 +353,7 @@ if (url.pathname === '/api/admin/backfill-county' && request.method === 'POST') 
 	if (sourceUrl) {
 		// actual work for one url; use __testables in tests so we can stub
 		const before = (await getCountyCounts(env)).get(county) ?? 0;
+		const startTs = new Date().toISOString();
 		// record current URL being processed so UI can display it
 		try {
 			const rawPre = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
@@ -377,6 +383,11 @@ if (url.pathname === '/api/admin/backfill-county' && request.method === 'POST') 
 						county,
 						before,
 						after: (await getCountyCounts(env)).get(county) ?? before,
+						url: sourceUrl,
+						newArticles: (await env.ky_news_db
+							.prepare(`SELECT canonical_url FROM articles WHERE county = ? AND created_at >= ?`)
+							.bind(county, startTs)
+							.all<any>()).results.map((r: any) => r.canonical_url),
 					});
 					// the final-complete test happens when processed >= missingCount
 					if (statusObj.processed >= statusObj.missingCount) {
@@ -444,7 +455,7 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 		threshold,
 		missingCount: totalJobs,
 		processed: 0,
-		results: [] as Array<{ county: string; before: number; after: number }>,
+		results: [] as Array<{ county: string; before: number; after: number; newArticles: string[] }>,
 	};
 	await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(initialStatus), { expirationTtl: 7200 }).catch(() => null);
 
@@ -1094,6 +1105,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		publishedAt: resolvedPublishedAt,
 		category: classification.category,
 		isKentucky: true,
+		isNational: false,
 		county: classification.county,
 		counties: classification.counties,
 		city: classification.city,
@@ -1159,7 +1171,7 @@ return badRequest('Invalid category. Allowed: today|national|sports|weather|scho
 const rawCounties = parseCommaList(
 url.searchParams.get('counties') || url.searchParams.get('county'),
 );
-const counties = normalizeCountyList(rawCounties);
+const counties = normalizeCountyList(rawCounties) as string[];
 
 const search = url.searchParams.get('search')?.trim() ?? null;
 const limit = parsePositiveInt(url.searchParams.get('limit'), 20, 100);
@@ -1453,7 +1465,7 @@ function generateSitemapIndex(): string {
 }
 
 export default {
-async fetch(request, env, ctx): Promise<Response> {
+async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 // Handle CORS preflight requests first
 if (request.method === 'OPTIONS') {
 return corsPreflightResponse();
@@ -1467,7 +1479,7 @@ return await handleRequest(request, env, ctx);
 return json({ error: 'Internal server error', details: safeError(err) }, 500);
 }
 },
-async scheduled(_event, env, ctx): Promise<void> {
+async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
 // Unified rotation across all sources, 10 at a time every 2 minutes.
 // HIGH_PRIORITY sources appear first so they get refreshed every cycle before
 // the normal sources, while still advancing the rotation offset in KV.
@@ -1487,6 +1499,7 @@ ctx.waitUntil(
 async queue(batch: MessageBatch<QueueJob>, env: Env, ctx: ExecutionContext): Promise<void> {
 	return queue(batch, env, ctx);
 },
+
 };
 
 /** Process sources sequentially and store results - used by both HTTP seed endpoint and cron. */
@@ -1514,6 +1527,7 @@ let lowWordDiscards = 0;
 let sourceErrors = 0;
 const rejectedSamples: IngestDecisionSample[] = [];
 const duplicateSamples: IngestDecisionSample[] = [];
+const insertedSamples: IngestDecisionSample[] = [];
 
 // Process sources in concurrent batches so we don't hit the wall-clock limit
 // with 160+ sequential network calls. INGEST_CONCURRENCY sources run at once.
@@ -1532,11 +1546,14 @@ rejected += status.rejected;
 lowWordDiscards += status.lowWordDiscards;
 sourceErrors += status.errors.length;
 for (const sample of status.rejectedSamples) {
-if (rejectedSamples.length < 200) rejectedSamples.push(sample);
-}
-for (const sample of status.duplicateSamples) {
-if (duplicateSamples.length < 200) duplicateSamples.push(sample);
-}
+			if (rejectedSamples.length < 200) rejectedSamples.push(sample);
+		}
+		for (const sample of status.duplicateSamples) {
+			if (duplicateSamples.length < 200) duplicateSamples.push(sample);
+		}
+		for (const sample of status.insertedSamples || []) {
+			if (insertedSamples.length < 200) insertedSamples.push(sample);
+		}
 }
 }
 }
@@ -1559,14 +1576,11 @@ const metrics: IngestRunMetrics = {
 	trigger,
 	rejectedSamples,
 	duplicateSamples,
+	insertedSamples,
 };
 
-await env.CACHE.put(INGEST_METRICS_KEY, JSON.stringify(metrics), { expirationTtl: 60 * 60 * 24 * 7 }).catch(() => null);
-
-if (shouldPersistRotation && nextOffset != null) {
-	const rotationKey = `${INGEST_ROTATION_KEY_PREFIX}${trigger}`;
-	await env.CACHE.put(rotationKey, String(nextOffset), { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => null);
-}
+const rotationKey = `${INGEST_ROTATION_KEY_PREFIX}${trigger}`;
+await env.CACHE.put(rotationKey, String(nextOffset), { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => null);
 }
 
 // escape characters that would break HTML attributes
@@ -1629,6 +1643,9 @@ function isKySchoolsSourceUrl(sourceUrl: string): boolean {
 
 // shared logic for processing a single county.  used both by the
 // `/api/admin/backfill-county` HTTP handler and the queue consumer below.
+
+// When we refer to CACHE values the shape is loosely typed; keep `any` here to
+// avoid sprawling interface definitions in tests.
 async function performBackfillCounty(env: Env, county: string, threshold: number): Promise<void> {
 	console.log('backfill-county job for', county, 'threshold', threshold);
 	const before = (await getCountyCounts(env)).get(county) ?? 0;
@@ -1778,6 +1795,7 @@ lowWordDiscards: 0,
 errors: [],
 rejectedSamples: [],
 duplicateSamples: [],
+insertedSamples: [],
 };
 
 try {
@@ -1822,7 +1840,22 @@ providedTitle: item.title,
 providedDescription: item.description,
 });
 status.processed += 1;
-if (result.status === 'inserted') status.inserted += 1;
+if (result.status === 'inserted') {
+				status.inserted += 1;
+				if (status.insertedSamples.length < 50) {
+					status.insertedSamples.push({
+						decision: 'inserted',
+						url: item.link,
+						sourceUrl,
+						title: item.title,
+						publishedAt: item.publishedAt,
+						category: result.category,
+						id: result.id,
+						urlHash: result.urlHash,
+						createdAt: new Date().toISOString(),
+					});
+				}
+			}
 if (result.status === 'duplicate') {
 status.duplicate += 1;
 if (status.duplicateSamples.length < 50) {
@@ -1883,7 +1916,20 @@ for (const candidateUrl of urlsToTry) {
 	try {
 		const fallbackResult = await ingestSingleUrl(env, { url: candidateUrl, sourceUrl });
 		status.processed += 1;
-		if (fallbackResult.status === 'inserted') status.inserted += 1;
+		if (fallbackResult.status === 'inserted') {
+				status.inserted += 1;
+				if (status.insertedSamples.length < 50) {
+					status.insertedSamples.push({
+						decision: 'inserted',
+						url: candidateUrl,
+						sourceUrl,
+						category: fallbackResult.category,
+						id: fallbackResult.id,
+						urlHash: fallbackResult.urlHash,
+						createdAt: new Date().toISOString(),
+					});
+				}
+			}
 		if (fallbackResult.status === 'duplicate') {
 			status.duplicate += 1;
 			if (status.duplicateSamples.length < 50) {
@@ -2294,7 +2340,7 @@ export async function queue(
 		if (msg.attempts != null && msg.attempts > MAX_QUEUE_RETRIES) {
 			console.warn(
 				`[QUEUE] Skipping message after ${msg.attempts} attempts:`,
-				msg.body?.url ?? '(unknown)',
+				msg.body,
 			);
 			if (typeof msg.ack === 'function') msg.ack();
 			continue;
