@@ -330,6 +330,84 @@ describe('Kentucky News worker API', () => {
 			expect(res.headers.get('access-control-allow-origin')).toBe('*');
 			expect(res.headers.get('access-control-allow-methods')).toBeDefined();
 		});
+
+		describe('sitemap generation', () => {
+			it('normalizes lastmod and publication dates', async () => {
+				await ensureSchemaAndFixture();
+				if (env.CACHE) {
+					await env.CACHE.delete('sitemap:main');
+					await env.CACHE.delete('sitemap:news');
+				}
+
+				const badDate = '2025-12-15 08:30:00';
+				const goodDate = '2024-01-01T10:20:30Z';
+				await env.ky_news_db.prepare(`
+				  INSERT INTO articles (
+				    canonical_url, source_url, url_hash, title, author, published_at, category,
+				    is_kentucky, is_national, county, city, summary, seo_description,
+				    raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+				  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`).bind(
+				  'https://example.com/baddate',
+				  'https://example.com',
+				  'hash-baddate',
+				  'Bad Date Article',
+				  null,
+				  badDate,
+				  'today',
+				  1,
+				  0,
+				  'Fayette',
+				  null,
+				  'summary',
+				  'seo',
+				  10,
+				  5,
+				  'text',
+				  '<p>text</p>',
+				  null,
+				  null,
+				  null
+				).run();
+				await env.ky_news_db.prepare(`
+				  INSERT INTO articles (
+				    canonical_url, source_url, url_hash, title, author, published_at, category,
+				    is_kentucky, is_national, county, city, summary, seo_description,
+				    raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+				  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`).bind(
+				  'https://example.com/gooddate',
+				  'https://example.com',
+				  'hash-gooddate',
+				  'Good Date Article',
+				  null,
+				  goodDate,
+				  'today',
+				  1,
+				  0,
+				  'Jefferson',
+				  null,
+				  'summary2',
+				  'seo2',
+				  10,
+				  5,
+				  'text2',
+				  '<p>text2</p>',
+				  null,
+				  null,
+				  null
+				).run();
+
+				const xml = await __testables.generateSitemap(env as any);
+				expect(xml).toMatch(/<lastmod>2025-12-15<\/lastmod>/);
+				expect(xml).toMatch(/<lastmod>2024-01-01<\/lastmod>/);
+				expect(xml).not.toContain('2025-12-15 08:30:00');
+
+				const newsXml = await __testables.generateNewsSitemap(env as any);
+				expect(newsXml).toMatch(/<news:publication_date>2025-12-15T08:30:00/);
+			});
+		});
+
 	it('national endpoint returns only national-category articles', async () => {
 		await ensureSchemaAndFixture();
 

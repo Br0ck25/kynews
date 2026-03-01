@@ -35,6 +35,7 @@ import {
 	parsePositiveInt,
 	sha256Hex,
 	wordCount,
+	toIsoDateOrNull,
 } from './lib/http';
 import { ingestSingleUrl, generateArticleSlug, findHighlySimilarTitle, fetchAndExtractArticle } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
@@ -1313,6 +1314,29 @@ async function generateSitemap(env: Env): Promise<string> {
 		if (cached) return cached;
 	}
 
+	// make a best-effort attempt to normalize any lingering space-separated
+	// timestamps in the database so sitemap generation is always safe even if
+	// a migration hasn't been applied yet or a stray insert slipped through.
+	try {
+		await env.ky_news_db
+			.prepare(`
+				UPDATE articles
+				SET published_at = replace(published_at, ' ', 'T')
+				WHERE published_at LIKE '% %' AND published_at NOT LIKE '%T%';
+			`)
+			.run();
+		await env.ky_news_db
+			.prepare(`
+				UPDATE articles
+				SET updated_at = replace(updated_at, ' ', 'T')
+				WHERE updated_at LIKE '% %' AND updated_at NOT LIKE '%T%';
+			`)
+			.run();
+	} catch {
+		// ignore errors; normalization is best-effort and shouldn't block the
+		// sitemap if the DB is readonly or otherwise misbehaving.
+	}
+
 	const rows = await env.ky_news_db
 		.prepare(
 			`SELECT id, slug, county, category, published_at, updated_at FROM articles
@@ -1323,7 +1347,9 @@ async function generateSitemap(env: Env): Promise<string> {
 
 	const baseUrl = 'https://localkynews.com';
 	const urls = (rows.results || []).map((row) => {
-		const lastmod = (row.updated_at || row.published_at || '').split('T')[0];
+		// normalize whatever timestamp we have and then take the UTC date portion
+		const iso = toIsoDateOrNull(row.updated_at || row.published_at || '');
+		const lastmod = iso ? iso.split('T')[0] : '';
 		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, row.id);
 		return `  <url>
     <loc>${loc}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}
@@ -1398,6 +1424,19 @@ async function generateNewsSitemap(env: Env): Promise<string> {
 		if (cached) return cached;
 	}
 
+
+	// also normalise timestamps before selecting; this keeps the news sitemap
+	// from accidentally skipping an item when older rows still contain spaces.
+	try {
+		await env.ky_news_db
+			.prepare(`
+				UPDATE articles
+				SET published_at = replace(published_at, ' ', 'T')
+				WHERE published_at LIKE '% %' AND published_at NOT LIKE '%T%';
+			`)
+			.run();
+	} catch {}
+
 	const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 	const rows = await env.ky_news_db
 		.prepare(
@@ -1410,9 +1449,7 @@ async function generateNewsSitemap(env: Env): Promise<string> {
 
 	const baseUrl = 'https://localkynews.com';
 	const items = (rows.results || []).map((row) => {
-		const pubDate = row.published_at
-			? new Date(row.published_at).toISOString()
-			: new Date().toISOString();
+		const pubDate = toIsoDateOrNull(row.published_at) || new Date().toISOString();
 		const safeTitle = (row.title || '')
 			.replace(/&/g, '&amp;')
 			.replace(/</g, '&lt;')
@@ -2311,6 +2348,9 @@ export const __testables = {
 	isWymtSearchUrl,
 	buildCountySearchUrls,
 	getCountyCounts,
+	generateSitemap,
+	generateNewsSitemap,
+	generateSitemapIndex,
 	rebalanceSchoolHeavyRunSources,
 	// exposing runIngest allows tests to stub the heavy ingestion routine
 	runIngest,
