@@ -1315,9 +1315,12 @@ describe('admin backfill endpoint', () => {
 		const missingCount = KY_COUNTIES.filter((c) => (countsMap.get(c) ?? 0) < 100).length;
 		expect(queued.length).toBe(missingCount);
 
-		// process queued jobs via the queue handler
+		// process queued jobs via the queue handler; wait on each context so
+		// spawned work has time to run
 		for (const job of queued) {
-			await worker.queue({ messages: [{ body: job }] } as any, adminEnv, createExecutionContext());
+			const ctx2 = createExecutionContext();
+			await worker.queue({ messages: [{ body: job }] } as any, adminEnv, ctx2);
+			await waitOnExecutionContext(ctx2);
 		}
 
 		// wait for at least one in-progress update

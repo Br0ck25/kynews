@@ -322,22 +322,81 @@ if (url.pathname === '/api/admin/ingest' && request.method === 'POST') {
 	return json({ ok: true, message: 'Admin ingest queued', sourcesTried: sourceUrls.length, limitPerSource }, 202);
 }
 
-// Internal endpoint: process a single county for the backfill job.  This is
-// invoked by the public backfill-counties handler via `fetch` so that each
-// county runs in its own worker invocation and avoids the 30-second waitUntil
-// limit.
+// Internal endpoint: process a single county for the backfill job.  It is
+// called in two modes:
+//   * without `sourceUrl`: spawn a separate invocation for each source URL.
+//   * with `sourceUrl`: actually run ingestion for that one URL and update
+//     the status object.  The reason we split like this is to ensure that each
+//     heavy crawl executes in its own worker invocation with a full CPU budget
+//     (queue and initial handlers just fan out work).
 if (url.pathname === '/api/admin/backfill-county' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
 		return json({ error: 'Unauthorized' }, 401);
 	}
 
-	const body = await parseJsonBody<{ county?: string; threshold?: number }>(request);
+	const body = await parseJsonBody<{ county?: string; threshold?: number; sourceUrl?: string }>(request);
 	const county = body?.county || '';
 	const threshold = Math.max(1, Number(body?.threshold ?? 5));
 	if (!county) return badRequest('Missing county');
 
-	await performBackfillCounty(env, county, threshold);
-	return json({ ok: true });
+	const sourceUrl = body?.sourceUrl;
+	if (sourceUrl) {
+		// actual work for one url; use __testables in tests so we can stub
+		const before = (await getCountyCounts(env)).get(county) ?? 0;
+		await __testables.runIngest(env, [sourceUrl], threshold * 2, 'manual', { rotateSources: false }).catch((e) => {
+			console.error('runIngest error for', county, sourceUrl, e);
+			return null;
+		});
+		// update status object (same as previous code)
+		try {
+			const raw = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
+			if (raw) {
+				const statusObj = JSON.parse(raw);
+				if (statusObj && statusObj.status === 'running') {
+					statusObj.processed = (statusObj.processed || 0) + 1;
+					if (!statusObj.results) {
+						statusObj.results = [];
+					}
+					statusObj.results.push({
+						county,
+						before,
+						after: (await getCountyCounts(env)).get(county) ?? before,
+					});
+					// the final-complete test happens when processed >= missingCount
+					if (statusObj.processed >= statusObj.missingCount) {
+						statusObj.status = 'complete';
+						statusObj.finishedAt = new Date().toISOString();
+					}
+					const ttl = statusObj.status === 'complete' ? 86400 : 7200;
+					await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e) => {
+						console.error('status put failed for', county, e);
+					});
+				}
+			}
+		} catch (e) {
+			console.error('error updating status for', county, e);
+		}
+		return json({ ok: true });
+	} else {
+		// fan out one invocation per source URL.  use fetch so each new job has a
+		// fresh CPU budget.  include admin key so auth passes.
+		const urls = buildCountySearchUrls(county);
+		const origin = new URL(request.url).origin;
+		for (const src of urls) {
+			ctx.waitUntil(
+				fetch(`${origin}/api/admin/backfill-county`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'x-admin-key': request.headers.get('x-admin-key') || '',
+					},
+					body: JSON.stringify({ county, threshold, sourceUrl: src }),
+					cf: { keepalive: true },
+				}),
+			);
+		}
+		return json({ ok: true });
+	}
 }
 
 // Backfill articles for counties that currently have fewer than `threshold` items.
@@ -2202,15 +2261,31 @@ export async function queue(
 	env: Env,
 	ctx: ExecutionContext,
 ): Promise<void> {
+	// origin doesn't matter much; using example.com keeps tests happy.  in
+	// production the worker's domain is automatically routed back to itself.
+	const origin = 'https://example.com';
+	const adminKey = ((env as any).ADMIN_PANEL_PASSWORD || '').trim();
 	for (const msg of batch.messages) {
 		const job = msg.body;
 		switch (job.type) {
 			case 'manualIngest':
 				await runIngest(env, job.sourceUrls, job.limitPerSource, 'manual');
 				break;
-			case 'backfillCounty':
-				await performBackfillCounty(env, job.county, job.threshold);
+			case 'backfillCounty': {
+				// enqueue HTTP request; the handler will spawn per-source jobs
+				ctx.waitUntil(
+					fetch(`${origin}/api/admin/backfill-county`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'x-admin-key': adminKey,
+						},
+						body: JSON.stringify({ county: job.county, threshold: job.threshold }),
+						cf: { keepalive: true },
+					}),
+				);
 				break;
+			}
 			default:
 				console.warn('queue handler received unknown job', job);
 		}
