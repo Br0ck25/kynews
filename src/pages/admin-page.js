@@ -771,6 +771,26 @@ export default function AdminPage() {
                   ))}
                 </Box>
               )}
+              {metrics.duplicateSamples && metrics.duplicateSamples.length > 0 && (
+                <Box style={{ marginTop: 8 }}>
+                  <Typography variant="subtitle2">Duplicate samples</Typography>
+                  {metrics.duplicateSamples.map((s, i) => (
+                    <Typography key={i} variant="caption" display="block">
+                      <a href={s.url} target="_blank" rel="noopener noreferrer">{s.url}</a> – {s.reason}
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+              {metrics.rejectedSamples && metrics.rejectedSamples.length > 0 && (
+                <Box style={{ marginTop: 8 }}>
+                  <Typography variant="subtitle2">Rejected samples</Typography>
+                  {metrics.rejectedSamples.map((s, i) => (
+                    <Typography key={i} variant="caption" display="block">
+                      <a href={s.url} target="_blank" rel="noopener noreferrer">{s.url}</a> – {s.reason}
+                    </Typography>
+                  ))}
+                </Box>
+              )}
             </Paper>
           )}
 
@@ -781,6 +801,11 @@ export default function AdminPage() {
               </Typography>
               {backfillResult.message && (
                 <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>{backfillResult.message}</Typography>
+              )}
+              {backfillResult.currentUrl && (
+                <Typography variant="body2" style={{ fontSize: 11, color: '#555' }}>
+                  Processing URL: <a href={backfillResult.currentUrl} target="_blank" rel="noopener noreferrer">{backfillResult.currentUrl}</a>
+                </Typography>
               )}
               {backfillResult.status === "running" && (
                 <Typography variant="body2">Counties processed: {backfillResult.processed ?? 0} / {backfillResult.missingCount ?? "?"}</Typography>

@@ -348,6 +348,17 @@ if (url.pathname === '/api/admin/backfill-county' && request.method === 'POST') 
 	if (sourceUrl) {
 		// actual work for one url; use __testables in tests so we can stub
 		const before = (await getCountyCounts(env)).get(county) ?? 0;
+		// record current URL being processed so UI can display it
+		try {
+			const rawPre = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
+			if (rawPre) {
+				const statusObjPre = JSON.parse(rawPre);
+				if (statusObjPre && statusObjPre.status === 'running') {
+					statusObjPre.currentUrl = sourceUrl;
+					await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObjPre), { expirationTtl: 7200 }).catch(() => {});
+				}
+			}
+		} catch {}
 		await __testables.runIngest(env, [sourceUrl], threshold * 2, 'manual', { rotateSources: false }).catch((e) => {
 			console.error('runIngest error for', county, sourceUrl, e);
 			return null;

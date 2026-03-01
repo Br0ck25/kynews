@@ -1424,6 +1424,8 @@ describe('admin backfill endpoint', () => {
 			await new Promise((r) => setTimeout(r, 50));
 		}
 		expect(seen.some((s) => s.processed && s.processed > 0)).toBe(true);
+		// ensure our added currentUrl field is being recorded
+		expect(seen.some((s) => typeof s.currentUrl === 'string')).toBe(true);
 
 		__testables.runIngest = originalRun;
 	});
