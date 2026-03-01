@@ -36,12 +36,12 @@
 		"producers": [
 			{
 				"binding": "INGEST_QUEUE",
-				"queue": "4090094e0d0e4f688bd4e6d2fba58995"
+				"queue": "ingest-queue"          // use the queue name rather than the UUID
 			}
 		],
 		"consumers": [
 			{
-				"queue": "4090094e0d0e4f688bd4e6d2fba58995",
+				"queue": "ingest-queue",
 				"max_batch_size": 10
 			}
 		]
