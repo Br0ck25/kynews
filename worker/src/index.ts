@@ -60,6 +60,13 @@ const INGEST_CONCURRENCY = 8;
 /** KV key for the backfill-counties job status (polled by the admin UI). */
 const BACKFILL_STATUS_KEY = 'admin:backfill:latest';
 
+// messages that have been retried excessively often should be skipped to avoid
+// burning CPU in an infinite loop.  Cloudflare queues expose an `attempts`
+// counter on each message; after this many retries we acknowledge the message
+// and move on.
+const MAX_QUEUE_RETRIES = 3;
+
+
 // messages that are pushed from the admin UI and handled asynchronously by
 // the `queue` entrypoint below.  using a simple discriminated union keeps the
 // runtime code and tests easy to reason about.
@@ -2272,10 +2279,22 @@ export async function queue(
 	const origin = 'https://example.com';
 	const adminKey = ((env as any).ADMIN_PANEL_PASSWORD || '').trim();
 	for (const msg of batch.messages) {
+		// skip messages that have already been retried too many times
+		if (msg.attempts != null && msg.attempts > MAX_QUEUE_RETRIES) {
+			console.warn(
+				`[QUEUE] Skipping message after ${msg.attempts} attempts:`,
+				msg.body?.url ?? '(unknown)',
+			);
+			if (typeof msg.ack === 'function') msg.ack();
+			continue;
+		}
+
 		const job = msg.body;
 		switch (job.type) {
 			case 'manualIngest':
 				await runIngest(env, job.sourceUrls, job.limitPerSource, 'manual');
+				// acknowledge success if possible
+				if (typeof msg.ack === 'function') msg.ack();
 				break;
 			case 'backfillCounty': {
 				// enqueue HTTP request; the handler will spawn per-source jobs
@@ -2290,10 +2309,12 @@ export async function queue(
 						cf: { keepalive: true },
 					}),
 				);
+				if (typeof msg.ack === 'function') msg.ack();
 				break;
 			}
 			default:
 				console.warn('queue handler received unknown job', job);
+				if (typeof msg.retry === 'function') msg.retry();
 		}
 	}
 }

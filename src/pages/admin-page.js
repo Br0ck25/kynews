@@ -60,6 +60,7 @@ export default function AdminPage() {
   const [publishingUrl, setPublishingUrl] = useState("");
 
   const [backfillResult, setBackfillResult] = useState(null);
+  const [reclassifyResult, setReclassifyResult] = useState(null);
 
   const [articleCategoryFilter, setArticleCategoryFilter] = useState("all");
   const [articleSearch, setArticleSearch] = useState("");
@@ -711,6 +712,9 @@ export default function AdminPage() {
             <Button variant="contained" color="primary" onClick={backfillCounties}>
               Backfill Counties
             </Button>
+            <Button variant="contained" color="default" onClick={runReclassify}>
+              Reclassify Articles
+            </Button>
             <Button variant="outlined" onClick={loadData} disabled={loading}>
               {loading ? "Loading…" : "Refresh"}
             </Button>
@@ -753,6 +757,16 @@ export default function AdminPage() {
               )}
             </Paper>
           )}
++          {reclassifyResult && (
++            <Paper style={{ padding: 12, marginBottom: 16 }}>
++              <Typography variant="subtitle2" gutterBottom>
++                Reclassify — {reclassifyResult.status === "running" ? "Running…" : reclassifyResult.status === "done" ? "✅ Done" : reclassifyResult.status === "error" ? "⚠️ Error" : "Status"}
++              </Typography>
++              {reclassifyResult.message && (
++                <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>{reclassifyResult.message}</Typography>
++              )}
++            </Paper>
++          )}
 
           <Paper style={{ padding: 16 }}>
             <Typography variant="h6" gutterBottom>Ingest Decisions (Latest Run)</Typography>

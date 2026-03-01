@@ -667,6 +667,11 @@ const CATEGORY_PATTERNS: Record<Exclude<Category, 'today' | 'national'>, RegExp[
     /\bgymnastics\s+(team|meet|competition|season)\b/i,
   ],
   weather: [
+    // title-based cues (added for WBKO-style headlines and similar)
+    /\b(?:first\s+alert|weather\s+(?:day|alert|update|watch))\b/i,
+    /\b(?:active|quiet|unsettled|stormy|rainy|snowy|cold|warm)\s+(?:start|week|weekend|pattern|stretch|spell)\b/i,
+    /\b(?:week(?:end)?\s+)?(?:weather\s+)?forecast\b/i,
+
     /\bweather\s+(forecast|advisory|warning|alert|service)\b/i,
     /\btornado\s+(warning|watch|siren)\b/i,
     /\bflood\s+(warning|watch|advisory|stage)\b/i,
@@ -678,6 +683,23 @@ const CATEGORY_PATTERNS: Record<Exclude<Category, 'today' | 'national'>, RegExp[
     /\bhurricane\b/i,
     /\bice\s+storm\b/i,
     /\bnational weather service\b/i,
+
+    // conversational forecast language
+    /\b(?:scattered|isolated|chance\s+of)\s+(?:showers?|thunderstorms?|storms?|rain|sprinkles?)\b/i,
+    /\b(?:partly|mostly|becoming)\s+(?:cloudy|sunny|clear)\b/i,
+    /\b(?:overnight|morning|afternoon|evening)\s+(?:lows?|highs?|temperatures?)\b/i,
+    /\bhighs?\s+(?:in\s+the\s+)?(?:upper|lower|mid)?\s*\d{2}s?\b/i,
+    /\blows?\s+(?:in\s+the\s+)?(?:upper|lower|mid)?\s*\d{2}s?\b/i,
+    /\b(?:rain|snow|ice|sleet)\s+(?:chance|likely|possible|expected|moving|arriving|ending)\b/i,
+    /\b(?:chance|likelihood)\s+of\s+(?:rain|snow|storms?|showers?|precipitation)\b/i,
+    /\b(?:forecast|outlook)\s+(?:for|through|into|ahead)\b/i,
+    /\bfirst\s+alert\b/i,
+    /\b(?:flurr(?:y|ies)|wintry\s+mix|freezing\s+drizzle|light\s+snow|snow\s+showers?)\b/i,
+    /\b(?:rain|weather)\s+chances?\b/i,
+    /\b(?:temperatures?|temps?)\s+(?:will|are|expected|remain|stay|drop|rise|warm|cool)\b/i,
+    /\b(?:warm(?:ing)?|cool(?:ing)?|cold(?:er)?)\s+(?:front|air|temperatures?|spell)\b/i,
+    /\b(?:storm|rain|snow|weather)\s+(?:system|pattern|chance|moving)\b/i,
+    /\bprecipitation\b/i,
   ],
   schools: [
     /\bschool board\b/i,
@@ -1054,6 +1076,19 @@ function enforceCategoryEvidence(
 
   const titleSignal = patterns.some((pattern) => pattern.test(title));
   const leadSignals = countCategorySignalHits(patterns, leadText);
+
+  // Weather forecasts use conversational language.  A single strong pattern
+  // match (including the new conversational cues) is sufficient when combined
+  // with the source context.  Lower the evidence threshold from 2 to 1 for
+  // weather to avoid demoting genuine forecast posts into "today".
+  if (category === 'weather') {
+    const hasEvidence = titleSignal || leadSignals >= 1;
+    if (!hasEvidence) {
+      return isKentucky ? 'today' : 'national';
+    }
+    return normalizeCategoryForKentuckyScope(category, isKentucky);
+  }
+
   const hasEvidence = titleSignal || leadSignals >= 2;
 
   if (!hasEvidence) {

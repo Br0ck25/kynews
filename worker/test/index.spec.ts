@@ -642,6 +642,30 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual(['Fayette']);
 	});
 
+	// conversational forecast language should still trigger weather even when
+	// the title is weak or the body only has a single match.  this exercises
+	// the new patterns and relaxed evidence threshold.
+	it('classifies conversational forecast language as weather', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://wbko.com/forecast',
+			title: 'Active start to the new month',
+			content:
+				'The forecast calls for scattered showers, partly cloudy skies, overnight lows in the upper 50s and even some flurries.',
+		});
+		expect(classification.category).toBe('weather');
+	});
+
+	// titles like "First Alert Weather Day" are very common on local TV sites
+	// and should count as weather even if the body is sparse.
+	it('recognizes weather from title patterns like First Alert Weather Day', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://wbko.com/story',
+			title: 'First Alert Weather Day for our region',
+			content: 'Just a short blurb about the day.',
+		});
+		expect(classification.category).toBe('weather');
+	});
+
 	// sources with a default county should be tagged as Kentucky only when the
 	// article itself is a weather story.  we avoid blanket-tagging every post
 	// from those multifaceted outlets.
@@ -1053,6 +1077,77 @@ describe('ingestSingleUrl error handling', () => {
 		vi.restoreAllMocks();
 		global.fetch = originalFetch;
 	});
+
+	it('returns duplicate status when insertArticle throws UNIQUE constraint', async () => {
+		await ensureSchemaAndFixture();
+		const originalFetch = global.fetch;
+		global.fetch = async () =>
+			new Response('<html><body><p>hi</p></body></html>', {
+				status: 200,
+				headers: { 'Content-Type': 'text/html' },
+			});
+
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+		});
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'sum',
+			seoDescription: 'seo',
+			summaryWordCount: 1,
+		});
+
+		vi.spyOn(dbModule, 'insertArticle').mockRejectedValue(new Error('UNIQUE constraint failed'));
+
+		const result = await __testables.ingestSingleUrl(env, { url: 'https://example.com' });
+		expect(result.status).toBe('duplicate');
+		expect(result.reason).toMatch(/url_hash already exists/);
+
+		vi.restoreAllMocks();
+		global.fetch = originalFetch;
+	});
+
+	it('prevents fetch when a previous article with the same URL already exists', async () => {
+		await ensureSchemaAndFixture();
+		// insert a dummy article so the hash check will catch it
+		const now = new Date().toISOString();
+		await insertArticle(env, {
+			canonicalUrl: 'https://example.com/preflight',
+			sourceUrl: 'https://example.com/preflight',
+			urlHash: await sha256Hex(normalizeCanonicalUrl('https://example.com/preflight')),
+			title: 'x',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		// stub fetch to throw if called; preflight check should avoid it
+		const originalFetch2 = global.fetch;
+		global.fetch = () => { throw new Error('fetch should not be called'); };
+
+		const result = await __testables.ingestSingleUrl(env, { url: 'https://example.com/preflight' });
+		expect(result.status).toBe('duplicate');
+
+		global.fetch = originalFetch2;
+	});
 });
 
 
@@ -1368,6 +1463,27 @@ describe('admin ingest endpoint', () => {
 		// runIngest writes metrics; ensure at least one run completed
 		const metrics = await adminEnv.CACHE.get('admin:ingest:latest', 'json').catch(() => null);
 		expect(metrics).not.toBeNull();
+	});
+
+	it('skips queue messages that exceed the retry limit', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv2 = envWithAdminPassword('pw');
+		let called = false;
+		const originalRun = __testables.runIngest;
+		__testables.runIngest = async () => {
+			called = true;
+		};
+
+		const msg: any = {
+			attempts: 3 + 1,
+			body: { type: 'manualIngest', sourceUrls: ['https://foo'], limitPerSource: 1 },
+			ack: vi.fn(),
+			retry: vi.fn(),
+		};
+		await worker.queue({ messages: [msg] } as any, adminEnv2, createExecutionContext());
+		expect(called).toBe(false);
+		expect(msg.ack).toHaveBeenCalled();
+		__testables.runIngest = originalRun;
 	});
 });
 

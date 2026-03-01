@@ -28,6 +28,22 @@ function firstMeaningfulWord(title: string): string {
 }
 
 export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<IngestResult> {
+  // Pre-flight duplicate check using the normalized source URL.  This allows
+  // queue-sourced messages to short-circuit before performing any network
+  // fetch, readability work, or expensive AI classification.  It also helps
+  // avoid CPU‑limit loops caused by retrying messages that refer to an
+  // article already inserted under the same canonical form.
+  const sourceUrlHash = await sha256Hex(normalizeCanonicalUrl(source.url));
+  const preflightDuplicate = await findArticleByHash(env, sourceUrlHash);
+  if (preflightDuplicate) {
+    return {
+      status: 'duplicate',
+      id: preflightDuplicate.id,
+      urlHash: sourceUrlHash,
+      category: preflightDuplicate.category,
+    };
+  }
+
   const extracted = await fetchAndExtractArticle(env, source);
   const rssTitle = source.providedTitle?.trim() ?? '';
   const rssDescription = source.providedDescription?.trim() ?? '';
@@ -160,6 +176,16 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   } catch (error) {
     // convert error to safe string for logs and response
     const msg = error instanceof Error ? error.message : String(error);
+    // UNIQUE constraint means we've already inserted the article under some
+    // form of the URL; treat it as a duplicate rather than a fatal rejection.
+    if (msg.includes('UNIQUE constraint') || msg.includes('SQLITE_CONSTRAINT')) {
+      console.warn('[DUPLICATE ON INSERT]', extracted.title, msg);
+      return {
+        status: 'duplicate',
+        reason: 'url_hash already exists (late duplicate detection)',
+        urlHash: canonicalHash,
+      };
+    }
     console.error('[INSERT FAILED]', extracted.title, msg);
     return {
       status: 'rejected',

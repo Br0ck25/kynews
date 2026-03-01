@@ -497,6 +497,13 @@ export default class SiteService {
     });
   }
 
+  async adminReclassify({ limit = 20, beforeId = null } = {}) {
+    return this.request("/api/admin/reclassify", {
+      method: "POST",
+      body: JSON.stringify({ limit, beforeId }),
+    });
+  }
+
   async getBackfillStatus() {
     return this.request("/api/admin/backfill-status");
   }
