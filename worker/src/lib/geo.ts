@@ -58,6 +58,16 @@ const OUT_OF_STATE_RES: RegExp[] = OUT_OF_STATE_NAMES.map(
  * matching rules compared with normal counties and helps avoid false
  * positives.
  */
+
+// County names that are also US state names. These require the strictest
+// matching — the county suffix "County" must be present for the match to be
+// accepted, even with full Kentucky context. Without the suffix, phrases like
+// "Ohio Senator" or "Ohio Gov." would otherwise be misinterpreted as Ohio
+// County, Kentucky.
+const DUAL_STATE_COUNTY_NAMES = new Set([
+  'Ohio',
+]);
+
 const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Green',    // color / adjective
   'Ohio',     // river, state, university etc.
@@ -240,9 +250,14 @@ export function detectCounty(input, rawInput) {
     const match = countyPattern.exec(normalized);
     if (!match) continue;
 
-    const disqualified =
-      isMatchDisqualifiedByState(normalized, match.index, match[0].length);
+    // guard against “Ohio Sen.” / “Ohio Gov.” style phrases when county is
+    // also a state name
+    if (isUsedAsStateAdjective(normalized, match.index, match[0].length, county)) {
+      continue;
+    }
 
+    const disqualified =
+      isMatchDisqualifiedByState(normalized, match.index, match[0].length, county);
     if (AMBIGUOUS_COUNTY_NAMES.has(county)) {
       // Ambiguous county names require explicit Kentucky context *and*
       // absence of an out-of-state signal.
@@ -404,6 +419,7 @@ export function detectAllCounties(input, rawInput) {
   const globalText = rawInput ? rawInput.toLowerCase() : normalized;
   const hasKentuckyContext = KY_PRESENT_RE.test(globalText);
 
+
   // temporary storage for match locations and associated county names
   const matches = [];
 
@@ -417,7 +433,14 @@ export function detectAllCounties(input, rawInput) {
     let m;
     while ((m = pattern.exec(normalized))) {
       const idx = m.index;
-      const hasOutOfState = isMatchDisqualifiedByState(normalized, idx, m[0].length);
+
+
+      // state-adjective guard for counties that match state names
+      if (isUsedAsStateAdjective(normalized, idx, m[0].length, county)) {
+        continue;
+      }
+
+      const hasOutOfState = isMatchDisqualifiedByState(normalized, idx, m[0].length, county);
 
       if (AMBIGUOUS_COUNTY_NAMES.has(county)) {
         // ambiguous counties require both KY context and no out-of-state signal
@@ -431,6 +454,16 @@ export function detectAllCounties(input, rawInput) {
           continue;
         }
       }
+
+      // extra guard for dual-state names: even though Pass A pattern already
+      // includes the "County" suffix, double-check the match text actually
+      // contained it.  This is mostly defensive.
+      if (DUAL_STATE_COUNTY_NAMES.has(county)) {
+        if (!/\b(?:county|counties|cnty|co(?=\s|$))/i.test(m[0])) {
+          continue;
+        }
+      }
+
       matches.push({ index: idx, names: [county] });
     }
   }
@@ -500,7 +533,22 @@ export function detectAllCounties(input, rawInput) {
     }
 
     if (names.length > 0) {
-      const hasOutOfState = isMatchDisqualifiedByState(normalized, idx, am[0].length);
+      // drop any dual-state county that is being used as a state adjective
+      names = names.filter((county) => {
+        if (DUAL_STATE_COUNTY_NAMES.has(county)) {
+          const lowerWindow = windowText.toLowerCase();
+          const localIdx = lowerWindow.indexOf(county.toLowerCase());
+          if (localIdx !== -1) {
+            const globalIdx = windowStart + localIdx;
+            if (isUsedAsStateAdjective(normalized, globalIdx, county.length, county)) {
+              return false;
+            }
+          }
+        }
+        return true;
+      });
+
+      const hasOutOfState = isMatchDisqualifiedByState(normalized, idx, anchorText.length);
       if (AMBIGUOUS_COUNTY_NAMES.size > 0) {
         names = names.filter((county) => {
           if (AMBIGUOUS_COUNTY_NAMES.has(county)) {
@@ -511,7 +559,18 @@ export function detectAllCounties(input, rawInput) {
       }
     }
     if (names.length > 0) {
-      matches.push({ index: idx, names });
+      // push each county separately using its approximate start position within
+      // the preceding window so that ordering reflects the original text rather
+      // than the anchor index which may correspond to the last name in a list.
+      for (const county of names) {
+        let pos = idx;
+        const lowerWindow = windowText.toLowerCase();
+        const localIdx = lowerWindow.indexOf(county.toLowerCase());
+        if (localIdx !== -1) {
+          pos = windowStart + localIdx;
+        }
+        matches.push({ index: pos, names: [county] });
+      }
     }
   }
 
@@ -558,7 +617,7 @@ export function detectAllCounties(input, rawInput) {
     const countyMatch = m[1];
     const idx2 = m.index + m[0].length - countyMatch.length;
     if (!hasSchoolSportsContext(normalized)) continue;
-    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx2, countyMatch.length)) {
+    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx2, countyMatch.length, countyMatch)) {
       continue;
     }
     // map back to properly-cased county for ambiguity check and results
@@ -581,7 +640,7 @@ export function detectAllCounties(input, rawInput) {
     if (/^\s+county/i.test(normalized.slice(idx2 + m[0].length, idx2 + m[0].length + 20))) {
       continue;
     }
-    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx2, countyMatch.length)) {
+    if (!hasKentuckyContext && isMatchDisqualifiedByState(normalized, idx2, countyMatch.length, countyMatch)) {
       continue;
     }
     const properName = KY_COUNTIES.find(
@@ -652,10 +711,20 @@ function isMatchDisqualifiedByState(
   normalized,
   matchIndex,
   matchLength,
+  countyName?, // optional name being tested; used for dual-state counties
 ) {
   const start = Math.max(0, matchIndex - OUT_OF_STATE_WINDOW);
   const end = Math.min(normalized.length, matchIndex + matchLength + OUT_OF_STATE_WINDOW);
-  const window = normalized.slice(start, end);
+  let window = normalized.slice(start, end);
+
+  // if we're checking a county whose name is also a state, we want to avoid
+  // treating the match itself as an out-of-state signal.  Blank out the
+  // characters corresponding to the original match before scanning.
+  if (countyName && DUAL_STATE_COUNTY_NAMES.has(countyName)) {
+    const relativeStart = matchIndex - start;
+    const blank = ' '.repeat(matchLength);
+    window = window.slice(0, relativeStart) + blank + window.slice(relativeStart + matchLength);
+  }
 
   // use precompiled regexes to ensure we only match whole words
   for (const re of OUT_OF_STATE_RES) {
@@ -674,6 +743,22 @@ function isMatchDisqualifiedByState(
   return false;
 }
 
+// Guard detecting county names used as a state adjective before a political
+// title, e.g. “Ohio Sen. Bernie Moreno”.  Only counties that are also
+// state names are considered (see `DUAL_STATE_COUNTY_NAMES`).
+const STATE_ADJECTIVE_TITLE_RE =
+  /\b(?:sen(?:ator)?|rep(?:resentative)?|gov(?:ernor)?|congressman|congresswoman|lawmaker|official|based|resident|native|delegation|legislature|statehouse|capital)\b/i;
+
+function isUsedAsStateAdjective(
+  raw: string,
+  matchIndex: number,
+  matchLength: number,
+  countyName: string,
+) {
+  if (!DUAL_STATE_COUNTY_NAMES.has(countyName)) return false;
+  const after = raw.slice(matchIndex + matchLength, matchIndex + matchLength + 40);
+  return STATE_ADJECTIVE_TITLE_RE.test(after);
+}
 
 function hasLocationSignalNearby(normalizedInput, city) {
   const signals = [' in ', ' at ', ' from ', ' near ', ' city of ', ' county ', ' ky ', ' kentucky '];

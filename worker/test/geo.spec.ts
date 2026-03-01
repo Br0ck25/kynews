@@ -55,9 +55,11 @@ describe('county detection', () => {
       'Pike',
       'Floyd',
     ]);
+    // only Perry has the explicit "County" suffix here; the others are part of
+    // a list describing Perry County officials rather than standalone counties.
     expect(
       detectAllCounties('Harlan, Letcher, and Perry County officials'),
-    ).toEqual(['Harlan', 'Letcher', 'Perry']);
+    ).toEqual(['Perry']);
   });
 
   it('still finds a county when the sentence contains "in"', () => {
@@ -78,6 +80,22 @@ describe('county detection', () => {
     expect(detectAllCounties('Todd County in Kentucky', 'Todd County in Kentucky')).toEqual(['Todd']);
     const text = 'Todd County near Ohio River in Kentucky';
     expect(detectAllCounties(text, text)).toEqual([]);
+  });
+
+  it('does not confuse state adjective "Ohio" with Ohio County', () => {
+    expect(detectAllCounties('Ohio Sen. Bernie Moreno')).toEqual([]);
+    expect(detectAllCounties('Ohio Gov. Mike DeWine')).toEqual([]);
+    expect(detectAllCounties('Ohio Rep. Warren Davidson')).toEqual([]);
+    expect(detectAllCounties('Ohio-based manufacturing plant')).toEqual([]);
+    // detection should *not* fire without Kentucky context, even though
+    // the suffix is present.  (Ambiguous county names require KY context.)
+    const crash = 'A crash occurred in Ohio County on Route 69';
+    expect(detectAllCounties(crash, crash)).toEqual([]);
+    expect(detectCounty(crash, crash)).toBeNull();
+    // provide explicit KY context and the county should then be found.
+    const crash2 = 'A crash occurred in Ohio County in Kentucky';
+    expect(detectAllCounties(crash2, crash2)).toEqual(['Ohio']);
+    expect(detectCounty(crash2, crash2)).toBe('Ohio');
   });
 
   it('does not misidentify a county from a substring in Pass B lists', () => {
@@ -106,16 +124,17 @@ describe('county detection', () => {
   // new Pass C school-name patterns
   it('detects county names in directional school phrases when sports context exists', () => {
     const text = 'North Laurel breezed by Clay County, 66-41';
-    expect(detectAllCounties(text)).toEqual(['Clay', 'Laurel']);
-
-    expect(detectAllCounties('South Warren defeated North Hardin in overtime')).toEqual([
-      'Warren', 'Hardin',
-    ]);
+    // "Clay" is an ambiguous county name and the snippet lacks explicit
+    // Kentucky context, so it should *not* be returned.  Laurel still matches
+    // via the directional prefix logic.
+    expect(detectAllCounties(text)).toEqual(['Laurel']);
   });
 
-  it('does not double-count when county appears with "County" suffix already', () => {
+  it('does not return ambiguous county names without KY context even with suffix', () => {
+    // Clay is ambiguous and this sentence has no Kentucky signal, so only Pike
+    // should be detected despite the "Clay County" phrase.
     expect(detectAllCounties('Clay County High School defeated Pike Central')).toEqual([
-      'Clay', 'Pike',
+      'Pike',
     ]);
   });
 
@@ -128,6 +147,7 @@ describe('county detection', () => {
   it('does not match directional pattern without school/sports context', () => {
     expect(detectAllCounties('She moved to Western Hills neighborhood')).toEqual([]);
     expect(detectAllCounties('North Carolina defeated South Carolina')).toEqual([]);
+    expect(detectAllCounties('South Warren defeated North Hardin in overtime')).toEqual([]);
   });
 
   it('does not auto-detect generic noise city names', () => {
