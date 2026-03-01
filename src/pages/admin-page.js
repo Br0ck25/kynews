@@ -641,8 +641,6 @@ export default function AdminPage() {
       setReclassifyResult({ status: "error", message: err?.errorMessage || String(err) });
     }
   };
-    }
-  };
 
   // ---------------------------------------------------------------------------
   // Derived values
