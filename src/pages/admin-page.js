@@ -631,6 +631,19 @@ export default function AdminPage() {
     }
   };
 
+  // kick off one batch of reclassification; UI shows the response summary
+  const runReclassify = async () => {
+    setReclassifyResult({ status: "running", message: "Starting reclassify run..." });
+    try {
+      const res = await service.adminReclassify({ limit: 20 });
+      setReclassifyResult({ status: "done", message: `Processed ${res.processed} articles; lastId=${res.lastId}` });
+    } catch (err) {
+      setReclassifyResult({ status: "error", message: err?.errorMessage || String(err) });
+    }
+  };
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // Derived values
   // ---------------------------------------------------------------------------
