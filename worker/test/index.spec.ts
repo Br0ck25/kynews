@@ -566,13 +566,17 @@ describe('classification utilities', () => {
 	});
 
 	it('does not hallucinate counties when AI proposes unknown name', async () => {
-		const fakeEnv = { ...env, AI: { run: vi.fn().mockResolvedValue({ response: '{"category":"today","isKentucky":true,"counties":["Elliott"]}' }) } } as unknown as Env;
-		const classification = await classifyArticleWithAi(fakeEnv, {
-			url: 'https://example.com/test',
-			title: 'Generic title',
-			content: 'No county mentioned here.',
-		});
-		expect(classification.county).toBeNull();
+			// temporarily override the AI run method on the shared env
+			const originalAi = env.AI;
+			const responseText = JSON.stringify({ category: 'today', isKentucky: true, counties: ['Elliott'] });
+			env.AI = { run: vi.fn().mockResolvedValue({ response: responseText }) };
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://example.com/test',
+				title: 'Generic title',
+				content: 'No county mentioned here.',
+			});
+			// restore original AI stub so later tests are unaffected
+			env.AI = originalAi;
 		expect(classification.counties).toEqual([]);
 	});
 
@@ -599,12 +603,15 @@ describe('classification utilities', () => {
 	});
 
 	it('respects AI judgment when the model classifies a national-wire KY story as Kentucky', async () => {
-		const fakeEnv = { ...env, AI: { run: vi.fn().mockResolvedValue({ response: '{"category":"today","isKentucky":true,"counties":[]}' }) } } as unknown as Env;
-		const classification = await classifyArticleWithAi(fakeEnv, {
+		const originalAi = env.AI;
+		const responseText2 = JSON.stringify({ category: 'today', isKentucky: true, counties: [] });
+		env.AI = { run: vi.fn().mockResolvedValue({ response: responseText2 }) };
+		const classification = await classifyArticleWithAi(env, {
 			url: 'https://www.nbcnews.com/politics/congress/',
 			title: 'WASHINGTON — Rep. Thomas Massie holds press conference',
 			content: 'WASHINGTON — Rep. Thomas Massie, R-Ky., led today’s briefing.',
 		});
+		env.AI = originalAi;
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBeNull();
 	});
@@ -1392,8 +1399,9 @@ describe('admin backfill endpoint', () => {
 		};
 
 		// instead of spinning up self-invocations we just capture queued jobs
-		const queued: any[] = [];
-		(adminEnv as any).INGEST_QUEUE = { send: async (msg: any) => queued.push(msg) };
+		const queued = [];
+		// uninstall typing on env for this test scenario
+		adminEnv.INGEST_QUEUE = { send: async (msg) => queued.push(msg) };
 
 		const req = new IncomingRequest('https://example.com/api/admin/backfill-counties', {
 			method: 'POST',
@@ -1414,7 +1422,7 @@ describe('admin backfill endpoint', () => {
 		// spawned work has time to run
 		for (const job of queued) {
 			const ctx2 = createExecutionContext();
-			await worker.queue({ messages: [{ body: job }] } as any, adminEnv, ctx2);
+			await worker.queue({ messages: [{ body: job }] }, adminEnv, ctx2);
 			await waitOnExecutionContext(ctx2);
 		}
 
@@ -1431,7 +1439,7 @@ describe('admin backfill endpoint', () => {
 			seen.some(
 				(s) =>
 					Array.isArray(s.results) &&
-					s.results.some((r: any) => Array.isArray(r.newArticles)),
+					s.results.some((r) => Array.isArray(r.newArticles)),
 			),
 		).toBe(true);
 
@@ -1452,8 +1460,8 @@ describe('admin ingest endpoint', () => {
 		await ensureSchemaAndFixture();
 		const adminEnv = envWithAdminPassword('pw');
 		// capture queued messages
-		const queued: any[] = [];
-		(adminEnv as any).INGEST_QUEUE = { send: async (msg: any) => queued.push(msg) };
+		const queued = [];
+		adminEnv.INGEST_QUEUE = { send: async (msg) => queued.push(msg) };
 
 		const req = new IncomingRequest('https://example.com/api/admin/ingest', {
 			method: 'POST',
@@ -1467,7 +1475,7 @@ describe('admin ingest endpoint', () => {
 		expect(queued.length).toBeGreaterThan(0);
 
 		for (const job of queued) {
-			await worker.queue({ messages: [{ body: job }] } as any, adminEnv, createExecutionContext());
+			await worker.queue({ messages: [{ body: job }] }, adminEnv, createExecutionContext());
 		}
 		// runIngest writes metrics; ensure at least one run completed
 		const metrics = await adminEnv.CACHE.get('admin:ingest:latest', 'json').catch(() => null);
@@ -1526,13 +1534,13 @@ describe('admin ingest endpoint', () => {
 			called = true;
 		};
 
-		const msg: any = {
+		const msg = {
 			attempts: 3 + 1,
 			body: { type: 'manualIngest', sourceUrls: ['https://foo'], limitPerSource: 1 },
 			ack: vi.fn(),
 			retry: vi.fn(),
 		};
-		await worker.queue({ messages: [msg] } as any, adminEnv2, createExecutionContext());
+		await worker.queue({ messages: [msg] }, adminEnv2, createExecutionContext());
 		expect(called).toBe(false);
 		expect(msg.ack).toHaveBeenCalled();
 		__testables.runIngest = originalRun;

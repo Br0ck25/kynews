@@ -1,0 +1,1 @@
+import{aA as a,aB as n,R as t,aC as u}from"./index-32708b77.js";import o from"./article-slug-page-420fe4a1.js";function s(){const{countySlug:e}=a();return n(e||"")?t.createElement(u,null):t.createElement(o,null)}export{s as default};

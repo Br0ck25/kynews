@@ -850,7 +850,7 @@ export default function AdminPage() {
                         <Box style={{ marginLeft: 12, marginTop: 2 }}>
                           <Typography variant="caption">Inserted articles:</Typography>
                           <ul style={{ margin: 2, paddingLeft: 18 }}>
-                            {r.newArticles.map((u: string) => (
+                            {r.newArticles.map((u) => (
                               <li key={u} style={{ fontSize: 10 }}>
                                 <a href={u} target="_blank" rel="noopener noreferrer">{u}</a>
                               </li>
