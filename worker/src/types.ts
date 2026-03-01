@@ -69,6 +69,8 @@ export interface NewArticle {
   rawR2Key: string | null;
   /** SEO-friendly URL slug derived from title + id. Optional — added in migration 0004. */
   slug?: string | null;
+  /** SHA-256 hex of the article's content text (first 3k words) used for change detection */
+  contentHash?: string;
 }
 
 export interface IngestSource {

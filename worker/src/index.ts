@@ -16,6 +16,8 @@ import {
 	updateArticleContent,
 	updateArticleLinks,
 	getCountyCounts,
+	getArticlesForUpdateCheck,
+	prependUpdateToSummary,
 } from './lib/db';
 import {
 	HIGH_PRIORITY_SOURCE_SEEDS,
@@ -42,7 +44,7 @@ import { normalizeCountyList } from './lib/geo';
 import { KY_COUNTIES } from './data/ky-geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
 import { classifyArticleWithAi } from './lib/classify';
-import { summarizeArticle } from './lib/ai';
+import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle } from './types';
 import { generateFacebookCaption } from './lib/facebook';
 
@@ -1619,6 +1621,8 @@ ctx.waitUntil(
 		rotateSources: true,
 	}),
 );
+// Check recent articles for source updates (runs every cron tick but self-limits to 20 articles per run)
+ctx.waitUntil(checkArticleUpdates(env));
 },
 // forward queue events to our exported handler
 async queue(batch: MessageBatch<QueueJob>, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -2427,6 +2431,101 @@ function extractWymtSearchArticleLinks(baseUrl: string, html: string, maxLinks: 
 	return [...results];
 }
 
+
+// ---------------------------------------------------------------------------
+// Article update detection task
+// ---------------------------------------------------------------------------
+
+/**
+ * Checks recently published Kentucky articles for source updates.
+ * For each article published in the last 24 hours:
+ *   1. Re-fetch the source URL
+ *   2. Hash the new content
+ *   3. If hash differs from stored content_hash, generate an
+ *      update paragraph and prepend it to the D1 summary
+ *
+ * Runs as part of the scheduled cron. Processes up to 20 articles
+ * per run to stay within CPU limits. Each run picks up where the
+ * last left off by ordering newest-first (recent articles are most
+ * likely to have updates).
+ */
+async function checkArticleUpdates(env: Env): Promise<void> {
+  const articles = await getArticlesForUpdateCheck(env, 24);
+  // Limit to 20 per cron run to stay within CPU budget
+  const batch = articles.slice(0, 20);
+
+  for (const article of batch) {
+    try {
+      // Re-fetch the article with cache-busting
+      const refetchUrl = article.canonicalUrl + `?_ts=${Date.now()}`;
+      const extracted = await fetchAndExtractArticle(env, {
+        url: refetchUrl,
+        sourceUrl: article.canonicalUrl,
+        providedTitle: article.title,
+        providedDescription: '',
+        feedPublishedAt: article.publishedAt,
+      }).catch(() => null);
+
+      if (!extracted?.contentText) continue;
+
+      // Hash the new content (first 3000 words for stability)
+      const contentSample = extracted.contentText
+        .split(/\s+/).slice(0, 3000).join(' ');
+      const newHash = await sha256Hex(contentSample);
+
+      // Skip if content hasn't changed since last check
+      if (article.contentHash && article.contentHash === newHash) {
+        continue;
+      }
+
+      // Skip if summary already starts with the same update
+      // (guards against double-prepending on repeated cron runs
+      // before content changes again)
+      if (!article.contentHash) {
+        // First time checking this article — store hash but
+        // don't generate an update (we have no baseline to diff)
+        await env.ky_news_db
+          .prepare(
+            'UPDATE articles SET content_hash = ? WHERE id = ?'
+          )
+          .bind(newHash, article.id)
+          .run()
+          .catch(() => {});
+        continue;
+      }
+
+      // Content changed — ask AI what's new
+      const updateParagraph = await generateUpdateParagraph(
+        env,
+        extracted.contentText,
+        article.summary,
+        article.publishedAt,
+      );
+
+      if (!updateParagraph) continue;
+
+      // Prepend update to D1 summary and record new hash
+      await prependUpdateToSummary(
+        env,
+        article.id,
+        updateParagraph,
+        newHash,
+      );
+
+      console.log(
+        `[UPDATE DETECTED] Article #${article.id}: ${article.title}`
+      );
+
+    } catch (err) {
+      // Never let one article failure stop the rest
+      console.error(
+        `[UPDATE CHECK FAILED] Article #${article.id}:`,
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+}
+
 export const __testables = {
 	normalizeSourceUrl,
 	isStructuredSearchSource,
@@ -2445,6 +2544,8 @@ export const __testables = {
 	// make ingestSingleUrl available for unit tests
 	ingestSingleUrl,
 	isAdminAuthorized,
+	// article update helpers
+	checkArticleUpdates,
 };
 
 // also export runIngest directly for easier import in tests or tooling

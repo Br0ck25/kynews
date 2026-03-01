@@ -7,9 +7,10 @@ import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } 
 import { isScheduleOrScoresArticle } from '../src/lib/ai';
 import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
+import * as ingestModule from '../src/lib/ingest';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
 import * as dbModule from '../src/lib/db';
-import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById, getCountyCounts, listAdminArticles, queryArticles } from '../src/lib/db';
+import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById, getCountyCounts, listAdminArticles, queryArticles, getArticlesForUpdateCheck, prependUpdateToSummary } from '../src/lib/db';
 import * as aiModule from '../src/lib/ai';
 import {
 	cleanFacebookHeadline,
@@ -49,6 +50,7 @@ async function ensureSchemaAndFixture() {
 			image_url TEXT,
 			raw_r2_key TEXT,
 			slug TEXT,
+			content_hash TEXT,
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
@@ -80,7 +82,7 @@ async function ensureSchemaAndFixture() {
 			INSERT INTO articles (
 				canonical_url, source_url, url_hash, title, author, published_at, category,
 				is_kentucky, is_national, county, city, summary, seo_description, raw_word_count,
-				summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+				summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash
 			) VALUES (${formatted})
 		`)
 			.run();
@@ -109,8 +111,8 @@ async function ensureSchemaAndFixture() {
 		null,
 		null,
 		null,
+		null,
 	]);
-
 	await addArticle([
 		'https://example.com/ky-sports',
 		'https://example.com',
@@ -132,8 +134,8 @@ async function ensureSchemaAndFixture() {
 		null,
 		null,
 		null,
+		null,
 	]);
-
 	await addArticle([
 		'https://example.com/ky-schools',
 		'https://example.com',
@@ -152,6 +154,7 @@ async function ensureSchemaAndFixture() {
 		71,
 		'Content body for test',
 		'<p>Content body for test</p>',
+		null,
 		null,
 		null,
 		null,
@@ -177,8 +180,8 @@ async function ensureSchemaAndFixture() {
 		null,
 		null,
 		null,
+		null,
 	]);
-
 	await addArticle([
 		'https://example.com/non-ky-today',
 		'https://example.com',
@@ -200,8 +203,8 @@ async function ensureSchemaAndFixture() {
 		null,
 		null,
 		null,
+		null,
 	]);
-
 	await addArticle([
 		'https://example.com/non-ky-schools',
 		'https://example.com',
@@ -223,8 +226,8 @@ async function ensureSchemaAndFixture() {
 		null,
 		null,
 		null,
+		null,
 	]);
-
 	await addArticle([
 		'https://example.com/non-ky-weather',
 		'https://example.com',
@@ -246,9 +249,8 @@ async function ensureSchemaAndFixture() {
 		null,
 		null,
 		null,
+		null,
 	]);
-
-	// add a Kentucky weather article for endpoint testing
 	await addArticle([
 		'https://example.com/ky-weather',
 		'https://example.com',
@@ -270,9 +272,8 @@ async function ensureSchemaAndFixture() {
 		null,
 		null,
 		null,
+		null,
 	]);
-
-	// add a Kentucky obituary for obituaries feed
 	await addArticle([
 		'https://example.com/ky-obit',
 		'https://example.com',
@@ -294,6 +295,7 @@ async function ensureSchemaAndFixture() {
 		null,
 		null,
 		null,
+		null,
 	]);
 
 	// backfill junction table from articles
@@ -302,26 +304,10 @@ async function ensureSchemaAndFixture() {
 		 SELECT id, county, 1 FROM articles WHERE county IS NOT NULL`
 	).run();
 }
-
-function envWithAdminPassword(password) {
-	return new Proxy(env, {
-		get(target, prop, receiver) {
-			if (prop === 'ADMIN_PANEL_PASSWORD') return password;
-			return Reflect.get(target, prop, receiver);
-		},
-	});
-}
-
-describe('Kentucky News worker API', () => {
-	it('responds to /health (unit style)', async () => {
-		const request = new IncomingRequest('http://example.com');
-		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
-		await waitOnExecutionContext(ctx);
-		expect(response.status).toBe(200);
-		const payload = await response.json();
-		expect(payload.ok).toBe(true);
-	});
+		null,
+		null,
+		null,
+		null,
 
 		it('returns CORS headers for OPTIONS preflight', async () => {
 			const req = new IncomingRequest('https://example.com/api/articles/weather', {
@@ -1172,6 +1158,76 @@ describe('database utilities', () => {
 		const resp = await queryArticles(env, { category: 'today', counties: [], search: 'findme-summary', limit: 10, cursor: null });
 		expect(resp.items.some((i) => i.id === id)).toBe(true);
 	});
+
+	it('getArticlesForUpdateCheck honors maxAgeHours and returns recent ky articles', async () => {
+		await ensureSchemaAndFixture();
+		const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+		const recent = new Date().toISOString();
+		await env.ky_news_db.prepare(`
+		   INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category, is_kentucky, is_national, county, city, summary, seo_description, raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash)
+		   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind('a','a','old','Old','o',oldDate,'today',1,0,'Fayette',null,'s','seo',1,1,'x','<p>x</p>',null,null,null,null,'oldhash').run();
+		await env.ky_news_db.prepare(`
+		   INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category, is_kentucky, is_national, county, city, summary, seo_description, raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash)
+		   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind('b','b','recent','Recent','r',recent,'today',1,0,'Jefferson',null,'s','seo',1,1,'x','<p>x</p>',null,null,null,null,'rephash').run();
+
+		const list = await getArticlesForUpdateCheck(env, 24);
+		expect(list.some((a) => a.urlHash === 'recent')).toBe(true);
+		expect(list.some((a) => a.urlHash === 'old')).toBe(false);
+	});
+
+	it('prependUpdateToSummary adds timestamped update and stores new hash', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const { meta } = await env.ky_news_db.prepare(`
+		   INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category,
+		     is_kentucky, is_national, county, city, summary, seo_description, raw_word_count,
+		     summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash)
+		   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind('u','u','hash-u','U','u',now,'today',1,0,'Fayette',null,'orig','seo',1,1,'x','<p>x</p>',null,null,null,null,'initial').run();
+		const id = Number(meta.last_row_id);
+		await prependUpdateToSummary(env, id, 'new details', 'newhash');
+		const updated = await env.ky_news_db.prepare('SELECT summary, content_hash FROM articles WHERE id=?').bind(id).first<any>();
+		expect(updated.content_hash).toBe('newhash');
+		expect(updated.summary).toMatch(/^Update \(/);
+		expect(updated.summary).toContain('new details');
+		expect(updated.summary).toContain('orig');
+	});
+
+	it('checkArticleUpdates processes changed articles and prepends AI update', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const { meta } = await env.ky_news_db.prepare(`
+		   INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category,
+		     is_kentucky, is_national, county, city, summary, seo_description, raw_word_count,
+		     summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash)
+		   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind('c','c','hash-c','C','c',now,'today',1,0,'Fayette',null,'Orig','seo',1,1,'old content','<p>old</p>',null,null,null,null,'oldhash').run();
+		const id = Number(meta.last_row_id);
+
+		vi.spyOn(ingestModule, 'fetchAndExtractArticle').mockResolvedValue({
+		  canonicalUrl: 'https://example.com/c',
+		  sourceUrl: 'https://example.com',
+		  title: 'C',
+		  author: null,
+		  publishedAt: now,
+		  contentHtml: '<p>new</p>',
+		  contentText: 'old content plus update',
+		  classificationText: '',
+		  imageUrl: null,
+		});
+		vi.spyOn(aiModule, 'generateUpdateParagraph').mockResolvedValue('added update');
+
+		await __testables.checkArticleUpdates(env);
+
+		const updated = await env.ky_news_db.prepare('SELECT summary, content_hash FROM articles WHERE id=?').bind(id).first<any>();
+		expect(updated.content_hash).not.toBe('oldhash');
+		expect(updated.summary).toMatch(/^Update \(/);
+		expect(updated.summary).toContain('added update');
+		expect(updated.summary).toContain('Orig');
+	});
+
 });
 
 describe('db.insertArticle error logging', () => {

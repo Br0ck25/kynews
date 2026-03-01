@@ -99,6 +99,10 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   }
 
   const words = wordCount(extracted.contentText);
+
+  // compute hash of first 3000 words for change detection baseline
+  const contentSample = extracted.contentText.split(/\s+/).slice(0, 3000).join(' ');
+  const contentHash = await sha256Hex(contentSample);
   if (!source.allowShortContent && !isShortContentAllowed(extracted.canonicalUrl, words)) {
     return {
       status: 'rejected',
@@ -165,6 +169,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     contentHtml: extracted.contentHtml,
     imageUrl: extracted.imageUrl,
     rawR2Key,
+    contentHash,
     // SEO-friendly slug: title-slug + first 8 chars of urlHash for uniqueness (Section 4)
     slug: generateArticleSlug(extracted.title, canonicalHash),
   };

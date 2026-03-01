@@ -24,6 +24,7 @@ interface ArticleRow {
   image_url: string | null;
   raw_r2_key: string | null;
   slug: string | null;
+  content_hash: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -114,8 +115,9 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           content_html,
           image_url,
           raw_r2_key,
-          slug
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          slug,
+          content_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         article.canonicalUrl,
@@ -138,6 +140,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
         article.imageUrl,
         article.rawR2Key,
         article.slug ?? null,
+        article.contentHash ?? null,
       )
       .run();
 
@@ -174,6 +177,103 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
     });
     throw error;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Article update detection helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns articles published within the last `maxAgeHours` hours
+ * that are eligible for update checking. Ordered newest-first.
+ * Used by the update-check cron task.
+ */
+export async function getArticlesForUpdateCheck(
+  env: Env,
+  maxAgeHours: number = 24,
+): Promise<Array<{
+  id: number;
+  urlHash: string;
+  canonicalUrl: string;
+  title: string;
+  summary: string;
+  publishedAt: string;
+  contentHash: string | null;
+}>> {
+  const cutoff = new Date(
+    Date.now() - maxAgeHours * 60 * 60 * 1000
+  ).toISOString();
+
+  const rows = await env.ky_news_db
+    .prepare(
+      `SELECT id, url_hash, canonical_url, title, summary,
+              published_at, content_hash
+       FROM articles
+       WHERE published_at >= ?
+         AND is_kentucky = 1
+       ORDER BY published_at DESC
+       LIMIT 100`
+    )
+    .bind(cutoff)
+    .all();
+
+  return (rows.results ?? []).map((r: any) => ({
+    id: Number(r.id),
+    urlHash: String(r.url_hash),
+    canonicalUrl: String(r.canonical_url),
+    title: String(r.title),
+    summary: String(r.summary ?? ''),
+    publishedAt: String(r.published_at),
+    contentHash: r.content_hash ? String(r.content_hash) : null,
+  }));
+}
+
+/**
+ * Prepends an update paragraph to an article's summary in D1
+ * and records the new content hash so we don't re-detect the
+ * same update on the next check.
+ *
+ * The update paragraph is prefixed with a timestamp:
+ *   "Update (4:30 p.m.): [text]\n\n[existing summary]"
+ */
+export async function prependUpdateToSummary(
+  env: Env,
+  id: number,
+  updateParagraph: string,
+  newContentHash: string,
+): Promise<void> {
+  // Fetch current summary to prepend to
+  const row = await env.ky_news_db
+    .prepare('SELECT summary FROM articles WHERE id = ?')
+    .bind(id)
+    .first<{ summary: string }>();
+
+  if (!row) return;
+
+  const timeLabel = new Date().toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'America/New_York',
+  });
+
+  const updatedSummary =
+    `Update (${timeLabel}): ${updateParagraph}\n\n${row.summary}`.trim();
+
+  await env.ky_news_db
+    .prepare(
+      `UPDATE articles
+       SET summary = ?,
+           content_hash = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    )
+    .bind(
+      updatedSummary.slice(0, 8000),
+      newContentHash,
+      id,
+    )
+    .run();
 }
 
 export async function updateArticlePublishedAt(env: Env, id: number, publishedAt: string): Promise<void> {

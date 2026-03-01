@@ -318,6 +318,77 @@ export async function summarizeArticle(
   return result;
 }
 
+/**
+ * Given the updated article text and the existing summary,
+ * generates a concise "Update:" paragraph covering only the
+ * new information not present in the existing summary.
+ *
+ * Returns null if:
+ *  - The AI determines there is no meaningful new information
+ *  - The new content is not substantively different
+ *  - AI call fails
+ *
+ * @param env         Worker environment
+ * @param newContent  Full text of the updated article
+ * @param existingSummary  The summary already stored in D1
+ * @param publishedAt ISO date string for TTL calculation
+ */
+export async function generateUpdateParagraph(
+  env: Env,
+  newContent: string,
+  existingSummary: string,
+  publishedAt: string,
+): Promise<string | null> {
+  try {
+    const systemPrompt = `You are a news editor. You will be given an updated article and the existing summary of the original version.
+
+Your task: write a single concise "Update" paragraph (2-4 sentences max) covering ONLY the new information in the updated article that is NOT already covered in the existing summary.
+
+Rules:
+- Start with exactly "Update: " followed by the new information
+- Do NOT repeat anything already in the existing summary
+- Do NOT use phrases like "the article was updated" or "new information shows"
+- If there is no meaningful new information, respond with exactly: NO_UPDATE
+- Write in past tense, third person, plain news style
+- Be specific: include names, numbers, charges, and facts from the update
+- Maximum 60 words`;
+
+    const userPrompt = `Existing summary:
+${existingSummary}
+
+Updated article content:
+${newContent.slice(0, 8000)}`;
+
+    const aiRaw = (await env.AI.run(MODEL, {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0,
+      seed: 42,
+      max_completion_tokens: 200,
+    })) as AiResultLike;
+
+    const text = extractAiText(aiRaw).trim();
+
+    if (!text || text === 'NO_UPDATE' || text.includes('NO_UPDATE')) {
+      return null;
+    }
+
+    // Must start with "Update" to be valid
+    if (!/^update\b/i.test(text)) {
+      return null;
+    }
+
+    // Strip any "Update: " prefix the AI added since we'll add our own
+    // timestamped prefix when prepending to the summary
+    return text.replace(/^update\s*:\s*/i, '').trim();
+
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API — feedback loop (thumbs up / down)
 // ---------------------------------------------------------------------------
