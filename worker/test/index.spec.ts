@@ -9,7 +9,7 @@ import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
 import * as dbModule from '../src/lib/db';
-import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById, getCountyCounts } from '../src/lib/db';
+import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById, getCountyCounts, listAdminArticles, queryArticles } from '../src/lib/db';
 import * as aiModule from '../src/lib/ai';
 import {
 	cleanFacebookHeadline,
@@ -989,6 +989,70 @@ describe('database utilities', () => {
 
 		counties = await getArticleCounties(env, id);
 		expect(counties).toEqual(['Jefferson', 'Fayette']);
+	});
+
+	it('listAdminArticles returns counties array on items', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/multi2',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-multi2',
+			title: 'Admin list counties',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette', 'Jefferson'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		const resp = await listAdminArticles(env, { limit: 10, cursor: null, search: null, category: 'all' });
+		const found = resp.items.find((i) => i.id === id);
+		expect(found).toBeDefined();
+		expect(found?.counties).toEqual(['Fayette', 'Jefferson']);
+	});
+
+	it('queryArticles search matches summary text', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/searchsum',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-search',
+			title: 'Search test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 'findme-summary',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		const resp = await queryArticles(env, { category: 'today', counties: [], search: 'findme-summary', limit: 10, cursor: null });
+		expect(resp.items.some((i) => i.id === id)).toBe(true);
 	});
 });
 

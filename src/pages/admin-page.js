@@ -235,11 +235,19 @@ export default function AdminPage() {
     const patch = edits[row.id] || {};
     setSavingId(row.id);
     try {
+      // parse counties string into array
+      const countiesList = (patch.countiesString || "")
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean);
+      const primaryCounty = countiesList.length > 0 ? countiesList[0] : (patch.county ?? row.county);
+
       await service.retagArticle({
         id: row.id,
         category: patch.category ?? row.category,
         isKentucky: patch.isKentucky ?? row.isKentucky,
-        county: patch.county ?? row.county,
+        county: primaryCounty || null,
+        counties: countiesList,
       });
       setArticleRows((prev) =>
         prev.map((item) =>
@@ -248,7 +256,8 @@ export default function AdminPage() {
                 ...item,
                 category: patch.category ?? row.category,
                 isKentucky: patch.isKentucky ?? row.isKentucky,
-                county: patch.county ?? row.county,
+                county: primaryCounty || item.county,
+                counties: countiesList,
                 publishedAt: patch.publishedAt ?? row.publishedAt,
               }
             : item
@@ -1265,16 +1274,17 @@ export default function AdminPage() {
               <Table size="small" stickyHeader>
                 <TableHead>
                   <TableRow>
-                    <TableCell style={{ width: 50 }}>ID</TableCell>
-                    <TableCell style={{ width: 70 }}>Status</TableCell>
-                    <TableCell style={{ minWidth: 220 }}>Title</TableCell>
-                    <TableCell style={{ width: 180 }}>Published (UTC)</TableCell>
-                    <TableCell style={{ width: 140 }}>Category</TableCell>
-                    <TableCell style={{ width: 60 }}>KY</TableCell>
-                    <TableCell style={{ width: 130 }}>County</TableCell>
-                    <TableCell style={{ width: 110 }}>Links</TableCell>
-                    <TableCell style={{ width: 50 }}>Edit</TableCell>
-                    <TableCell style={{ minWidth: 280 }}>Actions</TableCell>
+                    {/* we reduce widths by roughly 25% and also override padding for tighter layout */}
+                    <TableCell style={{ width: 38, padding: '4px 8px' }}>ID</TableCell>
+                    <TableCell style={{ width: 52, padding: '4px 8px' }}>Status</TableCell>
+                    <TableCell style={{ minWidth: 165, padding: '4px 8px' }}>Title</TableCell>
+                    <TableCell style={{ width: 135, padding: '4px 8px' }}>Published (UTC)</TableCell>
+                    <TableCell style={{ width: 105, padding: '4px 8px' }}>Category</TableCell>
+                    <TableCell style={{ width: 45, padding: '4px 8px' }}>KY</TableCell>
+                    <TableCell style={{ width: 98, padding: '4px 8px' }}>Counties</TableCell>
+                    <TableCell style={{ width: 82, padding: '4px 8px' }}>Links</TableCell>
+                    <TableCell style={{ width: 38, padding: '4px 8px' }}>Edit</TableCell>
+                    <TableCell style={{ minWidth: 210, padding: '4px 8px' }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1296,14 +1306,14 @@ export default function AdminPage() {
                     return (
                       <React.Fragment key={row.id}>
                         <TableRow style={draft ? { backgroundColor: "#fffde7" } : {}}>
-                          <TableCell>{row.id}</TableCell>
-                          <TableCell>
+                          <TableCell style={{ padding: '4px 8px' }}>{row.id}</TableCell>
+                          <TableCell style={{ padding: '4px 8px' }}>
                             {draft
                               ? <Chip size="small" label="DRAFT" style={{ backgroundColor: "#ff9800", color: "#fff" }} />
                               : <Chip size="small" label="Live" color="primary" />}
                           </TableCell>
-                          <TableCell style={{ maxWidth: 360, overflowWrap: "anywhere" }}>{row.title}</TableCell>
-                          <TableCell>
+                          <TableCell style={{ maxWidth: 360, overflowWrap: "anywhere", padding: '4px 8px' }}>{row.title}</TableCell>
+                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             {draft ? (
                               <Typography variant="caption" color="textSecondary">Not published</Typography>
                             ) : (
@@ -1315,28 +1325,28 @@ export default function AdminPage() {
                               />
                             )}
                           </TableCell>
-                          <TableCell>
+                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <FormControl variant="outlined" size="small" style={{ minWidth: 130 }}>
                               <Select value={currentCategory} onChange={(e) => setEdit(row.id, { category: e.target.value })}>
                                 {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                               </Select>
                             </FormControl>
                           </TableCell>
-                          <TableCell>
+                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <Select value={currentKy ? "yes" : "no"} variant="outlined" size="small"
                               onChange={(e) => setEdit(row.id, { isKentucky: e.target.value === "yes" })}>
                               <MenuItem value="yes">yes</MenuItem>
                               <MenuItem value="no">no</MenuItem>
                             </Select>
                           </TableCell>
-                          <TableCell>
+                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <TextField variant="outlined" size="small"
-                              value={currentCounty}
-                              onChange={(e) => setEdit(row.id, { county: e.target.value })}
-                              placeholder="optional" style={{ width: 120 }}
+                              value={currentCountiesString}
+                              onChange={(e) => setEdit(row.id, { countiesString: e.target.value })}
+                              placeholder="optional (comma-separated)" style={{ width: 120 }}
                             />
                           </TableCell>
-                          <TableCell>
+                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               {!draft && (
                                 <Button size="small" variant="outlined" color="primary"
@@ -1358,7 +1368,7 @@ export default function AdminPage() {
                               </Button>
                             </Box>
                           </TableCell>
-                          <TableCell>
+                          <TableCell style={{ padding: '4px 8px' }}>
                             <Tooltip title="Edit title / summary / links">
                               <IconButton
                                 size="small"

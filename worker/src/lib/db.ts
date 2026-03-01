@@ -399,7 +399,8 @@ export async function queryArticles(env: Env, options: {
   }
 
   if (options.search) {
-    where.push('(title LIKE ? OR content_text LIKE ?)');
+    // search page should search titles and summaries (not full text body)
+    where.push('(title LIKE ? OR summary LIKE ?)');
     const token = `%${escapeLike(options.search)}%`;
     binds.push(token, token);
   }
@@ -572,6 +573,14 @@ export async function listAdminArticles(env: Env, options: {
   const query = `SELECT * FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?`;
   const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
   const mapped = (rows.results ?? []).map(mapArticleRow);
+
+  // fetch associated counties for each article so the admin UI can show / edit multi-tags
+  for (const item of mapped) {
+    if (item && typeof item.id === 'number') {
+      // populate counties array, fallback to primary county if none stored
+      item.counties = await getArticleCounties(env, item.id);
+    }
+  }
 
   const hasMore = mapped.length > options.limit;
   const items = hasMore ? mapped.slice(0, options.limit) : mapped;
