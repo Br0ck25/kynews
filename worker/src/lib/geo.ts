@@ -24,7 +24,15 @@ export function escapeRegExp(value: string): string {
   // containing literal brackets will be handled safely.
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-
+/**
+ * Returns true if the given Kentucky county name appears literally in the
+ * provided text (with or without the word "County").  Used by the AI
+ * validation step to guard against hallucinated counties.
+ */
+export function textContainsCounty(text: string, county: string): boolean {
+  const escaped = escapeRegExp(county);
+  return new RegExp(`\\b${escaped}(?:\\s+County)?\\b`, 'i').test(text);
+}
 // precompile whole-word regexes for out-of-state names to avoid expensive
 // substring checks (and false positives such as "georgia" matching inside
 // "Georgetown").

@@ -608,6 +608,14 @@ function isScheduleOrScoresArticle(text: string): boolean {
   const timeLine = /^\d{1,2}:\d{2}\s*(?:am|pm)/i;
   const channelLine = /^(?:FS\d?|ESPN[U2]?|CBS|NBC|ABC|TNT|TBS|BALLY|PEACOCK|MSG|NESN)\s*$/i;
 
+  // Betting odds / gambling model articles are not summarizable
+  const isBettingArticle =
+    /\b(?:spread|over\/under|money\s*line|point\s*spread|sportsbook|promo\s*code|betting\s*(?:line|odds|pick|advice|tip)|(?:ATS|SU)\s+record|DraftKings|FanDuel|BetMGM|Caesars|SportsLine|covers\.com|action\s+network)\b/i
+    .test(text) &&
+    /\b(?:pick|predict|model|simul|project|wager|bet)\b/i.test(text);
+
+  if (isBettingArticle) return true;
+
   let scoreCount = 0;
   let narrativeCount = 0;
 

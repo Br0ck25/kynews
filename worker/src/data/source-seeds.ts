@@ -92,7 +92,6 @@ export const SCHOOL_SOURCE_SEEDS: string[] = [
 export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
   // high priority list kept empty to avoid additional sources beyond master list
 	'https://www.wymt.com/arc/outboundfeeds/rss/?outputType=xml',
-  'https://www.wkyt.com/arc/outboundfeeds/rss/?outputType=xml',
   'https://www.lex18.com/index.rss',
   'https://www.lex18.com/news/covering-kentucky.rss',
 	'https://mountain-topmedia.com/feed/',

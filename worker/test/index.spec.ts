@@ -4,6 +4,7 @@ import worker from '../src/index';
 import { __testables } from '../src/index';
 import * as classifyModule from '../src/lib/classify';
 import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
+import { isScheduleOrScoresArticle } from '../src/lib/ai';
 import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
@@ -541,6 +542,82 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual(['Laurel', 'Knox']);
 	});
 
+	// national wire override tests and other new rules
+	it('suppresses source default county for clear national wire stories from local TV', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.whas11.com/article/national-wire',
+			title: 'WASHINGTON — This is a national story',
+			content: 'WASHINGTON — The White House issued a statement today.',
+		});
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.category).toBe('national');
+		expect(classification.counties).toEqual([]);
+	});
+
+	it('also treats New York dateline wire pieces as non-KY', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.whas11.com/article/national-wire-ny',
+			title: 'NEW YORK — Police tighten security after blah',
+			content: 'NEW YORK — Authorities said...',
+		});
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.category).toBe('national');
+	});
+
+	it('does not hallucinate counties when AI proposes unknown name', async () => {
+		const fakeEnv = { ...env, AI: { run: vi.fn().mockResolvedValue({ response: '{"category":"today","isKentucky":true,"counties":["Elliott"]}' }) } } as unknown as Env;
+		const classification = await classifyArticleWithAi(fakeEnv, {
+			url: 'https://example.com/test',
+			title: 'Generic title',
+			content: 'No county mentioned here.',
+		});
+		expect(classification.county).toBeNull();
+		expect(classification.counties).toEqual([]);
+	});
+
+	it('marks national betting/odds articles as non-KY and non-summarizable', async () => {
+		const text = 'Kentucky vs Vanderbilt odds: spread money line and promo code for betting';
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.cbssports.com/college-basketball/odds/',
+			title: 'Kentucky vs Vanderbilt odds spread',
+			content: text,
+		});
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.category).toBe('national');
+		expect(isScheduleOrScoresArticle(text)).toBe(true);
+	});
+
+	it('does not classify national wire story as KY when only a Kentucky politician is mentioned', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.nbcnews.com/politics/congress/',
+			title: 'WASHINGTON — Democrats debate war powers',
+			content: 'WASHINGTON — Rep. Thomas Massie, R-Ky., said the vote would ...',
+		});
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.county).toBeNull();
+	});
+
+	it('respects AI judgment when the model classifies a national-wire KY story as Kentucky', async () => {
+		const fakeEnv = { ...env, AI: { run: vi.fn().mockResolvedValue({ response: '{"category":"today","isKentucky":true,"counties":[]}' }) } } as unknown as Env;
+		const classification = await classifyArticleWithAi(fakeEnv, {
+			url: 'https://www.nbcnews.com/politics/congress/',
+			title: 'WASHINGTON — Rep. Thomas Massie holds press conference',
+			content: 'WASHINGTON — Rep. Thomas Massie, R-Ky., led today’s briefing.',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBeNull();
+	});
+
+	it('treats a purely national wire story with Khamenei dateline as non-KY', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.lex18.com/article/foreign-news',
+			title: 'DUBAI — United Arab Emirates correspondent reports',
+			content: 'DUBAI — United Arab Emirates officials said ...',
+		});
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.category).toBe('national');
+	});
+
 	it('applies source default county fallback for Kentucky.com when KY context is present', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://www.kentucky.com/news/politics-government/article999999999.html',
@@ -548,6 +625,17 @@ describe('classification utilities', () => {
 			content: 'Kentucky lawmakers debated fiscal priorities during the latest legislative session.',
 		});
 
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Fayette');
+		expect(classification.counties).toEqual(['Fayette']);
+	});
+
+	it('applies source default for lex18 non-wire content', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.lex18.com/food/best-bluegrass',
+			title: 'Best of the Bluegrass recipes',
+			content: 'Enjoy these recipes from across the state.',
+		});
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Fayette');
 		expect(classification.counties).toEqual(['Fayette']);
@@ -643,6 +731,16 @@ describe('classification utilities', () => {
 		expect(classification.county).toBe('Ohio');
 		expect(classification.counties).toEqual(['Ohio']);
 		expect(classification.category).toBe('schools');
+	});
+
+	it('classifies a generic out-of-state college matchup as national sports', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.cbssports.com/college-basketball/game/',
+			title: 'Arizona vs Kansas final score',
+			content: 'Arizona Wildcats beat Kansas Jayhawks 80-70 in NCAA action.',
+		});
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.category).toBe('national');
 	});
 
 	it('forces non-Kentucky sports/schools/today classifications to national', async () => {

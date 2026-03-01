@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { summarizeArticle } from '../src/lib/ai';
+import { summarizeArticle, isScheduleOrScoresArticle } from '../src/lib/ai';
 
 function makeEnv(aiResponse: string): Env {
   return {
@@ -118,5 +118,10 @@ describe('summary sanitization', () => {
 
     expect(result.summary).toContain('U.S. veterans were women');
     expect(result.summary).toMatch(/women and the number has grown over time\.$/);
+  });
+
+  it('flags betting/odds content as unsummarizable via schedule detector', () => {
+    const base = 'Kentucky vs Vanderbilt odds; spread, money line, sportsbook promo code';
+    expect(isScheduleOrScoresArticle(base)).toBe(true);
   });
 });

@@ -4,7 +4,7 @@
 // this file attempt to implement those rules automatically during article
 // ingestion.
 import type { Category, ClassificationResult } from '../types';
-import { detectCounty, detectCity, detectKentuckyGeo, HIGH_AMBIGUITY_CITIES, escapeRegExp } from './geo';
+import { detectCounty, detectCity, detectKentuckyGeo, HIGH_AMBIGUITY_CITIES, escapeRegExp, textContainsCounty } from './geo';
 import { KY_COUNTIES } from '../data/ky-geo';
 
 type AiResultLike = {
@@ -233,6 +233,32 @@ const KY_HARD_NEGATIVES: RegExp[] = [
 ];
 
 /**
+ * Patterns that strongly indicate a national wire story regardless
+ * of source. When these appear in the title or lead content, the
+ * source default county is suppressed and the article is treated
+ * as national unless it has genuine Kentucky geo signals in the text.
+ */
+const NATIONAL_WIRE_OVERRIDE_RE =
+  /\b(?:washington\s*[—-]\s*|new\s+york\s*[—-]\s*|(?:ap|reuters|afp)\s*[—-]\s*|the\s+associated\s+press\s*[—-]|nbc\s+news\s*[—-]|cnn\s*[—-]|abc\s+news\s*[—-]|cbs\s+news\s*[—-]|fox\s+news\s*[—-]|dubai\s*[—-]\s*united\s+arab|from\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo))/i;
+
+/**
+ * Patterns indicating Kentucky is mentioned only as a politician's
+ * home state, not as the geographic subject of the article.
+ * "Rep. X, R-Ky." or "Sen. X, D-Ky." — the state abbreviation
+ * follows a congressional title and party affiliation.
+ */
+const KY_POLITICIAN_MENTION_RE =
+  /\b(?:rep(?:resentative)?|sen(?:ator)?)\b[^.]{1,60}\bR(?:ep)?\.?-Ky\b|\bKentucky\s+(?:Republican|Democrat|lawmaker|congressman|congresswoman|senator|representative)\b/i;
+
+/**
+ * Keywords that signal betting/odds/gambling content. These articles are
+ * non‑summarizable and should be treated as national regardless of any
+ * team names or source defaults.
+ */
+const BETTING_CONTENT_RE =
+  /\b(?:spread|over\/under|money\s*line|sportsbook|promo\s*code|SportsLine|DraftKings|FanDuel|BetMGM|betting\s+(?:line|odds|pick|advice))\b/i;
+
+/**
  * AI-powered classification using GLM-4.7-Flash.
  * Reads the article title and content to determine category, Kentucky presence,
  * and county. Falls back to keyword-based classifyArticle if AI fails.
@@ -264,11 +290,20 @@ export async function classifyArticleWithAi(
   const nationalSignal = /\bnational\b|\bfederal\b|\bunited states\b|\bu\.s\.\s+(?:government|congress|senate|house|military|federal|supreme court|president|department|agency|law|policy|court)\b|\b(?:congress|senate|white house|pentagon|supreme court|federal government|biden|trump|president)\b/i.test(semanticLeadText);
   const sourceDefaultCounty = getSourceDefaultCounty(input.url);
 
+  // Suppress source default county for national wire stories.
+  // Local TV stations syndicate AP/NBC/etc content; the dateline
+  // or byline pattern reveals these are not local stories.
+  const isNationalWireStory =
+    NATIONAL_WIRE_OVERRIDE_RE.test(semanticLeadText);
+
+  const effectiveSourceDefaultCounty =
+    isNationalWireStory ? null : sourceDefaultCounty;
+
   // treat articles from a known local source as KY, even if the text lacks an
   // explicit Kentucky mention. This flag influences both the initial fallback
   // and later merging logic.
   const baseIsKentucky =
-    relevance.category === 'kentucky' || hasKhsaa || sourceDefaultCounty !== null;
+    relevance.category === 'kentucky' || hasKhsaa || effectiveSourceDefaultCounty !== null;
 
   // County/city detection pipeline (issue #6):
   // 1. If the article text contains a county name, detectCounty returns it.
@@ -286,6 +321,17 @@ export async function classifyArticleWithAi(
     : { isKentucky: false, county: null, counties: [], city: null };
 
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');
+
+  // Betting odds articles are national content regardless of teams mentioned.
+  // "Kentucky vs. Vanderbilt odds" is a gambling article, not local sports news.
+  if (BETTING_CONTENT_RE.test(semanticLeadText)) {
+    category = 'national';
+    // Also suppress Kentucky flag — mentioning a KY team in odds context
+    // does not make it a Kentucky local story.
+    // Do NOT set baseIsKentucky = false here; let the fallback handle it
+    // after the AI pass, so the geo detector result is not discarded.
+  }
+
   // District-owned *.kyschools.us domains should generally be treated as
   // school-related stories unless the semantic classifier already identified a
   // more specific category (sports/weather/etc).  Previously we only forced
@@ -321,7 +367,7 @@ export async function classifyArticleWithAi(
     county:
       baseGeo.county ??
       (!baseGeo.city && (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource)
-        ? sourceDefaultCounty
+        ? effectiveSourceDefaultCounty
         : null),
     counties: baseGeo.counties ? [...baseGeo.counties] : [],
     city: baseGeo.city,
@@ -331,6 +377,22 @@ export async function classifyArticleWithAi(
   // if we had no counties but have a primary county fallback, ensure array
   if (fallback.county && fallback.counties.length === 0) {
     fallback.counties = [fallback.county];
+  }
+
+  // A Kentucky politician mention in a national wire story is not
+  // sufficient to override the national wire classification.  Only treat it
+  // as a Kentucky signal when there is no national wire dateline present.
+  const hasOnlyPoliticianKyMention =
+    KY_POLITICIAN_MENTION_RE.test(semanticText) &&
+    !baseGeo.county &&
+    baseGeo.counties.length === 0 &&
+    !baseGeo.city;
+
+  if (isNationalWireStory && hasOnlyPoliticianKyMention) {
+    // Override: treat as national despite KY mention
+    fallback.isKentucky = false;
+    fallback.county = null;
+    fallback.counties = [];
   }
 
   // attach national flag based on preliminary cues and ky status
@@ -430,9 +492,24 @@ export async function classifyArticleWithAi(
     const aiCountiesRaw: string[] = Array.isArray(parsed.counties)
       ? parsed.counties
       : parsed.county ? [parsed.county] : [];
-    const aiCounties = aiCountiesRaw
+    let aiCounties = aiCountiesRaw
       .map((c) => normalizeCountyName(c))
       .filter((c): c is string => !!c);
+
+    // Validate AI-suggested counties against actual text evidence.  Any
+    // county that isn't present literally in the semantic text and wasn't
+    // already found by the geo detector is discarded unless it matches the
+    // trusted source default.  If the primary county is rejected we fall
+    // back to the geo detector result to avoid leaving a spurious value.
+    if (!isCountyEvidenced(aiCounties[0] ?? null, semanticText, baseGeo.counties, effectiveSourceDefaultCounty)) {
+      // AI hallucinated a primary county
+      aiCounties = baseGeo.counties.length > 0 ? [...baseGeo.counties] : [];
+    }
+    // Filter the rest of the array as well
+    aiCounties = aiCounties.filter((c) =>
+      isCountyEvidenced(c, semanticText, baseGeo.counties, effectiveSourceDefaultCounty),
+    );
+
     const aiCounty = aiCounties[0] ?? null;
 
     const aiGeo = aiIsKentucky
@@ -468,18 +545,18 @@ export async function classifyArticleWithAi(
     );
 
     const mergedCounty = isKySchoolsSource
-      ? (fallback.county ?? aiCounty ?? aiGeo.county ?? sourceDefaultCounty)
+      ? (fallback.county ?? aiCounty ?? aiGeo.county ?? effectiveSourceDefaultCounty)
       : (
         // if the AI explicitly rejects Kentucky we normally drop any county
         // the fallback guessed, but we still want default-county sources to
         // retain their county tag only when the article is already KY.  The
         // rainy-day weather heuristic below handles uncategorized cases.
-        (!aiIsKentucky && typeof parsed.isKentucky === 'boolean' && sourceDefaultCounty === null)
+        (!aiIsKentucky && typeof parsed.isKentucky === 'boolean' && effectiveSourceDefaultCounty === null)
           ? null
           : (fallback.county ??
              aiCounty ??
              aiGeo.county ??
-             (mergedIsKentucky && !hadGeo ? sourceDefaultCounty : null))
+             (mergedIsKentucky && !hadGeo ? effectiveSourceDefaultCounty : null))
       );
 
     // determine final counties list using AI output when available, otherwise
@@ -509,20 +586,30 @@ export async function classifyArticleWithAi(
     // recompute national flag after merges/overrides
     fallback.isNational = nationalSignal || !fallback.isKentucky;
 
+    // Betting-content articles are national and should lose any KY tags even
+    // if a team name or default county nudged the logic earlier.
+    if (BETTING_CONTENT_RE.test(semanticLeadText)) {
+      fallback.isKentucky = false;
+      fallback.isNational = true;
+      fallback.county = null;
+      fallback.counties = [];
+      fallback.category = 'national';
+    }
+
     // for sources that cover multiple counties, we cannot assume every
     // article is Kentucky just because the domain has a default county.  clear
     // any KY tag that may have crept in via AI when the text itself provided no
     // Kentucky signals.
-    if (!baseIsKentucky && sourceDefaultCounty) {
+    if (!baseIsKentucky && effectiveSourceDefaultCounty) {
       fallback.isKentucky = false;
       fallback.county = null;
     }
 
     // weather articles *are* safe to tag since our UI only shows them in a
     // dedicated weather feed; use the default county if nothing else was found.
-    if (!fallback.isKentucky && sourceDefaultCounty && fallback.category === 'weather') {
+    if (!fallback.isKentucky && effectiveSourceDefaultCounty && fallback.category === 'weather') {
       fallback.isKentucky = true;
-      fallback.county = sourceDefaultCounty;
+      fallback.county = effectiveSourceDefaultCounty;
     }
 
     // Sync counties array after the override blocks above.
@@ -704,7 +791,7 @@ function countKentuckyMentions(text: string, allowAmbiguousCities: boolean): num
       count += countMatches(text, new RegExp(pattern.source, 'gi'));
     }
 
-    if (detectCounty(text)) count += 1;
+    if (detectCounty(text, text)) count += 1;
     if (detectCity(text)) count += 1;
 
     for (const city of KY_CITY_TERMS) {
@@ -756,6 +843,29 @@ function normalizeCountyName(value: string): string | null {
   const cleaned = normalizeText(value).replace(/\scounty$/i, '').trim().toLowerCase();
   if (!cleaned) return null;
   return KY_COUNTIES.find((county) => county.toLowerCase() === cleaned) ?? null;
+}
+
+/**
+ * Validate AI-suggested county against actual text evidence.
+ * If the AI returns a county name that does not appear in the
+ * article text AND is not the source default, reject it.
+ * This prevents hallucinated county assignments.
+ */
+function isCountyEvidenced(
+  county: string | null,
+  semanticText: string,
+  geoCounties: string[],
+  sourceDefault: string | null,
+): boolean {
+  if (!county) return true; // null is always valid
+  if (county === sourceDefault) return true; // source default is trusted
+  // Accept if geo detector already found it independently
+  if (geoCounties.some((c) => c.toLowerCase() === county.toLowerCase())) {
+    return true;
+  }
+  // Accept only if the county name appears literally in the text
+  // (with or without "County" suffix).  Delegate to geo helper for clarity.
+  return textContainsCounty(semanticText, county);
 }
 
 function containsWordOrPhrase(haystack: string, phrase: string): boolean {
