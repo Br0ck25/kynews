@@ -60,6 +60,21 @@ const INGEST_CONCURRENCY = 8;
 /** KV key for the backfill-counties job status (polled by the admin UI). */
 const BACKFILL_STATUS_KEY = 'admin:backfill:latest';
 
+// messages that are pushed from the admin UI and handled asynchronously by
+// the `queue` entrypoint below.  using a simple discriminated union keeps the
+// runtime code and tests easy to reason about.
+type QueueJob =
+	| { type: 'manualIngest'; sourceUrls: string[]; limitPerSource: number }
+	| { type: 'backfillCounty'; county: string; threshold: number };
+
+// augment the generated Env interface so that TypeScript knows the binding is
+// available once we add it in wrangler.jsonc.
+declare global {
+	interface Env {
+		INGEST_QUEUE?: Queue<QueueJob>;
+	}
+}
+
 const STRUCTURED_SEARCH_SOURCE_URLS = new Set([
 	'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
 	'https://www.wymt.com/search/?query=kentucky',
@@ -285,18 +300,26 @@ limitPerSource,
 	}
 
 if (url.pathname === '/api/admin/ingest' && request.method === 'POST') {
-if (!isAdminAuthorized(request, env)) {
-return json({ error: 'Unauthorized' }, 401);
-}
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
 
-const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: number }>(request);
-const includeSchools = body?.includeSchools !== false;
-const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
-const candidateSources = buildManualIngestSources(includeSchools);
-const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filter(isHttpUrl))];
+	const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: number }>(request);
+	const includeSchools = body?.includeSchools !== false;
+	const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
+	const candidateSources = buildManualIngestSources(includeSchools);
+	const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filter(isHttpUrl))];
 
-ctx.waitUntil(runIngest(env, sourceUrls, limitPerSource, 'manual'));
-return json({ ok: true, message: 'Admin ingest started', sourcesTried: sourceUrls.length, limitPerSource }, 202);
+	// fire a queue message so the heavy work runs in a separate invocation
+	// (queues are not subject to the 30‑second waitUntil limit).
+	ctx.waitUntil(
+		(env.INGEST_QUEUE as any).send({
+			type: 'manualIngest',
+			sourceUrls,
+			limitPerSource,
+		}),
+	);
+	return json({ ok: true, message: 'Admin ingest queued', sourcesTried: sourceUrls.length, limitPerSource }, 202);
 }
 
 // Internal endpoint: process a single county for the backfill job.  This is
@@ -313,44 +336,13 @@ if (url.pathname === '/api/admin/backfill-county' && request.method === 'POST') 
 	const threshold = Math.max(1, Number(body?.threshold ?? 5));
 	if (!county) return badRequest('Missing county');
 
-	console.log('backfill-county handler for', county, 'threshold', threshold);
-	const before = (await getCountyCounts(env)).get(county) ?? 0;
-	const urls = buildCountySearchUrls(county);
-	await __testables.runIngest(env, urls, threshold * 2, 'manual', { rotateSources: false }).catch((e) => {
-		console.error('runIngest error for', county, e);
-		return null;
-	});
-	// update status object
-	try {
-		const raw = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
-		if (raw) {
-			const statusObj = JSON.parse(raw);
-			if (statusObj && statusObj.status === 'running') {
-				statusObj.processed = (statusObj.processed || 0) + 1;
-				if (!statusObj.results) {
-					statusObj.results = [];
-				}
-				statusObj.results.push({ county, before, after: (await getCountyCounts(env)).get(county) ?? before });
-				if (statusObj.processed >= statusObj.missingCount) {
-					statusObj.status = 'complete';
-					statusObj.finishedAt = new Date().toISOString();
-				}
-				const ttl = statusObj.status === 'complete' ? 86400 : 7200;
-				await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e) => {
-					console.error('status put failed for', county, e);
-				});
-			}
-		}
-	} catch (e) {
-		console.error('error updating status for', county, e);
-	}
-
+	await performBackfillCounty(env, county, threshold);
 	return json({ ok: true });
 }
 
 // Backfill articles for counties that currently have fewer than `threshold` items.
-// Returns 202 immediately; the heavy ingest work runs via ctx.waitUntil so the
-// Poll GET /api/admin/backfill-status to track progress.
+// Enqueue one job per county; the worker queue consumer will perform the heavy
+// ingest work without being subject to the 30‑second waitUntil cap.
 if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
 		return json({ error: 'Unauthorized' }, 401);
@@ -373,53 +365,14 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 	};
 	await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(initialStatus), { expirationTtl: 7200 }).catch(() => null);
 
-	// Run the backfill in the background — schedule one async task per county.
-	// Each task updates KV independently so the overall job cannot be canceled
-	// due to a single long-running promise.
+	// schedule a queue message for each county
 	for (const county of missing) {
-		ctx.waitUntil((async () => {
-			console.log('backfill: processing county', county, 'threshold', threshold);
-			const before = countsMap.get(county) ?? 0;
-			const urls = buildCountySearchUrls(county);
-			await __testables.runIngest(env, urls, threshold * 2, 'manual', { rotateSources: false }).catch((e) => {
-				console.error('runIngest error for', county, e);
-				return null;
-			});
-			const newMap = await getCountyCounts(env).catch((e) => {
-				console.error('getCountyCounts error after', county, e);
-				return countsMap;
-			});
-			// read-modify-write the status object for this county
-			try {
-				const raw = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
-				if (raw) {
-					const statusObj = JSON.parse(raw);
-					if (statusObj && statusObj.status === 'running') {
-						statusObj.processed = (statusObj.processed || 0) + 1;
-						if (!statusObj.results) {
-							statusObj.results = [];
-						}
-						statusObj.results.push({ county, before, after: newMap.get(county) ?? before });
-						// if this was the last county, mark complete as well
-						if (statusObj.processed >= missing.length) {
-							statusObj.status = 'complete';
-							statusObj.finishedAt = new Date().toISOString();
-						}
-						const ttl = statusObj.status === 'complete' ? 86400 : 7200;
-						await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e) => {
-							console.error('status put failed for', county, e);
-						});
-					}
-				}
-			} catch (e) {
-				console.error('error updating status for', county, e);
-			}
-		})());
+		ctx.waitUntil(
+			(env.INGEST_QUEUE as any).send({ type: 'backfillCounty', county, threshold }),
+		);
 	}
-	// after enqueuing all counties we return immediately; final 'complete'
-	// timestamp will be written by the last task once processed == missing.length.
 
-	return json({ ok: true, message: 'Backfill started in background', threshold, missingCount: missing.length }, 202);
+	return json({ ok: true, message: 'Backfill queued', threshold, missingCount: missing.length }, 202);
 }
 
 if (url.pathname === '/api/admin/backfill-status' && request.method === 'GET') {
@@ -1447,6 +1400,10 @@ ctx.waitUntil(
 	}),
 );
 },
+// forward queue events to our exported handler
+async queue(batch: MessageBatch<QueueJob>, env: Env, ctx: ExecutionContext): Promise<void> {
+	return queue(batch, env, ctx);
+},
 };
 
 /** Process sources sequentially and store results - used by both HTTP seed endpoint and cron. */
@@ -1584,6 +1541,40 @@ function isKySchoolsSourceUrl(sourceUrl: string): boolean {
 		return host === 'kyschools.us' || host.endsWith('.kyschools.us');
 	} catch {
 		return false;
+	}
+}
+
+// shared logic for processing a single county.  used both by the
+// `/api/admin/backfill-county` HTTP handler and the queue consumer below.
+async function performBackfillCounty(env: Env, county: string, threshold: number): Promise<void> {
+	console.log('backfill-county job for', county, 'threshold', threshold);
+	const before = (await getCountyCounts(env)).get(county) ?? 0;
+	const urls = buildCountySearchUrls(county);
+	await runIngest(env, urls, threshold * 2, 'manual', { rotateSources: false }).catch((e) => {
+		console.error('runIngest error for', county, e);
+		return null;
+	});
+	// update status
+	try {
+		const raw = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
+		if (raw) {
+			const statusObj = JSON.parse(raw);
+			if (statusObj && statusObj.status === 'running') {
+				statusObj.processed = (statusObj.processed || 0) + 1;
+				if (!statusObj.results) statusObj.results = [];
+				statusObj.results.push({ county, before, after: (await getCountyCounts(env)).get(county) ?? before });
+				if (statusObj.processed >= statusObj.missingCount) {
+					statusObj.status = 'complete';
+					statusObj.finishedAt = new Date().toISOString();
+				}
+				const ttl = statusObj.status === 'complete' ? 86400 : 7200;
+				await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e) => {
+					console.error('status put failed for', county, e);
+				});
+			}
+		}
+	} catch (e) {
+		console.error('error updating status for', county, e);
 	}
 }
 
@@ -2201,6 +2192,30 @@ export const __testables = {
 
 // also export runIngest directly for easier import in tests or tooling
 export { runIngest };
+
+/**
+ * Cloudflare queue handler.  messages are sent by the admin UI and processed
+ * asynchronously here; each invocation receives a batch of jobs.
+ */
+export async function queue(
+	batch: MessageBatch<QueueJob>,
+	env: Env,
+	ctx: ExecutionContext,
+): Promise<void> {
+	for (const msg of batch.messages) {
+		const job = msg.body;
+		switch (job.type) {
+			case 'manualIngest':
+				await runIngest(env, job.sourceUrls, job.limitPerSource, 'manual');
+				break;
+			case 'backfillCounty':
+				await performBackfillCounty(env, job.county, job.threshold);
+				break;
+			default:
+				console.warn('queue handler received unknown job', job);
+		}
+	}
+}
 
 function extractFacebookPostId(fbUrl: string): string | null {
 	try {

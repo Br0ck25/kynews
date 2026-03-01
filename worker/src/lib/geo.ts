@@ -31,6 +31,14 @@ export function escapeRegExp(value: string): string {
  */
 export function textContainsCounty(text: string, county: string): boolean {
   const escaped = escapeRegExp(county);
+  if (AMBIGUOUS_COUNTY_NAMES.has(county)) {
+    // For ambiguous county names, only accept as evidence when "County"
+    // suffix is present — bare word match is too noisy (e.g. "mason jar",
+    // "Warren Buffett", "Lee Harvey Oswald").
+    return new RegExp(
+      `\\b${escaped}\\s+(?:county|counties|cnty|co(?=\\s|$))\\b`, 'i'
+    ).test(text);
+  }
   return new RegExp(`\\b${escaped}(?:\\s+County)?\\b`, 'i').test(text);
 }
 // precompile whole-word regexes for out-of-state names to avoid expensive

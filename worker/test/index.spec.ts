@@ -9,13 +9,14 @@ import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
 import * as dbModule from '../src/lib/db';
-import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById } from '../src/lib/db';
+import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById, getCountyCounts } from '../src/lib/db';
 import * as aiModule from '../src/lib/ai';
 import {
 	cleanFacebookHeadline,
 	generateFacebookHook,
 	generateFacebookCaption,
 } from '../src/lib/facebook';
+import { KY_COUNTIES } from '../src/data/ky-geo';
 
 // simplified alias for testing; avoid TypeScript generics to keep Vitest happy
 const IncomingRequest = Request;
@@ -1295,22 +1296,9 @@ describe('admin backfill endpoint', () => {
 			return origPut(key, value, opts);
 		};
 
-		// stub global.fetch to handle the worker self-invocations without using
-		// test-runner helpers like vi.fn or jest.fn (which may not exist in this
-		// environment).
-		const originalFetch = global.fetch;
-		global.fetch = async (input, init) => {
-			let url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
-			if (url.includes('/api/admin/backfill-county')) {
-				const r = new Request(url, init);
-				return SELF.fetch(r, adminEnv, createExecutionContext());
-			}
-			if (originalFetch) {
-				return originalFetch(input, init);
-			}
-			// fallback
-			return new Response(null, { status: 404 });
-		};
+		// instead of spinning up self-invocations we just capture queued jobs
+		const queued: any[] = [];
+		(adminEnv as any).INGEST_QUEUE = { send: async (msg: any) => queued.push(msg) };
 
 		const req = new IncomingRequest('https://example.com/api/admin/backfill-counties', {
 			method: 'POST',
@@ -1322,16 +1310,61 @@ describe('admin backfill endpoint', () => {
 		await waitOnExecutionContext(ctx);
 		expect(resp.status).toBe(202);
 
-		// wait for at least one in-progress update with processed > 0
+		// our queue stub should have received one message per missing county
+		const countsMap = await getCountyCounts(env);
+		const missingCount = KY_COUNTIES.filter((c) => (countsMap.get(c) ?? 0) < 100).length;
+		expect(queued.length).toBe(missingCount);
+
+		// process queued jobs via the queue handler
+		for (const job of queued) {
+			await worker.queue({ messages: [{ body: job }] } as any, adminEnv, createExecutionContext());
+		}
+
+		// wait for at least one in-progress update
 		for (let i = 0; i < 20; i++) {
 			if (seen.some((s) => s.processed && s.processed > 0)) break;
 			await new Promise((r) => setTimeout(r, 50));
 		}
 		expect(seen.some((s) => s.processed && s.processed > 0)).toBe(true);
 
-		// restore stubs
 		__testables.runIngest = originalRun;
-		global.fetch = originalFetch;
+	});
+});
+
+// ensure the admin ingest endpoint enqueues and processes jobs via queue
+describe('admin ingest endpoint', () => {
+	it('rejects unauthorized requests', async () => {
+		const response = await SELF.fetch('https://example.com/api/admin/ingest', {
+			method: 'POST',
+		});
+		expect(response.status).toBe(401);
+	});
+
+	it('queues ingest job and runs the worker', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		// capture queued messages
+		const queued: any[] = [];
+		(adminEnv as any).INGEST_QUEUE = { send: async (msg: any) => queued.push(msg) };
+
+
+		const req = new IncomingRequest('https://example.com/api/admin/ingest', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw' },
+			body: JSON.stringify({ includeSchools: true, limitPerSource: 3 }),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(202);
+		expect(queued.length).toBeGreaterThan(0);
+
+		for (const job of queued) {
+			await worker.queue({ messages: [{ body: job }] } as any, adminEnv, createExecutionContext());
+		}
+		// runIngest writes metrics; ensure at least one run completed
+		const metrics = await adminEnv.CACHE.get('admin:ingest:latest', 'json').catch(() => null);
+		expect(metrics).not.toBeNull();
 	});
 });
 

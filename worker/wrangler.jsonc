@@ -32,6 +32,20 @@
 			"id": "bf967297a73b4e9ebc8e473ba5140ab9"
 		}
 	],
+	"queues": {
+		"producers": [
+			{
+				"binding": "INGEST_QUEUE",
+				"queue": "4090094e0d0e4f688bd4e6d2fba58995"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "4090094e0d0e4f688bd4e6d2fba58995",
+				"max_batch_size": 10
+			}
+		]
+	},
 	"ai": {
 		"binding": "AI"
 	},
