@@ -18,6 +18,23 @@ const OUT_OF_STATE_NAMES = [
   'washington', 'west virginia', 'wisconsin', 'wyoming',
 ];
 
+/**
+ * City names that, when appearing near a geo match, indicate the
+ * match is on the Ohio side of the Cincinnati metro rather than
+ * in Kentucky. These are not state names so they don't appear in
+ * OUT_OF_STATE_NAMES, but they are equally disqualifying for
+ * city matches in the NKY/Cincinnati border area.
+ */
+const METRO_OHIO_SIGNALS = new Set([
+  'cincinnati',
+  'dayton',
+  'columbus',
+  'cleveland',
+  'toledo',
+  'akron',
+  'youngstown',
+]);
+
 // simple helper used by several regex builders; define before any use so
 // module initialization cannot fail with a temporal dead zone error.
 export function escapeRegExp(value: string): string {
@@ -47,6 +64,20 @@ export function textContainsCounty(text: string, county: string): boolean {
 // "Georgetown").
 const OUT_OF_STATE_RES: RegExp[] = OUT_OF_STATE_NAMES.map(
   (s) => new RegExp(`\\b${escapeRegExp(s)}\\b`, 'i')
+);
+
+// precompile regexes for the metro-Ohio signals described above.  These are
+// checked in isMatchDisqualifiedByState and operate on the same normalized
+// text as OUT_OF_STATE_RES.
+const METRO_OHIO_RES: RegExp[] = [...METRO_OHIO_SIGNALS].map(
+  (s) => new RegExp(`\\b${escapeRegExp(s)}\\b`, 'i')
+);
+
+// cached regexes for Kentucky county+"county" occurrences.  Used by the
+// metro-Ohio guard so we can cheaply detect a nearby KY anchor without
+// recompiling a regex on every call.
+const COUNTY_NAME_RES: RegExp[] = KY_COUNTIES.map((c) =>
+  new RegExp(`\\b${escapeRegExp(c.toLowerCase())}\\s+county\\b`, 'i')
 );
 
 /**
@@ -353,13 +384,16 @@ export function detectCity(input) {
       continue;
     }
 
-    if (!hasKentuckyContext || isHighAmbiguity) {
-      if (
-        cityIndex !== -1 &&
-        isMatchDisqualifiedByState(normalized, cityIndex, city.length)
-      ) {
-        continue;
-      }
+    // regardless of whether the article has general Kentucky context,
+    // we still want to honour localized out-of-state signals such as
+    // nearby Ohio metro cities. the disqualification helper itself
+    // contains the necessary guards (including detecting nearby KY
+    // anchors) so it is safe to call on every candidate.
+    if (
+      cityIndex !== -1 &&
+      isMatchDisqualifiedByState(normalized, cityIndex, city.length)
+    ) {
+      continue;
     }
 
     // record the accepted range so that later (shorter) cities don't stomp it
@@ -729,6 +763,24 @@ function isMatchDisqualifiedByState(
   // use precompiled regexes to ensure we only match whole words
   for (const re of OUT_OF_STATE_RES) {
     if (re.test(window)) return true;
+  }
+
+  // Also check for major Ohio metro cities near the match — these indicate
+  // the Cincinnati/Dayton Ohio side rather than Kentucky.  We examine a
+  // slightly smaller window than OUT_OF_STATE_WINDOW since the metro signal
+  // only needs to be reasonably close to the candidate city/county.
+  const windowForMetro = normalized.slice(
+    Math.max(0, matchIndex - 120),
+    matchIndex + matchLength + 120,
+  );
+  if (METRO_OHIO_RES.some((re) => re.test(windowForMetro))) {
+    // Don't disqualify if a KY county name or "Northern Kentucky" also
+    // appears in the same vicinity — that strong Kentucky anchor overrides
+    // the Ohio metro signal.
+    const hasNearbyKyAnchor =
+      /\b(?:northern\s+kentucky|kentucky|ky)\b/i.test(windowForMetro) ||
+      COUNTY_NAME_RES.some((re) => re.test(windowForMetro));
+    if (!hasNearbyKyAnchor) return true;
   }
 
   // We originally also checked for two-letter state abbreviations (e.g. "IN",

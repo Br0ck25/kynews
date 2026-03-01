@@ -625,6 +625,18 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual(['Laurel', 'Knox']);
 	});
 
+	it('suppresses city-derived county for Greater Cincinnati regional weather article', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://wlwt.com/weather-forecast',
+			title: 'Cold Sunday, snow by Monday for Greater Cincinnati',
+			content: 'Northern Kentucky will see rain while Georgetown and Cincinnati brace for snow.',
+		});
+
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBeNull();
+		expect(classification.counties).toEqual([]);
+	});
+
 	// national wire override tests and other new rules
 	it('suppresses source default county for clear national wire stories from local TV', async () => {
 		const classification = await classifyArticleWithAi(env, {

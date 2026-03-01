@@ -64,6 +64,16 @@ const AMBIGUOUS_CITY_TERMS = new Set<string>([
 ]);
 
 /**
+ * Greater Cincinnati / NKY regional weather and news articles often mention
+ * cities on the Ohio side of the metro.  When this signal is detected we
+ * suppress county assignment derived solely from a city match unless an
+ * explicit county name appears elsewhere in the text.  (Explicit
+ * "X County" phrases should continue to work normally.)
+ */
+const GREATER_CINCINNATI_RE =
+  /\bgreater\s+cincinnati\b|\bcincinnati\s+(?:area|metro|region|market)\b|\bnorthern\s+kentucky\s+(?:and|area|region)\b/i;
+
+/**
  * Kentucky county patterns.
  *
  * Supports: "Pike County", "Leslie Co", "Leslie Cnty".
@@ -377,6 +387,20 @@ export async function classifyArticleWithAi(
   // if we had no counties but have a primary county fallback, ensure array
   if (fallback.county && fallback.counties.length === 0) {
     fallback.counties = [fallback.county];
+  }
+
+  // suppress city-derived counties for Greater Cincinnati / Northern
+  // Kentucky regional articles unless an explicit "X County" is present.
+  const isGreaterCincinnatiArticle = GREATER_CINCINNATI_RE.test(semanticLeadText);
+  if (
+    isGreaterCincinnatiArticle &&
+    fallback.county &&
+    fallback.city &&
+    // patterns list covers all explicit county name forms, mirroring geo.ts
+    !COUNTY_PATTERNS.some((p) => p.pattern.test(semanticText))
+  ) {
+    fallback.county = null;
+    fallback.counties = [];
   }
 
   // A Kentucky politician mention in a national wire story is not

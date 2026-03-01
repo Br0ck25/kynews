@@ -158,6 +158,25 @@ describe('county detection', () => {
     expect(detectCity('The U.S. Attorney for the Eastern District of Kentucky spoke')).toBe(null);
   });
 
+  // new tests for Cincinnati‑area edge cases ------------------------------------------------
+  it('disqualifies Georgetown when Cincinnati is nearby', () => {
+    // simple case: Ohio metro city appears close to the Kentucky city name
+    // and no strong KY anchor (county or "Kentucky" phrase) is nearby.
+    const text =
+      'The latest Cincinnati forecast said Georgetown could see snow later this week.';
+    expect(detectCity(text)).toBe(null);
+  });
+
+  it('does not disqualify a legit KY city when a KY anchor is near the match', () => {
+    const text = 'Cincinnati area storm may hit Georgetown, Kentucky on Monday.';
+    expect(detectCity(text)).toBe('georgetown');
+  });
+
+  it('does not discard a Kentucky county when an Ohio metro signal has a nearby KY county anchor', () => {
+    const text = 'Cincinnati weather affects Boone County residents.';
+    expect(detectCounty(text, text)).toBe('Boone');
+  });
+
   it('returns multiple counties for a city that spans them when context is present', () => {
     const geo = detectKentuckyGeo('Police in Corbin responded to a call');
     expect(geo.counties).toEqual(['Whitley','Knox','Laurel']);
