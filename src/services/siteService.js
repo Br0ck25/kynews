@@ -497,7 +497,7 @@ export default class SiteService {
     });
   }
 
-  async adminReclassify({ limit = 100, beforeId = null } = {}) {
+  async adminReclassify({ limit = 20, beforeId = null } = {}) {
     return this.request("/api/admin/reclassify", {
       method: "POST",
       body: JSON.stringify({ limit, beforeId }),
