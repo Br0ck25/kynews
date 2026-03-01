@@ -102,6 +102,27 @@ describe('county detection', () => {
     expect(detectAllCounties('Leesburg and Laurel County officials')).toEqual(['Laurel']);
   });
 
+  // new regression tests for Atlanta wire / Fulton County
+  it('disqualifies Fulton County when a Georgia signal appears far before the match', () => {
+    // place the word "Georgia" more than 200 characters away; window was
+    // previously too narrow and would miss it.
+    const text = 'Georgia ' + 'x'.repeat(300) + ' Fulton County grand jury investigation';
+    expect(detectCounty(text, text)).toBeNull();
+  });
+
+  it('still detects Fulton County when Kentucky context is present', () => {
+    const text = 'A Fulton County, Ky. man was arrested.';
+    expect(detectCounty(text, text)).toBe('Fulton');
+  });
+
+  it('treats Jefferson County in Alabama as ambiguous without KY context', () => {
+    expect(detectCounty('Jefferson County tornado warning in Alabama', 'Jefferson County tornado warning in Alabama')).toBeNull();
+  });
+
+  it('detects Jefferson County when the article clearly refers to KY', () => {
+    expect(detectCounty('Jefferson County schools released a budget; Kentucky lawmakers approved it.', 'Jefferson County schools released a budget; Kentucky lawmakers approved it.')).toBe('Jefferson');
+  });
+
   it('does not reject a Kentucky county simply because "georgia" appears inside Georgetown', () => {
     const text = 'Scott County meeting near Georgetown';
     expect(detectAllCounties(text, text)).toEqual(['Scott']);
@@ -182,4 +203,26 @@ describe('county detection', () => {
     expect(geo.counties).toEqual(['Whitley','Knox','Laurel']);
     expect(geo.county).toBe('Whitley');
   });
-});
+
+  // regression tests for merged county/city detection
+  it('merges a city-derived county even when an explicit county is found', () => {
+    const text =
+      'HORSE CAVE, Ky. — Caverna Colonels defeated LaRue County Hawks';
+    const geo = detectKentuckyGeo(text);
+    expect(geo.city).toBe('horse cave');
+    // LaRue is explicit, Hart comes from the dateline city
+    expect(geo.counties).toEqual(['LaRue','Hart']);
+    expect(geo.county).toBe('LaRue');
+  });
+
+  it('does not duplicate a county when it appears both explicitly and via the city', () => {
+    const text = 'MANCHESTER, Ky. — North Laurel defeated Clay County';
+    const geo = detectKentuckyGeo(text);
+    expect(geo.city).toBe('manchester');
+    // explicit counties appear in the order they occur; Manchester maps to Clay,
+    // which is appended after Laurel.  We just need to ensure there are no
+    // duplicates and that the primary county is the first explicit one.
+    expect(geo.counties).toEqual(['Laurel','Clay']);
+    expect(new Set(geo.counties).size).toBe(geo.counties.length);
+    expect(geo.county).toBe('Laurel');
+  });});

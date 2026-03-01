@@ -73,14 +73,23 @@ export default function SinglePost(props) {
     setOpenSnackbarNotify(true);
   };
 
-  const handleShare = () => {
+  const service = React.useMemo(() => new SiteService(), []);
+
+  const handleShare = async () => {
     const title = post.title;
     const text = `I'm reading this on Kentucky News: ${post.title}`;
-    // Use clean SEO URL when available; fall back to legacy — never expose external source URL.
-    const localPath = articleToUrl(post);
-    const url = localPath.startsWith('/post?')
-      ? `https://localkynews.com${localPath}`
-      : `https://localkynews.com${localPath}`;
+    let sharePost = post;
+    // if slug exists, refresh classification from server to pick up any retagging
+    if (post.slug) {
+      try {
+        const fresh = await service.getPostBySlug(post.slug);
+        if (fresh) sharePost = fresh;
+      } catch {
+        // ignore failures and fall back to original
+      }
+    }
+    const localPath = articleToUrl(sharePost);
+    const url = `https://localkynews.com${localPath}`;
     ShareAPI(title, text, url);
   };
 

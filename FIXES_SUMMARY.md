@@ -22,12 +22,15 @@ This document summarizes the changes made to address the seven edge cases in
    - Reworked Pass B regex to wrap each county alternative with `\b`.
    - Ensures substrings like "Lee" do not match inside "Leesburg".
 
-4. **Multi-county cities**
+4. **Multi-county cities and merged results**
    - Created `KY_CITY_TO_COUNTIES` parallel map with arrays of counties.
-   - Adjusted `detectKentuckyGeo` to return all counties for matched cities.
+   - Adjusted `detectKentuckyGeo` to run city detection even when explicit
+     county names are present and merge the two result sets. County names
+     found directly retain priority in the returned array.
    - Added `corbin` to base `KY_CITY_TO_COUNTY` map and multi-county entries
      for identified cities.
-   - Added tests for multi-county city detection.
+   - Added tests for both pure city-based lookups and combined county/city
+     scenarios to guard against regressions.
 
 5. **Federal district phrases**
    - Added `SUPPRESSED_PHRASES` constant (for documentation) and logic in

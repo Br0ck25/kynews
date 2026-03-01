@@ -79,6 +79,7 @@ function mapWorkerArticleToPost(article) {
     categories: article?.category ? [article.category] : [],
     county: article?.county ?? null,
     author: article?.author ?? null,
+    isNational: article?.is_national === 1,
     // if extra counties were stored, expose them as tags so UI components can work with them
     tags: Array.isArray(article?.counties) ? article.counties : [],
   };

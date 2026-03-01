@@ -63,4 +63,13 @@ describe('SiteService.request', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(global.fetch.mock.calls[1][0]).toContain('worker.jamesbrock25.workers.dev');
   });
+
+  it('getPostBySlug includes isNational flag when worker returns is_national', async () => {
+    const service = new SiteService();
+    const articleData = { id: 5, slug: 'xyz', category: 'weather', is_national: 1 };
+    global.fetch.mockResolvedValue(makeResponse({ item: articleData }));
+
+    const post = await service.getPostBySlug('xyz');
+    expect(post.isNational).toBe(true);
+  });
 });

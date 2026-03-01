@@ -123,6 +123,26 @@ const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Taylor',   // person name
   'Wayne',    // person name
   'Webster',  // person/dictionary
+  // added to mitigate wire story false positives; each exists in KY_COUNTIES
+  'Fulton',   // Fulton County GA (Atlanta), NY, etc.
+  'Franklin', // Franklin County many states
+  'Jefferson',// every state
+  'Madison',  // multiple states
+  'Jackson',  // many states
+  'Union',    // many states
+  'Scott',    // Indiana, etc.
+  'Pike',     // Ohio, Georgia, Mississippi, etc.
+  'Perry',    // many states
+  'Clark',    // Indiana, Ohio, Nevada, etc.
+  'Christian',// Illinois, Missouri
+  'Marshall', // many states
+  'Carroll',  // many states
+  'Henderson',// NC, TN, TX, IL
+  'Simpson',  // Mississippi
+  'Butler',   // Ohio, Pennsylvania, etc.
+  'Clinton',  // many states
+  'Barren',   // exists elsewhere
+  // 'Hart' already present above
 ]);
 
 /**
@@ -161,7 +181,11 @@ const OUT_OF_STATE_ABBR_RE =
   /\b(al|ak|az|ar|ca|ct|de|fl|ga|hi|id|il|in|ia|ks|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy)\b/;
 
 /** Radius (characters) around a match to search for out-of-state signals. */
-const OUT_OF_STATE_WINDOW = 150;
+// widen the radius when searching for out‑of‑state signals.  Atlanta
+// wire stories often mention “Georgia” several sentences earlier, and a
+// 200‑char window was occasionally too narrow; expanding to 400 chars gives
+// a much broader safety margin without noticeable performance impact.
+const OUT_OF_STATE_WINDOW = 400;
 
 /** Matches "Kentucky" or the standalone postal abbreviation "KY". */
 const KY_PRESENT_RE = /\bkentucky\b|\bky\b/i;
@@ -212,22 +236,42 @@ const KY_UNAMBIGUOUS_KEYWORDS = ['kentucky', 'commonwealth of kentucky'];
 export function detectKentuckyGeo(input) {
   const haystack = normalizeForSearch(input);
 
+  // run both detectors up front so we can merge later; counties found by
+  // `detectAllCounties` (Pass A/B/C) are treated as more authoritative than
+  // city-derived counties and should always appear first in the result array.
   const counties = detectAllCounties(haystack, input);
-  if (counties.length > 0) {
+  const city = detectCity(input);
+
+  // merge the city-derived counties into the list if we found a city
+  let mergedCounties = [...counties];
+  let mergedCity = city;
+
+  if (city) {
+    const cityCounties =
+      KY_CITY_TO_COUNTIES[city] ??
+      (KY_CITY_TO_COUNTY[city] ? [KY_CITY_TO_COUNTY[city]] : []);
+
+    for (const c of cityCounties) {
+      // dedupe case‑insensitively, mirroring the lookup strategy used in
+      // other parts of this module.
+      if (!mergedCounties.find((mc) => mc.toLowerCase() === c.toLowerCase())) {
+        mergedCounties.push(c);
+      }
+    }
+  }
+
+  if (mergedCounties.length > 0) {
     return {
       isKentucky: true,
-      county: counties[0],
-      counties,
-      city: null,
+      county: mergedCounties[0],
+      counties: mergedCounties,
+      city: mergedCity || null,
     };
   }
 
-  const city = detectCity(input);
+  // if no counties at all, fall back to the old city-only branch so callers
+  // continue to receive a sensible `county` value for city matches.
   if (city) {
-    // A single city can span multiple counties; the plural map contains an
-    // array of all counties that should be returned when a city is matched.
-    // The original `KY_CITY_TO_COUNTY` remains available for callers that
-    // expect the legacy single-county lookup.
     const cityCounties =
       KY_CITY_TO_COUNTIES[city] ??
       (KY_CITY_TO_COUNTY[city] ? [KY_CITY_TO_COUNTY[city]] : []);

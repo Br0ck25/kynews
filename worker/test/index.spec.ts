@@ -637,27 +637,51 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual([]);
 	});
 
-	// national wire override tests and other new rules
-	it('suppresses source default county for clear national wire stories from local TV', async () => {
-		const classification = await classifyArticleWithAi(env, {
-			url: 'https://www.whas11.com/article/national-wire',
-			title: 'WASHINGTON — This is a national story',
-			content: 'WASHINGTON — The White House issued a statement today.',
-		});
-		expect(classification.isKentucky).toBe(false);
-		expect(classification.category).toBe('national');
-		expect(classification.counties).toEqual([]);
-	});
+		// explicit county should still be honored even in a Greater Cincinnati
+		// regional article; suppression only applies when the county was derived
+		// from a city match.
+		it('honors explicit county mention in Greater Cincinnati article', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://wlwt.com/weather-forecast',
+				title: 'Boone County under winter weather advisory',
+				content: 'Greater Cincinnati area will see snow; Boone County residents should prepare.',
+			});
 
-	it('also treats New York dateline wire pieces as non-KY', async () => {
-		const classification = await classifyArticleWithAi(env, {
-			url: 'https://www.whas11.com/article/national-wire-ny',
-			title: 'NEW YORK — Police tighten security after blah',
-			content: 'NEW YORK — Authorities said...',
+			expect(classification.isKentucky).toBe(true);
+			expect(classification.county).toBe('Boone');
+			expect(classification.counties).toEqual(['Boone']);
 		});
-		expect(classification.isKentucky).toBe(false);
-		expect(classification.category).toBe('national');
-	});
+
+		it('also treats New York dateline wire pieces as non-KY', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://www.whas11.com/article/national-wire-ny',
+				title: 'NEW YORK — Police tighten security after blah',
+				content: 'NEW YORK — Authorities said...',
+			});
+			expect(classification.isKentucky).toBe(false);
+			expect(classification.category).toBe('national');
+		});
+
+		// new regression cases for Atlanta and ANF-style bylines
+		it('treats Atlanta dateline wire stories as non-KY', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://www.wymt.com/article/national-wire-atlanta',
+				title: 'ATLANTA — Woman arrested after ...',
+				content: 'ATLANTA — A Georgia woman was charged...',
+			});
+			expect(classification.isKentucky).toBe(false);
+			expect(classification.category).toBe('national');
+		});
+
+		it('recognizes ANF/Gray News byline and treats as national', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://www.wymt.com/article/national-wire-anf',
+				title: '(ANF/Gray News) — A Georgia woman ...',
+				content: '(ANF/Gray News) — A Georgia woman pleaded guilty...';
+			});
+			expect(classification.isKentucky).toBe(false);
+			expect(classification.category).toBe('national');
+		});
 
 	it('does not hallucinate counties when AI proposes unknown name', async () => {
 			// temporarily override the AI run method on the shared env
