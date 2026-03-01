@@ -23,12 +23,10 @@ const INGEST_CONCURRENCY = 8;
 /** KV key for the backfill-counties job status (polled by the admin UI). */
 const BACKFILL_STATUS_KEY = 'admin:backfill:latest';
 const STRUCTURED_SEARCH_SOURCE_URLS = new Set([
-    'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
-    'https://www.wymt.com/search/?query=kentucky',
+
 ]);
 const ROBOTS_BYPASS_URLS = new Set([
-    'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
-    'https://www.wymt.com/search/?query=kentucky',
+
 ]);
 const PUBLIC_ARTICLE_CACHE_HEADERS = {
     'cache-control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',

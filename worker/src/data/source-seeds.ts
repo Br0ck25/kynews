@@ -69,7 +69,6 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://wp.kentuckystatepolice.ky.gov/feed/',
   'https://www.wowktv.com/news/kentucky/feed/',
   'https://www.wymt.com/arc/outboundfeeds/rss/?outputType=xml',
-  'https://www.wkyt.com/arc/outboundfeeds/rss/?outputType=xml',
   'https://www.lex18.com/index.rss',
   'https://www.lex18.com/news/covering-kentucky.rss',
 	'https://mountain-topmedia.com/feed/',

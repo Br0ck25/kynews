@@ -76,13 +76,11 @@ declare global {
 }
 
 const STRUCTURED_SEARCH_SOURCE_URLS = new Set([
-	'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
-	'https://www.wymt.com/search/?query=kentucky',
+
 ]);
 
 const ROBOTS_BYPASS_URLS = new Set([
-	'https://www.kentucky.com/search/?q=kentucky&page=1&sort=newest',
-	'https://www.wymt.com/search/?query=kentucky',
+
 ]);
 
 const PUBLIC_ARTICLE_CACHE_HEADERS = {
@@ -413,12 +411,20 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 	const countsMap = await getCountyCounts(env);
 	const missing = KY_COUNTIES.filter((c) => (countsMap.get(c) ?? 0) < threshold);
 
+	// determine total number of jobs (one per search URL). this value is
+	// stored as missingCount so progress tracking reflects the actual work
+	// that will be executed rather than the mere number of counties.
+	let totalJobs = 0;
+	for (const county of missing) {
+		totalJobs += buildCountySearchUrls(county).length;
+	}
+
 	// Write initial "running" state so the UI can display progress immediately.
 	const initialStatus = {
 		status: 'running' as const,
 		startedAt: new Date().toISOString(),
 		threshold,
-		missingCount: missing.length,
+		missingCount: totalJobs,
 		processed: 0,
 		results: [] as Array<{ county: string; before: number; after: number }>,
 	};
@@ -431,7 +437,7 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 		);
 	}
 
-	return json({ ok: true, message: 'Backfill queued', threshold, missingCount: missing.length }, 202);
+	return json({ ok: true, message: 'Backfill queued', threshold, missingCount: totalJobs }, 202);
 }
 
 if (url.pathname === '/api/admin/backfill-status' && request.method === 'GET') {
