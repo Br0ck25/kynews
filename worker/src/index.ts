@@ -1273,6 +1273,34 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
 	}
 }
 
+// 301 redirect handler for reclassified articles.
+// When an article's category/county changes, its URL path changes.
+// Extract the slug (last path segment) and look it up in D1.
+// If found and the current path differs from canonical, redirect.
+if (url.pathname.startsWith('/news/')) {
+	const slug = url.pathname.split('/').filter(Boolean).pop();
+	if (slug && slug.length > 8) {
+		try {
+			const article = await getArticleBySlug(env, slug);
+			if (article) {
+				const canonicalPath = buildArticlePath(article);
+				if (canonicalPath !== url.pathname) {
+					return new Response(null, {
+						status: 301,
+						headers: {
+							'Location': canonicalPath,
+							'Cache-Control': 'public, max-age=31536000, immutable',
+						},
+					});
+				}
+				// path matches — fall through to SPA handler
+			}
+		} catch {
+			// DB lookup failed — fall through to SPA handler normally
+		}
+	}
+}
+
 // SPA fallback for any /news/ path (after preview logic)
 if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
 	// serve the React app shell so client JS can render the appropriate page
@@ -1341,6 +1369,27 @@ function buildArticleUrl(
 	// anything marked national or explicitly category 'national' goes in national path
 	if (isNational || category === 'national') return `${baseUrl}/news/national/${slug}`;
 	return `${baseUrl}/news/kentucky/${slug}`;
+}
+
+/**
+ * Build the canonical /news/ path for an article based on its
+ * current classification. Must match the frontend routing logic.
+ */
+function buildArticlePath(article: {
+	slug: string | null;
+	category: string;
+	isKentucky: boolean;
+	county: string | null;
+}): string {
+	if (!article.slug) return '/';
+	if (article.isKentucky && article.county) {
+		const countySlug = article.county.toLowerCase().replace(/\s+/g, '-');
+		return `/news/kentucky/${countySlug}/${article.slug}`;
+	}
+	if (article.isKentucky) {
+		return `/news/kentucky/${article.slug}`;
+	}
+	return `/news/${article.category}/${article.slug}`;
 }
 
 /**

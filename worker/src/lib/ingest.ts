@@ -2,7 +2,7 @@ import type { ExtractedArticle, IngestResult, IngestSource, NewArticle } from '.
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
-import { classifyArticleWithAi, isShortContentAllowed } from './classify';
+import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE } from './classify';
 import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
 import { cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
@@ -122,6 +122,18 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
       : ''
     : '';
   console.log(`[CLASSIFIED] ${classification.isKentucky ? 'kentucky' : 'national'} - ${extracted.title}${tierSuffix}`);
+
+  // Reject pure betting/odds/gambling articles before summarization.
+  // These are CBS Sports / SportsLine model-pick articles with no
+  // local news value — they should not be stored in the DB.
+  if (BETTING_CONTENT_RE.test(extracted.contentText.slice(0, 2000))) {
+    console.log(`[REJECTED] betting/odds content: ${extracted.title}`);
+    return {
+      status: 'rejected',
+      reason: 'betting/odds content — not local news',
+      urlHash: canonicalHash,
+    };
+  }
 
   const ai = await summarizeArticle(env, canonicalHash, extracted.title, extracted.contentText, extracted.publishedAt);
 

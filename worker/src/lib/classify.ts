@@ -265,8 +265,26 @@ const KY_POLITICIAN_MENTION_RE =
  * non‑summarizable and should be treated as national regardless of any
  * team names or source defaults.
  */
-const BETTING_CONTENT_RE =
+export const BETTING_CONTENT_RE =
   /\b(?:spread|over\/under|money\s*line|sportsbook|promo\s*code|SportsLine|DraftKings|FanDuel|BetMGM|betting\s+(?:line|odds|pick|advice))\b/i;
+
+/**
+ * Returns true when the article is a statewide Kentucky political
+ * roundup covering multiple legislators from different districts.
+ * In this case the source default county should not be applied —
+ * the story belongs to all of Kentucky, not just the outlet's home.
+ */
+function isStatewideKyPoliticalStory(text: string): boolean {
+  // Explicit roundup language
+  if (/\bwhat\s+kentuckians?\s+said\b|\bkentucky\s+(?:lawmakers?|delegation|legislators?|congressional\s+(?:delegation|members?))\b|\breactions?\s+from\s+kentucky\b/i.test(text)) {
+    return true;
+  }
+  // Cross-chamber: both a KY senator AND a KY representative named
+  const hasKySenator = /\b(?:kentucky\s+sen(?:ator)?|u\.s\.\s+sen\.\s+[A-Z][^.]{0,40}kentucky|sen\.\s+\w+\s+\w+[^.]{0,20}(?:r|d)-ky)\b/i.test(text);
+  const hasKyRep = /\b(?:kentucky\s+rep(?:resentative)?|u\.s\.\s+rep\.\s+[A-Z][^.]{0,40}kentucky|rep\.\s+\w+\s+\w+[^.]{0,20}(?:r|d)-ky)\b/i.test(text);
+  if (hasKySenator && hasKyRep) return true;
+  return false;
+}
 
 /**
  * AI-powered classification using GLM-4.7-Flash.
@@ -306,8 +324,15 @@ export async function classifyArticleWithAi(
   const isNationalWireStory =
     NATIONAL_WIRE_OVERRIDE_RE.test(semanticLeadText);
 
+  const isStatewideKyPolitics =
+    isStatewideKyPoliticalStory(semanticLeadText);
+
   const effectiveSourceDefaultCounty =
-    isNationalWireStory ? null : sourceDefaultCounty;
+    isNationalWireStory
+      ? null
+      : isStatewideKyPolitics
+        ? null
+        : sourceDefaultCounty;
 
   // treat articles from a known local source as KY, even if the text lacks an
   // explicit Kentucky mention. This flag influences both the initial fallback
