@@ -757,16 +757,16 @@ export default function AdminPage() {
               )}
             </Paper>
           )}
-+          {reclassifyResult && (
-+            <Paper style={{ padding: 12, marginBottom: 16 }}>
-+              <Typography variant="subtitle2" gutterBottom>
-+                Reclassify — {reclassifyResult.status === "running" ? "Running…" : reclassifyResult.status === "done" ? "✅ Done" : reclassifyResult.status === "error" ? "⚠️ Error" : "Status"}
-+              </Typography>
-+              {reclassifyResult.message && (
-+                <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>{reclassifyResult.message}</Typography>
-+              )}
-+            </Paper>
-+          )}
+{reclassifyResult && (
+            <Paper style={{ padding: 12, marginBottom: 16 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Reclassify — {reclassifyResult.status === "running" ? "Running…" : reclassifyResult.status === "done" ? "✅ Done" : reclassifyResult.status === "error" ? "⚠️ Error" : "Status"}
+              </Typography>
+              {reclassifyResult.message && (
+                <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>{reclassifyResult.message}</Typography>
+              )}
+            </Paper>
+          )}
 
           <Paper style={{ padding: 16 }}>
             <Typography variant="h6" gutterBottom>Ingest Decisions (Latest Run)</Typography>
