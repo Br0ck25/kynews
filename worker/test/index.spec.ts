@@ -18,6 +18,10 @@ import {
 } from '../src/lib/facebook';
 import { KY_COUNTIES } from '../src/data/ky-geo';
 
+// helpers tested later
+import { buildArticleUrl } from '../src/index';
+import { articleToUrl } from '../src/utils/functions';
+
 // simplified alias for testing; avoid TypeScript generics to keep Vitest happy
 const IncomingRequest = Request;
 
@@ -1709,7 +1713,72 @@ describe('admin manual-article endpoint', () => {
 		const rowAfter = await getArticleById(adminEnv, 1);
 		expect(rowAfter.category).toBe('sports');
 		expect(rowAfter.is_kentucky).toBe(0);
+		expect(rowAfter.is_national).toBe(1); // should have been marked national
 		expect(rowAfter.county).toBeNull();
+
+		// retag weather article scenario: insert and then change scope
+		await adminEnv.ky_news_db.prepare(`
+			INSERT INTO articles (
+				canonical_url, source_url, url_hash, title, author, published_at, category,
+				is_kentucky, county, city, summary, seo_description, raw_word_count,
+				summary_word_count, content_text, content_html
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind(
+			'https://example.com/weather1',
+			'https://example.com',
+			'hash-w1',
+			'KY weather story',
+			null,
+			now,
+			'weather',
+			1,
+			'Fayette',
+			null,
+			'body',
+			'SEO',
+			100,
+			50,
+			'body',
+			'<p>body</p>'
+		).run();
+		// confirm it appears in weather feed initially
+		const feedResp = await SELF.fetch('https://example.com/api/articles/weather?limit=20');
+		let payload = await feedResp.json();
+		expect(payload.items.some((i) => i.urlHash === 'hash-w1')).toBe(true);
+
+		// retag story to national
+		const req2 = new IncomingRequest('https://example.com/api/admin/retag', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({ id: 2, category: 'weather', isKentucky: false }),
+		});
+		const ctx2 = createExecutionContext();
+		await worker.fetch(req2, adminEnv, ctx2);
+		// now feed still returns it and isNational flag set
+		const feedResp2 = await SELF.fetch('https://example.com/api/articles/weather?limit=20');
+		payload = await feedResp2.json();
+		expect(payload.items.some((i) => i.urlHash === 'hash-w1')).toBe(true);
+		expect(payload.items.find((i) => i.urlHash === 'hash-w1')?.isNational).toBe(true);
+	});
+});
+
+
+describe('URL builder helpers', () => {
+	test('buildArticleUrl uses national path when flagged', () => {
+		const base = 'https://localkynews.com';
+		// KY-wide weather
+		expect(buildArticleUrl(base, 'slug', null, 'weather', false, 1)).toBe(
+			'https://localkynews.com/news/kentucky/slug'
+		);
+		// national weather
+		expect(buildArticleUrl(base, 'slug', null, 'weather', true, 1)).toBe(
+			'https://localkynews.com/news/national/slug'
+		);
+	});
+
+	test('articleToUrl respects isNational flag', () => {
+		const post = { slug: 'abc', category: 'weather', isNational: true };
+		expect(articleToUrl(post)).toBe('/news/national/abc');
 	});
 });
 

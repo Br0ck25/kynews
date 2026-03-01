@@ -703,10 +703,19 @@ const countiesArr = forceKy
         ? [body.county.trim()]
         : [])
   : [];
+// national flag logic: explicit override when isKentucky provided, otherwise
+// treat category='national' as national as well
+let forceNat: boolean | undefined;
+if (typeof body?.isKentucky === 'boolean') {
+  forceNat = !body.isKentucky;
+} else if (category === 'national') {
+  forceNat = true;
+}
 
 await updateArticleClassification(env, id, {
       category: category as Category,
       isKentucky: forceKy,
+      isNational: forceNat,
       county: countyVal,
       counties: countiesArr,
     });
@@ -1324,11 +1333,13 @@ function buildArticleUrl(
 	slug: string | null,
 	county: string | null,
 	category: string,
+	isNational: boolean,
 	id: number,
 ): string {
 	if (!slug) return `${baseUrl}/post?articleId=${id}`;
 	if (county) return `${baseUrl}/news/kentucky/${countyNameToSlug(county)}/${slug}`;
-	if (category === 'national') return `${baseUrl}/news/national/${slug}`;
+	// anything marked national or explicitly category 'national' goes in national path
+	if (isNational || category === 'national') return `${baseUrl}/news/national/${slug}`;
 	return `${baseUrl}/news/kentucky/${slug}`;
 }
 
@@ -1369,18 +1380,16 @@ async function generateSitemap(env: Env): Promise<string> {
 
 	const rows = await env.ky_news_db
 		.prepare(
-			`SELECT id, slug, county, category, published_at, updated_at FROM articles
-       WHERE is_kentucky = 1 OR category = 'national'
+            `SELECT id, slug, county, category, is_national, published_at, updated_at FROM articles
+       WHERE is_kentucky = 1 OR is_national = 1
        ORDER BY id DESC LIMIT 50000`,
-		)
-		.all<{ id: number; slug: string | null; county: string | null; category: string; published_at: string; updated_at: string }>();
-
-	const baseUrl = 'https://localkynews.com';
+        )
+        .all<{ id: number; slug: string | null; county: string | null; category: string; is_national: number; published_at: string; updated_at: string }>();
 	const urls = (rows.results || []).map((row) => {
 		// normalize whatever timestamp we have and then take the UTC date portion
 		const iso = toIsoDateOrNull(row.updated_at || row.published_at || '');
 		const lastmod = iso ? iso.split('T')[0] : '';
-		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, row.id);
+		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, Boolean(row.is_national), row.id);
 		return `  <url>
     <loc>${loc}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}
     <changefreq>weekly</changefreq>
@@ -1470,8 +1479,8 @@ async function generateNewsSitemap(env: Env): Promise<string> {
 	const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 	const rows = await env.ky_news_db
 		.prepare(
-			`SELECT id, slug, county, category, title, published_at FROM articles
-       WHERE (is_kentucky = 1 OR category = 'national') AND published_at >= ?
+			`SELECT id, slug, county, category, is_national, title, published_at FROM articles
+       WHERE (is_kentucky = 1 OR is_national = 1) AND published_at >= ?
        ORDER BY published_at DESC LIMIT 1000`,
 		)
 		.bind(cutoff)
@@ -1486,7 +1495,7 @@ async function generateNewsSitemap(env: Env): Promise<string> {
 			.replace(/>/g, '&gt;')
 			.replace(/"/g, '&quot;')
 			.replace(/'/g, '&apos;');
-		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, row.id);
+		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, Boolean(row.is_national), row.id);
 		return `  <url>
     <loc>${loc}</loc>
     <news:news>

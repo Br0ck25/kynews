@@ -599,7 +599,7 @@ function summaryTtl(publishedAt: string): number {
  * When true, summarizeArticle will return a canned notice instead of
  * sending junk to the AI.
  */
-function isScheduleOrScoresArticle(text: string): boolean {
+export function isScheduleOrScoresArticle(text: string): boolean {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   if (lines.length < 5) return false;
 

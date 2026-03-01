@@ -54,7 +54,7 @@ describe('county intro generator', () => {
 });
 
 // additional tests for the tag helper
-import { getPostTags } from './functions';
+import { getPostTags, articleToUrl } from './functions';
 
 describe('post tag helper', () => {
   it('builds appropriate tags for Kentucky articles', () => {
@@ -112,6 +112,18 @@ describe('facebook caption helpers', () => {
     const hook = generateHook(summary, 'Jefferson');
     expect(hook.toLowerCase()).toContain('jefferson county');
   });
+
+// articleToUrl behavior checks
+describe('articleToUrl helper', () => {
+  it('builds national URL when isNational true', () => {
+    const post = { slug: 'foo', isNational: true };
+    expect(articleToUrl(post)).toBe('/news/national/foo');
+  });
+  it('builds kentucky URL when not national', () => {
+    const post = { slug: 'bar', isNational: false };
+    expect(articleToUrl(post)).toBe('/news/kentucky/bar');
+  });
+});
 
   it('builds full caption for ky articles and returns empty for non-ky', () => {
     const post = {

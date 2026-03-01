@@ -176,9 +176,11 @@ export function articleToUrl(post) {
   if (!slug) {
     return post.id ? `/post?articleId=${post.id}` : '/post';
   }
-  const isNational = Array.isArray(post.categories)
-    ? post.categories.includes('national')
-    : post.category === 'national';
+  const isNational =
+    Boolean(post.isNational) ||
+    (Array.isArray(post.categories)
+      ? post.categories.includes('national')
+      : post.category === 'national');
   if (post.county) {
     return `/news/kentucky/${countyToSlug(post.county)}/${slug}`;
   }

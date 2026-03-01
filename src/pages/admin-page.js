@@ -269,6 +269,10 @@ export default function AdminPage() {
                 ...item,
                 category: patch.category ?? row.category,
                 isKentucky: patch.isKentucky ?? row.isKentucky,
+                isNational:
+                  patch.isKentucky !== undefined
+                    ? !patch.isKentucky
+                    : item.isNational,
                 county: primaryCounty || item.county,
                 counties: countiesList,
                 publishedAt: patch.publishedAt ?? row.publishedAt,
@@ -519,6 +523,7 @@ export default function AdminPage() {
       slug: row.slug ?? null,
       county: row.county ?? null,
       categories: row.category ? [row.category] : [],
+      isNational: row.isNational || false,
     });
     return `https://localkynews.com${path}`;
   };
