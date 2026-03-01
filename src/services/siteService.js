@@ -519,10 +519,10 @@ export default class SiteService {
     return this.request(`/api/admin/articles?${params.toString()}`);
   }
 
-  async retagArticle({ id, category, isKentucky, isNational, county }) {
+  async retagArticle({ id, category, isKentucky, county }) {
     return this.request("/api/admin/retag", {
       method: "POST",
-      body: JSON.stringify({ id, category, isKentucky, isNational, county }),
+      body: JSON.stringify({ id, category, isKentucky, county }),
     });
   }
 
@@ -598,10 +598,13 @@ export default class SiteService {
    * Manually create an article from supplied fields (e.g. a Facebook post pasted by an admin).
    * Returns { status: 'inserted'|'duplicate', id, isDraft, category, county, canonicalUrl }
    */
-  async createManualArticle({ title, body, imageUrl, sourceUrl, county, isDraft, publishedAt }) {
+  async createManualArticle({ title, body, imageUrl, sourceUrl, county, isDraft, publishedAt, category, isKentucky }) {
+    const payload = { title, body, imageUrl, sourceUrl, county, isDraft, publishedAt };
+    if (category !== undefined) payload.category = category;
+    if (isKentucky !== undefined) payload.isKentucky = isKentucky;
     return this.request("/api/admin/manual-article", {
       method: "POST",
-      body: JSON.stringify({ title, body, imageUrl, sourceUrl, county, isDraft, publishedAt }),
+      body: JSON.stringify(payload),
     });
   }
 

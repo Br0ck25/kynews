@@ -14,6 +14,9 @@ import {
   InputLabel,
   MenuItem,
   Paper,
+  Radio,
+  RadioGroup,
+  FormLabel,
   Select,
   Switch,
   Tab,
@@ -37,6 +40,8 @@ import { articleToUrl } from "../utils/functions";
 // `SiteService` already handles environment configuration internally.
 const service = new SiteService();
 const CATEGORIES = ["today", "national", "sports", "weather", "schools", "obituaries"];
+// categories usable by admins when manually overriding; exclude national since scope is controlled separately
+const ADMIN_CATEGORIES = CATEGORIES.filter((c) => c !== 'national');
 
 // Articles stored with this published_at prefix are drafts — not yet live publicly
 function isDraftArticle(row) {
@@ -92,6 +97,10 @@ export default function AdminPage() {
   const [manualBody, setManualBody] = useState("");
   const [manualImageUrl, setManualImageUrl] = useState("");
   const [manualCounty, setManualCounty] = useState("");
+  // new fields for explicit categorization/scope
+  const [manualCategory, setManualCategory] = useState("");
+  const [manualIsKentucky, setManualIsKentucky] = useState(true);
+
   const [manualIsDraft, setManualIsDraft] = useState(false);
   const [manualPublishedAt, setManualPublishedAt] = useState("");
   const [manualLoading, setManualLoading] = useState(false);
@@ -236,18 +245,21 @@ export default function AdminPage() {
     setSavingId(row.id);
     try {
       // parse counties string into array
-      const countiesList = (patch.countiesString || "")
+      let countiesList = (patch.countiesString || "")
         .split(',')
         .map((c) => c.trim())
         .filter(Boolean);
+      const isKy = patch.isKentucky !== undefined ? patch.isKentucky : row.isKentucky;
+      if (!isKy) {
+        countiesList = []; // clear if marking national
+      }
       const primaryCounty = countiesList.length > 0 ? countiesList[0] : (patch.county ?? row.county);
 
       await service.retagArticle({
         id: row.id,
         category: patch.category ?? row.category,
-        isKentucky: patch.isKentucky ?? row.isKentucky,
-        isNational: patch.isNational ?? row.isNational,
-        county: primaryCounty || null,
+        isKentucky: isKy,
+        county: (!isKy ? null : primaryCounty) || null,
         counties: countiesList,
       });
       setArticleRows((prev) =>
@@ -507,7 +519,6 @@ export default function AdminPage() {
       slug: row.slug ?? null,
       county: row.county ?? null,
       categories: row.category ? [row.category] : [],
-      isNational: row.isNational,
     });
     return `https://localkynews.com${path}`;
   };
@@ -573,15 +584,24 @@ export default function AdminPage() {
         body: manualBody.trim() || null,
         imageUrl: manualImageUrl.trim() || null,
         sourceUrl: fbPostUrl.trim() || null,
-        county: manualCounty || null,
+        county: manualIsKentucky ? (manualCounty || null) : null,
         isDraft: manualIsDraft,
         publishedAt: publishedAtIso,
+        // pass admin overrides if provided
+        category: manualCategory || undefined,
+        isKentucky: manualIsKentucky,
       });
       if (result?.status === "inserted") {
         const label = manualIsDraft ? "Draft saved" : "Article published";
-        setManualSuccess(`${label}! ID: ${result.id} | Category: ${result.category} | County: ${result.county || "none"}`);
+        setManualSuccess(
+          `${label}! ID: ${result.id} | Category: ${result.category} | ` +
+            `${result.isKentucky ? 'Kentucky' : 'National'}${
+              result.county ? ' (' + result.county + ')' : ''
+            }`
+        );
         setFbPostUrl(""); setManualTitle(""); setManualBody("");
-        setManualImageUrl(""); setManualCounty(""); setManualIsDraft(false); setManualPublishedAt("");
+        setManualImageUrl(""); setManualCounty(""); setManualCategory(""); setManualIsKentucky(true);
+        setManualIsDraft(false); setManualPublishedAt("");
         applyFilter();
       } else if (result?.status === "duplicate") {
         setManualError(`Duplicate – an article with this URL already exists (ID: ${result.id}).`);
@@ -1110,6 +1130,38 @@ export default function AdminPage() {
                 style={{ marginBottom: 12 }}
               />
 
+              {/* Category (optional – leave blank for AI) */}
+              <FormControl variant="outlined" size="small" style={{ minWidth: 200, marginBottom: 12 }}>
+                <InputLabel>Category (optional)</InputLabel>
+                <Select
+                  value={manualCategory}
+                  onChange={(e) => setManualCategory(e.target.value)}
+                  label="Category (optional)"
+                >
+                  <MenuItem value=""><em>Auto (AI)</em></MenuItem>
+                  {['today', 'sports', 'weather', 'schools', 'obituaries'].map((c) => (
+                    <MenuItem key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Scope: Kentucky vs National */}
+              <FormControl component="fieldset" style={{ marginBottom: 12 }}>
+                <FormLabel component="legend">Scope</FormLabel>
+                <RadioGroup
+                  row
+                  value={manualIsKentucky ? 'kentucky' : 'national'}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setManualIsKentucky(v === 'kentucky');
+                    if (v !== 'kentucky') setManualCounty('');
+                  }}
+                >
+                  <FormControlLabel value="kentucky" control={<Radio color="primary" />} label="Kentucky" />
+                  <FormControlLabel value="national" control={<Radio color="primary" />} label="National" />
+                </RadioGroup>
+              </FormControl>
+
               {/* Date & Time */}
               <TextField
                 variant="outlined" size="small"
@@ -1123,19 +1175,21 @@ export default function AdminPage() {
 
               {/* County + Draft toggle */}
               <Box style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
-                <FormControl variant="outlined" size="small" style={{ minWidth: 200 }}>
-                  <InputLabel>County (optional)</InputLabel>
-                  <Select
-                    value={manualCounty}
-                    onChange={(e) => setManualCounty(e.target.value)}
-                    label="County (optional)"
-                  >
-                    <MenuItem value=""><em>None / let AI decide</em></MenuItem>
-                    {KENTUCKY_COUNTIES.map((c) => (
-                      <MenuItem key={c} value={c}>{c}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                {manualIsKentucky && (
+                  <FormControl variant="outlined" size="small" style={{ minWidth: 200 }}>
+                    <InputLabel>County (optional)</InputLabel>
+                    <Select
+                      value={manualCounty}
+                      onChange={(e) => setManualCounty(e.target.value)}
+                      label="County (optional)"
+                    >
+                      <MenuItem value=""><em>None / let AI decide</em></MenuItem>
+                      {KENTUCKY_COUNTIES.map((c) => (
+                        <MenuItem key={c} value={c}>{c}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
 
                 <FormControlLabel
                   control={
@@ -1163,7 +1217,8 @@ export default function AdminPage() {
                   disabled={manualLoading}
                   onClick={() => {
                     setFbPostUrl(""); setManualTitle(""); setManualBody("");
-                    setManualImageUrl(""); setManualCounty(""); setManualIsDraft(false);
+                    setManualImageUrl(""); setManualCounty(""); setManualCategory(""); setManualIsKentucky(true);
+                    setManualIsDraft(false);
                     setManualPublishedAt(""); setManualError(""); setManualSuccess(null);
                   }}
                 >
@@ -1282,7 +1337,6 @@ export default function AdminPage() {
                     <TableCell style={{ minWidth: 165, padding: '4px 8px' }}>Title</TableCell>
                     <TableCell style={{ width: 135, padding: '4px 8px' }}>Published (UTC)</TableCell>
                     <TableCell style={{ width: 105, padding: '4px 8px' }}>Category</TableCell>
-                    <TableCell style={{ width: 45, padding: '4px 8px' }}>Nat</TableCell>
                     <TableCell style={{ width: 45, padding: '4px 8px' }}>KY</TableCell>
                     <TableCell style={{ width: 98, padding: '4px 8px' }}>Counties</TableCell>
                     <TableCell style={{ width: 82, padding: '4px 8px' }}>Links</TableCell>
@@ -1295,11 +1349,12 @@ export default function AdminPage() {
                     const draft = isDraftArticle(row);
                     const edit = edits[row.id] || {};
                     const currentCategory = edit.category ?? row.category;
-                    const currentNat = edit.isNational ?? row.isNational;
                     const currentKy = edit.isKentucky ?? row.isKentucky;
                     // build the editable string for counties (primary + extras)
                     const currentCountiesString =
-                      edit.countiesString !== undefined
+                      !currentKy
+                        ? ""
+                        : edit.countiesString !== undefined
                         ? edit.countiesString
                         : (row.counties && row.counties.length > 0
                             ? row.counties.join(", ")
@@ -1337,41 +1392,31 @@ export default function AdminPage() {
                           </TableCell>
                           <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <FormControl variant="outlined" size="small" style={{ minWidth: 130 }}>
-                              <Select value={currentCategory} onChange={(e) => {
-                                    const newCat = e.target.value;
-                                    const patchObj = { category: newCat };
-                                    // if the editor switches away from "national" we
-                                    // assume the story should be Kentucky unless the
-                                    // user explicitly flips the KY toggle later.
-                                    if (newCat !== 'national' && !(edit.isKentucky ?? row.isKentucky)) {
-                                      patchObj.isKentucky = true;
-                                    }
-                                    setEdit(row.id, patchObj);
-                                  }}>
-                                {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                              <Select value={currentCategory} onChange={(e) => setEdit(row.id, { category: e.target.value })}>
+                                {ADMIN_CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                               </Select>
                             </FormControl>
                           </TableCell>
                           <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
-                            <Select value={currentNat ? "yes" : "no"} variant="outlined" size="small"
-                              onChange={(e) => setEdit(row.id, { isNational: e.target.value === "yes" })}>
-                              <MenuItem value="yes">yes</MenuItem>
-                              <MenuItem value="no">no</MenuItem>
-                            </Select>
-                          </TableCell>
-                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <Select value={currentKy ? "yes" : "no"} variant="outlined" size="small"
-                              onChange={(e) => setEdit(row.id, { isKentucky: e.target.value === "yes" })}>
+                              onChange={(e) => {
+                                const isKy = e.target.value === "yes";
+                                setEdit(row.id, { isKentucky: isKy, ...(isKy ? {} : { countiesString: "" }) });
+                              }}>
                               <MenuItem value="yes">yes</MenuItem>
                               <MenuItem value="no">no</MenuItem>
                             </Select>
                           </TableCell>
                           <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
-                            <TextField variant="outlined" size="small"
-                              value={currentCountiesString}
-                              onChange={(e) => setEdit(row.id, { countiesString: e.target.value })}
-                              placeholder="optional (comma-separated)" style={{ width: 120 }}
-                            />
+                            {currentKy ? (
+                              <TextField variant="outlined" size="small"
+                                value={currentCountiesString}
+                                onChange={(e) => setEdit(row.id, { countiesString: e.target.value })}
+                                placeholder="optional (comma-separated)" style={{ width: 120 }}
+                              />
+                            ) : (
+                              <Typography variant="caption" color="textSecondary">—</Typography>
+                            )}
                           </TableCell>
                           <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

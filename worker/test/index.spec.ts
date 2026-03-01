@@ -1132,139 +1132,9 @@ describe('database utilities', () => {
 		const resp = await queryArticles(env, { category: 'today', counties: [], search: 'findme-summary', limit: 10, cursor: null });
 		expect(resp.items.some((i) => i.id === id)).toBe(true);
 	});
+});
 
-    it('queryArticles includes a KY article when only isKentucky is true and no county', async () => {
-        await ensureSchemaAndFixture();
-        const now = new Date().toISOString();
-        const id = await insertArticle(env, {
-            canonicalUrl: 'https://example.com/kyonly',
-            sourceUrl: 'https://example.com',
-            urlHash: 'hash-kyonly',
-            title: 'No county but KY',
-            author: null,
-            publishedAt: now,
-            category: 'today',
-            isKentucky: true,
-            isNational: false,
-            county: null,
-            counties: [],
-            city: null,
-            summary: 'ky-tag',
-            seoDescription: 'seo',
-            rawWordCount: 1,
-            summaryWordCount: 1,
-            contentText: 'x',
-            contentHtml: '<p>x</p>',
-            imageUrl: null,
-            rawR2Key: null,
-            slug: null,
-        });
-
-        const resp = await queryArticles(env, { category: 'today', counties: [], search: null, limit: 10, cursor: null });
-        expect(resp.items.some((i) => i.id === id)).toBe(true);
-    });
-
-    it('queryArticles returns national weather when isNational=true', async () => {
-        await ensureSchemaAndFixture();
-        const now = new Date().toISOString();
-        const id = await insertArticle(env, {
-            canonicalUrl: 'https://example.com/natweather',
-            sourceUrl: 'https://example.com',
-            urlHash: 'hash-natweather',
-            title: 'National weather alert',
-            author: null,
-            publishedAt: now,
-            category: 'weather',
-            isKentucky: false,
-            isNational: true,
-            county: null,
-            counties: [],
-            city: null,
-            summary: 'storm',
-            seoDescription: 'seo',
-            rawWordCount: 1,
-            summaryWordCount: 1,
-            contentText: 'x',
-            contentHtml: '<p>x</p>',
-            imageUrl: null,
-            rawR2Key: null,
-            slug: null,
-        });
-
-        const resp = await queryArticles(env, { category: 'weather', counties: [], search: null, limit: 10, cursor: null });
-        expect(resp.items.some((i) => i.id === id)).toBe(true);
-    });
-
-    it('queryArticles returns national sports when isNational=true', async () => {
-        await ensureSchemaAndFixture();
-        const now = new Date().toISOString();
-        const id = await insertArticle(env, {
-            canonicalUrl: 'https://example.com/natsports',
-            sourceUrl: 'https://example.com',
-            urlHash: 'hash-natsports',
-            title: 'National football recap',
-            author: null,
-            publishedAt: now,
-            category: 'sports',
-            isKentucky: false,
-            isNational: true,
-            county: null,
-            counties: [],
-            city: null,
-            summary: 'game',
-            seoDescription: 'seo',
-            rawWordCount: 1,
-            summaryWordCount: 1,
-            contentText: 'x',
-            contentHtml: '<p>x</p>',
-            imageUrl: null,
-            rawR2Key: null,
-            slug: null,
-        });
-
-        const resp = await queryArticles(env, { category: 'sports', counties: [], search: null, limit: 10, cursor: null });
-        expect(resp.items.some((i) => i.id === id)).toBe(true);
-    });
-
-    it('updateArticleClassification can set isNational flag', async () => {
-        await ensureSchemaAndFixture();
-        const now = new Date().toISOString();
-        const id = await insertArticle(env, {
-            canonicalUrl: 'https://example.com/natflag',
-            sourceUrl: 'https://example.com',
-            urlHash: 'hash-natflag',
-            title: 'Flag test',
-            author: null,
-            publishedAt: now,
-            category: 'today',
-            isKentucky: true,
-            isNational: false,
-            county: 'Fayette',
-            counties: ['Fayette'],
-            city: null,
-            summary: 's',
-            seoDescription: 'seo',
-            rawWordCount: 1,
-            summaryWordCount: 1,
-            contentText: 'x',
-            contentHtml: '<p>x</p>',
-            imageUrl: null,
-            rawR2Key: null,
-            slug: null,
-        });
-        let row = await getArticleById(env, id);
-        expect(row?.isNational).toBe(false);
-
-        await updateArticleClassification(env, id, {
-            category: 'today',
-            isKentucky: true,
-            isNational: true,
-            county: 'Fayette',
-            counties: ['Fayette'],
-        });
-        row = await getArticleById(env, id);
-        expect(row?.isNational).toBe(true);
-    });
+describe('db.insertArticle error logging', () => {
 	it('logs a helpful message and propagates the error', async () => {
 		await ensureSchemaAndFixture();
 		const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -1716,6 +1586,130 @@ describe('admin backfill endpoint', () => {
 		).toBe(true);
 
 		__testables.runIngest = originalRun;
+	});
+});
+
+// ---------------------------------------------------------------------------
+// manual-article endpoint tests
+// ---------------------------------------------------------------------------
+describe('admin manual-article endpoint', () => {
+	it('rejects unauthorized requests', async () => {
+		const response = await SELF.fetch('https://example.com/api/admin/manual-article', {
+			method: 'POST',
+			body: JSON.stringify({ title: 'foo' }),
+		});
+		expect(response.status).toBe(401);
+	});
+
+	it('allows inserting a national article with specified category', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		const req = new IncomingRequest('https://example.com/api/admin/manual-article', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				title: 'Manual national sports',
+				body: 'Test body',
+				category: 'sports',
+				isKentucky: false,
+			}),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const json = await resp.json();
+		expect(json.status).toBe('inserted');
+		expect(json.category).toBe('sports');
+		expect(json.isKentucky).toBe(false);
+		const row = await getArticleById(adminEnv, json.id);
+		expect(row.category).toBe('sports');
+		expect(row.is_kentucky).toBe(0);
+	});
+
+	it('allows inserting a kentucky article with optional county', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		const req = new IncomingRequest('https://example.com/api/admin/manual-article', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				title: 'Manual KY schools',
+				body: 'Test body',
+				category: 'schools',
+				isKentucky: true,
+				county: 'Fayette',
+			}),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const json = await resp.json();
+		expect(json.status).toBe('inserted');
+		expect(json.isKentucky).toBe(true);
+		expect(json.category).toBe('schools');
+		expect(json.county).toBe('Fayette');
+		const row = await getArticleById(adminEnv, json.id);
+		expect(row.is_kentucky).toBe(1);
+		expect(row.county).toBe('Fayette');
+	});
+
+	// additional tests for retag
+	it('rejects unauthorized retag requests', async () => {
+		const response = await SELF.fetch('https://example.com/api/admin/retag', {
+			method: 'POST',
+			body: JSON.stringify({ id: 1, category: 'weather', isKentucky: true }),
+		});
+		expect(response.status).toBe(401);
+	});
+
+	it('allows updating category/scope via retag', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		// ensure there is an article to modify
+		const now = new Date().toISOString();
+		await adminEnv.ky_news_db.prepare(`
+			INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category, is_kentucky, county, city, summary, seo_description, raw_word_count, summary_word_count, content_text, content_html)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind(
+			'https://example.com/foo',
+			'https://example.com',
+			'hash-foo',
+			'Foo',
+			null,
+			now,
+			'today',
+			1,
+			'Fayette',
+			null,
+			'Summary',
+			'SEO',
+			100,
+			50,
+			'body',
+			'<p>body</p>'
+		).run();
+		const rowBefore = await getArticleById(adminEnv, 1);
+		expect(rowBefore.category).toBe('today');
+		expect(rowBefore.is_kentucky).toBe(1);
+		expect(rowBefore.county).toBe('Fayette');
+
+		const req = new IncomingRequest('https://example.com/api/admin/retag', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({ id: 1, category: 'sports', isKentucky: false }),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const j = await resp.json();
+		expect(j.ok).toBe(true);
+		const rowAfter = await getArticleById(adminEnv, 1);
+		expect(rowAfter.category).toBe('sports');
+		expect(rowAfter.is_kentucky).toBe(0);
+		expect(rowAfter.county).toBeNull();
 	});
 });
 

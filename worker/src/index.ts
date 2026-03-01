@@ -683,36 +683,32 @@ if (url.pathname === '/api/admin/retag' && request.method === 'POST') {
 if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
 }
-// allow editors to explicitly flip the national flag in addition to the
-// usual fields.  the frontend will always supply a boolean value.
-const rawBody = await parseJsonBody<{ id?: number; category?: string; isKentucky?: boolean; isNational?: boolean; county?: string | null; counties?: string[] }>(request);
-const body = rawBody || {};
-const id = Number(body.id ?? 0);
+const body = await parseJsonBody<{ id?: number; category?: string; isKentucky?: boolean; county?: string | null; counties?: string[] }>(request);
+const id = Number(body?.id ?? 0);
 if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
 
 const category = (body?.category || '').toLowerCase();
 if (!isAllowedCategory(category)) return badRequest('Invalid category');
 
-// fetch existing record to avoid accidentally overwriting flags when the
-// client omits them (editing counties/title etc).
-const existing = await getArticleById(env, id);
-const resolvedIsKentucky = Object.prototype.hasOwnProperty.call(body, 'isKentucky')
-  ? Boolean(body.isKentucky)
-  : existing?.isKentucky ?? false;
-const resolvedIsNational = Object.prototype.hasOwnProperty.call(body, 'isNational')
-  ? Boolean(body.isNational)
-  : existing?.isNational ?? false;
+const forceKy = Boolean(body?.isKentucky);
+// compute county(s) only when Kentucky flag is true
+const countyVal =
+  forceKy && typeof body?.county === 'string' && body.county.trim()
+    ? body.county.trim()
+    : null;
+const countiesArr = forceKy
+  ? (Array.isArray(body?.counties)
+      ? body!.counties.map((c) => c.trim()).filter(Boolean)
+      : body?.county
+        ? [body.county.trim()]
+        : [])
+  : [];
 
 await updateArticleClassification(env, id, {
       category: category as Category,
-      isKentucky: resolvedIsKentucky,
-      isNational: resolvedIsNational,
-      county: typeof body?.county === 'string' && body.county.trim() ? body.county.trim() : null,
-      counties: Array.isArray(body?.counties)
-        ? body!.counties.map((c) => c.trim()).filter(Boolean)
-        : body?.county
-          ? [body.county.trim()]
-          : [],
+      isKentucky: forceKy,
+      county: countyVal,
+      counties: countiesArr,
     });
     return json({ ok: true, id });
 }
@@ -1034,6 +1030,8 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		county?: string;
 		isDraft?: boolean;
 		publishedAt?: string;
+		category?: string;
+		isKentucky?: boolean;
 	}>(request);
 
 	const title = body?.title?.trim();
@@ -1076,7 +1074,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		});
 	}
 
-	// Classify – always force isKentucky=true; prefer admin-supplied county
+	// Classify the article as usual, then apply any admin overrides.
 	const classifyContent = postBody || title;
 	const classification = await classifyArticleWithAi(env, {
 		url: canonicalUrl,
@@ -1084,10 +1082,28 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		content: classifyContent,
 	});
 
-	classification.isKentucky = true;
-	if (providedCounty) {
+	// admin can override the category if provided and valid
+	if (body?.category) {
+		const cat = (body.category || '').toLowerCase();
+		if (isAllowedCategory(cat)) {
+			classification.category = cat as any;
+		}
+	}
+
+	// scope override: let admin mark as national (isKentucky=false) or keep
+	// default; classification.isNational will mirror the opposite value.
+	if (typeof body?.isKentucky === 'boolean') {
+		classification.isKentucky = body.isKentucky;
+		classification.isNational = !body.isKentucky;
+	}
+
+	// prefer admin-supplied county when available; clear if not kentucky
+	if (providedCounty && classification.isKentucky) {
 		classification.county = providedCounty;
 		classification.counties = [providedCounty];
+	} else if (!classification.isKentucky) {
+		classification.county = null;
+		classification.counties = [];
 	}
 
 	const contentHtml = postBody
@@ -1119,8 +1135,8 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		author: null,
 		publishedAt: resolvedPublishedAt,
 		category: classification.category,
-		isKentucky: true,
-		isNational: false,
+		isKentucky: classification.isKentucky,
+		isNational: classification.isNational ?? !classification.isKentucky,
 		county: classification.county,
 		counties: classification.counties,
 		city: classification.city,
@@ -1142,7 +1158,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		id: articleId,
 		isDraft,
 		category: newArticle.category,
-		isKentucky: true,
+		isKentucky: newArticle.isKentucky,
 		county: newArticle.county,
 		canonicalUrl,
 	});

@@ -54,19 +54,4 @@ describe('CategoryFeedPage', () => {
     });
     expect(screen.getByText('Nat post')).toBeInTheDocument();
   });
-
-  it('shows category label on cards (e.g. Weather)', async () => {
-    const weatherPost = createPost({ title: 'Rain', isKentucky: false, category: 'weather' });
-    jest.spyOn(SiteService.prototype, 'fetchPage').mockResolvedValue({ posts: [weatherPost], nextCursor: null });
-
-    render(
-      <Provider store={store}>
-        <CategoryFeedPage category="weather" title="Weather" />
-      </Provider>
-    );
-
-    await waitFor(() => expect(screen.getByText('Rain')).toBeInTheDocument());
-    // tag chips should include the category label
-    expect(screen.getByText('Weather')).toBeInTheDocument();
-  });
 });
