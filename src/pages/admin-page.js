@@ -656,16 +656,28 @@ export default function AdminPage() {
     }
   };
 
-  // kick off one batch of reclassification; UI shows the response summary
+  // kick off reclassification and page through results automatically
+  // the backend returns up to `limit` articles plus a `lastId` marker.
+  // we keep issuing requests until lastId is null, updating the UI as we go.
   const runReclassify = async () => {
-    setReclassifyResult({ status: "running", message: "Starting reclassify run..." });
+    setReclassifyResult({ status: "running", message: "Starting reclassify run...", results: [] });
     try {
-      const res = await service.adminReclassify({ limit: 20 });
-      setReclassifyResult({
-        status: "done",
-        message: `Processed ${res.processed} articles; lastId=${res.lastId}`,
-        results: res.results || [],
-      });
+      let total = 0;
+      let allResults = [];
+      let beforeId = null;
+      while (true) {
+        const res = await service.adminReclassify({ limit: 20, beforeId });
+        total += res.processed;
+        if (res.results) allResults = allResults.concat(res.results);
+        const msg = `Processed ${total} articles; lastId=${res.lastId}`;
+        setReclassifyResult({ status: "running", message: msg, results: allResults });
+        if (!res.lastId) {
+          // finished
+          setReclassifyResult({ status: "done", message: msg, results: allResults });
+          break;
+        }
+        beforeId = res.lastId;
+      }
     } catch (err) {
       setReclassifyResult({ status: "error", message: err?.errorMessage || String(err) });
     }
