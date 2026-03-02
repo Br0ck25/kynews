@@ -7,6 +7,7 @@ import CloseIcon from "@material-ui/icons/Close";
 import { Slide } from "@material-ui/core";
 import FeaturedPost from "./post-component";
 import CountyPage from "../../pages/county-page";
+import CountyInfoPage from "../../pages/county-info-page";
 import { MemoryRouter } from "react-router-dom";
 import { Container, Fab } from "@material-ui/core";
 import FavoriteBorderIcon from "@material-ui/icons/FavoriteBorder";
@@ -42,7 +43,7 @@ export default function FullScreenPostDialog(props) {
   const classes = useStyles();
   const [openSnackbarNotify, setOpenSnackbarNotify] = useState(false);
 
-  // props: post, countySlug, onClose, handlePost
+  // props: post, countySlug, infoType, onClose, handlePost
   const handleClose = () => {
     if (props.onClose) {
       props.onClose();
@@ -105,6 +106,15 @@ export default function FullScreenPostDialog(props) {
         <Container>
           {props.post ? (
             <FeaturedPost post={props.post} />
+          ) : props.infoType ? (
+            /* render designated county info page */
+            <MemoryRouter initialEntries={[`/news/kentucky/${props.countySlug}/${props.infoType}`]}>
+              <CountyInfoPage
+                countySlugProp={props.countySlug}
+                infoTypeProp={props.infoType}
+                onClose={props.onClose}
+              />
+            </MemoryRouter>
           ) : props.countySlug ? (
             // when no post, show the county page.  wrap in a router so hooks work
             <MemoryRouter initialEntries={[`/news/kentucky/${props.countySlug}`]}>

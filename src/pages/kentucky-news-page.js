@@ -13,12 +13,12 @@ import ArticleSlugPage from "./article-slug-page";
  *   (e.g. school-board-meeting-ab12cd34) → render ArticleSlugPage.
  */
 export default function KentuckyNewsPage() {
-  const { countySlug } = useParams();
+  const { countySlug, infoType } = useParams();
   const county = slugToCounty(countySlug || "");
 
   if (county) {
-    // Valid county slug → show county page
-    return <CountyPage />;
+    // Valid county slug → show county page, optionally with info dialog
+    return <CountyPage infoType={infoType} />;
   }
 
   // Not a county slug → treat as an article slug

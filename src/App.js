@@ -35,6 +35,8 @@ const ContactPage = lazy(() => import("./pages/contact-page"));
 const EditorialPolicyPage = lazy(() => import("./pages/editorial-policy-page"));
 const PrivacyPolicyPage = lazy(() => import("./pages/privacy-policy-page"));
 const ArticleSlugPage = lazy(() => import("./pages/article-slug-page"));
+// CountyInfoPage is rendered inside a dialog by CountyPage, 
+// so we no longer mount it directly via routes.
 const KentuckyNewsPage = lazy(() => import("./pages/kentucky-news-page"));
 
 /**
@@ -135,8 +137,8 @@ function App() {
                     <Route exact path="/news/national/:articleSlug">
                       <ArticleSlugPage />
                     </Route>
-                    {/* /news/kentucky/:countySlug — dispatches to CountyPage or ArticleSlugPage */}
-                    <Route exact path="/news/kentucky/:countySlug">
+                    {/* /news/kentucky/:countySlug[/:infoType]? — handled by KentuckyNewsPage */}
+                    <Route path="/news/kentucky/:countySlug/:infoType?">
                       <KentuckyNewsPage />
                     </Route>
                     {/* Legacy /news/:countySlug — 301 redirect to new canonical URL */}
