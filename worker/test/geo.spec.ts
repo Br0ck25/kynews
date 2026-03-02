@@ -32,6 +32,26 @@ describe('geo city matching', () => {
     expect(detectCity('Residents of Evergreen celebrate')).toBe(null);
     expect(detectCity('The community of Greenbrier voted')).toBe(null);
   });
+
+  it('rejects Louisville when no location signals exist even with KY context', () => {
+    const text = 'A mid-December battle with Louisville for ACC supremacy';
+    expect(detectCity(text)).toBe(null);
+  });
+
+  it('accepts Louisville when an explicit KY location signal is nearby', () => {
+    const text = 'Louisville, Ky. police responded to an incident.';
+    expect(detectCity(text)).toBe('louisville');
+  });
+
+  it('rejects Lexington mentions in national sports without signal', () => {
+    const text = 'Kentucky scored 82 points in Lexington on Saturday';
+    expect(detectCity(text)).toBe(null);
+  });
+
+  it('accepts Lexington when location signal present', () => {
+    const text = 'The game tips off at 7 p.m. at Rupp Arena in Lexington, Ky.';
+    expect(detectCity(text)).toBe('lexington');
+  });
 });
 
 // county-focused tests

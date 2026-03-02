@@ -7,7 +7,7 @@ export const ALLOWED_CATEGORIES = [
   'obituaries',
 ] as const;
 
-export type Category = (typeof ALLOWED_CATEGORIES)[number];
+export type Category = (typeof ALLOWED_CATEGORIES)[number] | '';
 
 export interface ArticleRecord {
   id: number;

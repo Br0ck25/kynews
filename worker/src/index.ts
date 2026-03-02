@@ -689,8 +689,9 @@ const body = await parseJsonBody<{ id?: number; category?: string; isKentucky?: 
 const id = Number(body?.id ?? 0);
 if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
 
-const category = (body?.category || '').toLowerCase();
-if (!isAllowedCategory(category)) return badRequest('Invalid category');
+const category = (body?.category ?? '').toString().trim().toLowerCase();
+// empty category is allowed (clears the tag); otherwise it must be valid
+if (category && !isAllowedCategory(category)) return badRequest('Invalid category');
 
 const forceKy = Boolean(body?.isKentucky);
 // compute county(s) only when Kentucky flag is true
@@ -715,7 +716,7 @@ if (typeof body?.isKentucky === 'boolean') {
 }
 
 await updateArticleClassification(env, id, {
-      category: category as Category,
+      category: category as Category, // may be empty to clear
       isKentucky: forceKy,
       isNational: forceNat,
       county: countyVal,

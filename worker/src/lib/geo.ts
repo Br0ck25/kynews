@@ -214,6 +214,8 @@ export const HIGH_AMBIGUITY_CITIES = new Set([
   'liberty',    // Liberty, Casey County KY — "civil liberty", "Liberty Mutual"
   'center',     // Center, Metcalfe County KY — "research center", etc.
   'green',      // Green, Elliott County KY — "green energy", "green light", etc.
+  'louisville', // Louisville, Jefferson County KY — but "Louisville Cardinals", "UofL", "beat Louisville" appear constantly in national sports coverage. Requires explicit location signal (KY, street, zip) to avoid false positives.
+  'lexington',  // Lexington, Fayette County KY — often appears in national sports (UK basketball, VMI/W&L, brand names) without KY context.
 ]);
 
 /**

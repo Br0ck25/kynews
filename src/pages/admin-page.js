@@ -257,7 +257,7 @@ export default function AdminPage() {
 
       await service.retagArticle({
         id: row.id,
-        category: patch.category ?? row.category,
+        category: patch.category !== undefined ? patch.category : row.category,
         isKentucky: isKy,
         county: (!isKy ? null : primaryCounty) || null,
         counties: countiesList,
@@ -267,7 +267,7 @@ export default function AdminPage() {
           item.id === row.id
             ? {
                 ...item,
-                category: patch.category ?? row.category,
+                category: patch.category !== undefined ? patch.category : row.category,
                 isKentucky: patch.isKentucky ?? row.isKentucky,
                 isNational:
                   patch.isKentucky !== undefined
@@ -1398,6 +1398,7 @@ export default function AdminPage() {
                           <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
                             <FormControl variant="outlined" size="small" style={{ minWidth: 130 }}>
                               <Select value={currentCategory} onChange={(e) => setEdit(row.id, { category: e.target.value })}>
+                                <MenuItem value=""><em>none</em></MenuItem>
                                 {ADMIN_CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                               </Select>
                             </FormControl>

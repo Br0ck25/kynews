@@ -11,6 +11,7 @@ import * as ingestModule from '../src/lib/ingest';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
 import * as dbModule from '../src/lib/db';
 import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById, getCountyCounts, listAdminArticles, queryArticles, getArticlesForUpdateCheck, prependUpdateToSummary } from '../src/lib/db';
+import type { NewArticle } from '../src/types';
 import * as aiModule from '../src/lib/ai';
 import {
 	cleanFacebookHeadline,
@@ -1095,16 +1096,42 @@ describe('database utilities', () => {
 		expect(counties).toEqual(['Jefferson', 'Fayette']);
 	});
 
-	it('listAdminArticles returns counties array on items', async () => {
+	it('allows clearing category via updateArticleClassification', async () => {
 		await ensureSchemaAndFixture();
 		const now = new Date().toISOString();
-		const id = await insertArticle(env, {
-			canonicalUrl: 'https://example.com/multi2',
+		const id2 = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/clear',
 			sourceUrl: 'https://example.com',
-			urlHash: 'hash-multi2',
-			title: 'Admin list counties',
+			urlHash: 'hash-clear',
+			title: 'Clear Cat',
 			author: null,
 			publishedAt: now,
+			category: 'weather',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		await updateArticleClassification(env, id2, {
+			category: '',
+			isKentucky: false,
+			isNational: true,
+			county: null,
+		});
+		const row = await getArticleById(env, id2);
+		expect(row?.category).toBe('');
+	});
 			category: 'today',
 			isKentucky: true,
 			isNational: false,
@@ -1247,7 +1274,7 @@ describe('db.insertArticle error logging', () => {
 			};
 		};
 
-		const dummy = {
+		const dummy: NewArticle = {
 			canonicalUrl: 'https://foo',
 			sourceUrl: 'https://foo',
 			urlHash: 'h',
@@ -1851,6 +1878,23 @@ describe('admin manual-article endpoint', () => {
 		payload = await feedResp2.json();
 		expect(payload.items.some((i) => i.urlHash === 'hash-w1')).toBe(true);
 		expect(payload.items.find((i) => i.urlHash === 'hash-w1')?.isNational).toBe(true);
+	});
+
+	it('allows clearing the category tag by sending empty string', async () => {
+		// reuse article id 1 from earlier retag test
+		const req3 = new IncomingRequest('https://example.com/api/admin/retag', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({ id: 1, category: '', isKentucky: false }),
+		});
+		const ctx3 = createExecutionContext();
+		const res3 = await worker.fetch(req3, adminEnv, ctx3);
+		await waitOnExecutionContext(ctx3);
+		expect(res3.status).toBe(200);
+		const j3 = await res3.json();
+		expect(j3.ok).toBe(true);
+		const rowCleared = await getArticleById(adminEnv, 1);
+		expect(rowCleared.category).toBe('');
 	});
 });
 
