@@ -715,14 +715,26 @@ if (typeof body?.isKentucky === 'boolean') {
   forceNat = true;
 }
 
-await updateArticleClassification(env, id, {
-      category: category as Category, // may be empty to clear
-      isKentucky: forceKy,
-      isNational: forceNat,
-      county: countyVal,
-      counties: countiesArr,
-    });
-    return json({ ok: true, id });
+try {
+      await updateArticleClassification(env, id, {
+        category: category as Category, // may be empty to clear
+        isKentucky: forceKy,
+        isNational: forceNat,
+        county: countyVal,
+        counties: countiesArr,
+      });
+      return json({ ok: true, id });
+    } catch (err) {
+      console.error('[RETAG ERROR]', err, {
+        id,
+        category,
+        isKentucky: forceKy,
+        isNational: forceNat,
+        county: countyVal,
+        counties: countiesArr,
+      });
+      return json({ error: 'retag failed' }, 500);
+    }
 }
 
 if (url.pathname === '/api/admin/article/update-datetime' && request.method === 'POST') {
