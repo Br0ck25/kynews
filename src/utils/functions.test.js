@@ -73,6 +73,11 @@ describe('post tag helper', () => {
     expect(getPostTags(post)).toEqual(['Kentucky', 'Boone']);
   });
   
+  it('returns Kentucky when isKentucky true even with no county', () => {
+    const post = { isKentucky: true, county: '' };
+    expect(getPostTags(post)).toEqual(['Kentucky']);
+  });
+
   it('returns National only when no county and not Kentucky', () => {
     const post = { isKentucky: false, county: '' };
     expect(getPostTags(post)).toEqual(['National']);

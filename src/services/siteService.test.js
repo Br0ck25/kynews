@@ -72,4 +72,14 @@ describe('SiteService.request', () => {
     const post = await service.getPostBySlug('xyz');
     expect(post.isNational).toBe(true);
   });
+
+  it('maps isKentucky correctly and preserves it even when no county', async () => {
+    const service = new SiteService();
+    const articleData = { id: 6, slug: 'abc', category: 'today', isKentucky: true, county: '' };
+    global.fetch.mockResolvedValue(makeResponse({ item: articleData }));
+
+    const post = await service.getPostBySlug('abc');
+    expect(post.isKentucky).toBe(true);
+    expect(post.county).toBe('');
+  });
 });
