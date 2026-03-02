@@ -226,6 +226,11 @@ describe('county detection', () => {
     expect(detectCity('A crash occurred in Frankfort, Ky. on Friday.')).toBe('frankfort');
   });
 
+  it('does not detect common words that were removed from city list', () => {
+    expect(detectCity('The company moved its headquarters to Louisville.')).toBe(null);
+    expect(detectCity('Petroleum prices rose statewide today.')).toBe(null);
+  });
+
   it('does not treat Russell mentions (person names) as a city', () => {
     const text =
       'Russell Coleman spoke. Later Russell expressed regret. Russell said more.';

@@ -155,6 +155,10 @@ const NOISE_CITY_NAMES = new Set([
   'bloom', 'charm', 'tips', 'lick', 'purdy', 'ida', 'eda',
   'dell', 'emit', 'hip', 'jeff', 'vox', 'finn', 'clay city',
   'good luck', 'hima', 'mize', 'relief', 'index', 'milo',
+  // added noise words per recent audit
+  'headquarters',
+  'petroleum',
+  'barefoot',
 ]);
 
 /**
