@@ -611,6 +611,17 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual(['Laurel', 'Knox']);
 	});
 
+	it('treats FRANKFORT dateline stories as statewide Kentucky content with no county', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://harlanenterprise.net/article/hb-593',
+			title: 'FRANKFORT, Ky. (KT) – Lawmakers debate bill',
+			content: 'FRANKFORT, Ky. (KT) – Senate and House members met in closed session.',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBeNull();
+		expect(classification.counties).toEqual([]);
+	});
+
 	it('suppresses city-derived county for Greater Cincinnati regional weather article', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://wlwt.com/weather-forecast',

@@ -380,6 +380,15 @@ const SORTED_CITY_ENTRIES =
  *  3. Single mention that looks like a person's surname is skipped.
  *  4. Without KY context, a non-KY state name near the city disqualifies it.
  */
+/**
+ * Matches the pattern immediately preceding a city name that
+ * indicates it is a Kentucky legislator's district suffix.
+ * Example: "Rep. Josh Bray, R-Mount Vernon" — the city "Mount Vernon"
+ * is preceded by "R-" (or "D-") indicating party affiliation.
+ * This is KY General Assembly style (not US Congress style).
+ */
+const KY_LEGISLATOR_DISTRICT_RE = /[\,\s][RD]-$/i;
+
 export function detectCity(input) {
   const raw = String(input || '');
   const normalized = normalizeForSearch(raw);
@@ -418,6 +427,16 @@ export function detectCity(input) {
       const matchEnd = cityIndex + nonOverlapping[0][0].length;
       const after = raw.slice(matchEnd, matchEnd + 20);
       if (/^\s*district\b/i.test(after)) {
+        continue;
+      }
+    }
+
+    // Suppress city matches that are legislator district suffixes.
+    // "Rep. Bray, R-Mount Vernon" — "Mount Vernon" is a district
+    // label, not a location signal. Check the 5 chars before the match.
+    if (cityIndex > 0) {
+      const before = raw.slice(Math.max(0, cityIndex - 5), cityIndex);
+      if (KY_LEGISLATOR_DISTRICT_RE.test(before)) {
         continue;
       }
     }

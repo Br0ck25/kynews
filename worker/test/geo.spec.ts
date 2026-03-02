@@ -195,6 +195,13 @@ describe('county detection', () => {
     expect(detectCity('A story from Bliss, Kentucky')).toBe(null);
   });
 
+  it('suppresses city matches that are Kentucky legislator district suffixes', () => {
+    expect(detectCity('Rep. Josh Bray, R-Mount Vernon')).toBe(null);
+    expect(detectCity('Sen. Stephen Meredith, R-Leitchfield')).toBe(null);
+    // ordinary city mention should still work
+    expect(detectCity('A fire broke out in Mount Vernon, Ky.')).toBe('mount vernon');
+  });
+
   it('suppresses city matches that are part of a federal district phrase', () => {
     expect(detectCity('The U.S. Attorney for the Eastern District of Kentucky spoke')).toBe(null);
   });

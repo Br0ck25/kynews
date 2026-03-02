@@ -176,6 +176,8 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'pikevilledaily.com': 'Pike',
   'dailyindependent.com': 'Greenup',      // Ashland / Greenup area
   'harlanenterprise.com': 'Harlan',
+  'harlanenterprise.net': 'Harlan',  // added NET variant
+
   'thetimestribune.com': 'Floyd',         // Paintsville
   'bdmountaineer.com': 'Breathitt',       // Jackson / Breathitt
   'hazardherald.com': 'Perry',
@@ -240,6 +242,11 @@ const KY_HARD_NEGATIVES: RegExp[] = [
   /\bwestern\s+kentucky\s+university\b/i,  // WKU in national rankings not KY news
   /\beastern\s+kentucky\s+university\b/i,  // EKU in national context
   /\bnorthern\s+kentucky\s+university\b/i, // NKU in national context
+  // KY General Assembly legislator district suffixes: "R-Mount Vernon",
+  // "D-Lexington". Blanking these prevents the city from being picked
+  // up as a geographic signal. The comma and party letter are preserved
+  // so the sentence still reads naturally.
+  /,\s*[RD]-[A-Z][a-zA-Z\s-]{2,30}(?=[,;\.\s]|$)/g,
 ];
 
 /**
@@ -276,6 +283,8 @@ export const BETTING_CONTENT_RE =
  * the story belongs to all of Kentucky, not just the outlet's home.
  */
 function isStatewideKyPoliticalStory(text: string): boolean {
+  // FRANKFORT dateline = statewide KY story, no county pin
+  if (/\bfrankfort,?\s*ky\.?\s*[-—–(]/i.test(text)) return true;
   // Explicit roundup language
   if (/\bwhat\s+kentuckians?\s+said\b|\bkentucky\s+(?:lawmakers?|delegation|legislators?|congressional\s+(?:delegation|members?))\b|\breactions?\s+from\s+kentucky\b/i.test(text)) {
     return true;
