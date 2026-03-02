@@ -441,6 +441,25 @@ export function detectCity(input) {
       }
     }
 
+    // Suppress city matches in author biography/attribution clauses.
+    // "He lives in Berea", "is from Bowling Green", "based in Paducah"
+    // refer to the author's hometown, not the article location.
+    if (cityIndex > 0) {
+      const before60 = normalized.slice(Math.max(0, cityIndex - 60), cityIndex);
+      const AUTHOR_BIO_RE =
+        /\b(?:he|she|they)\s+(?:lives?|resides?|is\s+based)\s+in\s*$/i;
+      if (AUTHOR_BIO_RE.test(before60)) {
+        // article mentions author's home; ignore any city match entirely
+        return null;
+      }
+      // catch attributions like "is a reporter from X", "is an author in Y" etc.
+      const AUTHOR_FROM_RE =
+        /\b(?:is\s+(?:an?\s+)?(?:author|writer|reporter|columnist|advocate|professor|director|native)\s+(?:from|in|based\s+in))\s*$/i;
+      if (AUTHOR_FROM_RE.test(before60)) {
+        return null;
+      }
+    }
+
     if (!hasLocationSignals && !hasKentuckyContext && likelyCount < 2) {
       continue;
     }

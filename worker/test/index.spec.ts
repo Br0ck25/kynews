@@ -8,6 +8,7 @@ import { isScheduleOrScoresArticle } from '../src/lib/ai';
 import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import * as ingestModule from '../src/lib/ingest';
+import { stripNoisyTags } from '../src/lib/scrape';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
 import * as dbModule from '../src/lib/db';
 import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById, getCountyCounts, listAdminArticles, queryArticles, getArticlesForUpdateCheck, prependUpdateToSummary } from '../src/lib/db';
@@ -600,6 +601,10 @@ describe('classification utilities', () => {
 		expect(detectCounty(text, text)).toBeNull();
 	});
 
+	it('getSourceDefaultCounty returns null for wlwt.com', () => {
+		expect(classifyModule.getSourceDefaultCounty('https://wlwt.com/anything')).toBeNull();
+	});
+
 	it('classification picks up multiple counties in shared-suffix phrase', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://example.com/knox-laurel',
@@ -634,6 +639,13 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual([]);
 	});
 
+		// simple unit test for stripNoisyTags transcript removal
+		it('stripNoisyTags removes <div class="transcript"> blocks', () => {
+			const html = '<p>Lead</p><div class="transcript">ALL CAPS TEXT</div><p>Story body</p>';
+			expect(stripNoisyTags(html)).not.toContain('transcript');
+			expect(stripNoisyTags(html)).toContain('Lead');
+		});
+
 		// explicit county should still be honored even in a Greater Cincinnati
 		// regional article; suppression only applies when the county was derived
 		// from a city match.
@@ -647,6 +659,49 @@ describe('classification utilities', () => {
 			expect(classification.isKentucky).toBe(true);
 			expect(classification.county).toBe('Boone');
 			expect(classification.counties).toEqual(['Boone']);
+		});
+
+		// test for wtvq.com default county and statewide weather behaviour
+		it('applies Fayette default for wtvq.com and null county for statewide weather', async () => {
+			// generic non-weather story should fall back to Fayette via site default
+			let classification = await classifyArticleWithAi(env, {
+				url: 'https://wtvq.com/some-local-news',
+				title: 'Local ribbon cutting in downtown Lexington',
+				content: 'City officials held a ribbon cutting ceremony today.',
+			});
+			expect(classification.isKentucky).toBe(true);
+			expect(classification.county).toBe('Fayette');
+
+			// statewide forecast language wipes out default
+			classification = await classifyArticleWithAi(env, {
+				url: 'https://wtvq.com/weather-forecast',
+				title: 'Statewide Weather Alert',
+				content: 'Central and eastern Kentucky will see storms on Thursday.',
+			});
+			expect(classification.isKentucky).toBe(true);
+			expect(classification.county).toBeNull();
+			expect(classification.counties).toEqual([]);
+		});
+
+		// national wire-like always-national source should ignore Kentucky hints
+		it('does not tag newsfromthestates.com article about Louisville as KY', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://newsfromthestates.com/politics/abc',
+				title: 'Louisville, Kentucky, killing at least 22',
+				content: 'In a speech to Congress, representatives discussed policy changes.',
+			});
+			expect(classification.isKentucky).toBe(false);
+			expect(classification.category).toBe('national');
+		});
+
+		// historical Louisville reference guard should prevent Jefferson tagging
+		it('ignores historical Louisville reference in non-local story', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://foxnews.com/us/historical',
+				title: 'Conflict recalled in Louisville, Kentucky, killing in 1855',
+				content: 'The author referenced the Bloody Monday riots of 1855 in Louisville, Kentucky, as part of a broader piece.',
+			});
+			expect(classification.isKentucky).toBe(false);
 		});
 
 		it('also treats New York dateline wire pieces as non-KY', async () => {

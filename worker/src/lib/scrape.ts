@@ -90,7 +90,10 @@ function stripNoisyTags(html: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
     .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
-    .replace(/<iframe[\s\S]*?<\/iframe>/gi, ' ');
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, ' ')
+    // Strip TV closed-caption transcript blocks — all-caps text
+    // that dominates summaries when articles have thin prose.
+    .replace(/<div[^>]+class=["'][^"']*\btranscript\b[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, ' ');
 }
 
 function stripHtml(html: string): string {

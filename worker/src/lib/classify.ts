@@ -73,6 +73,13 @@ const AMBIGUOUS_CITY_TERMS = new Set<string>([
 const GREATER_CINCINNATI_RE =
   /\bgreater\s+cincinnati\b|\bcincinnati\s+(?:area|metro|region|market)\b|\bnorthern\s+kentucky\s+(?:and|area|region)\b/i;
 
+// Regional weather phrases that cover most of KY rather than a specific
+// county.  When a forecast uses these and the article is categorized as
+// weather, we suppress any source-default county so the story shows up
+// as statewide rather than belonging to a single county.
+const STATEWIDE_WEATHER_RE =
+  /\b(?:central\s+and\s+eastern\s+kentucky|across\s+(?:the\s+)?(?:bluegrass|kentucky|central\s+ky|eastern\s+ky)|much\s+of\s+(?:the\s+)?(?:bluegrass|kentucky)|statewide|state-?wide)\b/i;
+
 /**
  * Kentucky county patterns.
  *
@@ -166,6 +173,37 @@ const KY_BRANDED_SOURCES: Array<{ hosts: string[]; stripPattern: RegExp }> = [
 ];
 
 /**
+ * Domains that are always treated as national news regardless of any
+ * Kentucky signals in the text.  These sources should never receive a
+ * default county and we ignore KY/location hints unless both the AI and
+ * article text provide very strong evidence that the story is actually
+ * set in Kentucky (e.g. county mentioned twice plus the word "Kentucky"/"KY").
+ */
+const ALWAYS_NATIONAL_SOURCES = new Set<string>([
+  'foxnews.com',
+  'cnn.com',
+  'nbcnews.com',
+  'abcnews.go.com',
+  'cbsnews.com',
+  'apnews.com',
+  'reuters.com',
+  'politico.com',
+  'thehill.com',
+  'washingtonpost.com',
+  'nytimes.com',
+  'wsj.com',
+  'usatoday.com',
+  'newsfromthestates.com',
+  'cbssports.com',
+  'espn.com',
+  'bleacherreport.com',
+  'si.com',
+  'theathletic.com',
+  'nbcsports.com',
+]);
+
+
+/**
  * Source domain → default Kentucky county.
  * When an article from a hyperlocal KY source has no county detected in the text,
  * this provides a fallback so the county field is never null for known local outlets.
@@ -196,6 +234,8 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'richmondregister.com': 'Madison',
   'bgdailynews.com': 'Warren',           // Bowling Green
   'wkuherald.com': 'Warren',
+  // Lexington ABC affiliate covers central/eastern KY (used for weather etc.)
+  'wtvq.com': 'Fayette',
   // Northern Kentucky (multi-county coverage)
   'linknky.com': null,
   'nkytribune.com': 'Kenton',
@@ -222,6 +262,8 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'courier-journal.com': 'Jefferson',
   // Northern Kentucky
   'nky.com': 'Kenton',
+  // Cincinnati/NKY broadcaster – no single KY county (see FIX 5)
+  'wlwt.com': null,
   // State-level sources (no default county — they cover all of KY)
   'kentuckylantern.com': null,
   'kentuckytoday.com': null,
@@ -247,6 +289,9 @@ const KY_HARD_NEGATIVES: RegExp[] = [
   // up as a geographic signal. The comma and party letter are preserved
   // so the sentence still reads naturally.
   /,\s*[RD]-[A-Z][a-zA-Z\s-]{2,30}(?=[,;\.\s]|$)/g,
+  // Historical event references: "in Louisville, Kentucky, killing" or
+  // "in Louisville in 1855" – not a current location signal.
+  /\bin\s+(?:louisville|lexington)[,\s]+kentucky[,\s]+(?:killing|in\s+\d{4}|during|when|where\s+a\s+mob)/gi,
 ];
 
 /**
@@ -326,7 +371,19 @@ export async function classifyArticleWithAi(
   // detect obvious national cues (word "national", "federal", US, etc.) so we
   // can apply a separate flag independent of Kentucky relevance.
   const nationalSignal = /\bnational\b|\bfederal\b|\bunited states\b|\bu\.s\.\s+(?:government|congress|senate|house|military|federal|supreme court|president|department|agency|law|policy|court)\b|\b(?:congress|senate|white house|pentagon|supreme court|federal government|biden|trump|president)\b/i.test(semanticLeadText);
-  const sourceDefaultCounty = getSourceDefaultCounty(input.url);
+
+  // hostname for source-specific overrides (always national, default county)
+  const hostname = (() => {
+    try { return new URL(input.url).hostname.replace(/^www\./, ''); }
+    catch { return ''; }
+  })();
+  const isAlwaysNational = ALWAYS_NATIONAL_SOURCES.has(hostname);
+
+  let sourceDefaultCounty = getSourceDefaultCounty(input.url);
+  if (isAlwaysNational) {
+    // explicit override: ignore any default county for known national outlets
+    sourceDefaultCounty = null;
+  }
 
   // Suppress source default county for national wire stories.
   // Local TV stations syndicate AP/NBC/etc content; the dateline
@@ -337,18 +394,22 @@ export async function classifyArticleWithAi(
   const isStatewideKyPolitics =
     isStatewideKyPoliticalStory(semanticLeadText);
 
+  const isStatewideKyWeather =
+    STATEWIDE_WEATHER_RE.test(semanticLeadText);
+
   const effectiveSourceDefaultCounty =
-    isNationalWireStory
+    isNationalWireStory ||
+    isStatewideKyPolitics ||
+    (isStatewideKyWeather && semanticCategory === 'weather')
       ? null
-      : isStatewideKyPolitics
-        ? null
-        : sourceDefaultCounty;
+      : sourceDefaultCounty;
 
   // treat articles from a known local source as KY, even if the text lacks an
   // explicit Kentucky mention. This flag influences both the initial fallback
   // and later merging logic.
   const baseIsKentucky =
-    relevance.category === 'kentucky' || hasKhsaa || effectiveSourceDefaultCounty !== null;
+    (relevance.category === 'kentucky' || hasKhsaa || effectiveSourceDefaultCounty !== null) &&
+    !isAlwaysNational;
 
   // County/city detection pipeline (issue #6):
   // 1. If the article text contains a county name, detectCounty returns it.
@@ -644,6 +705,23 @@ export async function classifyArticleWithAi(
 
     // recompute national flag after merges/overrides
     fallback.isNational = nationalSignal || !fallback.isKentucky;
+
+    // Known always-national domains get a final sanity check.  Unless the AI
+    // explicitly flagged the story as Kentucky *and* the text contains strong
+    // KY evidence (>=2 mentions plus the word "Kentucky"/"KY"), strip all
+    // Kentucky flags.  This prevents odd Hallucinations such as foxnews.com
+    // articles being assigned McLean or Jefferson counties.
+    if (isAlwaysNational) {
+      const strongTextEvidence =
+        relevance.mentionCount >= 2 && /\b(?:kentucky|ky)\b/i.test(semanticText);
+      if (!strongTextEvidence || !aiIsKentucky) {
+        fallback.isKentucky = false;
+        fallback.county = null;
+        fallback.counties = [];
+        fallback.category = 'national';
+        fallback.isNational = true;
+      }
+    }
 
     // Betting-content articles are national and should lose any KY tags even
     // if a team name or default county nudged the logic earlier.
