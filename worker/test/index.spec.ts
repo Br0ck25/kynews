@@ -704,6 +704,44 @@ describe('classification utilities', () => {
 			expect(classification.isKentucky).toBe(false);
 		});
 
+		// thoroughbreddailynews.com should be treated as national
+		it('does not tag TDN racing coverage as Kentucky', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://thoroughbreddailynews.com/horsemen-news',
+				title: 'Derby favorite trains in Kentucky barn',
+				content: 'The Kentucky Derby favorite worked five furlongs today.',
+			});
+			expect(classification.isKentucky).toBe(false);
+		});
+
+		it('recognizes Austin dateline as wire and treats article as national', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://www.whas11.com/article/national-wire-austin',
+				title: 'AUSTIN, Texas — Legislature debates...',
+				content: 'AUSTIN, Texas — Lawmakers discussed a bill...',
+			});
+			expect(classification.isKentucky).toBe(false);
+			expect(classification.category).toBe('national');
+		});
+
+		it('handles Gray News station prefix in byline', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://www.wbko.com/article/national-wire-grayprefix',
+				title: '(KVLY/Gray News) — Story text here',
+				content: '(KVLY/Gray News) — Story text here',
+			});
+			expect(classification.isKentucky).toBe(false);
+		});
+
+		it('handles InvestigateTV byline as national content', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://www.wlwt.com/article/investigatetv',
+				title: '(InvestigateTV) — Consumer story',
+				content: '(InvestigateTV) — Consumer story about loans',
+			});
+			expect(classification.isKentucky).toBe(false);
+		});
+
 		it('also treats New York dateline wire pieces as non-KY', async () => {
 			const classification = await classifyArticleWithAi(env, {
 				url: 'https://www.whas11.com/article/national-wire-ny',

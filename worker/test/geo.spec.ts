@@ -221,6 +221,22 @@ describe('county detection', () => {
     ).toBe('berea');
   });
 
+  it('suppresses Frankfort dateline but still matches body references', () => {
+    expect(detectCity('FRANKFORT, Ky. — Lawmakers debated a bill.')).toBe(null);
+    expect(detectCity('A crash occurred in Frankfort, Ky. on Friday.')).toBe('frankfort');
+  });
+
+  it('does not treat Russell mentions (person names) as a city', () => {
+    const text =
+      'Russell Coleman spoke. Later Russell expressed regret. Russell said more.';
+    expect(detectCity(text)).toBe(null);
+  });
+
+  it('requires location signal for the city of Franklin', () => {
+    expect(detectCity('Franklin officials held a meeting')).toBe(null);
+    expect(detectCity('Franklin, Ky. officials held a meeting')).toBe('franklin');
+  });
+
   it('suppresses city matches that are part of a federal district phrase', () => {
     expect(detectCity('The U.S. Attorney for the Eastern District of Kentucky spoke')).toBe(null);
   });

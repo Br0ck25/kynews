@@ -199,7 +199,9 @@ const KY_PRESENT_RE = /\bkentucky\b|\bky\b/i;
  */
 export const HIGH_AMBIGUITY_CITIES = new Set([
   'columbia',   // Columbia, SC / MO / MD / TN / OH — also Columbia Records, brand
-  'franklin',   // Franklin, TN / PA / OH and many others
+  'franklin',   // Franklin, Tennessee/PA/OH; also used to map city of Franklin (Simpson County KY)
+  'russell',    // Russell County KY – very common personal name (Russell Coleman, Russell Wilson, etc.)
+  'frankfort',  // state capital dateline – should not drive county without explicit signal
   'springfield',// Springfield, MO / IL / OH etc.
   'henderson',  // Henderson, NV / NC etc.
   'paris',      // Paris, France / TX etc.
@@ -217,6 +219,12 @@ export const HIGH_AMBIGUITY_CITIES = new Set([
   'louisville', // Louisville, Jefferson County KY — but "Louisville Cardinals", "UofL", "beat Louisville" appear constantly in national sports coverage. Requires explicit location signal (KY, street, zip) to avoid false positives.
   'lexington',  // Lexington, Fayette County KY — often appears in national sports (UK basketball, VMI/W&L, brand names) without KY context.
 ]);
+
+// dateline cities that should be ignored entirely when they appear at the
+// very start of an article.  Frankfort is the most important example,
+// appearing as a dateline on thousands of statewide stories.
+const DATELINE_CITY_RE = /^\s*frankfort,?\s*ky\b/i;
+
 
 /**
  * Unambiguous Kentucky signals used only in detectKentuckyGeo's final fallback.
@@ -391,6 +399,8 @@ const KY_LEGISLATOR_DISTRICT_RE = /[\,\s][RD]-$/i;
 
 export function detectCity(input) {
   const raw = String(input || '');
+  // ignore frankfort dateline – not a story location
+  if (DATELINE_CITY_RE.test(raw)) return null;
   const normalized = normalizeForSearch(raw);
   const hasKentuckyContext = /\bkentucky\b|\bky\b/.test(normalized);
   const matchedRanges = [];
