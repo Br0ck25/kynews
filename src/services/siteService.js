@@ -269,6 +269,16 @@ export default class SiteService {
             ...searchOrOptions,
           };
 
+    // Ensure any counties passed by callers are canonicalized.  The
+    // consumer (e.g. county page) usually passes a clean name, but other
+    // parts of the app (settings filters, saved counties) may persist raw
+    // values, so normalizing here avoids unnecessary empty queries.
+    if (options.counties && options.counties.length > 0) {
+      options.counties = options.counties
+        .map((c) => normalizeCountyValue(c))
+        .filter(Boolean);
+    }
+
     const category = ALLOWED_CATEGORIES.includes(options.category)
       ? options.category
       : "today";

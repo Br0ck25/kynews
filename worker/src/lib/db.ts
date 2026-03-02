@@ -401,10 +401,25 @@ export async function unblockArticleByBlockedId(env: Env, id: number): Promise<b
 }
 
 export async function getCountyCounts(env: Env): Promise<Map<string, number>> {
+  // Return a count of articles per county.  For historical compatibility we
+  // need to account for rows that only have the `county` column populated and
+  // lack entries in the junction table.  The query below unions the two
+  // sources, avoiding double-counting articles that already appear in
+  // `article_counties`.
   const rows = await env.ky_news_db
-    .prepare(
-      `SELECT county, COUNT(*) as cnt FROM article_counties GROUP BY county`
-    )
+    .prepare(`
+      SELECT county, COUNT(*) as cnt FROM (
+        SELECT county FROM article_counties
+        UNION ALL
+        SELECT county FROM articles a
+          WHERE county IS NOT NULL
+            AND county != ''
+            AND NOT EXISTS (
+              SELECT 1 FROM article_counties ac WHERE ac.article_id = a.id
+            )
+      )
+      GROUP BY county
+    `)
     .all<{ county: string; cnt: number }>();
 
   const map = new Map<string, number>();
@@ -498,12 +513,19 @@ export async function queryArticles(env: Env, options: {
 
   // National should always show all national stories regardless of county filters.
   if (options.category !== 'national' && options.counties.length > 0) {
-    where.push(
-      `id IN (SELECT article_id FROM article_counties WHERE county IN (${options.counties
-        .map(() => '?')
-        .join(',')}))`
-    );
-    binds.push(...options.counties);
+    // We normally rely on the article_counties junction table for fast
+    // filtering, but older rows inserted prior to the migration that created
+    // that table may only have the primary `county` column set.  Rather than
+    // forcing a full backfill job immediately, include a fallback clause that
+    // also checks the main column so pages continue to work for any county
+    // even if the association row is missing.
+    const placeholders = options.counties.map(() => '?').join(',');
+    where.push(`(
+      id IN (SELECT article_id FROM article_counties WHERE county IN (${placeholders}))
+      OR county IN (${placeholders})
+    )`);
+    // bind twice: once for the subquery, once for the direct-column test
+    binds.push(...options.counties, ...options.counties);
   }
 
   if (options.search) {

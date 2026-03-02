@@ -458,6 +458,43 @@ async function ensureSchemaAndFixture() {
 		expect(payload.items.some((a) => a.urlHash === 'hash-multi2')).toBe(true);
 	});
 
+	it('queryArticles honors county filter when only primary county column is populated', async () => {
+		// insert an article that has a value in `county` but no junction row
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/primary-only',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-primary',
+			title: 'Primary county only test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Adair',
+			counties: [],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+		// explicitly clear any junction entries in case insertArticle added one
+		await env.ky_news_db.prepare('DELETE FROM article_counties WHERE article_id = ?').bind(id).run();
+		const counties = await getArticleCounties(env, id);
+		expect(counties).toEqual([]);
+
+		const resp = await SELF.fetch('https://example.com/api/articles/today?counties=Adair');
+		expect(resp.status).toBe(200);
+		const payload = await resp.json();
+		expect(payload.items.some((a) => a.id === id)).toBe(true);
+	});
+
 	it('schools endpoint returns kentucky-only schools articles', async () => {
 		await ensureSchemaAndFixture();
 
@@ -1123,6 +1160,40 @@ describe('database utilities', () => {
 		// Fayette appears twice (today + weather), Jefferson twice (sports + obit)
 		expect(map.get('Fayette')).toBe(2);
 		expect(map.get('Jefferson')).toBe(2);
+	});
+
+	it('getCountyCounts handles articles that only have a primary county', async () => {
+		await ensureSchemaAndFixture();
+		// insert legacy-style article
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/legacy',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-legacy',
+			title: 'Legacy county test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Adair',
+			counties: [],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+		// ensure no junction rows
+		await env.ky_news_db.prepare('DELETE FROM article_counties WHERE article_id = ?').bind(id).run();
+
+		const map2 = await getCountyCounts(env);
+		expect(map2.get('Adair')).toBe(1);
 	});
 
 	it('getArticleCounties returns counties list for an inserted article', async () => {
