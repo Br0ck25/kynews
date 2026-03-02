@@ -422,11 +422,19 @@ export async function getCountyCounts(env: Env): Promise<Map<string, number>> {
  * Returns county names ordered with primary counties first (is_primary DESC)
  * then by insertion order (id ASC).
  */
+// Utility for forcing D1 to recompile prepared statements by appending a
+// unique comment.  When a migration renames the `articles` table the remote
+// database may still have cached statements that refer to the old name
+// (articles_old).  Adding a timestamp forces new text and avoids that
+// invalidation bug, which otherwise produces `no such table: main.articles_old`.
+function prepare(env: Env, sql: string) {
+  // we add the comment before binding; it doesn't affect semantics.
+  const uniqueSql = `${sql} /*${Date.now()}*/`;
+  return env.ky_news_db.prepare(uniqueSql);
+}
+
 export async function getArticleCounties(env: Env, articleId: number): Promise<string[]> {
-  const rows = await env.ky_news_db
-    .prepare(
-      'SELECT county FROM article_counties WHERE article_id = ? ORDER BY is_primary DESC, id ASC'
-    )
+  const rows = await prepare(env, 'SELECT county FROM article_counties WHERE article_id = ? ORDER BY is_primary DESC, id ASC')
     .bind(articleId)
     .all<{ county: string }>();
   return (rows.results ?? []).map((r) => r.county);
@@ -599,16 +607,30 @@ export async function updateArticleClassification(
 ): Promise<void> {
   const normalizedCounty = normalizeCountyName(patch.county);
 
-  await env.ky_news_db
-    .prepare('UPDATE articles SET category = ?, is_kentucky = ?, is_national = ?, county = ? WHERE id = ?')
-    .bind(
-      patch.category,
-      patch.isKentucky ? 1 : 0,
-      patch.isNational ? 1 : 0,
-      normalizedCounty,
-      id,
-    )
-    .run();
+  // perform the update, retrying once if a stale prepared statement
+  // from a prior migration refers to `articles_old` (see README notes).
+  const doUpdate = () =>
+    prepare(env, 'UPDATE articles SET category = ?, is_kentucky = ?, is_national = ?, county = ? WHERE id = ?')
+      .bind(
+        patch.category,
+        patch.isKentucky ? 1 : 0,
+        patch.isNational ? 1 : 0,
+        normalizedCounty,
+        id,
+      )
+      .run();
+
+  try {
+    await doUpdate();
+  } catch (err: any) {
+    if (err?.message?.includes('articles_old')) {
+      // retry once using a fresh prepared statement (unique comment already
+      // ensures new SQL text).
+      await doUpdate();
+    } else {
+      throw err;
+    }
+  }
 
   // sync junction table for counties
   let countiesList: string[] = [];
@@ -621,17 +643,13 @@ export async function updateArticleClassification(
   }
 
   // clear existing associations, then re-insert
-  await env.ky_news_db
-    .prepare('DELETE FROM article_counties WHERE article_id = ?')
+  await prepare(env, 'DELETE FROM article_counties WHERE article_id = ?')
     .bind(id)
     .run();
 
   for (const county of countiesList) {
-    await env.ky_news_db
-      .prepare(
-        `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
-         VALUES (?, ?, ?)`
-      )
+    await prepare(env, `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
+         VALUES (?, ?, ?)`)
       .bind(id, county, county === normalizedCounty ? 1 : 0)
       .run();
   }

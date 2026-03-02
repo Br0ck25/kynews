@@ -542,7 +542,7 @@ const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: nu
 const includeSchools = body?.includeSchools !== false;
 const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
 
-await env.ky_news_db.prepare('DELETE FROM articles').run();
+await prepare(env, 'DELETE FROM articles').run();
 
 const candidateSources = buildManualIngestSources(includeSchools);
 const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filter(isHttpUrl))];
@@ -582,8 +582,7 @@ if (url.pathname === '/api/admin/classification-audit' && request.method === 'GE
   }
   const limit = parsePositiveInt(url.searchParams.get('limit'), 50, 100);
   // fetch recent articles
-  const rows = await env.ky_news_db
-    .prepare(
+  const rows = await prepare(env,
       `SELECT id, title, category, is_kentucky, is_national, county, city, source_url, published_at, created_at
        FROM articles
        ORDER BY created_at DESC
@@ -813,8 +812,7 @@ if (url.pathname.startsWith('/api/admin/articles/') && url.pathname.endsWith('/r
 
   // update both summary and seo description directly since updateArticleContent
   // only handles title/summary.
-  await env.ky_news_db
-    .prepare(
+await prepare(env,
       'UPDATE articles SET summary = ?, seo_description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
     )
     .bind(newSummary, newSeo, id)
@@ -1430,11 +1428,10 @@ async function generateSitemap(env: Env): Promise<string> {
 				WHERE published_at LIKE '% %' AND published_at NOT LIKE '%T%';
 			`)
 			.run();
-		await env.ky_news_db
-			.prepare(`
-				UPDATE articles
-				SET updated_at = replace(updated_at, ' ', 'T')
-				WHERE updated_at LIKE '% %' AND updated_at NOT LIKE '%T%';
+		await prepare(env, `
+			UPDATE articles
+			SET updated_at = replace(updated_at, ' ', 'T')
+			WHERE updated_at LIKE '% %' AND updated_at NOT LIKE '%T%';
 			`)
 			.run();
 	} catch {
@@ -1531,18 +1528,16 @@ async function generateNewsSitemap(env: Env): Promise<string> {
 	// also normalise timestamps before selecting; this keeps the news sitemap
 	// from accidentally skipping an item when older rows still contain spaces.
 	try {
-		await env.ky_news_db
-			.prepare(`
-				UPDATE articles
-				SET published_at = replace(published_at, ' ', 'T')
-				WHERE published_at LIKE '% %' AND published_at NOT LIKE '%T%';
-			`)
+		await prepare(env, `
+			UPDATE articles
+			SET published_at = replace(published_at, ' ', 'T')
+			WHERE published_at LIKE '% %' AND published_at NOT LIKE '%T%';
+		`)
 			.run();
 	} catch {}
 
 	const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-	const rows = await env.ky_news_db
-		.prepare(
+const rows = await prepare(env,
 			`SELECT id, slug, county, category, is_national, title, published_at FROM articles
        WHERE (is_kentucky = 1 OR is_national = 1) AND published_at >= ?
        ORDER BY published_at DESC LIMIT 1000`,
@@ -2497,10 +2492,7 @@ async function checkArticleUpdates(env: Env): Promise<void> {
       if (!article.contentHash) {
         // First time checking this article — store hash but
         // don't generate an update (we have no baseline to diff)
-        await env.ky_news_db
-          .prepare(
-            'UPDATE articles SET content_hash = ? WHERE id = ?'
-          )
+        await prepare(env, 'UPDATE articles SET content_hash = ? WHERE id = ?')
           .bind(newHash, article.id)
           .run()
           .catch(() => {});

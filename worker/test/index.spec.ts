@@ -566,7 +566,6 @@ async function ensureSchemaAndFixture() {
 		expect(body.items.length).toBe(1);
 		expect(body.items[0].title).toBe('Legacy Kentucky Weather');
 	});
-});
 
 describe('classification utilities', () => {
 	it('rejects short content under minimum threshold', () => {
@@ -664,7 +663,7 @@ describe('classification utilities', () => {
 			const classification = await classifyArticleWithAi(env, {
 				url: 'https://www.wymt.com/article/national-wire-anf',
 				title: '(ANF/Gray News) — A Georgia woman ...',
-				content: '(ANF/Gray News) — A Georgia woman pleaded guilty...';
+				content: '(ANF/Gray News) — A Georgia woman pleaded guilty...',
 			});
 			expect(classification.isKentucky).toBe(false);
 			expect(classification.category).toBe('national');
@@ -1132,6 +1131,17 @@ describe('database utilities', () => {
 		const row = await getArticleById(env, id2);
 		expect(row?.category).toBe('');
 	});
+
+	it('listAdminArticles reflects updated counties', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/multi2',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-multi2',
+			title: 'Multi county test',
+			author: null,
+			publishedAt: now,
 			category: 'today',
 			isKentucky: true,
 			isNational: false,
@@ -1150,6 +1160,66 @@ describe('database utilities', () => {
 		});
 
 		const resp = await listAdminArticles(env, { limit: 10, cursor: null, search: null, category: 'all' });
+		const found = resp.items.find((i) => i.id === id);
+		expect(found).toBeDefined();
+		expect(found?.counties).toEqual(['Fayette', 'Jefferson']);
+	});
+
+	it('retries classification update if a stale prepared statement error occurs', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const id3 = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/retry',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-retry',
+			title: 'Retry test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		// stub prepare to throw once with the specific articles_old error
+		let attempt = 0;
+		const origPrepare = env.ky_news_db.prepare.bind(env.ky_news_db);
+		env.ky_news_db.prepare = (sql: string) => {
+			const stmt = origPrepare(sql);
+			const origRun = stmt.run.bind(stmt);
+			stmt.run = async (...args: any[]) => {
+				if (attempt === 0) {
+					attempt++;
+					const err: any = new Error('D1_ERROR: no such table: main.articles_old');
+					throw err;
+				}
+				return origRun(...args);
+			};
+			return stmt;
+		};
+
+		await updateArticleClassification(env, id3, {
+			category: '',
+			isKentucky: false,
+			isNational: true,
+			county: null,
+		});
+		const row3 = await getArticleById(env, id3);
+		expect(row3?.category).toBe('');
+		env.ky_news_db.prepare = origPrepare;
+	});
+
 		const found = resp.items.find((i) => i.id === id);
 		expect(found).toBeDefined();
 		expect(found?.counties).toEqual(['Fayette', 'Jefferson']);
@@ -1254,8 +1324,6 @@ describe('database utilities', () => {
 		expect(updated.summary).toContain('added update');
 		expect(updated.summary).toContain('Orig');
 	});
-
-});
 
 describe('db.insertArticle error logging', () => {
 	it('logs a helpful message and propagates the error', async () => {
