@@ -200,6 +200,26 @@ test('direct visit to utilities route opens dialog', async () => {
   expect(await screen.findByText(/Electric Utilities/i)).toBeInTheDocument();
 });
 
+// article slugs under kentucky should also render ArticleSlugPage
+
+test('kentucky article slug routes render ArticleSlugPage', async () => {
+  // we don't care what service does, just ensure ArticleSlugPage mounts
+  jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({ initialEntries: ["/news/kentucky/leslie-county/some-article-slug"] });
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType?">
+          <KentuckyNewsPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  // ArticleSlugPage renders a heading or error message; look for text used there
+  expect(await screen.findByText(/We couldn't find that article/i)).toBeInTheDocument();
+});
+
 // the info page should include the same navigation tabs
 
 test('info pages include nav tabs that can switch between types', async () => {

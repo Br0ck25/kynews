@@ -16,11 +16,21 @@ export default function KentuckyNewsPage() {
   const { countySlug, infoType } = useParams();
   const county = slugToCounty(countySlug || "");
 
-  if (county) {
-    // Valid county slug → show county page, optionally with info dialog
-    return <CountyPage infoType={infoType} />;
+  if (!county) {
+    // not a county, treat as article slug
+    return <ArticleSlugPage />;
   }
 
-  // Not a county slug → treat as an article slug
+  // we have a county; decide what second segment means
+  if (!infoType) {
+    return <CountyPage countySlugProp={countySlug} />;
+  }
+
+  const infoPages = new Set(["government-offices", "utilities"]);
+  if (infoPages.has(infoType)) {
+    return <CountyPage countySlugProp={countySlug} infoType={infoType} />;
+  }
+
+  // anything else under county is interpreted as article slug
   return <ArticleSlugPage />;
 }

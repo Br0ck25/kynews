@@ -130,14 +130,11 @@ function App() {
                     <Route exact path="/news">
                       <LocalPage />
                     </Route>
-                    {/* New SEO-friendly article URL routes — most specific first */}
-                    <Route exact path="/news/kentucky/:countySlug/:articleSlug">
-                      <ArticleSlugPage />
-                    </Route>
+                    {/* New SEO-friendly article URL routes — national only; kentucky slugs handled by KentuckyNewsPage */}
                     <Route exact path="/news/national/:articleSlug">
                       <ArticleSlugPage />
                     </Route>
-                    {/* /news/kentucky/:countySlug[/:infoType]? — handled by KentuckyNewsPage */}
+                    {/* /news/kentucky/:countySlug[/:infoType?] — dispatcher handles county, info pages, and article slugs */}
                     <Route path="/news/kentucky/:countySlug/:infoType?">
                       <KentuckyNewsPage />
                     </Route>
