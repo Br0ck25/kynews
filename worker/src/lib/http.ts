@@ -52,14 +52,20 @@ export function parseCommaList(value: string | null): string[] {
     .filter(Boolean);
 }
 
-export function isAllowedCategory(value: string): value is Category {
+export function isAllowedCategory(value: string): value is Category | 'all' {
+  // The public articles endpoint theoretically accepts only the six
+  // “official” categories, but we also allow the special pseudo‑category
+  // `all` when callers want an unrestricted search across every article.
+  // This value is never stored in the database – it merely instructs the
+  // query logic to skip the usual category filter.
   return (
     value === 'today' ||
     value === 'national' ||
     value === 'sports' ||
     value === 'weather' ||
     value === 'schools' ||
-    value === 'obituaries'
+    value === 'obituaries' ||
+    value === 'all'
   );
 }
 

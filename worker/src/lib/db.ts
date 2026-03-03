@@ -440,7 +440,7 @@ async function columnExists(env: Env, table: string, column: string): Promise<bo
 }
 
 export async function queryArticles(env: Env, options: {
-  category: Category;
+  category: Category | 'all';
   counties: string[];
   search: string | null;
   limit: number;
@@ -449,7 +449,14 @@ export async function queryArticles(env: Env, options: {
   const where: string[] = [];
   const binds: unknown[] = [];
 
-  if (options.category === 'today') {
+  // If caller requested `all` we deliberately *omit* any category-related
+  // predicates so the query can return articles regardless of their
+  // assigned category.  This is typically used in conjunction with a
+  // non-empty `search` term, but we don't actually care; returning every
+  // article when category=all is a valid behaviour.
+  if (options.category === 'all') {
+    // nothing to add
+  } else if (options.category === 'today') {
     where.push('is_kentucky = 1');
   } else if (options.category === 'sports') {
     where.push('category = ?');

@@ -32,8 +32,13 @@ export default function SearchPage() {
       //wait 1 sec until user stop typing
       if (searchVal.length > 2) {
         setIsLoading(true);
+        // previously we restricted searches to the "today" feed which meant
+        // national, sports, weather, etc. articles would never surface even if
+        // the user pasted the exact headline.  Make the request against the
+        // virtual "all" category so the backend returns matches from anywhere
+        // on the site.
         service
-          .getPosts({ search: searchVal, category: 'today', limit: 15 })
+          .getPosts({ search: searchVal, category: 'all', limit: 15 })
           .then((data) => {
             dispatch(setSearchPosts({ searchValue: searchVal, posts: data }));
             setIsLoading(false);

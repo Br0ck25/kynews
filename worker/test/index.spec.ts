@@ -434,17 +434,66 @@ async function ensureSchemaAndFixture() {
 		expect(filteredPayload.items.length).toBe(allPayload.items.length);
 	});
 
-	it('feeds return articles when a secondary county matches', async () => {
+	it('search endpoint with category=all returns matches regardless of article category', async () => {
 		await ensureSchemaAndFixture();
-		// insert a multi-county article where primary is Fayette but also Jefferson
 		const now = new Date().toISOString();
+
+		// insert one article in the default (today) bucket and another in
+		// the national bucket; both use the same unique term so a global
+		// search should pick up both records.
 		await insertArticle(env, {
-			canonicalUrl: 'https://example.com/multi2',
+			canonicalUrl: 'https://example.com/one',
 			sourceUrl: 'https://example.com',
-			urlHash: 'hash-multi2',
-			title: 'Secondary county test',
+			urlHash: 'h-one',
+			title: 'First',
 			author: null,
 			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 'global-search-xyz',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'foo',
+			contentHtml: '<p>foo</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+		await insertArticle(env, {
+			canonicalUrl: 'https://example.com/two',
+			sourceUrl: 'https://example.com',
+			urlHash: 'h-two',
+			title: 'Second',
+			author: null,
+			publishedAt: now,
+			category: 'national',
+			isKentucky: false,
+			isNational: true,
+			county: null,
+			counties: [],
+			city: null,
+			summary: 'global-search-xyz',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'bar',
+			contentHtml: '<p>bar</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		const resp = await SELF.fetch('https://example.com/api/articles/all?search=global-search-xyz');
+		expect(resp.status).toBe(200);
+		const payload = await resp.json();
+		expect(payload.items.some((a) => a.urlHash === 'h-one')).toBe(true);
+		expect(payload.items.some((a) => a.urlHash === 'h-two')).toBe(true);
+	});
 			category: 'today',
 			isKentucky: true,
 			isNational: false,
@@ -1461,6 +1510,68 @@ describe('database utilities', () => {
 
 		const resp = await queryArticles(env, { category: 'today', counties: [], search: 'findme-summary', limit: 10, cursor: null });
 		expect(resp.items.some((i) => i.id === id)).toBe(true);
+	});
+
+	// when the caller requests category=all the category filter should be
+	// skipped entirely. this is especially important during searches because
+	// the front end now queries `/api/articles/all` and expects matches from
+	// any category.
+	it('queryArticles with category=all ignores category filtering', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+
+		// insert one article in each of two categories
+		const id1 = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/cat1',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-cat1',
+			title: 'CategoryOne',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 'search-me',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'foo',
+			contentHtml: '<p>foo</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		const id2 = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/cat2',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-cat2',
+			title: 'CategoryTwo',
+			author: null,
+			publishedAt: now,
+			category: 'national',
+			isKentucky: false,
+			isNational: true,
+			county: null,
+			counties: [],
+			city: null,
+			summary: 'search-me',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'bar',
+			contentHtml: '<p>bar</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		const resp = await queryArticles(env, { category: 'all', counties: [], search: 'search-me', limit: 10, cursor: null });
+		expect(resp.items.some((i) => i.id === id1)).toBe(true);
+		expect(resp.items.some((i) => i.id === id2)).toBe(true);
 	});
 
 	it('getArticlesForUpdateCheck honors maxAgeHours and returns recent ky articles', async () => {

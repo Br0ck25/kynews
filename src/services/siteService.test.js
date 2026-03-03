@@ -82,4 +82,31 @@ describe('SiteService.request', () => {
     expect(post.isKentucky).toBe(true);
     expect(post.county).toBe('');
   });
+
+  it('getPosts string argument defaults to category all', async () => {
+    const service = new SiteService('https://api.example');
+    global.fetch.mockResolvedValue(makeResponse({ items: [] }));
+
+    await service.getPosts('something');
+    const [[url]] = global.fetch.mock.calls;
+    expect(url).toContain('/api/articles/all?');
+  });
+
+  it('getPosts object with search but no category also uses all', async () => {
+    const service = new SiteService('https://api.example');
+    global.fetch.mockResolvedValue(makeResponse({ items: [] }));
+
+    await service.getPosts({ search: 'foo', limit: 5 });
+    const [[url]] = global.fetch.mock.calls;
+    expect(url).toContain('/api/articles/all?');
+  });
+
+  it('explicit category all is not overwritten by allowed-category check', async () => {
+    const service = new SiteService('https://api.example');
+    global.fetch.mockResolvedValue(makeResponse({ items: [] }));
+
+    await service.getPosts({ category: 'all', limit: 3 });
+    const [[url]] = global.fetch.mock.calls;
+    expect(url).toContain('/api/articles/all');
+  });
 });

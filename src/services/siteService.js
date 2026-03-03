@@ -253,21 +253,33 @@ export default class SiteService {
   }
 
   async getPosts(searchOrOptions = "", perPage = 10) {
-    const options =
-      typeof searchOrOptions === "string"
-        ? {
-            category: "today",
-            search: searchOrOptions,
-            limit: perPage,
-            counties: [],
-          }
-        : {
-            category: "today",
-            search: "",
-            limit: perPage,
-            counties: [],
-            ...searchOrOptions,
-          };
+    let options;
+    if (typeof searchOrOptions === "string") {
+      // when callers supply a bare string it historically implied a
+      // "today" query, but search pages expect to hit every category.  using
+      // `all` here makes that behaviour consistent without requiring callers
+      // to always remember to pass an object.
+      options = {
+        category: "all",
+        search: searchOrOptions,
+        limit: perPage,
+        counties: [],
+      };
+    } else {
+      options = {
+        category: "today",
+        search: "",
+        limit: perPage,
+        counties: [],
+        ...searchOrOptions,
+      };
+      // if the caller provided a search term but neglected to specify a
+      // category, broaden the query to every article.  they can still
+      // explicitly pass `category: 'today'` if they want to constrain it.
+      if (options.search && !searchOrOptions.category) {
+        options.category = 'all';
+      }
+    }
 
     // Ensure any counties passed by callers are canonicalized.  The
     // consumer (e.g. county page) usually passes a clean name, but other
@@ -279,9 +291,10 @@ export default class SiteService {
         .filter(Boolean);
     }
 
-    const category = ALLOWED_CATEGORIES.includes(options.category)
-      ? options.category
-      : "today";
+    // allow the special "all" pseudo‑category through; otherwise fall back
+    // to a sane default.
+    const category = options.category === 'all' ? 'all' :
+      (ALLOWED_CATEGORIES.includes(options.category) ? options.category : "today");
 
     const params = new URLSearchParams();
     if (options.search) params.set("search", options.search);

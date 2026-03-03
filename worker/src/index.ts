@@ -1216,8 +1216,12 @@ if (categoryMatch && request.method === 'GET') {
 //   schools     - Kentucky school stories (is_kentucky=1 AND category='schools')
 //   obituaries  - Kentucky obituaries only (is_kentucky=1 AND category='obituaries')
 const category = categoryMatch[1]?.toLowerCase();
+// `all` is a virtual category used only for searching across every
+// article; it is not stored in the database.  `isAllowedCategory` has
+// already been updated to accept it so the check here simply guards
+// against completely bogus values.
 if (!category || !isAllowedCategory(category)) {
-return badRequest('Invalid category. Allowed: today|national|sports|weather|schools|obituaries');
+return badRequest('Invalid category. Allowed: today|national|sports|weather|schools|obituaries|all');
 }
 
 // support both ?counties=Foo,Bar (existing) and the shorthand ?county=Foo
