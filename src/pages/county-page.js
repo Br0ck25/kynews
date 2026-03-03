@@ -8,6 +8,8 @@ import {
   Box,
   Tabs,
   Tab,
+  Card,
+  CardContent,
 } from "@material-ui/core";
 import { useLocation } from "react-router-dom";
 import { countyInfo } from "../data/countyInfo";
@@ -26,6 +28,9 @@ import { ToggleSavedCounty, GetSavedCounties } from "../services/storageService"
 
 const useStyles = makeStyles((theme) => ({
   root: {},
+  card: {
+    marginBottom: theme.spacing(2),
+  },
   headerActions: {
     display: "inline-flex",
     verticalAlign: "middle",
@@ -227,12 +232,14 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
 
   if (!countyName) {
     return (
-      <div>
-        <Typography variant="h5">County not found</Typography>
-        <Typography variant="body2">
-          The URL you provided does not match a valid Kentucky county.
-        </Typography>
-      </div>
+      <Card data-testid="county-card" className={classes.card}>
+        <CardContent>
+          <Typography variant="h5">County not found</Typography>
+          <Typography variant="body2">
+            The URL you provided does not match a valid Kentucky county.
+          </Typography>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -477,94 +484,99 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
 
   return (
     <div className={classes.root}>
-      <Typography variant="h5" gutterBottom>
-        {countyName} County
-        <span className={classes.headerActions}>
-          <IconButton
-            color="primary"
-            size="small"
-            aria-label="Share county"
-            onClick={handleShare}
-          >
-            <ShareIcon fontSize="small" />
-          </IconButton>
-          <IconButton
-            color={saved ? "secondary" : "primary"}
-            size="small"
-            aria-label="Save county"
-            onClick={handleSave}
-          >
-            <FavoriteIcon fontSize="small" />
-          </IconButton>
-        </span>
-      </Typography>
+      <Card data-testid="county-card" className={classes.card}>
+        <CardContent>
+          <Typography variant="h5" gutterBottom>
+            {countyName} County
+            <span className={classes.headerActions}>
+              <IconButton
+                color="primary"
+                size="small"
+                aria-label="Share county"
+                onClick={handleShare}
+              >
+                <ShareIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                color={saved ? "secondary" : "primary"}
+                size="small"
+                aria-label="Save county"
+                onClick={handleSave}
+              >
+                <FavoriteIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Typography>
 
-      {/* County introductory content — 300–500 words (Section 5.4)
-           First paragraph always visible; remaining paragraphs collapsible. */}
-      <Box
-        style={{
-          background: "#f5f8ff",
-          border: "1px solid #d0d9f0",
-          borderRadius: 6,
-          padding: "14px 16px",
-          marginBottom: 20,
-        }}
-      >
-        {getCountyIntro(countyName)
-          .split("\n\n")
-          .map((para, i) => {
-            if (i === 0) {
-              return (
-                <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: para }} />
-              );
-            }
-            if (!introExpanded) return null;
-            return (
-              <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: i < 2 ? 8 : 0 }} dangerouslySetInnerHTML={{ __html: para }} />
-            );
-          })}
-        <Button
-          size="small"
-          color="primary"
-          onClick={() => setIntroExpanded((v) => !v)}
-          style={{ padding: "0 0 4px", minWidth: 0, textTransform: "none", fontSize: "0.78rem" }}
-        >
-          {introExpanded ? "Show less" : "Show more"}
-        </Button>
-      </Box>
-      <Divider style={{ marginBottom: 16 }} />
+          {/* County introductory content — 300–500 words (Section 5.4)
+               First paragraph always visible; remaining paragraphs collapsible. */}
+          <Box
+            style={{
+              background: "#f5f8ff",
+              border: "1px solid #d0d9f0",
+              borderRadius: 6,
+              padding: "14px 16px",
+              marginBottom: 20,
+            }}
+          >
+            {getCountyIntro(countyName)
+              .split("\n\n")
+              .map((para, i) => {
+                if (i === 0) {
+                  return (
+                    <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: para }} />
+                  );
+                }
+                if (!introExpanded) return null;
+                return (
+                  <Typography key={i} variant="body2" color="textSecondary" paragraph style={{ marginBottom: i < 2 ? 8 : 0 }} dangerouslySetInnerHTML={{ __html: para }} />
+                );
+              })}
+            <Button
+              size="small"
+              color="primary"
+              onClick={() => setIntroExpanded((v) => !v)}
+              style={{ padding: "0 0 4px", minWidth: 0, textTransform: "none", fontSize: "0.78rem" }}
+            >
+              {introExpanded ? "Show less" : "Show more"}
+            </Button>
+          </Box>
 
-      {/* navigation buttons for counties with extra info; hide when viewing an info subpage */}
-      {countyInfo[countyName] && !effectiveInfoType && (
-        <Tabs
-          indicatorColor="primary"
-          textColor="primary"
-          variant="scrollable"
-          scrollButtons="auto"
-          aria-label="County info navigation"
-          value={
-            location.pathname.endsWith("government-offices")
-              ? 0
-              : location.pathname.endsWith("utilities")
-              ? 1
-              : false
-          }
-          style={{ marginBottom: 8 }}
-        >
-          <Tab
-            label="Government Offices"
-            onClick={() =>
-              history.push(`/news/kentucky/${countySlug}/government-offices`)
-            }
-          />
-          <Tab
-            label="Utilities"
-            onClick={() =>
-              history.push(`/news/kentucky/${countySlug}/utilities`)
-            }
-          />
-        </Tabs>
-      )}
+          {/* navigation buttons for counties with extra info; hide when viewing an info subpage */}
+          {countyInfo[countyName] && !effectiveInfoType && (
+            <Tabs
+              indicatorColor="primary"
+              textColor="primary"
+              variant="scrollable"
+              scrollButtons="auto"
+              aria-label="County info navigation"
+              value={
+                location.pathname.endsWith("government-offices")
+                  ? 0
+                  : location.pathname.endsWith("utilities")
+                  ? 1
+                  : false
+              }
+              style={{ marginBottom: 8 }}
+            >
+              <Tab
+                label="Government Offices"
+                onClick={() =>
+                  history.push(`/news/kentucky/${countySlug}/government-offices`)
+                }
+              />
+              <Tab
+                label="Utilities"
+                onClick={() =>
+                  history.push(`/news/kentucky/${countySlug}/utilities`)
+                }
+              />
+            </Tabs>
+          )}
+        </CardContent>
+      </Card>
+
+      <Divider className={classes.divider} />
 
       {isLoading ? (
         <Skeletons showFeaturedSkeleton />

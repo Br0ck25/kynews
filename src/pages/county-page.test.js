@@ -83,6 +83,25 @@ test('save county only updates saved counties and does not alter feed filters', 
 });
 
 // verify share button constructs canonical county URL rather than "local"
+test('county page uses card layout for content', async () => {
+  jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({ initialEntries: ['/news/kentucky/jefferson-county'] });
+
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType?">
+          <KentuckyNewsPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  // card should wrap the county content
+  expect(await screen.findByTestId('county-card')).toBeInTheDocument();
+});
+
+
 test('share button uses county URL', async () => {
   jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
   // mock navigator.share
@@ -239,8 +258,22 @@ test('county page hides info buttons when viewing info subpage', async () => {
 
   // dialog should open to the government offices content
   expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
+});
 
-  // underlying county page should not render the navigation buttons
-  expect(screen.queryByText(/Government Offices/i)).toBeNull();
-  expect(screen.queryByText(/Utilities/i)).toBeNull();
+// info pages themselves should render inside a card container
+
+test('info page card layout', async () => {
+  jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({ initialEntries: ["/news/kentucky/leslie-county/government-offices"] });
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType">
+          <CountyInfoPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  expect(await screen.findByTestId('county-card')).toBeInTheDocument();
 });

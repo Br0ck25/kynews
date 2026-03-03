@@ -1,13 +1,14 @@
 import React from "react";
 import { makeStyles } from "@material-ui/core/styles";
 import Post from "../components/post/post-component";
-import { Button, Typography } from "@material-ui/core";
+import { Button, Typography, Card, CardContent } from "@material-ui/core";
 import { useParams, Link as RouterLink } from "react-router-dom";
 import SiteService from "../services/siteService";
 import { articleToUrl } from "../utils/functions";
 
 const useStyles = makeStyles({
   root: { marginTop: 15 },
+  card: { marginBottom: 16 },
   emptyState: { textAlign: "center", padding: "24px 16px" },
   emptyAction: { marginTop: 16 },
 });
@@ -174,10 +175,12 @@ export default function ArticleSlugPage() {
 
   return (
     <div className={classes.root}>
-      {resolvedPost ? (
-        <Post post={resolvedPost} />
-      ) : loading ? (
-        <div className={classes.emptyState}>
+      <Card data-testid="page-card" className={classes.card}>
+        <CardContent>
+          {resolvedPost ? (
+            <Post post={resolvedPost} />
+          ) : loading ? (
+            <div className={classes.emptyState}>
           <Typography variant="h6" gutterBottom>
             Loading article...
           </Typography>
@@ -201,6 +204,8 @@ export default function ArticleSlugPage() {
           </Button>
         </div>
       )}
+      </CardContent>
+      </Card>
     </div>
   );
 }
