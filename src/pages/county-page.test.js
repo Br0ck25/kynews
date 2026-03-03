@@ -168,21 +168,36 @@ test('Leslie county page shows info navigation buttons and opens dialog on click
   expect(history.location.pathname).toBe("/news/kentucky/leslie-county");
 });
 
-test('other counties do not render the navigation buttons', async () => {
+test('navigation buttons appear for all counties and link to county info pages', async () => {
   jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
 
+  const history = createMemoryHistory({ initialEntries: ['/news/kentucky/boyle-county'] });
   render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={["/news/boyle-county"]}>
-        <Route path="/news/:countySlug">
-          <CountyPage />
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType?">
+          <KentuckyNewsPage />
         </Route>
-      </MemoryRouter>
+      </Router>
     </Provider>
   );
 
-  await screen.findByText(/No articles found for Boyle County/i);
-  expect(screen.queryByText(/County Government Offices/i)).toBeNull();
+  expect(await screen.findByText(/No articles found for Boyle County/i)).toBeInTheDocument();
+  // tabs should be visible even though we don't have data for Boyle
+  expect(screen.getByText(/Government Offices/i)).toBeInTheDocument();
+  expect(screen.getByText(/Utilities/i)).toBeInTheDocument();
+
+  // clicking government opens dialog with placeholder message
+  fireEvent.click(screen.getByText(/Government Offices/i));
+  expect(await screen.findByText(/Information for this category is not yet available for Boyle County/i)).toBeInTheDocument();
+  expect(history.location.pathname).toBe('/news/kentucky/boyle-county/government-offices');
+  fireEvent.click(screen.getByLabelText('close'));
+  expect(history.location.pathname).toBe('/news/kentucky/boyle-county');
+
+  // clicking utilities should also work
+  fireEvent.click(screen.getByText(/Utilities/i));
+  expect(await screen.findByText(/Information for this category is not yet available for Boyle County/i)).toBeInTheDocument();
+  expect(history.location.pathname).toBe('/news/kentucky/boyle-county/utilities');
 });
 
 // direct navigation should render CountyPage which opens dialog

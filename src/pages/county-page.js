@@ -675,8 +675,8 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
             </Button>
           </Box>
 
-          {/* navigation buttons for counties with extra info; hide when viewing an info subpage */}
-          {countyInfo[countyName] && !effectiveInfoType && (
+          {/* navigation buttons for county info pages; always available unless already viewing an info subpage */}
+          {!effectiveInfoType && (
             <Tabs
               indicatorColor="primary"
               textColor="primary"

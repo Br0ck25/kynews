@@ -65,13 +65,20 @@ export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocum
   const cleanedHtml = stripNoisyTags(articleHtml);
   const contentText = normalizeText(stripHtml(cleanedHtml));
 
+  // Remove WordPress/CMS breadcrumb navigation that sometimes gets
+  // included at the beginning of the scraped text.  These look like
+  // "Home » Region/State »" and confuse the summarizer/AI.
+  const contentTextClean = contentText
+    .replace(/^(?:Home\s*[»›>|]\s*)+[^.!?\n]{0,120}(?:[»›>|][^.!?\n]{0,120})*\s*/i, '')
+    .trim();
+
   return {
     canonicalUrl: normalizeCanonicalUrl(absolutizeMaybe(canonical, sourceUrl)),
     title: normalizeText(title),
     author: author ? normalizeText(author) : null,
     publishedAt,
     contentHtml: cleanedHtml,
-    contentText,
+    contentText: contentTextClean,
     imageUrl: imageUrl ? absolutizeMaybe(imageUrl, sourceUrl) : null,
   };
 }

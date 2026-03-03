@@ -239,7 +239,8 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   // Lexington ABC affiliate covers central/eastern KY (used for weather etc.)
   'wtvq.com': 'Fayette',
   // Northern Kentucky (multi-county coverage)
-  'linknky.com': null,
+  'linknky.com': 'Kenton',   // Northern Kentucky news site (covington, florence, etc.)
+
   'nkytribune.com': 'Kenton',
   'webn.com': 'Kenton',
   'wcpo.com': null,
@@ -265,7 +266,9 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   // Northern Kentucky
   'nky.com': 'Kenton',
   // Cincinnati/NKY broadcaster – no single KY county (see FIX 5)
-  'wlwt.com': null,
+  'wlwt.com': null,  // Cincinnati/NKY broadcaster – no single KY county (see FIX 5)
+  'wlky.com': 'Jefferson',   // Louisville CBS affiliate
+
   // State-level sources (no default county — they cover all of KY)
   'kentuckylantern.com': null,
   'kentuckytoday.com': null,
@@ -304,7 +307,8 @@ const KY_HARD_NEGATIVES: RegExp[] = [
  */
 // wire override removed - replaced below
 export const NATIONAL_WIRE_OVERRIDE_RE =
-  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*)/i;
+  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2}\.?
+        \s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*)/i;
 
 /**
  * Patterns indicating Kentucky is mentioned only as a politician's
@@ -408,11 +412,19 @@ export async function classifyArticleWithAi(
       ? null
       : sourceDefaultCounty;
 
+  // When statewide KY politics is detected we must ignore any source-default
+  // county even if the dateline city appears elsewhere in the text.  The
+  // reporter's location (e.g. Bowling Green) is irrelevant to the story's
+  // geographic subject (Frankfort/seat of government).  effectiveSourceDefaultCounty
+  // already becomes null in that case, but downstream merge logic also used
+  // this value directly.  Use a separate variable to make intent explicit.
+  const allowedSourceDefaultCounty = isStatewideKyPolitics ? null : effectiveSourceDefaultCounty;
+
   // treat articles from a known local source as KY, even if the text lacks an
   // explicit Kentucky mention. This flag influences both the initial fallback
   // and later merging logic.
   const baseIsKentucky =
-    (relevance.category === 'kentucky' || hasKhsaa || effectiveSourceDefaultCounty !== null) &&
+    (relevance.category === 'kentucky' || hasKhsaa || allowedSourceDefaultCounty !== null) &&
     !isAlwaysNational;
 
   // County/city detection pipeline (issue #6):
@@ -477,7 +489,7 @@ export async function classifyArticleWithAi(
     county:
       baseGeo.county ??
       (!baseGeo.city && (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource)
-        ? effectiveSourceDefaultCounty
+        ? allowedSourceDefaultCounty
         : null),
     counties: baseGeo.counties ? [...baseGeo.counties] : [],
     city: baseGeo.city,
@@ -625,14 +637,13 @@ export async function classifyArticleWithAi(
     // already found by the geo detector is discarded unless it matches the
     // trusted source default.  If the primary county is rejected we fall
     // back to the geo detector result to avoid leaving a spurious value.
-    if (!isCountyEvidenced(aiCounties[0] ?? null, semanticText, baseGeo.counties, effectiveSourceDefaultCounty)) {
+    if (!isCountyEvidenced(aiCounties[0] ?? null, semanticText, baseGeo.counties, allowedSourceDefaultCounty)) {
       // AI hallucinated a primary county
       aiCounties = baseGeo.counties.length > 0 ? [...baseGeo.counties] : [];
     }
     // Filter the rest of the array as well
     aiCounties = aiCounties.filter((c) =>
-      isCountyEvidenced(c, semanticText, baseGeo.counties, effectiveSourceDefaultCounty),
-    );
+      isCountyEvidenced(c, semanticText, baseGeo.counties, allowedSourceDefaultCounty),
 
     const aiCounty = aiCounties[0] ?? null;
 
@@ -669,18 +680,18 @@ export async function classifyArticleWithAi(
     );
 
     const mergedCounty = isKySchoolsSource
-      ? (fallback.county ?? aiCounty ?? aiGeo.county ?? effectiveSourceDefaultCounty)
+      ? (fallback.county ?? aiCounty ?? aiGeo.county ?? allowedSourceDefaultCounty)
       : (
         // if the AI explicitly rejects Kentucky we normally drop any county
         // the fallback guessed, but we still want default-county sources to
         // retain their county tag only when the article is already KY.  The
         // rainy-day weather heuristic below handles uncategorized cases.
-        (!aiIsKentucky && typeof parsed.isKentucky === 'boolean' && effectiveSourceDefaultCounty === null)
+        (!aiIsKentucky && typeof parsed.isKentucky === 'boolean' && allowedSourceDefaultCounty === null)
           ? null
           : (fallback.county ??
              aiCounty ??
              aiGeo.county ??
-             (mergedIsKentucky && !hadGeo ? effectiveSourceDefaultCounty : null))
+             (mergedIsKentucky && !hadGeo && !isStatewideKyPolitics ? allowedSourceDefaultCounty : null))
       );
 
     // determine final counties list using AI output when available, otherwise
@@ -741,16 +752,16 @@ export async function classifyArticleWithAi(
     // article is Kentucky just because the domain has a default county.  clear
     // any KY tag that may have crept in via AI when the text itself provided no
     // Kentucky signals.
-    if (!baseIsKentucky && effectiveSourceDefaultCounty) {
+    if (!baseIsKentucky && allowedSourceDefaultCounty) {
       fallback.isKentucky = false;
       fallback.county = null;
     }
 
     // weather articles *are* safe to tag since our UI only shows them in a
     // dedicated weather feed; use the default county if nothing else was found.
-    if (!fallback.isKentucky && effectiveSourceDefaultCounty && fallback.category === 'weather') {
+    if (!fallback.isKentucky && allowedSourceDefaultCounty && fallback.category === 'weather') {
       fallback.isKentucky = true;
-      fallback.county = effectiveSourceDefaultCounty;
+      fallback.county = allowedSourceDefaultCounty;
     }
 
     // Sync counties array after the override blocks above.

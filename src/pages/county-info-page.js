@@ -52,11 +52,25 @@ export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = n
     canonical.setAttribute("href", canonicalHref);
   }, [countyName, infoType, countySlug]);
 
-  if (!countyName || !info) {
+  if (!countyName) {
     return (
       <Typography variant="body1" color="error">
         County information not found.
       </Typography>
+    );
+  }
+
+  if (!info) {
+    // we still render the page structure but show a placeholder message
+    return (
+      <div className={classes.root}>
+        <Typography variant="h5" gutterBottom>
+          {countyName} County
+        </Typography>
+        <Typography variant="body1" color="textSecondary">
+          Information for this category is not yet available for {countyName} County.
+        </Typography>
+      </div>
     );
   }
 

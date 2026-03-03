@@ -567,6 +567,7 @@ export const KY_CITY_TO_COUNTY = {
   "glendale": "Hardin",
   "howe valley": "Hardin",
   "radcliff": "Hardin",
+  "fort knox": "Hardin",
   "rineyville": "Hardin",
   "sonora": "Hardin",
   "stephensburg": "Hardin",
