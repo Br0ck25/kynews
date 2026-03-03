@@ -73,6 +73,17 @@ Address: 60 Communication Lane, Hindman, KY 41822
 Phone: (606) 785-9500
 Website: tgtel.com
 
+Starlink – Satellite internet available countywide.
+Website: https://www.starlink.com
+
+Viasat – Satellite broadband provider.
+Phone: 1-855-810-1308
+Website: https://www.viasat.com
+
+HughesNet – Satellite internet provider.
+Phone: 1-866-347-3292
+Website: https://www.hughesnet.com
+
 7. Broadband & Connectivity
 
 FCC Broadband Map: https://broadbandmap.fcc.gov

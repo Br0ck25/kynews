@@ -37,7 +37,20 @@ Leslie County hardcodes JSX; other counties may render placeholder text.
    internet/phone/TV, followed by broadband resources.
 4. Each provider rendered in its own card with clickable address, phone, website links.
 
-Reciprocal navigation boxes at the bottom link to the counterpart page without opening a new tab.
+After the main sections of both government and utilities, include a small text box or paragraph that points back to the opposite page.  For example, at the bottom of the government page:
+
+```jsx
+<Box mt={2}>
+  <Typography variant="body2">
+    Looking for county utilities?{' '}
+    <a href="/news/kentucky/LESLIE-COUNTY/utilities">
+      View our Leslie County Utilities Directory →
+    </a>
+  </Typography>
+</Box>
+```
+
+and similarly on the utilities page link back to government.  The link should use the same slug and not open in a new tab so the dialog simply swaps content.
 
 ---
 
@@ -47,6 +60,11 @@ Reciprocal navigation boxes at the bottom link to the counterpart page without o
   county slug. Leslie is special-cased by name.
 - When an info dialog is opened (`/news/kentucky/:countySlug/:infoType`), `CountyInfoPage` renders
   the JSX from `countyInfo[countySlug]` and wraps it in sections.
+- **Share/Save buttons:** the information pages now display a pair of small icon buttons
+  beside the header text. These mirror the county page controls and allow users to share the
+  current sub‑page or toggle the county in their saved list. Handlers build canonical URLs
+  including the `infoType` path segment and the tests mock `navigator.share` or assert
+  updates to localStorage.
 
 ---
 
@@ -58,6 +76,10 @@ Add or update tests whenever you modify layout/content.
 
 - Render `KentuckyNewsPage` or `CountyInfoPage` inside a `MemoryRouter` with a `Provider`.
 - Assert existence of navigation buttons, dialog behavior, reciprocal links, and quick links.
+- When exercising an info page, also check for the share/save icon buttons using
+  `getByLabelText(/Share page/i)` and `getByLabelText(/Save page/i)`.  Tests should
+  cover the share handler by mocking `navigator.share` and verify the constructed URL
+  and text include the correct `infoType`.
 
 ### Content-specific assertions
 

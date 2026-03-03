@@ -664,6 +664,21 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual([]);
 	});
 
+	it('ignores geo/AI counties when statewide KY dateline appears only in content', async () => {
+		// this mirrors a real bug where the title lacked the dateline, causing
+		// detectKentuckyGeo to pick up "Frankfort" from the body and return
+		// Franklin County.  isStatewideKyPolitics should still null out the
+		// county regardless of that detection.
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://example.com/abc36-news',
+			title: 'Governor announces new budget',
+			content: 'FRANKFORT, Ky. (ABC36 NEWS NOW) – In Franklin County today the governor outlined...',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBeNull();
+		expect(classification.counties).toEqual([]);
+	});
+
 	it('suppresses city-derived county for Greater Cincinnati regional weather article', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://wlwt.com/weather-forecast',

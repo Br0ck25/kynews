@@ -680,29 +680,41 @@ export async function classifyArticleWithAi(
       aiGeo.city,
     );
 
+    // Merge county results, applying several heuristics.
+    // For Kentucky schools sources we trust whatever geography we have
+    // (fallback/AI/geo/default). For all other stories we must also respect
+    // the statewide-KY-politics flag: no county should survive that
+    // override regardless of what the geo detector or the AI returned.
     const mergedCounty = isKySchoolsSource
       ? (fallback.county ?? aiCounty ?? aiGeo.county ?? allowedSourceDefaultCounty)
-      : (
-        // if the AI explicitly rejects Kentucky we normally drop any county
-        // the fallback guessed, but we still want default-county sources to
-        // retain their county tag only when the article is already KY.  The
-        // rainy-day weather heuristic below handles uncategorized cases.
-        (!aiIsKentucky && typeof parsed.isKentucky === 'boolean' && allowedSourceDefaultCounty === null)
-          ? null
-          : (fallback.county ??
-             aiCounty ??
-             aiGeo.county ??
-             (mergedIsKentucky && !hadGeo && !isStatewideKyPolitics ? allowedSourceDefaultCounty : null))
-      );
+      : isStatewideKyPolitics
+        ? null // statewide political roundup gets no county pin at all
+        : (
+          // if the AI explicitly rejects Kentucky we normally drop any county
+          // the fallback guessed, but we still want default-county sources to
+          // retain their county tag only when the article is already KY.  The
+          // rainy-day weather heuristic below handles uncategorized cases.
+          (!aiIsKentucky && typeof parsed.isKentucky === 'boolean' && allowedSourceDefaultCounty === null)
+            ? null
+            : (fallback.county ??
+               aiCounty ??
+               aiGeo.county ??
+               (mergedIsKentucky && !hadGeo && !isStatewideKyPolitics ? allowedSourceDefaultCounty : null))
+        );
 
     // determine final counties list using AI output when available, otherwise
-    // fall back to the mergedCounty (if any)
+    // fall back to the mergedCounty (if any).  Also clear all counties for
+    // statewide political stories so the earlier guard on mergedCounty can't
+    // be accidentally bypassed by aiCounties.
     const mergedCounties: string[] =
-      aiCounties.length > 0
-        ? aiCounties
-        : mergedCounty
-          ? [mergedCounty]
-          : [];
+      isStatewideKyPolitics
+        ? []
+        : (aiCounties.length > 0
+            ? aiCounties
+            : mergedCounty
+              ? [mergedCounty]
+              : []);
+
 
     fallback = {
       isKentucky: mergedIsKentucky,

@@ -1,13 +1,20 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, useHistory } from "react-router-dom";
 import { makeStyles } from "@material-ui/core/styles";
-import { Typography, Box } from "@material-ui/core";
-import { slugToCounty } from "../utils/functions";
+import { Typography, Box, IconButton } from "@material-ui/core";
+import ShareIcon from "@material-ui/icons/Share";
+import FavoriteIcon from "@material-ui/icons/Favorite";
+import { slugToCounty, countyToSlug } from "../utils/functions";
 import { countyInfo } from "../data/countyInfo";
+import { ToggleSavedCounty, GetSavedCounties } from "../services/storageService";
 
 const useStyles = makeStyles((theme) => ({
   root: {},
-
+  headerActions: {
+    display: "inline-flex",
+    verticalAlign: "middle",
+    marginLeft: theme.spacing(1),
+  },
 }));
 
 export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = null, onClose = null }) {
@@ -18,6 +25,43 @@ export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = n
   const infoType = infoTypeProp || params.infoType || "";
   const countyName = slugToCounty(countySlug || "");
   const info = countyInfo[countyName];
+
+  // share & save state for info pages
+  const [saved, setSaved] = useState(false);
+
+  // keep saved status in sync with global list
+  useEffect(() => {
+    if (!countyName) return;
+    const savedCounties = GetSavedCounties();
+    setSaved(savedCounties.includes(countyName));
+  }, [countyName]);
+
+  const handleShare = async () => {
+    if (!countyName || !infoType) return;
+    const title = `${countyName} County, KY News`;
+    const slug = countyToSlug(countyName);
+    const url = `https://localkynews.com/news/kentucky/${slug}/${infoType}`;
+    const text = `Latest ${
+      infoType === "government-offices" ? "government offices" : "utilities"
+    } for ${countyName} County on Kentucky News`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        // silent; parent component may show snackbar but not available here
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSave = () => {
+    if (!countyName) return;
+    const nowSaved = ToggleSavedCounty(countyName);
+    setSaved(nowSaved);
+  };
 
   useEffect(() => {
     if (!countyName) return;
@@ -88,9 +132,29 @@ export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = n
 
   return (
     <div className={classes.root}>
-      <Typography variant="h5" gutterBottom>
-        {countyName} County
-      </Typography>
+      <Box display="flex" alignItems="center" justifyContent="space-between">
+        <Typography variant="h5" gutterBottom>
+          {countyName} County
+        </Typography>
+        <span className={classes.headerActions}>
+          <IconButton
+            color="primary"
+            size="small"
+            aria-label="Share page"
+            onClick={handleShare}
+          >
+            <ShareIcon fontSize="small" />
+          </IconButton>
+          <IconButton
+            color={saved ? "secondary" : "primary"}
+            size="small"
+            aria-label="Save page"
+            onClick={handleSave}
+          >
+            <FavoriteIcon fontSize="small" />
+          </IconButton>
+        </span>
+      </Box>
       <Box style={{ marginBottom: 16 }}>{content}</Box>
     </div>
   );

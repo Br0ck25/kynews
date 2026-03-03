@@ -913,6 +913,43 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
             </CardContent>
           </Card>
 
+          {/* new satellite provider cards */}
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Starlink</strong> – Satellite internet available countywide.<br />
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://www.starlink.com">
+                  starlink.com
+                </a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Viasat</strong> – Satellite broadband provider.<br />
+                Phone: 1-855-810-1308<br />
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://www.viasat.com">
+                  viasat.com
+                </a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>HughesNet</strong> – Satellite internet provider.<br />
+                Phone: 1-866-347-3292<br />
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://www.hughesnet.com">
+                  hughesnet.com
+                </a>
+              </Typography>
+            </CardContent>
+          </Card>
+
           <Typography variant="h6" gutterBottom>
             Phone & Cellular
           </Typography>

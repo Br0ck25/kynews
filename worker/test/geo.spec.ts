@@ -235,6 +235,12 @@ describe('county detection', () => {
     expect(detectCity('A crash occurred in Frankfort, Ky. on Friday.')).toBe('frankfort');
   });
 
+  it('will still detect Frankfort if the dateline appears after a title/newline', () => {
+    const text = 'New report released\nFRANKFORT, Ky. (ABC36 NEWS NOW) – lawmakers met';
+    // dateline occurs after a newline so the ^ guard does not match
+    expect(detectCity(text)).toBe('frankfort');
+  });
+
   it('does not detect common words that were removed from city list', () => {
     expect(detectCity('The company moved its headquarters to Louisville.')).toBe(null);
     expect(detectCity('Petroleum prices rose statewide today.')).toBe(null);

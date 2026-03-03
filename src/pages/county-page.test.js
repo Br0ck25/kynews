@@ -347,6 +347,7 @@ test('info page has no outer card', async () => {
     expect(lnk).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749');
   });
 
+
   // additional recently linked addresses
   expect(screen.getByText(/2125 Highway 118, Hyden, KY 41749/i).closest('a')).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=2125+Highway+118,+Hyden,+KY+41749');
   // note: above covers EMA, child support, extension because they all share same link text
@@ -364,6 +365,188 @@ test('info page has no outer card', async () => {
   const phoneLink = screen.getByText(/\(606\) 672-2465/i).closest('a');
   expect(phoneLink).toHaveAttribute('href','tel:+16066722465');
 
+});
+
+// new tests ensuring the info pages also show share/save controls
+
+test('info pages include share and save buttons and they function', async () => {
+  jest.spyOn(SiteService.prototype,'getPosts').mockResolvedValue([]);
+  const shareMock = jest.fn().mockResolvedValue();
+  Object.defineProperty(window.navigator, 'share', {
+    configurable: true,
+    value: shareMock,
+  });
+  const storagePrefix = Constants.localStoragePrefix;
+  localStorage.setItem(`${storagePrefix}savedCounties`, JSON.stringify([]));
+
+  const history = createMemoryHistory({initialEntries:['/news/kentucky/leslie-county/government-offices']});
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType">
+          <CountyInfoPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  // header buttons should be present
+  expect(await screen.findByLabelText(/Share page/i)).toBeInTheDocument();
+  expect(screen.getByLabelText(/Save page/i)).toBeInTheDocument();
+
+  // clicking share should invoke navigator.share with the info-specific URL
+  fireEvent.click(screen.getByLabelText(/Share page/i));
+  expect(shareMock).toHaveBeenCalledWith({
+    title: 'Leslie County, KY News',
+    text: expect.stringContaining('government offices'),
+    url: 'https://localkynews.com/news/kentucky/leslie-county/government-offices',
+  });
+
+  // clicking save should toggle county saved list
+  fireEvent.click(screen.getByLabelText(/Save page/i));
+  const savedCounties = JSON.parse(localStorage.getItem(`${storagePrefix}savedCounties`));
+  expect(savedCounties).toContain('Leslie');
+});
+
+// verify Adair county government page content from markdown
+
+test('Adair county government page displays key officials and quick links', async () => {
+  jest.spyOn(SiteService.prototype,'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({initialEntries:['/news/kentucky/adair-county/government-offices']});
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType">
+          <CountyInfoPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  expect(await screen.findByText(/Adair County, Kentucky Government Offices Directory/i)).toBeInTheDocument();
+  expect(screen.getByText(/Property Search \(PVA\)/i)).toBeInTheDocument();
+  expect(screen.getByText(/Driver Licensing Appointment/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/Larry Russell Bryant/i).length).toBeGreaterThan(0);
+  const phones = screen.getAllByText(/\(270\) 384-4703/i)
+    .map(n => n.closest('a'))
+    .filter(Boolean);
+  expect(phones.length).toBeGreaterThan(0);
+  expect(phones[0]).toHaveAttribute('href','tel:+12703844703');
+  // attorney and sheriff entries
+  expect(screen.getByText(/County Attorney/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/Sheriff/i).length).toBeGreaterThan(0);
+  const sheriffPhones = screen.getAllByText(/\(270\) 384-2776/i)
+    .map(n => n.closest('a'))
+    .filter(Boolean);
+  expect(sheriffPhones.length).toBeGreaterThan(0);
+  expect(sheriffPhones[0]).toHaveAttribute('href','tel:+12703842776');
+  // PVA has pay taxes anchor id
+  // PVA card should carry the pay-taxes id so quick link works
+  expect(document.getElementById('pay-taxes')).not.toBeNull();
+  // detention center heading exists
+  expect(screen.getByText(/Adair County Regional Jail/i)).toBeInTheDocument();
+  // magistrate name sample
+  expect(screen.getByText(/Daryl Flatt/i)).toBeInTheDocument();
+  // health department phone
+  expect(screen.getByText(/Lake Cumberland District Health Department/i)).toBeInTheDocument();
+  expect(screen.getByText(/\(270\) 384-2418/i).closest('a')).toHaveAttribute('href','tel:+12703842418');
+  // reciprocal utilities link
+  const utilLink = screen.getByText(/View our Adair County Utilities Directory/i).closest('a');
+  expect(utilLink).toHaveAttribute('href','/news/kentucky/adair-county/utilities');
+  // transportation & licensing cards should now be separate
+  expect(screen.getByText(/Driver Licensing \(KYTC Regional Office\)/i)).toBeInTheDocument();
+  expect(screen.getByText(/United States Post Office/i)).toBeInTheDocument();
+});
+
+// verify Allen county government page content from markdown
+
+test('Allen county government page displays key officials and quick links', async () => {
+  jest.spyOn(SiteService.prototype,'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({initialEntries:['/news/kentucky/allen-county/government-offices']});
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType">
+          <CountyInfoPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  expect(await screen.findByText(/Allen County, Kentucky Government Offices Directory/i)).toBeInTheDocument();
+  expect(screen.getByText(/Property Search \(PVA\)/i)).toBeInTheDocument();
+  expect(screen.getByText(/Driver Licensing Appointment/i)).toBeInTheDocument();
+  const dhMatches = screen.getAllByText(/Dennis Harper/i);
+  expect(dhMatches.length).toBeGreaterThan(0);
+  expect(screen.getByText(/Brandon Ford/i)).toBeInTheDocument();
+  // some additional officials and services
+  const clerkMatches = screen.getAllByText(/County Clerk/i);
+  expect(clerkMatches.length).toBeGreaterThan(0);
+  expect(screen.getByText(/Property Valuation Administrator/i)).toBeInTheDocument();
+  expect(screen.getByText(/County Treasurer/i)).toBeInTheDocument();
+  expect(screen.getByText(/County Coroner/i)).toBeInTheDocument();
+  expect(screen.getByText(/Circuit Court Clerk/i)).toBeInTheDocument();
+  expect(screen.getByText(/Health Department/i)).toBeInTheDocument();
+  // reciprocal link back to utilities
+  const utilLink2 = screen.getByText(/View our Allen County Utilities Directory/i).closest('a');
+  expect(utilLink2).toHaveAttribute('href','/news/kentucky/allen-county/utilities');
+});
+
+// verify Adair utilities page content
+
+test('Adair county utilities page lists key providers', async () => {
+  jest.spyOn(SiteService.prototype,'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({initialEntries:['/news/kentucky/adair-county/utilities']});
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType">
+          <CountyInfoPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  expect(await screen.findByText(/Adair County, Kentucky Utilities Directory/i)).toBeInTheDocument();
+  expect(screen.getByText(/Taylor County RECC/i)).toBeInTheDocument();
+  expect(screen.getByText(/Columbia Gas of Kentucky/i)).toBeInTheDocument();
+  expect(screen.getByText(/Columbia\/Adair Utilities District/i)).toBeInTheDocument();
+  // Windstream shows up twice (name and website link) so just assert at least one
+  const windstreamMatches = screen.getAllByText(/Windstream/i);
+  expect(windstreamMatches.length).toBeGreaterThan(0);
+  expect(screen.getByText(/DUO Broadband/i)).toBeInTheDocument();
+  expect(screen.getByText(/starlink\.com/i)).toBeInTheDocument();
+  expect(screen.getByText(/viasat\.com/i)).toBeInTheDocument();
+});
+
+// utilities page should reflect recent updates requested by user
+
+test('share/save on utilities page uses the utilities path and text', async () => {
+  jest.spyOn(SiteService.prototype,'getPosts').mockResolvedValue([]);
+  const shareMock = jest.fn().mockResolvedValue();
+  Object.defineProperty(window.navigator, 'share', {
+    configurable: true,
+    value: shareMock,
+  });
+
+  const history = createMemoryHistory({initialEntries:['/news/kentucky/leslie-county/utilities']});
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType">
+          <CountyInfoPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  expect(await screen.findByLabelText(/Share page/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText(/Share page/i));
+  expect(shareMock).toHaveBeenCalledWith({
+    title: 'Leslie County, KY News',
+    text: expect.stringContaining('utilities'),
+    url: 'https://localkynews.com/news/kentucky/leslie-county/utilities',
+  });
 });
 
 // utilities page should reflect recent updates requested by user
@@ -396,6 +579,20 @@ test('utilities content updates per request modifications', async () => {
   expect(rumpkeLink).toHaveAttribute('href','https://rumpke.com');
   const rumpkeAddr = screen.getByText(/2125 KY-118, Hyden, KY 41749/i).closest('a');
   expect(rumpkeAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=2125+KY-118,+Hyden,+KY+41749');
+
+  // Thacker-Grigsby address clickable and website showing domain only
+  expect(screen.getByText(/tgtel\.com/i).closest('a')).toHaveAttribute('href','https://tgtel.com/');
+
+  // new satellite providers should be listed
+  // provider links should exist; presence of starlink.com implies provider
+  const starlinkLink = screen.getByText(/starlink\.com/i).closest('a');
+  expect(starlinkLink).toHaveAttribute('href','https://www.starlink.com');
+  expect(screen.queryAllByText(/Viasat/i).length).toBeGreaterThan(0);
+  const viasatLink = screen.getByText(/viasat\.com/i).closest('a');
+  expect(viasatLink).toHaveAttribute('href','https://www.viasat.com');
+  expect(screen.queryAllByText(/HughesNet/i).length).toBeGreaterThan(0);
+  const hughesLink = screen.getByText(/hughesnet\.com/i).closest('a');
+  expect(hughesLink).toHaveAttribute('href','https://www.hughesnet.com');
 
   // Thacker-Grigsby address clickable and website showing domain only
   const tgAddr = screen.getByText(/60 Communication Lane, Hindman, KY 41822/i).closest('a');
