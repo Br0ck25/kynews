@@ -1,15 +1,13 @@
 import React, { useEffect } from "react";
 import { useParams, useHistory } from "react-router-dom";
 import { makeStyles } from "@material-ui/core/styles";
-import { Typography, Box, Tabs, Tab, Card, CardContent } from "@material-ui/core";
+import { Typography, Box } from "@material-ui/core";
 import { slugToCounty } from "../utils/functions";
 import { countyInfo } from "../data/countyInfo";
 
 const useStyles = makeStyles((theme) => ({
   root: {},
-  card: {
-    marginBottom: theme.spacing(2),
-  },
+
 }));
 
 export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = null, onClose = null }) {
@@ -76,14 +74,10 @@ export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = n
 
   return (
     <div className={classes.root}>
-      <Card data-testid="county-card" className={classes.card}>
-        <CardContent>
-          <Typography variant="h5" gutterBottom>
-            {countyName} County
-          </Typography>
-          <Box style={{ marginBottom: 16 }}>{content}</Box>
-        </CardContent>
-      </Card>
+      <Typography variant="h5" gutterBottom>
+        {countyName} County
+      </Typography>
+      <Box style={{ marginBottom: 16 }}>{content}</Box>
     </div>
   );
 }

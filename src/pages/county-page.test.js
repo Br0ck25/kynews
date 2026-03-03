@@ -260,9 +260,9 @@ test('county page hides info buttons when viewing info subpage', async () => {
   expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
 });
 
-// info pages themselves should render inside a card container
+// info pages themselves should not render an outer wrapper card (individual entries handle their own cards)
 
-test('info page card layout', async () => {
+test('info page has no outer card', async () => {
   jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
   const history = createMemoryHistory({ initialEntries: ["/news/kentucky/leslie-county/government-offices"] });
   render(
@@ -275,5 +275,94 @@ test('info page card layout', async () => {
     </Provider>
   );
 
-  expect(await screen.findByTestId('county-card')).toBeInTheDocument();
+  // queryByTestId returns null if not found
+  expect(screen.queryByTestId('county-card')).toBeNull();
+});
+// verify specific content changes requested by user
+
+ test('government offices content updates per request modifications', async () => {
+  jest.spyOn(SiteService.prototype,'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({initialEntries:['/news/kentucky/leslie-county/government-offices']});
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType">
+          <CountyInfoPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
+  expect(screen.getByText(/Circuit Court Clerk/i)).toBeInTheDocument();
+  expect(screen.queryByText(/County Clerk – at the County Courthouse/i)).toBeNull();
+  expect(screen.queryByText(/County Coroner,/i)).toBeNull();
+  const cswsLink = screen.getByText(/csws\.chfs\.ky\.gov/i).closest('a');
+  expect(cswsLink).toHaveAttribute('target','_blank');
+  // senior center text should display domain only
+  const seniorLink = screen.getByText(/seniorcenter\.us\/sc\/leslie_county_senior_citizens_center_hyden_ky/i).closest('a');
+  expect(seniorLink).toHaveAttribute('target','_blank');
+  // there are multiple identical addresses; verify all are clickable
+  const mapLinks = screen.getAllByText(/22010 Main St, Hyden, KY 41749/i)
+    .map(node => node.closest('a'));
+  expect(mapLinks.length).toBeGreaterThan(1);
+  mapLinks.forEach((lnk) => {
+    expect(lnk).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749');
+  });
+
+  // extension office address should also be linked (4-H uses same text, so pick anchor)
+  const extAddr = screen.getAllByText(/22045 Main St #514, Hyden, KY 41749/i)
+    .map(n => n.closest('a'))
+    .find(Boolean);
+  expect(extAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=22045+Main+St+%23514,+Hyden,+KY+41749');
+
+  // check a phone is clickable via tel
+  const phoneLink = screen.getByText(/\(606\) 672-2720/i).closest('a');
+  expect(phoneLink).toHaveAttribute('href','tel:+16066722720');
+
+});
+
+// utilities page should reflect recent updates requested by user
+
+test('utilities content updates per request modifications', async () => {
+  jest.spyOn(SiteService.prototype,'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({initialEntries:['/news/kentucky/leslie-county/utilities']});
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType">
+          <CountyInfoPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  expect(await screen.findByText(/Electric Utilities/i)).toBeInTheDocument();
+  // rumpke now has a website and clickable map address
+  const rumpkeLink = screen.getByText(/rumpke\.com/i).closest('a');
+  expect(rumpkeLink).toHaveAttribute('href','https://rumpke.com');
+  const rumpkeAddr = screen.getByText(/2125 KY-118, Hyden, KY 41749/i).closest('a');
+  expect(rumpkeAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=2125+KY-118,+Hyden,+KY+41749');
+
+  // Thacker-Grigsby address clickable and website showing domain only
+  const tgAddr = screen.getByText(/60 Communication Lane, Hindman, KY 41822/i).closest('a');
+  expect(tgAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=60+Communication+Lane,+Hindman,+KY+41822');
+  const tgLink = screen.getByText(/tgtel\.com/i).closest('a');
+  expect(tgLink).toHaveAttribute('href','https://tgtel.com/');
+
+  // AmeriGas address clickable and website simplified
+  const amerigasAddr = screen.getByText(/207 N Main St, Leitchfield, KY 42754/i).closest('a');
+  expect(amerigasAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=207+N+Main+St,+Leitchfield,+KY+42754');
+  const amerigasLink = screen.getByText(/amerigas\.com/i).closest('a');
+  expect(amerigasLink).toHaveAttribute('href','https://amerigas.com');
+
+  // PSC address should now be clickable as well
+  const pscAddr = screen.getByText(/211 Sower Blvd, Frankfort, KY 40601/i).closest('a');
+  expect(pscAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=211+Sower+Blvd,+Frankfort,+KY+40601');
+
+  // Jackson Energy entry has clickable address and short domain
+  const jackAddr = screen.getByText(/115 Jackson Energy Lane, McKee, KY 40447/i).closest('a');
+  expect(jackAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=115+Jackson+Energy+Lane,+McKee,+KY+40447');
+  const jackLink = screen.getByText(/jacksonenergy\.com/i).closest('a');
+  expect(jackLink).toHaveAttribute('href','https://www.jacksonenergy.com/');
 });

@@ -228,6 +228,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'jacksontimes.com': 'Breathitt',
   // Central Kentucky
   'kentucky.com': 'Fayette',             // Lexington Herald-Leader
+  'kykernel.com': 'Fayette',              // UK student newspaper
   'lex18.com': 'Fayette',
   'wkyt.com': 'Fayette',
   'wymt.com': 'Perry',

@@ -6,12 +6,23 @@ import { useParams, Link as RouterLink } from "react-router-dom";
 import SiteService from "../services/siteService";
 import { articleToUrl } from "../utils/functions";
 
-const useStyles = makeStyles({
+const useStyles = makeStyles((theme) => ({
   root: { marginTop: 15 },
-  card: { marginBottom: 16 },
+  card: {
+    marginBottom: 16,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: theme.palette.background.paper,
+    boxShadow: theme.shadows[1],
+    transition: "transform .18s ease, box-shadow .18s ease",
+    "&:hover": {
+      transform: "translateY(-1px)",
+      boxShadow: theme.shadows[3],
+    },
+  },
   emptyState: { textAlign: "center", padding: "24px 16px" },
   emptyAction: { marginTop: 16 },
-});
+}));
 
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";

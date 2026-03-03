@@ -65,7 +65,63 @@ export function textContainsCounty(text: string, county: string): boolean {
       `\\b${escaped}\\s+(?:county|counties|cnty|co(?=\\s|$))\\b`, 'i'
     ).test(text);
   }
-  return new RegExp(`\\b${escaped}(?:\\s+County)?\\b`, 'i').test(text);
+  // For unambiguous single-word county names we need to be stricter: the
+  // name must not be the tail of a multi-word proper noun (city, person,
+  // etc.).  The helper below implements that enhanced logic.  Multi-word
+  // county names (e.g. "McLean") fall through to the simpler check since
+  // the full name must be present.
+  if (!county.includes(' ')) {
+    return textContainsCountyStrict(text, county);
+  }
+  return new RegExp(`\b${escaped}(?:\s+County)?\b`, 'i').test(text);
+}
+
+/**
+ * Strict county name check for single-word county names.
+ * Ensures the county name is not the trailing word of a multi-word
+ * place name (e.g. "Bowling Green" → not Green County) and not a
+ * person's surname (e.g. "Russell Coleman" → not Russell County).
+ *
+ * Rules:
+ * 1. "[County] County" pattern always accepted (explicit county suffix)
+ * 2. Bare county name rejected if immediately preceded by a
+ *    title-case or ALL-CAPS word (multi-word place or person name)
+ * 3. Bare county name accepted otherwise
+ */
+function textContainsCountyStrict(text: string, county: string): boolean {
+  const escaped = escapeRegExp(county);
+
+  // Rule 1: "[County] County" suffix always wins — unambiguous
+  const withSuffixRe = new RegExp(`\b${escaped}\s+County\b`, 'i');
+  if (withSuffixRe.test(text)) return true;
+
+  // Rule 2: check bare occurrences — reject those preceded by a word
+  const bareRe = new RegExp(`\b${escaped}\b`, 'gi');
+  for (const match of text.matchAll(bareRe)) {
+    const idx = match.index ?? 0;
+    // Look at the word immediately before this match
+    const before = text.slice(0, idx);
+    const prevWordMatch = before.match(/(\S+)\s*$/);
+    if (!prevWordMatch) {
+      // Nothing before — accept
+      return true;
+    }
+    const prevWord = prevWordMatch[1];
+    // Reject if the preceding word looks like a proper name token
+    // (starts with capital letter, or is all-caps, or ends with
+    // punctuation that would indicate it's part of the same phrase)
+    const isPropernamePrefix =
+      /^[A-Z]/.test(prevWord) ||   // starts with capital (Bowling, Russell)
+      /^[A-Z]+$/.test(prevWord);    // ALL-CAPS (BOWLING, WARREN)
+    if (!isPropernamePrefix) {
+      // Preceded by lowercase word (preposition, article, etc.) — accept
+      // e.g. "in Green", "visiting Green", "near Green"
+      return true;
+    }
+    // Preceded by proper-name-looking word — continue checking other
+    // occurrences in case there's a bare standalone match elsewhere
+  }
+  return false;
 }
 // precompile whole-word regexes for out-of-state names to avoid expensive
 // substring checks (and false positives such as "georgia" matching inside
