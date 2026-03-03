@@ -59,11 +59,38 @@ function prepare(env: Env, sql: string) {
 }
 
 export async function findArticleByHash(env: Env, urlHash: string): Promise<ArticleRecord | null> {
+  // first try the main articles table
   const result = await prepare(env, `SELECT * FROM articles WHERE url_hash = ? LIMIT 1`)
     .bind(urlHash)
     .first<ArticleRow>();
 
-  return result ? mapArticleRow(result) : null;
+  if (result) {
+    return mapArticleRow(result);
+  }
+  // if not found there, check the supplemental url_hashes mapping table
+  const link = await prepare(env, `SELECT article_id FROM url_hashes WHERE hash = ? LIMIT 1`)
+    .bind(urlHash)
+    .first<{ article_id: number }>();
+  if (link && link.article_id) {
+    return getArticleById(env, link.article_id);
+  }
+  return null;
+}
+
+// insert a hash mapping (used for URL path dedup and any future alternative keys)
+export async function insertUrlHash(env: Env, hash: string, articleId: number): Promise<void> {
+  // create table on-the-fly in case migrations haven't run in tests
+  await env.ky_news_db.prepare(
+    `CREATE TABLE IF NOT EXISTS url_hashes (
+      hash TEXT PRIMARY KEY,
+      article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE
+    )`
+  ).run();
+
+  await env.ky_news_db
+    .prepare(`INSERT OR IGNORE INTO url_hashes (hash, article_id) VALUES (?, ?)`)
+    .bind(hash, articleId)
+    .run();
 }
 
 export async function listRecentArticleTitles(env: Env, limit = 600): Promise<Array<{ id: number; title: string }>> {
@@ -98,7 +125,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
   const normalizedCounty = normalizeCountyName(article.county);
 
   try {
-    const result = await prepare(env, 
+    const result = await prepare(env,
         `INSERT INTO articles (
           canonical_url,
           source_url,
@@ -153,7 +180,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
     // insert county associations
     if (article.counties && article.counties.length > 0) {
       for (const county of article.counties) {
-        await prepare(env, 
+        await prepare(env,
             `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
              VALUES (?, ?, ?)`
           )
@@ -161,7 +188,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           .run();
       }
     } else if (article.county) {
-      await prepare(env, 
+      await prepare(env,
           `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
            VALUES (?, ?, 1)`
         )
@@ -196,7 +223,7 @@ export async function getArticlesForUpdateCheck(
     Date.now() - maxAgeHours * 60 * 60 * 1000
   ).toISOString();
 
-  const rows = await prepare(env, 
+  const rows = await prepare(env,
       `SELECT id, url_hash, canonical_url, title, summary,
               published_at, content_hash
        FROM articles
@@ -241,7 +268,7 @@ export async function prependUpdateToSummary(
   const updatedSummary =
     `Update (${timeLabel}): ${updateParagraph}\n\n${row.summary}`.trim();
 
-  await prepare(env, 
+  await prepare(env,
       `UPDATE articles
        SET summary = ?,
            content_hash = ?,
@@ -293,7 +320,7 @@ export async function updateArticleLinks(
   id: number,
   patch: { canonicalUrl: string; sourceUrl: string; urlHash: string },
 ): Promise<void> {
-  await prepare(env, 
+  await prepare(env,
       'UPDATE articles SET canonical_url = ?, source_url = ?, url_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     )
     .bind(patch.canonicalUrl, patch.sourceUrl, patch.urlHash, id)
@@ -320,7 +347,7 @@ export async function blockArticleByIdAndDelete(
   }
 
   await ensureBlockedArticlesTable(env);
-  await prepare(env, 
+  await prepare(env,
       `INSERT OR REPLACE INTO blocked_articles (canonical_url, source_url, url_hash, reason, created_at)
        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
     )
@@ -654,7 +681,7 @@ export async function getSourceStats(env: Env): Promise<Array<{
   latestPublishedAt: string;
   status: 'active' | 'idle';
 }>> {
-  const rows = await prepare(env, 
+  const rows = await prepare(env,
       `SELECT source_url, COUNT(*) as article_count, MAX(published_at) as latest_published_at
        FROM articles
        GROUP BY source_url
@@ -678,7 +705,7 @@ export async function getSourceStats(env: Env): Promise<Array<{
 }
 
 async function ensureBlockedArticlesTable(env: Env): Promise<void> {
-  await prepare(env, 
+  await prepare(env,
       `CREATE TABLE IF NOT EXISTS blocked_articles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         canonical_url TEXT NOT NULL,

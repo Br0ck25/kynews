@@ -3,7 +3,7 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE } from './classify';
-import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
+import { findArticleByHash, insertArticle, insertUrlHash, isUrlHashBlocked, listRecentArticleTitles } from './db';
 import { cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
 
@@ -42,6 +42,31 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
       urlHash: sourceUrlHash,
       category: preflightDuplicate.category,
     };
+  }
+
+  // Syndicated-wire dedup: many station sites (Gray, Nexstar, etc.) publish
+  // identical AP/Reuters stories with the same URL path slug.  If two
+  // different domains share the same path we should treat the second as a
+  // duplicate immediately before doing any network or AI work.
+  let parsedUrl: URL | null = null;
+  try {
+    parsedUrl = new URL(normalizeCanonicalUrl(source.url));
+  } catch {}
+  if (parsedUrl) {
+    const pathSlug = parsedUrl.pathname.replace(/\/+$/, '').toLowerCase();
+    if (pathSlug.length > 20 && /\d{4}\/\d{2}\/\d{2}\//.test(pathSlug)) {
+      const pathHash = await sha256Hex(`path:${pathSlug}`);
+      const pathDuplicate = await findArticleByHash(env, pathHash);
+      if (pathDuplicate) {
+        return {
+          status: 'duplicate',
+          reason: 'syndicated wire story (same URL path on different domain)',
+          id: pathDuplicate.id,
+          urlHash: pathHash,
+          category: pathDuplicate.category,
+        };
+      }
+    }
   }
 
   const extracted = await fetchAndExtractArticle(env, source);
@@ -95,6 +120,10 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
           urlHash: canonicalHash,
         };
       }
+      // claim the fingerprint as soon as we check it, creating a small
+      // optimistic lock.  This reduces the window where two concurrent
+      // workers could both proceed past the check and later insert same body.
+      await env.CACHE.put(contentFingerprintKey, 'pending', { expirationTtl: 60 * 60 * 72 }).catch(() => {});
     }
   }
 
@@ -211,7 +240,16 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
-  // after successful insert, record fingerprint for a few days if we computed one
+  // record path hash for syndicated dedup (mirrors the preflight check above)
+  if (parsedUrl) {
+    const pathSlug = parsedUrl.pathname.replace(/\/+$/, '').toLowerCase();
+    if (pathSlug.length > 20 && /\d{4}\/\d{2}\/\d{2}\//.test(pathSlug)) {
+      const pathHash = await sha256Hex(`path:${pathSlug}`);
+      await insertUrlHash(env, pathHash, articleId).catch(() => {});
+    }
+  }
+
+  // after successful insert, update fingerprint entry to the real article id
   if (contentFingerprintKey && env.CACHE) {
     await env.CACHE.put(contentFingerprintKey, String(articleId), {
       expirationTtl: 60 * 60 * 72,
