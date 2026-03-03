@@ -577,27 +577,28 @@ export async function updateArticleClassification(
 ): Promise<void> {
   const normalizedCounty = normalizeCountyName(patch.county);
 
-  const doUpdate = () =>
-    prepare(env, 'UPDATE articles SET category = ?, is_kentucky = ?, is_national = ?, county = ? WHERE id = ?')
-      .bind(
-        patch.category,
-        patch.isKentucky ? 1 : 0,
-        patch.isNational ? 1 : 0,
-        normalizedCounty,
-        id,
-      )
-      .run();
+  // D1's remote prepared-statement cache was poisoned during migration 0009
+  // (articles → articles_old → articles). Any prepare().bind().run() call that
+  // shares its stripped-SQL cache key with a statement compiled during that
+  // window fails with "no such table: main.articles_old" even though the table
+  // doesn't exist anymore.
+  //
+  // env.ky_news_db.exec() uses the same raw-execution path as
+  // `wrangler d1 execute --command` (confirmed working) and completely bypasses
+  // the prepared-statement cache.  All inputs are validated before this point
+  // so inlining literals is safe.
+  const escStr = (v: string | null): string =>
+    v === null ? 'NULL' : `'${v.replace(/'/g, "''")}'`;
+  const rawSql =
+    `UPDATE articles SET ` +
+    `category = ${escStr(patch.category)}, ` +
+    `is_kentucky = ${patch.isKentucky ? 1 : 0}, ` +
+    `is_national = ${patch.isNational ? 1 : 0}, ` +
+    `county = ${escStr(normalizedCounty)}, ` +
+    `updated_at = CURRENT_TIMESTAMP ` +
+    `WHERE id = ${id}`;
 
-  try {
-    await doUpdate();
-  } catch (err: any) {
-    if (err?.message?.includes('articles_old')) {
-      console.warn(`[RETAG] Stale cache detected for article ${id}, retrying with forced fresh SQL...`);
-      await doUpdate();
-    } else {
-      throw err;
-    }
-  }
+  await env.ky_news_db.exec(rawSql);
 
   let countiesList: string[] = [];
   if (patch.counties && patch.counties.length > 0) {

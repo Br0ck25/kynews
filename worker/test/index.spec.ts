@@ -1,5 +1,5 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { describe, it, test, expect } from 'vitest';
 import worker from '../src/index';
 import { __testables } from '../src/index';
 import * as classifyModule from '../src/lib/classify';
@@ -1390,14 +1390,14 @@ describe('database utilities', () => {
 		expect(found?.counties).toEqual(['Fayette', 'Jefferson']);
 	});
 
-	it('retries classification update if a stale prepared statement error occurs', async () => {
+	it('updateArticleClassification persists category/scope changes via exec', async () => {
 		await ensureSchemaAndFixture();
 		const now = new Date().toISOString();
 		const id3 = await insertArticle(env, {
 			canonicalUrl: 'https://example.com/retry',
 			sourceUrl: 'https://example.com',
 			urlHash: 'hash-retry',
-			title: 'Retry test',
+			title: 'Retag exec test',
 			author: null,
 			publishedAt: now,
 			category: 'today',
@@ -1417,23 +1417,8 @@ describe('database utilities', () => {
 			slug: null,
 		});
 
-		// stub prepare to throw once with the specific articles_old error
-		let attempt = 0;
-		const origPrepare = env.ky_news_db.prepare.bind(env.ky_news_db);
-		env.ky_news_db.prepare = (sql: string) => {
-			const stmt = origPrepare(sql);
-			const origRun = stmt.run.bind(stmt);
-			stmt.run = async (...args: any[]) => {
-				if (attempt === 0) {
-					attempt++;
-					const err: any = new Error('D1_ERROR: no such table: main.articles_old');
-					throw err;
-				}
-				return origRun(...args);
-			};
-			return stmt;
-		};
-
+		// updateArticleClassification now uses env.ky_news_db.exec() to bypass
+		// the D1 prepared-statement cache (poisoned by migration 0009 rename cycle).
 		await updateArticleClassification(env, id3, {
 			category: '',
 			isKentucky: false,
@@ -1442,12 +1427,9 @@ describe('database utilities', () => {
 		});
 		const row3 = await getArticleById(env, id3);
 		expect(row3?.category).toBe('');
-		env.ky_news_db.prepare = origPrepare;
-	});
-
-		const found = resp.items.find((i) => i.id === id);
-		expect(found).toBeDefined();
-		expect(found?.counties).toEqual(['Fayette', 'Jefferson']);
+		expect(row3?.isKentucky).toBe(false);
+		expect(row3?.isNational).toBe(true);
+		expect(row3?.county).toBeNull();
 	});
 
 	it('queryArticles search matches summary text', async () => {
@@ -1549,6 +1531,7 @@ describe('database utilities', () => {
 		expect(updated.summary).toContain('added update');
 		expect(updated.summary).toContain('Orig');
 	});
+});
 
 describe('db.insertArticle error logging', () => {
 	it('logs a helpful message and propagates the error', async () => {
