@@ -531,10 +531,15 @@ export default class SiteService {
     return this.request(`/api/admin/articles?${params.toString()}`);
   }
 
-  async retagArticle({ id, category, isKentucky, county }) {
+  async retagArticle({ id, category, isKentucky, county, counties }) {
+    // `counties` is an optional array of county tags used for multi-county
+    // assignments.  The UI now builds this list and passes it through so the
+    // backend can correctly clear or update the junction table instead of
+    // relying on the fallback logic that previously repopulated the primary
+    // county from the existing row.
     return this.request("/api/admin/retag", {
       method: "POST",
-      body: JSON.stringify({ id, category, isKentucky, county }),
+      body: JSON.stringify({ id, category, isKentucky, county, counties }),
     });
   }
 

@@ -2166,6 +2166,71 @@ describe('admin manual-article endpoint', () => {
 		expect(payload.items.find((i) => i.urlHash === 'hash-w1')?.isNational).toBe(true);
 	});
 
+	// new tests for county list handling
+	it('respects counties array when retagging and allows clearing counties', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		// insert simple kentucky article
+		await adminEnv.ky_news_db.prepare(`
+			INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category, is_kentucky, county, city, summary, seo_description, raw_word_count, summary_word_count, content_text, content_html)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind(
+			'https://example.com/countytest',
+			'https://example.com',
+			'hash-county',
+			'County Story',
+			null,
+			now,
+			'today',
+			1,
+			'Fayette',
+			null,
+			'body',
+			'SEO',
+			100,
+			50,
+			'body',
+			'<p>body</p>'
+		).run();
+		// add an extra county via retag
+		const reqExtra = new IncomingRequest('https://example.com/api/admin/retag', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				id: 1,
+				category: 'today',
+				isKentucky: true,
+				county: 'Fayette',
+				counties: ['Fayette', 'Franklin'],
+			}),
+		});
+		const ctxExtra = createExecutionContext();
+		await worker.fetch(reqExtra, adminEnv, ctxExtra);
+		const rowWithExtras = await getArticleById(adminEnv, 1);
+		expect(rowWithExtras.county).toBe('Fayette');
+		const counties1 = await getArticleCounties(adminEnv, 1);
+		expect(counties1).toEqual(['Fayette', 'Franklin']);
+
+		// now clear all counties by sending empty array and null county
+		const reqClear = new IncomingRequest('https://example.com/api/admin/retag', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				id: 1,
+				category: 'today',
+				isKentucky: true,
+				county: null,
+				counties: [],
+			}),
+		});
+		const ctxClear = createExecutionContext();
+		await worker.fetch(reqClear, adminEnv, ctxClear);
+		const rowCleared = await getArticleById(adminEnv, 1);
+		expect(rowCleared.county).toBeNull();
+		const counties2 = await getArticleCounties(adminEnv, 1);
+		expect(counties2).toEqual([]);
+	});
+
 	it('allows clearing the category tag by sending empty string', async () => {
 		// reuse article id 1 from earlier retag test
 		const req3 = new IncomingRequest('https://example.com/api/admin/retag', {

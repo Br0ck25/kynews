@@ -251,15 +251,20 @@ export default function AdminPage() {
         .filter(Boolean);
       const isKy = patch.isKentucky !== undefined ? patch.isKentucky : row.isKentucky;
       if (!isKy) {
-        countiesList = []; // clear if marking national
+        // if we mark the item national, ignore any county values
+        countiesList = [];
       }
-      const primaryCounty = countiesList.length > 0 ? countiesList[0] : (patch.county ?? row.county);
+      // primaryCounty should only come from the input list; don't default to
+      // the existing row value when the list has been cleared.  the server
+      // already has fallback logic but we want the UI to avoid resending stale
+      // data that would re-add a county unexpectedly.
+      const primaryCounty = countiesList.length > 0 ? countiesList[0] : null;
 
       await service.retagArticle({
         id: row.id,
         category: patch.category !== undefined ? patch.category : row.category,
         isKentucky: isKy,
-        county: (!isKy ? null : primaryCounty) || null,
+        county: isKy ? primaryCounty : null,
         counties: countiesList,
       });
       setArticleRows((prev) =>
@@ -273,7 +278,7 @@ export default function AdminPage() {
                   patch.isKentucky !== undefined
                     ? !patch.isKentucky
                     : item.isNational,
-                county: primaryCounty || item.county,
+                county: primaryCounty,
                 counties: countiesList,
                 publishedAt: patch.publishedAt ?? row.publishedAt,
               }

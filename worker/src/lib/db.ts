@@ -600,6 +600,8 @@ export async function updateArticleClassification(
 
   await env.ky_news_db.exec(rawSql);
 
+  // Build the full county sync as a single exec() batch so no prepare() calls
+  // touch the poisoned D1 statement cache at all.
   let countiesList: string[] = [];
   if (patch.counties && patch.counties.length > 0) {
     countiesList = patch.counties
@@ -609,20 +611,16 @@ export async function updateArticleClassification(
     countiesList = [normalizedCounty];
   }
 
-  await prepare(env, 'DELETE FROM article_counties WHERE article_id = ?')
-    .bind(id)
-    .run();
-
+  // Delete + re-insert via exec() — bypasses prepared-statement cache entirely.
+  const stmts: string[] = [`DELETE FROM article_counties WHERE article_id = ${id}`];
   for (const county of countiesList) {
-    try {
-        await prepare(env, `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
-             VALUES (?, ?, ?)`)
-          .bind(id, county, county === normalizedCounty ? 1 : 0)
-          .run();
-    } catch (e) {
-        console.error(`[RETAG] Failed to insert county ${county} for article ${id}`, e);
-    }
+    const isPrimary = county === normalizedCounty ? 1 : 0;
+    stmts.push(
+      `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary) ` +
+      `VALUES (${id}, ${escStr(county)}, ${isPrimary})`,
+    );
   }
+  await env.ky_news_db.exec(stmts.join('; '));
 }
 
 function normalizeCountyName(value: string | null): string | null {
