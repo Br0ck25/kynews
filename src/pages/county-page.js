@@ -269,30 +269,180 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
     Leslie: {
       government: (
         <>
-          <Typography variant="h6" gutterBottom>
-            Primary County Offices
+          <Typography variant="h4" gutterBottom>
+            Leslie County, Kentucky Government Offices
+          </Typography>
+          <Typography variant="body2" paragraph>
+            Find contact information for Leslie County elected officials, courts,
+            sheriff, jail, property valuation administrator (PVA), fiscal court,
+            elections, health services, and more.
+          </Typography>
+
+          {/* quick links buttons */}
+          <Box display="flex" flexWrap="wrap" mb={2}>
+            {[
+              { label: 'Property Search (PVA)', href: '#property-taxes' },
+              { label: 'Pay Property Taxes', href: '#property-taxes' },
+              { label: 'Jail Inmate Search', href: '#jail-courts' },
+              { label: 'Court Docket', href: '#jail-courts' },
+              { label: 'Voter Registration', href: '#elections-voting' },
+            ].map((link) => (
+              <Button
+                key={link.label}
+                variant="outlined"
+                color="primary"
+                size="small"
+                component="a"
+                href={link.href}
+                style={{ margin: 4 }}
+              >
+                {link.label}
+              </Button>
+            ))}
+          </Box>
+
+          <Typography variant="h6" gutterBottom id="property-taxes">
+            Property & Taxes
           </Typography>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Leslie County Judge Office</strong> – County Judge
-                Executive<br />
-                Address: 22010 Main St, Hyden, KY 41749<br />
-                Phone: (606) 672-3200<br />
-                Website: <a target="_blank" rel="noopener noreferrer" href="https://lesliecounty.ky.gov">lesliecounty.ky.gov</a>
+                <strong>Property Valuation Administrator (PVA)</strong> – Property
+                assessments, homestead exemption, farm classification, property
+                search<br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722456">(606) 672-2456</a>
               </Typography>
             </CardContent>
           </Card>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Leslie County Court Clerk's</strong> – County Court /
-                Clerk<br />
-                Address: 22010 Main St, Hyden, KY 41749<br />
-                Phone: (606) 672-2193<br />
+                <strong>Sheriff Tax Collection</strong> – County sheriff collects
+                property taxes on behalf of the PVA.<br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722200">(606) 672-2200</a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>County Treasurer</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066723901">(606) 672-3901</a>
+              </Typography>
+            </CardContent>
+          </Card>
+
+          <Typography variant="h6" gutterBottom id="jail-courts">
+            Jail & Courts
+          </Typography>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Leslie County Detention Center</strong> – County jail<br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=2125+KY-118,+Hyden,+KY+41749"
+                >
+                  2125 KY-118, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066723548">(606) 672-3548</a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Circuit Court Clerk</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722503">(606) 672-2503</a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Commonwealth’s Attorney (Circuit #27)</strong> – Felony
+                prosecutions<br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066724421">(606) 672-4421</a>
+              </Typography>
+            </CardContent>
+          </Card>
+
+          <Typography variant="h6" gutterBottom id="elected-officials">
+            Elected Officials
+          </Typography>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>County Judge/Executive</strong> – Jimmy Sizemore<br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066723200">(606) 672-3200</a>
+                <br />
                 Website:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="https://lesliecountyclerk.ky.gov/">
-                  https://lesliecountyclerk.ky.gov/
+                <a target="_blank" rel="noopener noreferrer" href="https://lesliecounty.ky.gov">
+                  lesliecounty.ky.gov
                 </a>
               </Typography>
             </CardContent>
@@ -300,178 +450,316 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Leslie County Property Vltn</strong> – Property Valuation
-                Administrator (PVA)<br />
-                Address: 22010 Main St #104, Hyden, KY 41749<br />
-                Phone: (606) 672-2456
+                <strong>County Attorney</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066724452">(606) 672-4452</a>
               </Typography>
             </CardContent>
           </Card>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Leslie County Treasurer's</strong> – County Treasurer<br />
-                Address: 22010 Main St, Hyden, KY 41749<br />
-                Phone: (606) 672-3901
+                <strong>Sheriff</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722200">(606) 672-2200</a>
+                <br />
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://lesliecounty.ky.gov">
+                  lesliecounty.ky.gov
+                </a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>County Clerk</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722193">(606) 672-2193</a>
+                <br />
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://lesliecountyclerk.ky.gov">
+                  lesliecountyclerk.ky.gov
+                </a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>County Coroner</strong><br />
+                Phone: (606) 672-3200 (contact Judge Executive’s office for current
+                name)
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Constables</strong><br />
+                (Contact Fiscal Court for current district listings)
               </Typography>
             </CardContent>
           </Card>
 
-          <Typography variant="h6" gutterBottom>
-            Law Enforcement & Emergency Services
+          <Typography variant="h6" gutterBottom id="elections-voting">
+            Elections & Voting
           </Typography>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Leslie County Sheriff Department</strong> – Sheriff’s
+                <strong>County Clerk – Election Services</strong><br />
+                Voter registration, absentee ballots, polling locations (see
+                state board website).<br />
+                Website: <a target="_blank" rel="noopener noreferrer" href="https://elect.ky.gov">
+                  elect.ky.gov
+                </a>
+              </Typography>
+            </CardContent>
+          </Card>
+
+          <Typography variant="h6" gutterBottom id="public-safety">
+            Public Safety & Emergency Services
+          </Typography>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Sheriff’s Office</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749"
+                >
+                  22010 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722200">(606) 672-2200</a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Emergency Management (EMA)</strong> – 24770 US-421,<br />
+                Hyden, KY 41749 – Phone:{' '}
+                <a href="tel:+16066722986">(606) 672-2986</a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Animal Control</strong> – handled through Sheriff’s
                 Office<br />
-                Address: 22010 Main St, Hyden, KY 41749<br />
-                Phone: (606) 672-2200<br />
-                Website:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="https://lesliecounty.ky.gov/">
-                  https://lesliecounty.ky.gov/
-                </a>
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>Leslie County E-911 Dispatch</strong> – 911 Dispatch<br />
-                Address: 24770 US-421, Hyden, KY 41749<br />
-                Phone: (606) 672-2986<br />
-                Website:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="http://leslie911.com/">http://leslie911.com/</a>
+                Phone: <a href="tel:+16066722200">(606) 672-2200</a>
               </Typography>
             </CardContent>
           </Card>
 
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" gutterBottom id="health-services">
             Health & Social Services
           </Typography>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Leslie County Home Health</strong> – Public health / health
-                department services<br />
-                Address: 78 Maple St #2, Hyden, KY 41749<br />
-                Phone: (606) 672-2393
+                <strong>Leslie County Home Health</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=78+Maple+St+%232,+Hyden,+KY+41749"
+                >
+                  78 Maple St #2, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722393">(606) 672-2393</a>
               </Typography>
             </CardContent>
           </Card>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Leslie County Child Support</strong> – Child Support
-                Services<br />
-                Address: 21892 Main St, Hyden, KY 41749<br />
-                Phone: (606) 672-4452<br />
+                <strong>Leslie County Child Support</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=21892+Main+St,+Hyden,+KY+41749"
+                >
+                  21892 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066724452">(606) 672-4452</a><br />
                 Website:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="https://csws.chfs.ky.gov/csws/General/LocateOffice.aspx?selIndex=066">
-                  CSWS Child Support Locator
+                <a target="_blank" rel="noopener noreferrer" href="https://csws.chfs.ky.gov">
+                  csws.chfs.ky.gov
                 </a>
               </Typography>
             </CardContent>
           </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Department for Community Based Services (DCBS)</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=21892+Main+St,+Hyden,+KY+41749"
+                >
+                  21892 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+18553068959">(855) 306-8959</a>
+              </Typography>
+            </CardContent>
+          </Card>
 
-          <Typography variant="h6" gutterBottom>
-            Other County Services
+          <Typography variant="h6" gutterBottom id="community">
+            Community & Agricultural Services
           </Typography>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Leslie County Extension Office</strong> – Cooperative
-                Extension (UK)<br />
-                Address: 22045 Main St #514, Hyden, KY 41749<br />
-                Phone: (606) 672-2154<br />
-                Website:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="https://leslie.ca.uky.edu/">https://leslie.ca.uky.edu/</a>
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>Leslie County 4-H Office</strong> – County 4-H Youth
-                Services<br />
-                Address: 22045 Main St #514, Hyden, KY 41749<br />
-                Phone: (606) 672-3125
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>Leslie County Road Department Garage</strong> – Road
-                Department<br />
-                Address: 332 Wendover Rd, Hyden, KY 41749<br />
-                Phone: (606) 672-2720
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>Leslie County Senior Citizens</strong> – Senior Citizen
-                Services Center<br />
-                Address: 178 Wendover Rd, Hyden, KY 41749<br />
-                Phone: (606) 672-3222<br />
-                Website:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="https://seniorcenter.us/sc/leslie_county_senior_citizens_center_hyden_ky">
-                  County Senior Center
+                <strong>Cooperative Extension Office</strong> (UK)<br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22045+Main+St+%23514,+Hyden,+KY+41749"
+                >
+                  22045 Main St #514, Hyden, KY 41749
                 </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722154">(606) 672-2154</a><br />
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://leslie.ca.uky.edu">
+                  leslie.ca.uky.edu
+                </a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>4-H Youth Development</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22045+Main+St+%23514,+Hyden,+KY+41749"
+                >
+                  22045 Main St #514, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066723125">(606) 672-3125</a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Road Department / County Garage</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=332+Wendover+Rd,+Hyden,+KY+41749"
+                >
+                  332 Wendover Rd, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722720">(606) 672-2720</a>
+              </Typography>
+            </CardContent>
+          </Card>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Leslie County Public Library</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=22065+Main+St,+Hyden,+KY+41749"
+                >
+                  22065 Main St, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722464">(606) 672-2464</a>
               </Typography>
             </CardContent>
           </Card>
 
+          <Typography variant="h6" gutterBottom id="planning">
+            Planning & Zoning
+          </Typography>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Leslie County Judge Executive</strong> (Jimmy Sizemore) – P.O. Box
-                619, Hyden, KY 41749 – Phone: (606) 672-3200
+                Contact Leslie County Judge Executive’s Office<br />
+                Phone: <a href="tel:+16066723200">(606) 672-3200</a>
               </Typography>
             </CardContent>
           </Card>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>County Clerk</strong> – at the County Courthouse – (606)
-                672-2193
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>Leslie County Circuit Court Clerk</strong> – at Courthouse – (606)
-                672-2503/2505
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                County Coroner, Jailer, PVA, Solid Waste Coordinator, Road
-                Supervisor, Animal Control, etc. – Listed through county records.
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>Leslie County Government Website</strong> – For general contact and
-                more department info:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="https://lesliecounty.ky.gov/">
-                  https://lesliecounty.ky.gov/
-                </a>
-              </Typography>
-            </CardContent>
-          </Card>
+
+          <Box mt={2}>
+            <Typography variant="body2">
+              Looking for utility providers in Leslie County?{' '}
+              <a href="/news/kentucky/leslie-county/utilities">
+                View our Leslie County Utilities Directory →
+              </a>
+            </Typography>
+          </Box>
         </>
       ),
       utilities: (
         <>
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h4" gutterBottom>
+            Leslie County, Kentucky Utilities Directory
+          </Typography>
+          <Typography variant="body2" paragraph>
+            Find electric, water, sewer, trash, internet, phone, and natural gas
+            providers serving Leslie County, Kentucky.
+          </Typography>
+
+          <Typography variant="h6" gutterBottom id="electric-utilities">
             Electric Utilities
           </Typography>
           <Card className={classes.infoCard}>
@@ -479,17 +767,23 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
               <Typography variant="body2" paragraph>
                 <strong>Kentucky Power</strong> – Investor-owned utility serving
                 most of eastern Kentucky, including Leslie County.<br />
-                Website: <a target="_blank" rel="noopener noreferrer" href="https://www.kentuckypower.com/">kentuckypower.com</a>
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://kentuckypower.com">
+                  kentuckypower.com
+                </a>
               </Typography>
             </CardContent>
           </Card>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Cumberland Valley Electric, Inc.</strong> – Member-owned
+                <strong>Cumberland Valley Electric</strong> – Member-owned
                 electric cooperative serving rural customers.<br />
                 Phone: 1-800-513-2677<br />
-                Website: <a target="_blank" rel="noopener noreferrer" href="https://www.cumberlandvalley.coop/">cumberlandvalley.coop</a>
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://cumberlandvalley.coop">
+                  cumberlandvalley.coop
+                </a>
               </Typography>
             </CardContent>
           </Card>
@@ -497,53 +791,91 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
             <CardContent>
               <Typography variant="body2" paragraph>
                 <strong>Jackson Energy Cooperative</strong> – Electric distribution
-                co-op (smaller portion of county coverage). See website for
-                contact info.<br />
-                <a target="_blank" rel="noopener noreferrer" href="https://www.jacksonenergy.com/">jacksonenergy.com</a>
-              </Typography>
-            </CardContent>
-          </Card>
-
-          <Typography variant="h6" gutterBottom>
-            Water Utilities
-          </Typography>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>Hyden-Leslie County Water District</strong> – Local water
-                supply and treatment provider for the Hyden/Leslie area.<br />
-                Website: <a target="_blank" rel="noopener noreferrer" href="https://www.doxo.com/u/biller/hyden-leslie-county-water-district-19AAD20">
-                  doxo profile
+                co-op (smaller portion of county coverage).<br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=115+Jackson+Energy+Lane,+McKee,+KY+40447"
+                >
+                  115 Jackson Energy Lane, McKee, KY 40447
+                </a>
+                <br />
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://www.jacksonenergy.com/">
+                  jacksonenergy.com
                 </a>
               </Typography>
             </CardContent>
           </Card>
 
           <Typography variant="h6" gutterBottom>
-            Trash & Waste Services
+            Water & Sewer
+          </Typography>
+          <Card className={classes.infoCard}>
+            <CardContent>
+              <Typography variant="body2" paragraph>
+                <strong>Hyden-Leslie Water District</strong> – Local water
+                supply and treatment provider for the Hyden/Leslie area.<br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=325+Wendover+Rd,+Hyden,+KY+41749"
+                >
+                  325 Wendover Rd, Hyden, KY 41749
+                </a>
+                <br />
+                Phone:{' '}
+                <a href="tel:+16066722791">(606) 672-2791</a>
+              </Typography>
+            </CardContent>
+          </Card>
+
+          <Typography variant="h6" gutterBottom>
+            Trash & Waste
           </Typography>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
                 <strong>Rumpke Waste & Recycling</strong> – Trash collection and
                 recycling services in parts of Hyden/Leslie County.<br />
-                Leslie County Transfer Station: 2125 KY-118, Hyden, KY 41749<br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=2125+KY-118,+Hyden,+KY+41749"
+                >
+                  2125 KY-118, Hyden, KY 41749
+                </a>
+                <br />
                 Website:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="https://www.rumpke.com/">rumpke.com</a>
+                <a target="_blank" rel="noopener noreferrer" href="https://rumpke.com">
+                  rumpke.com
+                </a>
               </Typography>
             </CardContent>
           </Card>
 
           <Typography variant="h6" gutterBottom>
-            Internet / Phone / TV Providers
+            Natural Gas
+          </Typography>
+          <Typography variant="body2" paragraph>
+            Limited natural gas coverage; availability must be verified by
+            address.
+          </Typography>
+
+          <Typography variant="h6" gutterBottom>
+            Internet & Cable
           </Typography>
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>TDS Telecom (Leslie County Telephone Co.)</strong> –
-                Internet, telephone, and TV services.<br />
+                <strong>TDS Telecom</strong> – Internet, phone, TV services.<br />
+                Phone:{' '}
+                <a href="tel:+16066722303">(606) 672-2303</a><br />
                 Website:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="https://tdstelecom.com/local/kentucky/hyden.html">
+                <a target="_blank" rel="noopener noreferrer" href="https://tdstelecom.com">
                   tdstelecom.com
                 </a>
               </Typography>
@@ -552,10 +884,9 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Spectrum Internet & TV</strong> – Cable internet, home phone,
-                and TV services in parts of the county.<br />
+                <strong>Spectrum</strong> – Cable internet, TV, phone.<br />
                 Website:{' '}
-                <a target="_blank" rel="noopener noreferrer" href="https://www.spectrum.com/internet-service/kentucky/leslie-county">
+                <a target="_blank" rel="noopener noreferrer" href="https://spectrum.com">
                   spectrum.com
                 </a>
               </Typography>
@@ -564,55 +895,56 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
           <Card className={classes.infoCard}>
             <CardContent>
               <Typography variant="body2" paragraph>
-                <strong>Thacker-Grigsby Cable/Internet</strong> – Cable internet
-                service in some county areas; contact via availability check on
-                their site.
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>Other ISPs</strong> (varies by address) – Providers like
-                T-Mobile Home Internet, Starlink Satellite Internet, HughesNet, etc.
-                may be available depending on location.
-              </Typography>
-            </CardContent>
-          </Card>
-
-          <Typography variant="h6" gutterBottom>
-            Propane / Alternative Fuel Providers
-          </Typography>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>AmeriGas Propane</strong> (Leitchfield, KY) – Propane delivery
-                and tank services.<br />
-                207 N Main St, Leitchfield, KY 42754<br />
-                <a target="_blank" rel="noopener noreferrer" href="https://www.amerigas.com/locations/propane-offices/kentucky/leitchfield/">
-                  amerigas.com
+                <strong>Thacker-Grigsby</strong><br />
+                Address:{' '}
+                <a
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://www.google.com/maps/search/?api=1&query=60+Communication+Lane,+Hindman,+KY+41822"
+                >
+                  60 Communication Lane, Hindman, KY 41822
+                </a>
+                <br />
+                Website:{' '}
+                <a target="_blank" rel="noopener noreferrer" href="https://tgtel.com/">
+                  tgtel.com
                 </a>
               </Typography>
             </CardContent>
           </Card>
 
           <Typography variant="h6" gutterBottom>
-            Regulatory Body
+            Phone & Cellular
           </Typography>
-          <Card className={classes.infoCard}>
-            <CardContent>
-              <Typography variant="body2" paragraph>
-                <strong>Kentucky Public Service Commission (PSC)</strong> — Regulates
-                electric, water, gas, and telecom utilities in Kentucky (including
-                companies serving Leslie County).
-                <br />
-                <a target="_blank" rel="noopener noreferrer" href="https://www.psc.ky.gov/">psc.ky.gov</a>
-              </Typography>
-            </CardContent>
-          </Card>
+          <Typography variant="body2" paragraph>
+            Providers such as T-Mobile, Verizon, and AT&T offer service in the
+            region depending on coverage.
+          </Typography>
+
+          <Typography variant="h6" gutterBottom>
+            Broadband Resources
+          </Typography>
+          <Typography variant="body2" paragraph>
+            <a target="_blank" rel="noopener noreferrer" href="https://broadbandmap.fcc.gov">
+              FCC Broadband Map
+            </a>
+            <br />
+            <a target="_blank" rel="noopener noreferrer" href="https://broadband.ky.gov">
+              Kentucky Broadband Office
+            </a>
+          </Typography>
+
+          <Box mt={2}>
+            <Typography variant="body2">
+              Need government office contact information?{' '}
+              <a href="/news/kentucky/leslie-county/government-offices">
+                View our Leslie County Government Offices Directory →
+              </a>
+            </Typography>
+          </Box>
         </>
       ),
-    },
+      },
   };
 
   return (

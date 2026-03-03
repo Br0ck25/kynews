@@ -151,8 +151,8 @@ test('Leslie county page shows info navigation buttons and opens dialog on click
   expect(screen.getByText(/Utilities/i)).toBeInTheDocument();
 
   fireEvent.click(screen.getByText(/Government Offices/i));
-  // dialog should open showing content
-  expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
+  // dialog should open showing content (heading text updated)
+  expect(await screen.findByText(/Leslie County, Kentucky Government Offices Directory/i)).toBeInTheDocument();
   // URL should have changed as well
   expect(history.location.pathname).toBe("/news/kentucky/leslie-county/government-offices");
 
@@ -215,7 +215,7 @@ test('direct visit to government-offices route opens dialog', async () => {
     </Provider>
   );
 
-  expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
+  expect(await screen.findByText(/Leslie County, Kentucky Government Offices Directory/i)).toBeInTheDocument();
 });
 
 test('direct visit to utilities route opens dialog', async () => {
@@ -272,7 +272,7 @@ test('county page hides info buttons when viewing info subpage', async () => {
   );
 
   // dialog should open to the government offices content
-  expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
+  expect(await screen.findByText(/Leslie County, Kentucky Government Offices Directory/i)).toBeInTheDocument();
 });
 
 // info pages themselves should not render an outer wrapper card (individual entries handle their own cards)
@@ -308,32 +308,61 @@ test('info page has no outer card', async () => {
     </Provider>
   );
 
-  expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
-  expect(screen.getByText(/Circuit Court Clerk/i)).toBeInTheDocument();
-  expect(screen.queryByText(/County Clerk – at the County Courthouse/i)).toBeNull();
-  expect(screen.queryByText(/County Coroner,/i)).toBeNull();
-  const cswsLink = screen.getByText(/csws\.chfs\.ky\.gov/i).closest('a');
-  expect(cswsLink).toHaveAttribute('target','_blank');
-  // senior center text should display domain only
-  const seniorLink = screen.getByText(/seniorcenter\.us\/sc\/leslie_county_senior_citizens_center_hyden_ky/i).closest('a');
-  expect(seniorLink).toHaveAttribute('target','_blank');
-  // there are multiple identical addresses; verify all are clickable
+  // new heading and a few key officials
+  expect(await screen.findByText(/Primary Elected Officials/i)).toBeInTheDocument();
+  const jimmyEntries = screen.getAllByText(/Jimmy Sizemore/i);
+  expect(jimmyEntries.length).toBeGreaterThan(0);
+  expect(screen.getByText(/Delano Huff/i)).toBeInTheDocument();
+  // newly added sections
+  expect(screen.getByText(/County Coroner/i)).toBeInTheDocument();
+  expect(screen.getByText(/District 1 – David Caldwell/i)).toBeInTheDocument();
+
+  // quick links include driver licensing appointment and updated links
+  const dlLink = screen.getByText(/Driver Licensing Appointment/i).closest('a');
+  expect(dlLink).toHaveAttribute('href','https://drive.ky.gov');
+  expect(dlLink).toHaveAttribute('target','_blank');
+  const propLink = screen.getByText(/Property Search \(PVA\)/i).closest('a');
+  expect(propLink).toHaveAttribute('href','https://qpublic.net/ky/leslie/est.html');
+  expect(propLink).toHaveAttribute('target','_blank');
+  const courtLink = screen.getByText(/Court Docket/i).closest('a');
+  expect(courtLink).toHaveAttribute('href','https://kycourts.gov/Courts/County-Information/Pages/Leslie.aspx');
+  expect(courtLink).toHaveAttribute('target','_blank');
+  // pay taxes and jail buttons should now scroll to sections via anchor
+  // clicking anchors should trigger scrollIntoView on most elements
+  HTMLElement.prototype.scrollIntoView = jest.fn();
+  const scrollSpy = jest.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  fireEvent.click(screen.getByText(/Pay Property Taxes/i));
+  expect(scrollSpy).toHaveBeenCalled();
+
+  fireEvent.click(screen.getByText(/Jail Information/i));
+  expect(scrollSpy).toHaveBeenCalledTimes(2);
+  scrollSpy.mockRestore();
+
+  // verify multiple map addresses still clickable (primary judgeship + others)
   const mapLinks = screen.getAllByText(/22010 Main St, Hyden, KY 41749/i)
-    .map(node => node.closest('a'));
+    .map(node => node.closest('a'))
+    .filter(Boolean);
   expect(mapLinks.length).toBeGreaterThan(1);
   mapLinks.forEach((lnk) => {
     expect(lnk).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=22010+Main+St,+Hyden,+KY+41749');
   });
 
-  // extension office address should also be linked (4-H uses same text, so pick anchor)
-  const extAddr = screen.getAllByText(/22045 Main St #514, Hyden, KY 41749/i)
-    .map(n => n.closest('a'))
-    .find(Boolean);
-  expect(extAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=22045+Main+St+%23514,+Hyden,+KY+41749');
+  // additional recently linked addresses
+  expect(screen.getByText(/2125 Highway 118, Hyden, KY 41749/i).closest('a')).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=2125+Highway+118,+Hyden,+KY+41749');
+  // note: above covers EMA, child support, extension because they all share same link text
+  expect(screen.getByText(/78 Maple St, Hyden, KY 41749/i).closest('a')).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=78+Maple+St,+Hyden,+KY+41749');
+  expect(screen.getByText(/21125 Highway 421, Hyden, KY 41749/i).closest('a')).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=21125+Highway+421,+Hyden,+KY+41749');
+  expect(screen.getByText(/38 Quarry Rd, Hyden, KY 41749/i).closest('a')).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=38+Quarry+Rd,+Hyden,+KY+41749');
+  expect(screen.getByText(/39 Senior Citizens Dr, Hyden, KY 41749/i).closest('a')).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=39+Senior+Citizens+Dr,+Hyden,+KY+41749');
+  expect(screen.getByText(/22065 Main St, Hyden, KY 41749/i).closest('a')).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=22065+Main+St,+Hyden,+KY+41749');
+  expect(screen.getByText(/425 Highway 421, Hyden, KY 41749/i).closest('a')).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=425+Highway+421,+Hyden,+KY+41749');
+  expect(screen.getByText(/130 Kate Ireland Dr, Hyden, KY 41749/i).closest('a')).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=130+Kate+Ireland+Dr,+Hyden,+KY+41749');
 
-  // check a phone is clickable via tel
-  const phoneLink = screen.getByText(/\(606\) 672-2720/i).closest('a');
-  expect(phoneLink).toHaveAttribute('href','tel:+16066722720');
+
+
+  // check a county phone is clickable via tel (road department)
+  const phoneLink = screen.getByText(/\(606\) 672-2465/i).closest('a');
+  expect(phoneLink).toHaveAttribute('href','tel:+16066722465');
 
 });
 
@@ -353,6 +382,15 @@ test('utilities content updates per request modifications', async () => {
   );
 
   expect(await screen.findByText(/Electric Utilities/i)).toBeInTheDocument();
+  // quick links scroll to their sections
+  HTMLElement.prototype.scrollIntoView = jest.fn();
+  fireEvent.click(screen.getByText(/Electric Service/i));
+  expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+  fireEvent.click(screen.getByText(/Water & Sewer Service/i));
+  expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(2);
+  // reciprocal link to government page should appear and open in new tab
+  const govLink = screen.getByText(/Government Offices Directory/i).closest('a');
+  expect(govLink).toHaveAttribute('href','/news/kentucky/leslie-county/government-offices');
   // rumpke now has a website and clickable map address
   const rumpkeLink = screen.getByText(/rumpke\.com/i).closest('a');
   expect(rumpkeLink).toHaveAttribute('href','https://rumpke.com');
@@ -370,14 +408,32 @@ test('utilities content updates per request modifications', async () => {
   expect(amerigasAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=207+N+Main+St,+Leitchfield,+KY+42754');
   const amerigasLink = screen.getByText(/amerigas\.com/i).closest('a');
   expect(amerigasLink).toHaveAttribute('href','https://amerigas.com');
+  // phone number should also be clickable now
+  const amerigasPhone = screen.getByText(/1-800-263-7442/i).closest('a');
+  expect(amerigasPhone).toHaveAttribute('href','tel:+18002637442');
 
-  // PSC address should now be clickable as well
-  const pscAddr = screen.getByText(/211 Sower Blvd, Frankfort, KY 40601/i).closest('a');
-  expect(pscAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=211+Sower+Blvd,+Frankfort,+KY+40601');
+  // new Jackson Propane Plus entry
+  const jppAddr = screen.getByText(/25 Capital Hill Drive, Bonnyman, KY 41719/i).closest('a');
+  expect(jppAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=25+Capital+Hill+Drive,+Bonnyman,+KY+41719');
+  const jppLink = screen.getByText(/jacksonpropaneplus\.com/i).closest('a');
+  expect(jppLink).toHaveAttribute('href','https://jacksonpropaneplus.com');
+
+  // water district description and link
+  expect(screen.getByText(/Local water supply and treatment provider/i)).toBeInTheDocument();
+  const waterLink = screen.getByText(/www\.doxo\.com/i).closest('a');
+  expect(waterLink).toHaveAttribute('href','https://www.doxo.com/u/biller/hyden-leslie-county-water-district-19AAD20');
+
+  // broadband links clickable
+  const fccLink = screen.getByText(/FCC Broadband Map/i).closest('a');
+  expect(fccLink).toHaveAttribute('href','https://broadbandmap.fcc.gov');
+  const kyLink = screen.getByText(/Kentucky Broadband Office/i).closest('a');
+  expect(kyLink).toHaveAttribute('href','https://broadband.ky.gov');
+
+
 
   // Jackson Energy entry has clickable address and short domain
   const jackAddr = screen.getByText(/115 Jackson Energy Lane, McKee, KY 40447/i).closest('a');
   expect(jackAddr).toHaveAttribute('href','https://www.google.com/maps/search/?api=1&query=115+Jackson+Energy+Lane,+McKee,+KY+40447');
   const jackLink = screen.getByText(/jacksonenergy\.com/i).closest('a');
-  expect(jackLink).toHaveAttribute('href','https://www.jacksonenergy.com/');
+  expect(jackLink).toHaveAttribute('href','https://jacksonenergy.com');
 });
