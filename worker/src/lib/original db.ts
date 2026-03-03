@@ -49,17 +49,9 @@ interface RecentTitleRow {
   title: string;
 }
 
-// Utility for forcing D1 to recompile prepared statements by appending a
-// unique comment. Using Math.random() ensures that even retries within the
-// same millisecond produce a unique SQL string, bypassing the D1 cache bug
-// that causes "no such table: articles_old" after migrations.
-function prepare(env: Env, sql: string) {
-  const uniqueSql = `${sql} /* cache_bust_${Math.random()} */`;
-  return env.ky_news_db.prepare(uniqueSql);
-}
-
 export async function findArticleByHash(env: Env, urlHash: string): Promise<ArticleRecord | null> {
-  const result = await prepare(env, `SELECT * FROM articles WHERE url_hash = ? LIMIT 1`)
+  const result = await env.ky_news_db
+    .prepare(`SELECT * FROM articles WHERE url_hash = ? LIMIT 1`)
     .bind(urlHash)
     .first<ArticleRow>();
 
@@ -68,7 +60,8 @@ export async function findArticleByHash(env: Env, urlHash: string): Promise<Arti
 
 export async function listRecentArticleTitles(env: Env, limit = 600): Promise<Array<{ id: number; title: string }>> {
   const safeLimit = Math.min(Math.max(Math.floor(limit || 0), 1), 2000);
-  const rows = await prepare(env, `SELECT id, title FROM articles ORDER BY id DESC LIMIT ?`)
+  const rows = await env.ky_news_db
+    .prepare(`SELECT id, title FROM articles ORDER BY id DESC LIMIT ?`)
     .bind(safeLimit)
     .all<RecentTitleRow>();
 
@@ -79,7 +72,8 @@ export async function listRecentArticleTitles(env: Env, limit = 600): Promise<Ar
 }
 
 export async function getArticleById(env: Env, id: number): Promise<ArticleRecord | null> {
-  const result = await prepare(env, `SELECT * FROM articles WHERE id = ? LIMIT 1`)
+  const result = await env.ky_news_db
+    .prepare(`SELECT * FROM articles WHERE id = ? LIMIT 1`)
     .bind(id)
     .first<ArticleRow>();
 
@@ -87,7 +81,8 @@ export async function getArticleById(env: Env, id: number): Promise<ArticleRecor
 }
 
 export async function getArticleBySlug(env: Env, slug: string): Promise<ArticleRecord | null> {
-  const result = await prepare(env, `SELECT * FROM articles WHERE slug = ? LIMIT 1`)
+  const result = await env.ky_news_db
+    .prepare(`SELECT * FROM articles WHERE slug = ? LIMIT 1`)
     .bind(slug)
     .first<ArticleRow>();
 
@@ -98,7 +93,8 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
   const normalizedCounty = normalizeCountyName(article.county);
 
   try {
-    const result = await prepare(env, 
+    const result = await env.ky_news_db
+      .prepare(
         `INSERT INTO articles (
           canonical_url,
           source_url,
@@ -121,7 +117,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           raw_r2_key,
           slug,
           content_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         article.canonicalUrl,
@@ -153,7 +149,8 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
     // insert county associations
     if (article.counties && article.counties.length > 0) {
       for (const county of article.counties) {
-        await prepare(env, 
+        await env.ky_news_db
+          .prepare(
             `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
              VALUES (?, ?, ?)`
           )
@@ -161,7 +158,8 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           .run();
       }
     } else if (article.county) {
-      await prepare(env, 
+      await env.ky_news_db
+        .prepare(
           `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
            VALUES (?, ?, 1)`
         )
@@ -171,6 +169,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
 
     return articleId;
   } catch (error) {
+    // log full error along with article metadata so issues are visible in worker logs
     console.error('[DB INSERT ERROR]', error, {
       url: article.canonicalUrl,
       title: article.title,
@@ -180,6 +179,15 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
   }
 }
 
+// ---------------------------------------------------------------------------
+// Article update detection helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns articles published within the last `maxAgeHours` hours
+ * that are eligible for update checking. Ordered newest-first.
+ * Used by the update-check cron task.
+ */
 export async function getArticlesForUpdateCheck(
   env: Env,
   maxAgeHours: number = 24,
@@ -196,7 +204,8 @@ export async function getArticlesForUpdateCheck(
     Date.now() - maxAgeHours * 60 * 60 * 1000
   ).toISOString();
 
-  const rows = await prepare(env, 
+  const rows = await env.ky_news_db
+    .prepare(
       `SELECT id, url_hash, canonical_url, title, summary,
               published_at, content_hash
        FROM articles
@@ -219,13 +228,23 @@ export async function getArticlesForUpdateCheck(
   }));
 }
 
+/**
+ * Prepends an update paragraph to an article's summary in D1
+ * and records the new content hash so we don't re-detect the
+ * same update on the next check.
+ *
+ * The update paragraph is prefixed with a timestamp:
+ *   "Update (4:30 p.m.): [text]\n\n[existing summary]"
+ */
 export async function prependUpdateToSummary(
   env: Env,
   id: number,
   updateParagraph: string,
   newContentHash: string,
 ): Promise<void> {
-  const row = await prepare(env, 'SELECT summary FROM articles WHERE id = ?')
+  // Fetch current summary to prepend to
+  const row = await env.ky_news_db
+    .prepare('SELECT summary FROM articles WHERE id = ?')
     .bind(id)
     .first<{ summary: string }>();
 
@@ -241,7 +260,8 @@ export async function prependUpdateToSummary(
   const updatedSummary =
     `Update (${timeLabel}): ${updateParagraph}\n\n${row.summary}`.trim();
 
-  await prepare(env, 
+  await env.ky_news_db
+    .prepare(
       `UPDATE articles
        SET summary = ?,
            content_hash = ?,
@@ -257,7 +277,8 @@ export async function prependUpdateToSummary(
 }
 
 export async function updateArticlePublishedAt(env: Env, id: number, publishedAt: string): Promise<void> {
-  await prepare(env, 'UPDATE articles SET published_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+  await env.ky_news_db
+    .prepare('UPDATE articles SET published_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
     .bind(publishedAt, id)
     .run();
 }
@@ -280,10 +301,11 @@ export async function updateArticleContent(
     binds.push(patch.summary.trim().slice(0, 8000));
   }
 
-  if (sets.length === 1) return;
+  if (sets.length === 1) return; // nothing to update besides updated_at
   binds.push(id);
 
-  await prepare(env, `UPDATE articles SET ${sets.join(', ')} WHERE id = ?`)
+  await env.ky_news_db
+    .prepare(`UPDATE articles SET ${sets.join(', ')} WHERE id = ?`)
     .bind(...binds)
     .run();
 }
@@ -293,7 +315,8 @@ export async function updateArticleLinks(
   id: number,
   patch: { canonicalUrl: string; sourceUrl: string; urlHash: string },
 ): Promise<void> {
-  await prepare(env, 
+  await env.ky_news_db
+    .prepare(
       'UPDATE articles SET canonical_url = ?, source_url = ?, url_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     )
     .bind(patch.canonicalUrl, patch.sourceUrl, patch.urlHash, id)
@@ -301,7 +324,8 @@ export async function updateArticleLinks(
 }
 
 export async function deleteArticleById(env: Env, id: number): Promise<void> {
-  await prepare(env, 'DELETE FROM articles WHERE id = ?')
+  await env.ky_news_db
+    .prepare('DELETE FROM articles WHERE id = ?')
     .bind(id)
     .run();
 }
@@ -311,7 +335,8 @@ export async function blockArticleByIdAndDelete(
   id: number,
   reason: string | null,
 ): Promise<{ blocked: boolean; deleted: boolean }> {
-  const article = await prepare(env, 'SELECT canonical_url, source_url, url_hash FROM articles WHERE id = ? LIMIT 1')
+  const article = await env.ky_news_db
+    .prepare('SELECT canonical_url, source_url, url_hash FROM articles WHERE id = ? LIMIT 1')
     .bind(id)
     .first<{ canonical_url: string; source_url: string; url_hash: string }>();
 
@@ -320,7 +345,8 @@ export async function blockArticleByIdAndDelete(
   }
 
   await ensureBlockedArticlesTable(env);
-  await prepare(env, 
+  await env.ky_news_db
+    .prepare(
       `INSERT OR REPLACE INTO blocked_articles (canonical_url, source_url, url_hash, reason, created_at)
        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
     )
@@ -333,7 +359,8 @@ export async function blockArticleByIdAndDelete(
 
 export async function isUrlHashBlocked(env: Env, urlHash: string): Promise<boolean> {
   await ensureBlockedArticlesTable(env);
-  const result = await prepare(env, 'SELECT id FROM blocked_articles WHERE url_hash = ? LIMIT 1')
+  const result = await env.ky_news_db
+    .prepare('SELECT id FROM blocked_articles WHERE url_hash = ? LIMIT 1')
     .bind(urlHash)
     .first<{ id: number }>();
 
@@ -349,7 +376,8 @@ export async function listBlockedArticles(env: Env): Promise<Array<{
   createdAt: string;
 }>> {
   await ensureBlockedArticlesTable(env);
-  const rows = await prepare(env, 'SELECT * FROM blocked_articles ORDER BY id DESC LIMIT 500')
+  const rows = await env.ky_news_db
+    .prepare('SELECT * FROM blocked_articles ORDER BY id DESC LIMIT 500')
     .all<BlockedArticleRow>();
 
   return (rows.results ?? []).map((row) => ({
@@ -364,7 +392,8 @@ export async function listBlockedArticles(env: Env): Promise<Array<{
 
 export async function unblockArticleByBlockedId(env: Env, id: number): Promise<boolean> {
   await ensureBlockedArticlesTable(env);
-  const result = await prepare(env, 'DELETE FROM blocked_articles WHERE id = ?')
+  const result = await env.ky_news_db
+    .prepare('DELETE FROM blocked_articles WHERE id = ?')
     .bind(id)
     .run();
 
@@ -372,7 +401,13 @@ export async function unblockArticleByBlockedId(env: Env, id: number): Promise<b
 }
 
 export async function getCountyCounts(env: Env): Promise<Map<string, number>> {
-  const rows = await prepare(env, `
+  // Return a count of articles per county.  For historical compatibility we
+  // need to account for rows that only have the `county` column populated and
+  // lack entries in the junction table.  The query below unions the two
+  // sources, avoiding double-counting articles that already appear in
+  // `article_counties`.
+  const rows = await env.ky_news_db
+    .prepare(`
       SELECT county, COUNT(*) as cnt FROM (
         SELECT county FROM article_counties
         UNION ALL
@@ -397,6 +432,22 @@ export async function getCountyCounts(env: Env): Promise<Map<string, number>> {
   return map;
 }
 
+/**
+ * Fetch all counties associated with a specific article.
+ * Returns county names ordered with primary counties first (is_primary DESC)
+ * then by insertion order (id ASC).
+ */
+// Utility for forcing D1 to recompile prepared statements by appending a
+// unique comment.  When a migration renames the `articles` table the remote
+// database may still have cached statements that refer to the old name
+// (articles_old).  Adding a timestamp forces new text and avoids that
+// invalidation bug, which otherwise produces `no such table: main.articles_old`.
+function prepare(env: Env, sql: string) {
+  // we add the comment before binding; it doesn't affect semantics.
+  const uniqueSql = `${sql} /*${Date.now()}*/`;
+  return env.ky_news_db.prepare(uniqueSql);
+}
+
 export async function getArticleCounties(env: Env, articleId: number): Promise<string[]> {
   const rows = await prepare(env, 'SELECT county FROM article_counties WHERE article_id = ? ORDER BY is_primary DESC, id ASC')
     .bind(articleId)
@@ -404,8 +455,12 @@ export async function getArticleCounties(env: Env, articleId: number): Promise<s
   return (rows.results ?? []).map((r) => r.county);
 }
 
+// Query the database schema to determine whether a given column
+// exists.  We intentionally avoid long‑lived caching because migrations may
+// run in the same worker runtime and alter the table structure (tests drop
+// and recreate the table), and caching would otherwise cause stale results.
 async function columnExists(env: Env, table: string, column: string): Promise<boolean> {
-  const rows = await prepare(env, `PRAGMA table_info(${table})`).all<{ name: string }>();
+  const rows = await env.ky_news_db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
   for (const row of rows.results ?? []) {
     if (row.name === column) return true;
   }
@@ -433,10 +488,15 @@ export async function queryArticles(env: Env, options: {
     binds.push('schools');
     where.push('is_kentucky = 1');
   } else if (options.category === 'obituaries') {
+    // obituaries feed: Kentucky obits only (per spec)
     where.push('category = ?');
     binds.push('obituaries');
     where.push('is_kentucky = 1');
   } else if (options.category === 'weather') {
+    // weather feed: include Kentucky weather OR articles explicitly tagged
+    // national + weather.  The `is_national` column was added later, so older
+    // databases may not have it; fall back gracefully to a simpler query in
+    // that case rather than throwing a SQL error (which resulted in 500s).
     const supportsIsNational = await columnExists(env, 'articles', 'is_national');
     if (supportsIsNational) {
       where.push('((is_kentucky = 1 AND category = ?) OR (is_national = 1 AND category = ?))');
@@ -446,20 +506,30 @@ export async function queryArticles(env: Env, options: {
       binds.push('weather');
     }
   } else {
+    // national – filter by stored category value
     where.push('category = ?');
     binds.push(options.category);
   }
 
+  // National should always show all national stories regardless of county filters.
   if (options.category !== 'national' && options.counties.length > 0) {
+    // We normally rely on the article_counties junction table for fast
+    // filtering, but older rows inserted prior to the migration that created
+    // that table may only have the primary `county` column set.  Rather than
+    // forcing a full backfill job immediately, include a fallback clause that
+    // also checks the main column so pages continue to work for any county
+    // even if the association row is missing.
     const placeholders = options.counties.map(() => '?').join(',');
     where.push(`(
       id IN (SELECT article_id FROM article_counties WHERE county IN (${placeholders}))
       OR county IN (${placeholders})
     )`);
+    // bind twice: once for the subquery, once for the direct-column test
     binds.push(...options.counties, ...options.counties);
   }
 
   if (options.search) {
+    // search page should search titles and summaries (not full text body)
     where.push('(title LIKE ? OR summary LIKE ?)');
     const token = `%${escapeLike(options.search)}%`;
     binds.push(token, token);
@@ -473,10 +543,11 @@ export async function queryArticles(env: Env, options: {
   const sqlLimit = Math.min((options.limit * 3) + 5, 300);
   binds.push(sqlLimit);
 
+  // Guard: always ensure a WHERE clause exists (empty-where would be invalid SQL)
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1';
   const query = `SELECT * FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?`;
 
-  const rows = await prepare(env, query).bind(...binds).all<ArticleRow>();
+  const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
   const mapped = (rows.results ?? []).map(mapArticleRow);
   const uniqueItems: ArticleRecord[] = [];
   const seenCanonical = new Set<string>();
@@ -531,6 +602,8 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
+/** Fetch a batch of articles (by descending id) starting below a given id threshold.
+ *  Used by the admin re-classify endpoint to process existing articles page-by-page. */
 export async function listArticlesForReclassify(
   env: Env,
   { limit, beforeId }: { limit: number; beforeId: number | null },
@@ -538,11 +611,17 @@ export async function listArticlesForReclassify(
   const where = beforeId != null ? 'WHERE id < ?' : '';
   const binds = beforeId != null ? [beforeId, limit] : [limit];
   const query = `SELECT * FROM articles ${where} ORDER BY published_at DESC, id DESC LIMIT ?`;
-  const rows = await prepare(env, query).bind(...binds).all<ArticleRow>();
+  const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
   return (rows.results ?? []).map(mapArticleRow);
 }
 
-/** Update the classification fields for an existing article row. */
+/** Update the category, is_kentucky, and county for an existing article row. */
+/**
+ * Update the classification fields for an existing article row.  The
+ * `patch` object may include a list of `counties` in addition to the
+ * primary `county`; the junction table will be completely rewritten to
+ * match the new list (existing rows are deleted first).
+ */
 export async function updateArticleClassification(
   env: Env,
   id: number,
@@ -550,6 +629,8 @@ export async function updateArticleClassification(
 ): Promise<void> {
   const normalizedCounty = normalizeCountyName(patch.county);
 
+  // perform the update, retrying once if a stale prepared statement
+  // from a prior migration refers to `articles_old` (see README notes).
   const doUpdate = () =>
     prepare(env, 'UPDATE articles SET category = ?, is_kentucky = ?, is_national = ?, county = ? WHERE id = ?')
       .bind(
@@ -565,13 +646,15 @@ export async function updateArticleClassification(
     await doUpdate();
   } catch (err: any) {
     if (err?.message?.includes('articles_old')) {
-      console.warn(`[RETAG] Stale cache detected for article ${id}, retrying with forced fresh SQL...`);
+      // retry once using a fresh prepared statement (unique comment already
+      // ensures new SQL text).
       await doUpdate();
     } else {
       throw err;
     }
   }
 
+  // sync junction table for counties
   let countiesList: string[] = [];
   if (patch.counties && patch.counties.length > 0) {
     countiesList = patch.counties
@@ -581,19 +664,16 @@ export async function updateArticleClassification(
     countiesList = [normalizedCounty];
   }
 
+  // clear existing associations, then re-insert
   await prepare(env, 'DELETE FROM article_counties WHERE article_id = ?')
     .bind(id)
     .run();
 
   for (const county of countiesList) {
-    try {
-        await prepare(env, `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
-             VALUES (?, ?, ?)`)
-          .bind(id, county, county === normalizedCounty ? 1 : 0)
-          .run();
-    } catch (e) {
-        console.error(`[RETAG] Failed to insert county ${county} for article ${id}`, e);
-    }
+    await prepare(env, `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
+         VALUES (?, ?, ?)`)
+      .bind(id, county, county === normalizedCounty ? 1 : 0)
+      .run();
   }
 }
 
@@ -631,11 +711,13 @@ export async function listAdminArticles(env: Env, options: {
   binds.push(options.limit + 1);
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   const query = `SELECT * FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?`;
-  const rows = await prepare(env, query).bind(...binds).all<ArticleRow>();
+  const rows = await env.ky_news_db.prepare(query).bind(...binds).all<ArticleRow>();
   const mapped = (rows.results ?? []).map(mapArticleRow);
 
+  // fetch associated counties for each article so the admin UI can show / edit multi-tags
   for (const item of mapped) {
     if (item && typeof item.id === 'number') {
+      // populate counties array, fallback to primary county if none stored
       item.counties = await getArticleCounties(env, item.id);
     }
   }
@@ -654,7 +736,8 @@ export async function getSourceStats(env: Env): Promise<Array<{
   latestPublishedAt: string;
   status: 'active' | 'idle';
 }>> {
-  const rows = await prepare(env, 
+  const rows = await env.ky_news_db
+    .prepare(
       `SELECT source_url, COUNT(*) as article_count, MAX(published_at) as latest_published_at
        FROM articles
        GROUP BY source_url
@@ -678,7 +761,8 @@ export async function getSourceStats(env: Env): Promise<Array<{
 }
 
 async function ensureBlockedArticlesTable(env: Env): Promise<void> {
-  await prepare(env, 
+  await env.ky_news_db
+    .prepare(
       `CREATE TABLE IF NOT EXISTS blocked_articles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         canonical_url TEXT NOT NULL,
@@ -690,6 +774,7 @@ async function ensureBlockedArticlesTable(env: Env): Promise<void> {
     )
     .run();
 
-  await prepare(env, 'CREATE INDEX IF NOT EXISTS idx_blocked_articles_hash ON blocked_articles(url_hash)')
+  await env.ky_news_db
+    .prepare('CREATE INDEX IF NOT EXISTS idx_blocked_articles_hash ON blocked_articles(url_hash)')
     .run();
 }
