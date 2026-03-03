@@ -71,34 +71,11 @@ export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = n
     );
   }
 
-  const basePath = `/news/kentucky/${countySlug}`;
-  const tabValue =
-    infoType === "government-offices" ? 0 : infoType === "utilities" ? 1 : false;
-
   return (
     <div className={classes.root}>
       <Typography variant="h5" gutterBottom>
         {countyName} County
       </Typography>
-      {/* navigation tabs to switch between the two info types */}
-      <Tabs
-        value={tabValue}
-        indicatorColor="primary"
-        textColor="primary"
-        variant="scrollable"
-        scrollButtons="auto"
-        aria-label="County info navigation"
-        style={{ marginBottom: 8 }}
-      >
-        <Tab
-          label="Government Offices"
-          onClick={() => history.push(`${basePath}/government-offices`)}
-        />
-        <Tab
-          label="Utilities"
-          onClick={() => history.push(`${basePath}/utilities`)}
-        />
-      </Tabs>
       <Box style={{ marginBottom: 16 }}>{content}</Box>
     </div>
   );

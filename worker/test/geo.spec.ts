@@ -121,6 +121,15 @@ describe('county detection', () => {
     expect(detectCounty(crash2, crash2)).toBe('Ohio');
   });
 
+  it('suppresses counties when they appear as a surname after a title', () => {
+    expect(detectAllCounties('Rep. David Meade')).toEqual([]);
+    expect(detectAllCounties('Sen. John Bell')).toEqual([]);
+    expect(detectAllCounties('Officer Floyd')).toEqual([]);
+    // but normal geographic usages should still match
+    expect(detectAllCounties('Meade County Road')).toEqual(['Meade']);
+    expect(detectAllCounties('in Meade County')).toEqual(['Meade']);
+  });
+
   it('does not misidentify a county from a substring in Pass B lists', () => {
     expect(detectAllCounties('Leesburg and Laurel County officials')).toEqual(['Laurel']);
   });

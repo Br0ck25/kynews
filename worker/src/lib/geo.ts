@@ -19,6 +19,14 @@ const OUT_OF_STATE_NAMES = [
 ];
 
 /**
+ * Matches a personal name title + first name immediately before
+ * a word, indicating the word is a surname not a place name.
+ * Examples: "Rep. David Meade", "Sen. John Bell", "Officer Floyd".
+ */
+const PERSON_SURNAME_BEFORE_RE =
+  /\b(?:rep(?:resentative)?|sen(?:ator)?|mr|mrs|ms|dr|officer|chief|sgt|col|gen|capt|lt|judge|justice|rev|prof)\b\.?\s+\w+\s*$/i;
+
+/**
  * City names that, when appearing near a geo match, indicate the
  * match is on the Ohio side of the Cincinnati metro rather than
  * in Kentucky. These are not state names so they don't appear in
@@ -590,6 +598,14 @@ export function detectAllCounties(input, rawInput) {
     while ((m = pattern.exec(normalized))) {
       const idx = m.index;
 
+      // skip matches that are actually surnames following a personal title
+      const precedingText = normalized.slice(
+        Math.max(0, idx - 60),
+        idx
+      );
+      if (PERSON_SURNAME_BEFORE_RE.test(precedingText)) {
+        continue;
+      }
 
       // state-adjective guard for counties that match state names
       if (isUsedAsStateAdjective(normalized, idx, m[0].length, county)) {
@@ -724,6 +740,11 @@ export function detectAllCounties(input, rawInput) {
         const localIdx = lowerWindow.indexOf(county.toLowerCase());
         if (localIdx !== -1) {
           pos = windowStart + localIdx;
+        }
+        // also skip enumerated matches that look like a person's surname
+        const preceding = normalized.slice(Math.max(0, pos - 60), pos);
+        if (PERSON_SURNAME_BEFORE_RE.test(preceding)) {
+          continue;
         }
         matches.push({ index: pos, names: [county] });
       }

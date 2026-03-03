@@ -1013,6 +1013,27 @@ function normalizeCountyName(value: string): string | null {
  * article text AND is not the source default, reject it.
  * This prevents hallucinated county assignments.
  */
+
+/**
+ * For source-default counties, require at least one of these
+ * city/place names to appear in the article text before accepting
+ * the county assignment. Prevents national stories published by
+ * local outlets from being pinned to the outlet's home county.
+ */
+const SOURCE_DEFAULT_CITY_EVIDENCE = new Map<string, string[]>([
+  ['fayette',   ['lexington', 'fayette']],
+  ['jefferson', ['louisville', 'jefferson']],
+  ['warren',    ['bowling green', 'warren']],
+  ['kenton',    ['covington', 'erlanger', 'florence', 'independence', 'edgewood', 'kenton']],
+  ['campbell',  ['newport', 'alexandria', 'campbell']],
+  ['boyd',      ['ashland', 'boyd']],
+  ['daviess',   ['owensboro', 'daviess']],
+  ['mccracken', ['paducah', 'mccracken']],
+  ['harlan',    ['harlan', 'harlan county']],
+  ['madison',   ['richmond', 'berea', 'madison']],
+  ['laurel',    ['london', 'laurel']],
+]);
+
 function isCountyEvidenced(
   county: string | null,
   semanticText: string,
@@ -1020,14 +1041,28 @@ function isCountyEvidenced(
   sourceDefault: string | null,
 ): boolean {
   if (!county) return true; // null is always valid
-  if (county === sourceDefault) return true; // source default is trusted
   // Accept if geo detector already found it independently
   if (geoCounties.some((c) => c.toLowerCase() === county.toLowerCase())) {
     return true;
   }
-  // Accept only if the county name appears literally in the text
-  // (with or without "County" suffix).  Delegate to geo helper for clarity.
-  return textContainsCounty(semanticText, county);
+  // Accept if county name appears literally in the text (with or without
+  // "County" suffix).  Delegate to geo helper for clarity.
+  if (textContainsCounty(semanticText, county)) return true;
+  // Source default is trusted ONLY if the county's primary city also appears
+  // in the text (e.g. "Lexington" for Fayette, "Louisville" for
+  // Jefferson, "Bowling Green" for Warren).  This prevents source default
+  // from pinning national stories that have no geographic connection to the
+  // source's market.
+  if (county === sourceDefault) {
+    const key = county.toLowerCase();
+    if (SOURCE_DEFAULT_CITY_EVIDENCE.has(key)) {
+      return SOURCE_DEFAULT_CITY_EVIDENCE.get(key)!
+        .some((city) => new RegExp(`\b${escapeRegExp(city)}\b`, 'i').test(semanticText));
+    }
+    // counties without a mapped city still get trusted
+    return true;
+  }
+  return false;
 }
 
 function containsWordOrPhrase(haystack: string, phrase: string): boolean {

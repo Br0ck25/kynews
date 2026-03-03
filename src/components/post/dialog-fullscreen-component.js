@@ -8,7 +8,7 @@ import { Slide } from "@material-ui/core";
 import FeaturedPost from "./post-component";
 import CountyPage from "../../pages/county-page";
 import CountyInfoPage from "../../pages/county-info-page";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route } from "react-router-dom";
 import { Container, Fab } from "@material-ui/core";
 import FavoriteBorderIcon from "@material-ui/icons/FavoriteBorder";
 import ShareIcon from "@material-ui/icons/Share";
@@ -116,9 +116,12 @@ export default function FullScreenPostDialog(props) {
               />
             </MemoryRouter>
           ) : props.countySlug ? (
-            // when no post, show the county page.  wrap in a router so hooks work
+            // when no post, show the county page. wrap in a router+route so
+            // useParams behaves and info clicks open properly
             <MemoryRouter initialEntries={[`/news/kentucky/${props.countySlug}`]}>
-              <CountyPage countySlugProp={props.countySlug} onClose={props.onClose} />
+              <Route path="/news/kentucky/:countySlug/:infoType?">
+                <CountyPage countySlugProp={props.countySlug} onClose={props.onClose} />
+              </Route>
             </MemoryRouter>
           ) : null}
           <Divider />

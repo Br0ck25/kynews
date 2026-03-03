@@ -534,8 +534,8 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
       </Box>
       <Divider style={{ marginBottom: 16 }} />
 
-      {/* navigation buttons for counties with extra info */}
-      {countyInfo[countyName] && (
+      {/* navigation buttons for counties with extra info; hide when viewing an info subpage */}
+      {countyInfo[countyName] && !effectiveInfoType && (
         <Tabs
           indicatorColor="primary"
           textColor="primary"

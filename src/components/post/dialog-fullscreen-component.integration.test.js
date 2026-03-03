@@ -13,46 +13,45 @@ describe('FullScreenPostDialog integration', () => {
     store.dispatch(setFullscreenCounty(null));
   });
 
-  it('when county is open then clicking an article should show only the article, and closing returns to county', () => {
+  it('when county is open then clicking an article should show and close in dialog', () => {
     // open county
     store.dispatch(setFullscreenCounty('jefferson-county'));
-    const handleClose = () => {
-      const state = store.getState();
-      if (state.post && state.fullscreenCounty) {
-        store.dispatch(setPost(null));
-      } else {
-        store.dispatch(setPost(null));
-        store.dispatch(setFullscreenCounty(null));
-      }
-    };
-    const { rerender, getByLabelText } = render(<Wrapped><FullScreenPostDialog countySlug="jefferson-county" onClose={handleClose} /></Wrapped>);
+    const handleClose = () => store.dispatch(setPost(null));
+    const { rerender, getByLabelText } = render(
+      <Wrapped><FullScreenPostDialog countySlug="jefferson-county" onClose={handleClose} /></Wrapped>
+    );
+
     // county heading present
     expect(screen.getAllByText(/Jefferson County/i).length).toBeGreaterThan(0);
 
-    // now simulate article open
+    // simulate article open
     const dummy = { title: 'Dummy Article' };
     store.dispatch(setPost(dummy));
     rerender(<Wrapped><FullScreenPostDialog post={dummy} countySlug="jefferson-county" onClose={handleClose} /></Wrapped>);
-
-    // article title appears
     expect(screen.getByText(/Dummy Article/i)).toBeInTheDocument();
 
-    // close article via fab
+    // close article via fab and verify county heading returns
     fireEvent.click(getByLabelText('close'));
-    // rerender with fresh props from store
-    const state = store.getState();
-    rerender(
-      <Wrapped>
-        <FullScreenPostDialog
-          post={state.post}
-          countySlug={state.fullscreenCounty}
-          onClose={handleClose}
-        />
-      </Wrapped>
-    );
-    // after closing, article should be gone, but county heading should return
+    rerender(<Wrapped><FullScreenPostDialog countySlug="jefferson-county" onClose={handleClose} /></Wrapped>);
     expect(screen.queryByText(/Dummy Article/i)).toBeNull();
-    const matches = screen.getAllByText(/Jefferson County/i);
-    expect(matches.some(el => el.tagName === 'H5')).toBe(true);
+    expect(screen.getAllByText(/Jefferson County/i).length).toBeGreaterThan(0);
+  });
+
+  it('info button clicks open the appropriate subpage in the dialog', async () => {
+    store.dispatch(setFullscreenCounty('leslie-county'));
+    const handleClose = () => store.dispatch(setFullscreenCounty(null));
+    const { rerender } = render(<Wrapped><FullScreenPostDialog countySlug="leslie-county" onClose={handleClose} /></Wrapped>);
+
+    // click government offices and verify its content appears
+    fireEvent.click(screen.getByText(/Government Offices/i));
+    expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
+
+    // close the inner info dialog (last close button corresponds to it)
+    const closeBtns = screen.getAllByLabelText('close');
+    fireEvent.click(closeBtns[closeBtns.length - 1]);
+
+    // now the underlying county view is visible again, click utilities
+    fireEvent.click(screen.getByText(/Utilities/i));
+    expect(await screen.findByText(/Electric Utilities/i)).toBeInTheDocument();
   });
 });

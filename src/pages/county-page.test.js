@@ -220,25 +220,27 @@ test('kentucky article slug routes render ArticleSlugPage', async () => {
   expect(await screen.findByText(/We couldn't find that article/i)).toBeInTheDocument();
 });
 
-// the info page should include the same navigation tabs
+// ensure the county page itself hides the info navigation buttons when
+// an info subpage is active (route includes infoType). This prevents the
+// underlying page from showing duplicate controls beneath the dialog.
 
-test('info pages include nav tabs that can switch between types', async () => {
+test('county page hides info buttons when viewing info subpage', async () => {
   jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
   const history = createMemoryHistory({ initialEntries: ["/news/kentucky/leslie-county/government-offices"] });
   render(
     <Provider store={store}>
       <Router history={history}>
-        <Route path="/news/kentucky/:countySlug/:infoType">
-          <CountyInfoPage />
+        <Route path="/news/kentucky/:countySlug/:infoType?">
+          <KentuckyNewsPage />
         </Route>
       </Router>
     </Provider>
   );
 
-  expect(await screen.findByText(/Government Offices/i)).toBeInTheDocument();
-  expect(screen.getByText(/Utilities/i)).toBeInTheDocument();
+  // dialog should open to the government offices content
+  expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
 
-  // clicking utilities tab should navigate
-  fireEvent.click(screen.getByText(/Utilities/i));
-  expect(history.location.pathname).toBe("/news/kentucky/leslie-county/utilities");
+  // underlying county page should not render the navigation buttons
+  expect(screen.queryByText(/Government Offices/i)).toBeNull();
+  expect(screen.queryByText(/Utilities/i)).toBeNull();
 });

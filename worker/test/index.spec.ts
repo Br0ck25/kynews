@@ -894,6 +894,26 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual(['Fayette']);
 	});
 
+	it('requires city evidence before trusting source-default county', async () => {
+		// National-ish story with no Lexington/Fayette placement signal should
+		// not be pinned to Fayette despite coming from a Fayette-based source.
+		const classificationNoCity = await classifyArticleWithAi(env, {
+			url: 'https://www.lex18.com/article/track-star',
+			title: 'UK athlete wins gold medal',
+			content: 'Sydney McLaughlin of the University of Kentucky won the 400m hurdles in Paris.',
+		});
+		expect(classificationNoCity.isKentucky).toBe(true);
+		expect(classificationNoCity.county).toBeNull();
+
+		// add an explicit Lexington mention and the default should then apply
+		const classificationWithCity = await classifyArticleWithAi(env, {
+			url: 'https://www.lex18.com/article/police-arrest',
+			title: 'Lexington police release statement',
+			content: 'Lexington police arrested a suspect in downtown Fayette County.',
+		});
+		expect(classificationWithCity.county).toBe('Fayette');
+	});
+
 	// conversational forecast language should still trigger weather even when
 	// the title is weak or the body only has a single match.  this exercises
 	// the new patterns and relaxed evidence threshold.
