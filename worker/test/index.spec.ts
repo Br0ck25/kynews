@@ -2361,6 +2361,24 @@ describe('admin manual-article endpoint', () => {
 });
 
 
+
+// ensure fetching still works even if readability/linkedom can't load
+// (simulates missing module or incompatible runtime)
+describe('DOM helper resilience', () => {
+    it('fetchAndExtractArticle degrades gracefully when imports fail', async () => {
+        await ensureSchemaAndFixture();
+        vi.mock('@mozilla/readability', () => { throw new Error('nope'); });
+        vi.mock('linkedom', () => { throw new Error('nope'); });
+
+        const result = await ingestModule.fetchAndExtractArticle(env, {
+            url: 'https://example.com',
+            sourceUrl: 'https://example.com',
+        });
+        expect(result).toBeDefined();
+        expect(result.canonicalUrl).toBe('https://example.com');
+    });
+});
+
 describe('URL builder helpers', () => {
 	test('buildArticleUrl uses national path when flagged', () => {
 		const base = 'https://localkynews.com';

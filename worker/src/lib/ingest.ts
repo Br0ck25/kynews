@@ -1,6 +1,27 @@
 import type { ExtractedArticle, IngestResult, IngestSource, NewArticle } from '../types';
-import { Readability } from '@mozilla/readability';
-import { parseHTML } from 'linkedom';
+// Readability and DOM parser are loaded lazily at runtime.  These
+// packages sometimes pull in Node‑specific bits, and a missing or
+// incompatible bundle caused the ingestion pipeline to throw on every
+// article.  Loading dynamically allows us to degrade gracefully when
+// the modules aren’t available.
+
+// placeholders for the modules once loaded
+let ReadabilityClass: typeof import('@mozilla/readability').Readability | null = null;
+let parseHTMLFn: typeof import('linkedom').parseHTML | null = null;
+
+async function ensureDomHelpers(): Promise<void> {
+  if (ReadabilityClass && parseHTMLFn) return;
+  try {
+    const rd = await import('@mozilla/readability');
+    const ld = await import('linkedom');
+    ReadabilityClass = rd.Readability;
+    parseHTMLFn = ld.parseHTML;
+  } catch (err) {
+    console.warn('[INGEST] unable to load readability/linkedom:', err);
+    ReadabilityClass = null;
+    parseHTMLFn = null;
+  }
+}
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE } from './classify';
 import { findArticleByHash, insertArticle, insertUrlHash, isUrlHashBlocked, listRecentArticleTitles } from './db';
@@ -120,10 +141,10 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
           urlHash: canonicalHash,
         };
       }
-      // claim the fingerprint as soon as we check it, creating a small
-      // optimistic lock.  This reduces the window where two concurrent
-      // workers could both proceed past the check and later insert same body.
-      await env.CACHE.put(contentFingerprintKey, 'pending', { expirationTtl: 60 * 60 * 72 }).catch(() => {});
+      // no write here any more; we only mark the fingerprint after a
+      // successful database insert (see end of this function).  earlier
+      // optimistic writes caused ‘pending’ values to poison the KV and
+      // block future articles that happened to share the same lead text.
     }
   }
 
@@ -292,7 +313,7 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
   }
 
   const scraped = scrapeArticleHtml(source.url, fetched.body);
-  const readability = extractReadableArticle(fetched.body);
+  const readability = await extractReadableArticle(fetched.body);
   // Do NOT prepend the title here — it causes AI to echo the title in summaries.
   // Keep readableText for classification only; use htmlToStructuredText for summarization.
   const readableText = (readability?.textContent ?? '').trim();
@@ -332,10 +353,14 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
   };
 }
 
-function extractReadableArticle(rawHtml: string): { title?: string; textContent?: string; content?: string } | null {
+async function extractReadableArticle(rawHtml: string): Promise<{ title?: string; textContent?: string; content?: string } | null> {
+  // ensure the helper modules are available; if not, just bail out
+  await ensureDomHelpers();
+  if (!parseHTMLFn || !ReadabilityClass) return null;
+
   try {
-    const { document } = parseHTML(rawHtml);
-    const reader = new Readability(document);
+    const { document } = parseHTMLFn(rawHtml);
+    const reader = new ReadabilityClass(document);
     const parsed = reader.parse();
     if (!parsed) return null;
 
