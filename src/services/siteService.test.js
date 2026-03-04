@@ -83,6 +83,15 @@ describe('SiteService.request', () => {
     expect(post.county).toBe('');
   });
 
+  it('handles boolean isNational flag when mapping single post', async () => {
+    const service = new SiteService();
+    const articleData = { id: 8, slug: 'bool', category: '', isNational: true };
+    global.fetch.mockResolvedValue(makeResponse({ item: articleData }));
+
+    const post = await service.getPostBySlug('bool');
+    expect(post.isNational).toBe(true);
+  });
+
   it('getPosts string argument defaults to category all', async () => {
     const service = new SiteService('https://api.example');
     global.fetch.mockResolvedValue(makeResponse({ items: [] }));
@@ -115,6 +124,15 @@ describe('SiteService.request', () => {
     expect(url).toContain('/api/articles/all?');
   });
 
+  it('getPosts includes national category when articles carry is_national flag', async () => {
+    const service = new SiteService();
+    const articles = [{ id: 20, category: '', is_national: 1 }];
+    global.fetch.mockResolvedValue(makeResponse({ items: articles }));
+
+    const result = await service.getPosts();
+    expect(result.posts[0].categories).toEqual(['national']);
+  });
+
   it('getPosts omits limit parameter when the caller does not specify one', async () => {
     const service = new SiteService('https://api.example');
     global.fetch.mockResolvedValue(makeResponse({ items: [] }));
@@ -132,5 +150,31 @@ describe('SiteService.request', () => {
     await service.getPosts({ category: 'all', limit: 3 });
     const [[url]] = global.fetch.mock.calls;
     expect(url).toContain('/api/articles/all');
+  });
+
+  describe('mapWorkerArticleToPost category mapping', () => {
+    it('includes national when flag is set and category blank', () => {
+      const articleData = { id: 10, category: '', is_national: 1 };
+      const post = mapWorkerArticleToPost(articleData);
+      expect(post.categories).toEqual(['national']);
+    });
+
+    it('does not duplicate national when category already national', () => {
+      const articleData = { id: 11, category: 'national', is_national: 1 };
+      const post = mapWorkerArticleToPost(articleData);
+      expect(post.categories).toEqual(['national']);
+    });
+
+    it('preserves explicit category alongside national flag', () => {
+      const articleData = { id: 12, category: 'sports', is_national: 1 };
+      const post = mapWorkerArticleToPost(articleData);
+      expect(post.categories).toEqual(['sports', 'national']);
+    });
+
+    it('also works when worker returns boolean isNational field', () => {
+      const articleData = { id: 13, category: '', isNational: true };
+      const post = mapWorkerArticleToPost(articleData);
+      expect(post.categories).toEqual(['national']);
+    });
   });
 });

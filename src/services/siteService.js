@@ -2,6 +2,9 @@ import { SaveValue, GetValue } from "./storageService";
 import { KENTUCKY_COUNTIES } from "../constants/counties";
 
 const DEFAULT_IMAGE = "https://source.unsplash.com/random/1200x800?kentucky-news";
+
+// exported for unit testing only
+export { mapWorkerArticleToPost };
 const WORKER_FALLBACK_BASE_URL = "https://worker.jamesbrock25.workers.dev";
 
 const ADMIN_SESSION_KEY = "ky_admin_panel_key";
@@ -63,6 +66,26 @@ function migrateToCountyTags(existingTags) {
 
 function mapWorkerArticleToPost(article) {
   const bodyText = article?.contentText ?? "";
+
+  // derive a categories array that reflects both the stored category and the
+  // explicit national flag.  previously we simply pushed `article.category`,
+  // which meant a national article with an empty category resulted in `[]`.  The
+  // UI used the first element of this array to render the page header and
+  // route the category chip, so blank arrays caused the label to fall back to
+  // "Local News".
+  const categories = [];
+  if (article?.category) {
+    categories.push(article.category);
+  }
+  // worker responses may use either `is_national` (numeric) or
+  // `isNational` (boolean) depending on which mapper ran; handle both.
+  if (
+    (article?.is_national === 1 || article?.isNational === true) &&
+    !categories.includes('national')
+  ) {
+    categories.push('national');
+  }
+
   return {
     id: article?.id ?? null,
     slug: article?.slug ?? null,
@@ -76,7 +99,7 @@ function mapWorkerArticleToPost(article) {
     link: "/post",
     originalLink: article?.canonicalUrl ?? article?.sourceUrl ?? "",
     sourceUrl: article?.sourceUrl ?? "",
-    categories: article?.category ? [article.category] : [],
+    categories,
     county: article?.county ?? null,
     author: article?.author ?? null,
     isKentucky: Boolean(article?.isKentucky),

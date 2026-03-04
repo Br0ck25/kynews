@@ -1,5 +1,6 @@
 import { countyToSlug, slugToCounty, SITE_URL } from './functions';
 import { KENTUCKY_COUNTIES } from '../constants/counties';
+import { categoryDisplayName, categoryRoute } from '../components/post/post-component';
 
 describe('county slug helpers', () => {
   it('converts names to kebab-case slugs and always appends -county', () => {
@@ -132,6 +133,16 @@ describe('articleToUrl helper', () => {
   it('builds kentucky URL when not national', () => {
     const post = { slug: 'bar', isNational: false };
     expect(articleToUrl(post)).toBe('/news/kentucky/bar');
+  });
+});
+
+
+describe('category helper functions', () => {
+  it('categoryDisplayName returns National News when empty category and flag', () => {
+    expect(categoryDisplayName('', true)).toBe('National News');
+  });
+  it('categoryRoute returns /national when empty category and flag', () => {
+    expect(categoryRoute('', true)).toBe('/national');
   });
 });
 

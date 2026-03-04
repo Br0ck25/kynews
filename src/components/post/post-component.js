@@ -131,7 +131,7 @@ export default function FeaturedPost(props) {
 
   const primaryCounty = countyList.length > 0 ? countyList[0] : null;
   const primarySlug = primaryCounty ? countyToSlug(primaryCounty) : null;
-  const categoryLabel = categoryDisplayName(post.categories?.[0]);
+  const categoryLabel = categoryDisplayName(post.categories?.[0], post.isNational);
 
   const video = React.useMemo(() => findPlayableVideo(post), [post]);
 
@@ -370,7 +370,7 @@ function extractSourceName(url) {
   }
 }
 
-function categoryDisplayName(category) {
+function categoryDisplayName(category, isNational = false) {
   const map = {
     today: "Local News",
     national: "National News",
@@ -379,11 +379,14 @@ function categoryDisplayName(category) {
     schools: "Schools",
     obituaries: "Obituaries",
   };
+  if ((!category || category === '') && isNational) {
+    return "National News";
+  }
   return map[category] || (category ? category.charAt(0).toUpperCase() + category.slice(1) : "Local News");
 }
 
 /** Maps article category to its app route for the clickable category chip. */
-function categoryRoute(category) {
+function categoryRoute(category, isNational = false) {
   const map = {
     national: "/national",
     sports: "/sports",
@@ -392,8 +395,14 @@ function categoryRoute(category) {
     today: "/local",
     obituaries: "/local",
   };
+  if ((!category || category === '') && isNational) {
+    return "/national";
+  }
   return map[category] || "/local";
 }
+
+// helpers exposed for the unit test suite
+export { categoryDisplayName, categoryRoute };
 
 function findPlayableVideo(post) {
   const candidates = [
