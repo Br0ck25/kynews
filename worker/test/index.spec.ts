@@ -400,15 +400,21 @@ async function ensureSchemaAndFixture() {
 			});
 		});
 
-	it('national endpoint returns only national-category articles', async () => {
+	it('national endpoint returns articles flagged as national (category ignored)', async () => {
 		await ensureSchemaAndFixture();
 
+		// the fixture inserts several stories with is_national=1 but categories
+		// such as 'sports' and 'today'.  with the updated query logic these
+		// should be returned by the national feed even though the category is
+		// not literally "national".
 		const response = await SELF.fetch('https://example.com/api/articles/national?limit=20');
 		expect(response.status).toBe(200);
 
 		const payload = await response.json();
 		expect(Array.isArray(payload.items)).toBe(true);
-		expect(payload.items.length).toBe(0);
+		expect(payload.items.length).toBeGreaterThan(0);
+		expect(payload.items.some((i) => i.urlHash === 'hash-non-ky-sports')).toBe(true);
+		expect(payload.items.some((i) => i.urlHash === 'hash-non-ky-today')).toBe(true);
 	});
 
 	it('ignores county filter on national endpoint', async () => {
@@ -2342,6 +2348,49 @@ describe('admin manual-article endpoint', () => {
 		expect(payload.items.find((i) => i.urlHash === 'hash-w1')?.isNational).toBe(true);
 	});
 
+	it('retagged article with empty category should surface in national feed', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		// insert a story and then retag it to national without specifying a
+		// category (simulating the admin behavior described by the user)
+		const now = new Date().toISOString();
+		await adminEnv.ky_news_db.prepare(`
+			INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category, is_kentucky, county, city, summary, seo_description, raw_word_count, summary_word_count, content_text, content_html)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind(
+			'https://example.com/foo2',
+			'https://example.com',
+			'hash-foo2',
+			'Foo2',
+			null,
+			now,
+			'today',
+			1,
+			'Fayette',
+			null,
+			'Summary',
+			'SEO',
+			90,
+			45,
+			'body',
+			'<p>body</p>'
+		).run();
+
+		// retag to national (empty category + ky=false)
+		const req4 = new IncomingRequest('https://example.com/api/admin/retag', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({ id: 1, category: '', isKentucky: false }),
+		});
+		const ctx4 = createExecutionContext();
+		await worker.fetch(req4, adminEnv, ctx4);
+
+		// now hit national feed and ensure the article appears
+		const feedResp = await SELF.fetch('https://example.com/api/articles/national?limit=20');
+		const payload = await feedResp.json();
+		expect(payload.items.some((i) => i.urlHash === 'hash-foo2')).toBe(true);
+	});
+
 	it('allows clearing the category tag by sending empty string', async () => {
 		// reuse article id 1 from earlier retag test
 		const req3 = new IncomingRequest('https://example.com/api/admin/retag', {
@@ -2357,8 +2406,8 @@ describe('admin manual-article endpoint', () => {
 		expect(j3.ok).toBe(true);
 		const rowCleared = await getArticleById(adminEnv, 1);
 		expect(rowCleared.category).toBe('');
-		// toggling KY off while clearing the category should also mark the
-		// article as national
+		// ky flag must have been cleared and national set
+		expect(rowCleared?.is_kentucky).toBe(0);
 		expect(rowCleared?.is_national).toBe(1);
 	});
 });

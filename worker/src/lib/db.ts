@@ -436,6 +436,19 @@ export async function queryArticles(env: Env, options: {
     // special case: no category filter, return articles from every bucket
   } else if (options.category === 'today') {
     where.push('is_kentucky = 1');
+  } else if (options.category === 'national') {
+    // include rows whose category is explicitly "national" or that have the
+    // national flag set.  this allows admins to flip a story to national without
+    // remembering to change its category as well.
+    const supportsIsNational = await columnExists(env, 'articles', 'is_national');
+    if (supportsIsNational) {
+      where.push('((category = ?) OR (is_national = 1))');
+      binds.push('national');
+    } else {
+      // legacy schemas without the flag use category only
+      where.push('category = ?');
+      binds.push('national');
+    }
   } else if (options.category === 'sports') {
     where.push('category = ?');
     binds.push('sports');
