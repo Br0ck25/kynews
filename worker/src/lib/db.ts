@@ -423,7 +423,7 @@ async function columnExists(env: Env, table: string, column: string): Promise<bo
 }
 
 export async function queryArticles(env: Env, options: {
-  category: Category;
+  category: Category | 'all';
   counties: string[];
   search: string | null;
   limit: number;
@@ -432,7 +432,9 @@ export async function queryArticles(env: Env, options: {
   const where: string[] = [];
   const binds: unknown[] = [];
 
-  if (options.category === 'today') {
+  if (options.category === 'all') {
+    // special case: no category filter, return articles from every bucket
+  } else if (options.category === 'today') {
     where.push('is_kentucky = 1');
   } else if (options.category === 'sports') {
     where.push('category = ?');

@@ -424,6 +424,17 @@ async function ensureSchemaAndFixture() {
 		expect(filteredPayload.items.length).toBe(allPayload.items.length);
 	});
 
+	// the search page previously requested /api/articles/all which the worker
+	// rejected as an invalid category.  reproducing that scenario ensures the
+	// fix remains working.
+	it('all endpoint accepts searches and never returns 400', async () => {
+		await ensureSchemaAndFixture();
+		const response = await SELF.fetch('https://example.com/api/articles/all?search=test');
+		expect(response.status).toBe(200);
+		const payload = await response.json();
+		expect(Array.isArray(payload.items)).toBe(true);
+	});
+
 	it('feeds return articles when a secondary county matches', async () => {
 		await ensureSchemaAndFixture();
 		// insert a multi-county article where primary is Fayette but also Jefferson
@@ -1568,6 +1579,37 @@ describe('database utilities', () => {
 
 		const resp = await queryArticles(env, { category: 'today', counties: [], search: 'findme-summary', limit: 10, cursor: null });
 		expect(resp.items.some((i) => i.id === id)).toBe(true);
+	});
+
+	it('queryArticles with category all ignores the category filter', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		// insert one article in each of two categories so search across all picks one
+		const id1 = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/a1',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash1',
+			title: 'Foo bar',
+			author: null,
+			publishedAt: now,
+			category: 'national',
+			isKentucky: false,
+			isNational: true,
+			county: null,
+			counties: [],
+			city: null,
+			summary: 'findthis',
+			seoDescription: '',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+		const resp = await queryArticles(env, { category: 'all', counties: [], search: 'findthis', limit: 10, cursor: null });
+		expect(resp.items.some((i) => i.id === id1)).toBe(true);
 	});
 
 	it('getArticlesForUpdateCheck honors maxAgeHours and returns recent ky articles', async () => {

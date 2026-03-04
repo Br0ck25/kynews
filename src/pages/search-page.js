@@ -38,7 +38,12 @@ export default function SearchPage() {
         // virtual "all" category so the backend returns matches from anywhere
         // on the site.
         service
-          .getPosts({ search: searchVal, category: 'all', limit: 15 })
+          // do not send a hard limit when performing a search; the backend will
+          // return as many matching posts as it deems reasonable (currently up
+          // to its configured cap).  earlier versions always requested 15
+          // items which triggered a 400 because the worker refused tiny limits
+          // and also didn't recognise the pseudo-category `all`.
+          .getPosts({ search: searchVal, category: 'all' })
           .then((data) => {
             dispatch(setSearchPosts({ searchValue: searchVal, posts: data }));
             setIsLoading(false);

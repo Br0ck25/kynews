@@ -115,6 +115,16 @@ describe('SiteService.request', () => {
     expect(url).toContain('/api/articles/all?');
   });
 
+  it('getPosts omits limit parameter when the caller does not specify one', async () => {
+    const service = new SiteService('https://api.example');
+    global.fetch.mockResolvedValue(makeResponse({ items: [] }));
+
+    await service.getPosts({ search: 'foo' });
+    const [[url]] = global.fetch.mock.calls;
+    expect(url).toContain('/api/articles/all?');
+    expect(url).not.toContain('limit=');
+  });
+
   it('explicit category all is not overwritten by allowed-category check', async () => {
     const service = new SiteService('https://api.example');
     global.fetch.mockResolvedValue(makeResponse({ items: [] }));

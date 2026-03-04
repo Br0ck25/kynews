@@ -258,7 +258,9 @@ export default class SiteService {
       // when callers supply a bare string it historically implied a
       // "today" query, but search pages expect to hit every category.  using
       // `all` here makes that behaviour consistent without requiring callers
-      // to always remember to pass an object.
+      // to always remember to pass an object.  In this case we still honor the
+      // caller-supplied `perPage` argument because callers typically use the
+      // string overload for paginated feeds rather than freeform searches.
       options = {
         category: "all",
         search: searchOrOptions,
@@ -266,10 +268,14 @@ export default class SiteService {
         counties: [],
       };
     } else {
+      // when an object is provided we no longer unconditionally default the
+      // limit to `perPage`.  callers who omit `limit` now send no `limit`
+      // query parameter at all, allowing the backend to decide (and avoid
+      // accidentally imposing a 10‑item cap on searches).
       options = {
         category: "today",
         search: "",
-        limit: perPage,
+        limit: undefined,
         counties: [],
         ...searchOrOptions,
       };

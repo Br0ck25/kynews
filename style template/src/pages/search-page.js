@@ -33,7 +33,8 @@ export default function SearchPage() {
       if (searchVal.length > 2) {
         setIsLoading(true);
         service
-          .getPosts(searchVal, 15)
+          // limit parameter removed so the worker can choose a generous default
+          .getPosts(searchVal)
           .then((data) => {
             dispatch(setSearchPosts({ searchValue: searchVal, posts: data }));
             setIsLoading(false);

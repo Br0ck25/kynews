@@ -1216,8 +1216,10 @@ if (categoryMatch && request.method === 'GET') {
 //   schools     - Kentucky school stories (is_kentucky=1 AND category='schools')
 //   obituaries  - Kentucky obituaries only (is_kentucky=1 AND category='obituaries')
 const category = categoryMatch[1]?.toLowerCase();
-if (!category || !isAllowedCategory(category)) {
-return badRequest('Invalid category. Allowed: today|national|sports|weather|schools|obituaries');
+if (!category || (category !== 'all' && !isAllowedCategory(category))) {
+  return badRequest(
+    'Invalid category. Allowed: today|national|sports|weather|schools|obituaries|all',
+  );
 }
 
 // support both ?counties=Foo,Bar (existing) and the shorthand ?county=Foo
@@ -1227,14 +1229,18 @@ url.searchParams.get('counties') || url.searchParams.get('county'),
 const counties = normalizeCountyList(rawCounties) as string[];
 
 const search = url.searchParams.get('search')?.trim() ?? null;
-const limit = parsePositiveInt(url.searchParams.get('limit'), 20, 100);
+// when searching across all categories we let the backend return a larger
+// default batch size (100) so that users don't feel artificially capped at
+// a tiny number.  callers can still provide `limit` to override.
+const defaultLimit = category === 'all' ? 100 : 20;
+const limit = parsePositiveInt(url.searchParams.get('limit'), defaultLimit, 100);
 const cursor = url.searchParams.get('cursor');
 const result = await queryArticles(env, {
-category,
-counties,
-search,
-limit,
-cursor,
+  category,
+  counties,
+  search,
+  limit,
+  cursor,
 });
 
 return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
