@@ -83,7 +83,14 @@ export async function getArticleById(env: Env, id: number): Promise<ArticleRecor
     .bind(id)
     .first<ArticleRow>();
 
-  return result ? mapArticleRow(result) : null;
+  if (!result) return null;
+  const article = mapArticleRow(result);
+  // populate counties array for single‑article fetches so clients can display
+  // secondary counties.  queryArticles already handles this, but the slug/id
+  // endpoints previously returned an empty list, which is why multi‑county
+  // tags were lost on the article detail page.
+  article.counties = await getArticleCounties(env, article.id);
+  return article;
 }
 
 export async function getArticleBySlug(env: Env, slug: string): Promise<ArticleRecord | null> {
@@ -91,7 +98,10 @@ export async function getArticleBySlug(env: Env, slug: string): Promise<ArticleR
     .bind(slug)
     .first<ArticleRow>();
 
-  return result ? mapArticleRow(result) : null;
+  if (!result) return null;
+  const article = mapArticleRow(result);
+  article.counties = await getArticleCounties(env, article.id);
+  return article;
 }
 
 export async function insertArticle(env: Env, article: NewArticle): Promise<number> {

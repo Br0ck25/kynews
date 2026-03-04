@@ -68,6 +68,11 @@ describe('post tag helper', () => {
     expect(getPostTags(post)).toEqual(['Kentucky', 'Campbell', 'Kenton']);
   });
 
+  it('uses the counties array when provided', () => {
+    const post = { isKentucky: true, county: 'Boone', counties: ['Boone', 'Kenton'] };
+    expect(getPostTags(post)).toEqual(['Kentucky', 'Boone', 'Kenton']);
+  });
+
   it('treats posts with county as Kentucky even if isKentucky=false', () => {
     const post = { isKentucky: false, county: 'Boone' };
     expect(getPostTags(post)).toEqual(['Kentucky', 'Boone']);

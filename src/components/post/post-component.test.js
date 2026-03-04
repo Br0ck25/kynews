@@ -26,6 +26,31 @@ test('renders title and plain body text on full post component', () => {
   expect(screen.getByText(/Paragraph two/i)).toBeInTheDocument();
 });
 
+// new case for multiple counties
+test('renders multiple county chips when post.tags include several counties', () => {
+  const post = {
+    title: 'Multi County',
+    image: '',
+    originalLink: 'http://example.com',
+    date: '2020-01-01',
+    contentText: 'Text',
+    shortDesc: 'Text',
+    tags: ['Boone', 'Campbell'],
+    county: 'Boone',
+    isKentucky: true,
+  };
+
+  render(
+    <Provider store={store}>
+      <Post post={post} />
+    </Provider>
+  );
+
+  // expect both county chips to appear
+  expect(screen.getByText(/Boone County/i)).toBeInTheDocument();
+  expect(screen.getByText(/Campbell County/i)).toBeInTheDocument();
+});
+
 test('renders playable YouTube iframe when article link is a YouTube video', () => {
   const post = {
     title: 'Video Detail',

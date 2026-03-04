@@ -110,8 +110,26 @@ export default function FeaturedPost(props) {
   }, [post?.shortDesc]);
 
   const sourceName = extractSourceName(post.originalLink || post.sourceUrl || "");
-  // Parse comma-separated county values; use first county for breadcrumb/slug links
-  const primaryCounty = post.county ? post.county.split(",")[0].trim() : null;
+  // collect counties for the article.  older records stored a
+  // comma-separated string in `post.county`, while newer responses may
+  // include a `tags` array (populated by mapWorkerArticleToPost) containing
+  // all counties.  filter tags against known KY counties so we ignore
+  // arbitrary labels that might be mixed in.
+  const countyList = React.useMemo(() => {
+    const countiesFromTags = Array.isArray(post.tags)
+      ? post.tags.filter((t) => KENTUCKY_COUNTIES.includes(t))
+      : [];
+    if (countiesFromTags.length > 0) return countiesFromTags;
+    if (post.county) {
+      return post.county
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean);
+    }
+    return [];
+  }, [post.county, post.tags]);
+
+  const primaryCounty = countyList.length > 0 ? countyList[0] : null;
   const primarySlug = primaryCounty ? countyToSlug(primaryCounty) : null;
   const categoryLabel = categoryDisplayName(post.categories?.[0]);
 
@@ -192,9 +210,9 @@ export default function FeaturedPost(props) {
           {ToDateTime(post.date)}
         </Typography>
 
-        {/* County + Category chips — one chip per county for comma-separated counties */}
+        {/* County + Category chips — one chip per county, derived from the normalized list */}
         <Box style={{ padding: "4px 10px 10px", display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {post.county && post.county.split(",").map((c) => c.trim()).filter(Boolean).map((cName) => {
+          {countyList.map((cName) => {
             const cSlug = countyToSlug(cName);
             return hasRouter ? (
               <RouterLink key={cName} to={`/news/kentucky/${cSlug}`} style={{ textDecoration: "none" }}>

@@ -458,6 +458,50 @@ async function ensureSchemaAndFixture() {
 		expect(payload.items.some((a) => a.urlHash === 'hash-multi2')).toBe(true);
 	});
 
+	// verify slug/id endpoints include counties for multi-county articles
+	it('slug and id endpoints return counties array when available', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const slug = 'multi-slug-test';
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/multi3',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-multi3',
+			title: 'Multi slug test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Boone',
+			counties: ['Boone', 'Kenton'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: slug,
+		});
+
+		// slug endpoint
+		const slugResp = await SELF.fetch(`https://example.com/api/articles/slug/${slug}`);
+		expect(slugResp.status).toBe(200);
+		const slugPayload = await slugResp.json();
+		expect(Array.isArray(slugPayload.item.counties)).toBe(true);
+		expect(slugPayload.item.counties).toEqual(['Boone', 'Kenton']);
+
+		// id endpoint
+		const idResp = await SELF.fetch(`https://example.com/api/articles/item/${id}`);
+		expect(idResp.status).toBe(200);
+		const idPayload = await idResp.json();
+		expect(Array.isArray(idPayload.item.counties)).toBe(true);
+		expect(idPayload.item.counties).toEqual(['Boone', 'Kenton']);
+	});
+
 	it('queryArticles honors county filter when only primary county column is populated', async () => {
 		// insert an article that has a value in `county` but no junction row
 		const now = new Date().toISOString();

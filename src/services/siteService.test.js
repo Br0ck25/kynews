@@ -92,6 +92,20 @@ describe('SiteService.request', () => {
     expect(url).toContain('/api/articles/all?');
   });
 
+  it('maps counties array from worker response into post.tags', async () => {
+    const service = new SiteService();
+    const articleData = {
+      id: 7,
+      slug: 'abc',
+      county: 'Boone',
+      counties: ['Boone', 'Campbell'],
+    };
+    global.fetch.mockResolvedValue(makeResponse({ item: articleData }));
+
+    const post = await service.getPostBySlug('abc');
+    expect(post.tags).toEqual(['Boone', 'Campbell']);
+  });
+
   it('getPosts object with search but no category also uses all', async () => {
     const service = new SiteService('https://api.example');
     global.fetch.mockResolvedValue(makeResponse({ items: [] }));

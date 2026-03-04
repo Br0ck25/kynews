@@ -140,7 +140,7 @@ export function getPostTags(post) {
   const result = [];
 
   // county presence overrides isKentucky flag
-  if (post.county) {
+  if (post.county || (Array.isArray(post.counties) && post.counties.length > 0)) {
     result.push('Kentucky');
   } else if (post.isKentucky) {
     result.push('Kentucky');
@@ -148,7 +148,10 @@ export function getPostTags(post) {
     result.push('National');
   }
 
-  if (post.county) {
+  // collect county names; prefer the explicit `counties` list if available
+  if (Array.isArray(post.counties) && post.counties.length > 0) {
+    result.push(...post.counties.filter((c) => typeof c === 'string' && c.trim()));
+  } else if (post.county) {
     const parts = post.county.split(',').map((p) => p.trim()).filter(Boolean);
     result.push(...parts);
   }
