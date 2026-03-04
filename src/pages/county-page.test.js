@@ -25,6 +25,32 @@ test('renders error state when slug is invalid', () => {
   expect(screen.getByText(/County not found/i)).toBeInTheDocument();
 });
 
+// ensure the component passes the parsed county name through to the service
+// layer when fetching posts; this is the only place the frontend forms the
+// API query so verifying it guards against regressions.
+test('fetches posts with appropriate county filter', async () => {
+  const getPostsSpy = jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({ initialEntries: ['/news/kentucky/shelby-county'] });
+
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType?">
+          <KentuckyNewsPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  // allow effect to run
+  await waitFor(() => {
+    expect(getPostsSpy).toHaveBeenCalled();
+  });
+  expect(getPostsSpy).toHaveBeenCalledWith(
+    expect.objectContaining({ category: 'today', counties: ['Shelby'] }),
+  );
+});
+
 // simulate fetch error (e.g. due to caching) and ensure message shown
 // we spy on the service prototype so the component's `new SiteService()`
 // instance uses our mocked methods.

@@ -737,17 +737,17 @@ export async function classifyArticleWithAi(
         );
 
     // determine final counties list using AI output when available, otherwise
-    // fall back to the mergedCounty (if any).  Also clear all counties for
-    // statewide political stories so the earlier guard on mergedCounty can't
-    // be accidentally bypassed by aiCounties.
+    // fall back to the mergedCounty (if any).  We only clear the *primary*
+    // county for statewide political stories; secondary counties (which may
+    // come from the AI or fallback logic) are still preserved so that the
+    // article can be filtered by county even though its URL will not include
+    // a county segment.
     const mergedCounties: string[] =
-      isStatewideKyPolitics
-        ? []
-        : (aiCounties.length > 0
-            ? aiCounties
-            : mergedCounty
-              ? [mergedCounty]
-              : []);
+      aiCounties.length > 0
+        ? aiCounties
+        : mergedCounty
+          ? [mergedCounty]
+          : [];
 
 
     fallback = {

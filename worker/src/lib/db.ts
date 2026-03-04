@@ -414,6 +414,34 @@ export async function getArticleCounties(env: Env, articleId: number): Promise<s
   return (rows.results ?? []).map((r) => r.county);
 }
 
+/**
+ * Efficiently fetch counties for multiple articles in a single query.
+ * Returns a map from article id to array of county names (primary first).
+ */
+export async function getArticleCountiesBatch(
+  env: Env,
+  articleIds: number[],
+): Promise<Map<number, string[]>> {
+  const map = new Map<number, string[]>();
+  if (articleIds.length === 0) return map;
+
+  const placeholders = articleIds.map(() => '?').join(',');
+  const rows = await prepare(env,
+      `SELECT article_id, county FROM article_counties
+       WHERE article_id IN (${placeholders})
+       ORDER BY is_primary DESC, article_id`,
+    )
+    .bind(...articleIds)
+    .all<{ article_id: number; county: string }>();
+
+  for (const r of rows.results ?? []) {
+    if (!map.has(r.article_id)) map.set(r.article_id, []);
+    map.get(r.article_id)!.push(r.county);
+  }
+
+  return map;
+}
+
 async function columnExists(env: Env, table: string, column: string): Promise<boolean> {
   const rows = await prepare(env, `PRAGMA table_info(${table})`).all<{ name: string }>();
   for (const row of rows.results ?? []) {
@@ -476,11 +504,20 @@ export async function queryArticles(env: Env, options: {
   }
 
   if (options.category !== 'national' && options.counties.length > 0) {
+    // use EXISTS against the junction table so that any row tagged with the
+    // requested county (primary or secondary) qualifies.  legacy rows that
+    // haven't been backfilled into article_counties are still covered by the
+    // fallback `county IN` check.
     const placeholders = options.counties.map(() => '?').join(',');
     where.push(`(
-      id IN (SELECT article_id FROM article_counties WHERE county IN (${placeholders}))
+      EXISTS (
+        SELECT 1 FROM article_counties ac
+        WHERE ac.article_id = articles.id
+          AND ac.county IN (${placeholders})
+      )
       OR county IN (${placeholders})
     )`);
+    // bind once for the EXISTS clause and once for the direct-column fallback
     binds.push(...options.counties, ...options.counties);
   }
 
@@ -503,6 +540,16 @@ export async function queryArticles(env: Env, options: {
 
   const rows = await prepare(env, query).bind(...binds).all<ArticleRow>();
   const mapped = (rows.results ?? []).map(mapArticleRow);
+
+  // Attach county lists in one go rather than hitting DB for each item.
+  if (mapped.length > 0) {
+    const ids = mapped.map((a) => a.id);
+    const countiesMap = await getArticleCountiesBatch(env, ids);
+    for (const article of mapped) {
+      article.counties = countiesMap.get(article.id) || [];
+    }
+  }
+
   const uniqueItems: ArticleRecord[] = [];
   const seenCanonical = new Set<string>();
 
@@ -629,6 +676,60 @@ export async function updateArticleClassification(
         console.error(`[RETAG] Failed to insert county ${county} for article ${id}`, e);
     }
   }
+}
+
+/**
+ * Update only the primary county of an article without disturbing the
+ * existing set of secondary counties.  Returns the updated article record
+ * (including a fresh `counties` array) or null if the article does not exist.
+ */
+export async function updateArticlePrimaryCounty(
+  env: Env,
+  id: number,
+  county: string | null,
+): Promise<ArticleRecord | null> {
+  const normalizedCounty = normalizeCountyName(county);
+
+  // update the article row; we do not mutate is_kentucky here unless
+  // clearing the last county.
+  await prepare(env, 'UPDATE articles SET county = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .bind(normalizedCounty, id)
+    .run();
+
+  if (normalizedCounty === null) {
+    // clear any existing primary flag on the junction
+    await prepare(env, 'UPDATE article_counties SET is_primary = 0 WHERE article_id = ?')
+      .bind(id)
+      .run();
+    // if there are no counties left at all, demote is_kentucky
+    const row = await prepare(env, 'SELECT COUNT(*) as cnt FROM article_counties WHERE article_id = ?')
+      .bind(id)
+      .first<{ cnt: number }>();
+    if ((row?.cnt ?? 0) === 0) {
+      await prepare(env, 'UPDATE articles SET is_kentucky = 0 WHERE id = ?')
+        .bind(id)
+        .run();
+    }
+  } else {
+    // remove primary from all counties, then mark or insert the requested one
+    await prepare(env, 'UPDATE article_counties SET is_primary = 0 WHERE article_id = ?')
+      .bind(id)
+      .run();
+    const exists = await prepare(env, 'SELECT 1 FROM article_counties WHERE article_id = ? AND county = ?')
+      .bind(id, normalizedCounty)
+      .first();
+    if (exists) {
+      await prepare(env, 'UPDATE article_counties SET is_primary = 1 WHERE article_id = ? AND county = ?')
+        .bind(id, normalizedCounty)
+        .run();
+    } else {
+      await prepare(env, 'INSERT INTO article_counties (article_id, county, is_primary) VALUES (?, ?, 1)')
+        .bind(id, normalizedCounty)
+        .run();
+    }
+  }
+
+  return getArticleById(env, id);
 }
 
 function normalizeCountyName(value: string | null): string | null {

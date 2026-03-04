@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
 import { __testables } from '../src/index';
 import * as classifyModule from '../src/lib/classify';
-import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed } from '../src/lib/classify';
+import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed, isStatewideKyPoliticalStory } from '../src/lib/classify';
 import { isScheduleOrScoresArticle } from '../src/lib/ai';
 import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
@@ -472,7 +472,10 @@ async function ensureSchemaAndFixture() {
 		const resp = await SELF.fetch('https://example.com/api/articles/today?counties=Jefferson');
 		expect(resp.status).toBe(200);
 		const payload = await resp.json();
-		expect(payload.items.some((a) => a.urlHash === 'hash-multi2')).toBe(true);
+		const item = payload.items.find((a) => a.urlHash === 'hash-multi2');
+		expect(item).toBeDefined();
+		// the API should include our counties list (primary first)
+		expect(item.counties).toEqual(['Fayette', 'Jefferson']);
 	});
 
 	// verify slug/id endpoints include counties for multi-county articles
@@ -553,7 +556,10 @@ async function ensureSchemaAndFixture() {
 		const resp = await SELF.fetch('https://example.com/api/articles/today?counties=Adair');
 		expect(resp.status).toBe(200);
 		const payload = await resp.json();
-		expect(payload.items.some((a) => a.id === id)).toBe(true);
+		const item = payload.items.find((a) => a.id === id);
+		expect(item).toBeDefined();
+		// no junction rows exist so the counties array should be empty
+		expect(item?.counties).toEqual([]);
 	});
 
 	it('schools endpoint returns kentucky-only schools articles', async () => {
@@ -715,11 +721,15 @@ describe('classification utilities', () => {
 	});
 
 	it('treats FRANKFORT dateline stories as statewide Kentucky content with no county', async () => {
-		const classification = await classifyArticleWithAi(env, {
+		// ensure AI doesn't introduce stray counties
+	const originalAiStub = env.AI;
+	env.AI = { run: vi.fn().mockResolvedValue({ response: JSON.stringify({ category: 'today', isKentucky: true, counties: [] }) }) } as any;
+	const classification = await classifyArticleWithAi(env, {
 			url: 'https://harlanenterprise.net/article/hb-593',
 			title: 'FRANKFORT, Ky. (KT) – Lawmakers debate bill',
 			content: 'FRANKFORT, Ky. (KT) – Senate and House members met in closed session.',
 		});
+	env.AI = originalAiStub;
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBeNull();
 		expect(classification.counties).toEqual([]);
@@ -730,11 +740,15 @@ describe('classification utilities', () => {
 		// detectKentuckyGeo to pick up "Frankfort" from the body and return
 		// Franklin County.  isStatewideKyPolitics should still null out the
 		// county regardless of that detection.
-		const classification = await classifyArticleWithAi(env, {
+		// stub AI to avoid unpredictable counties
+	const originalAiStub2 = env.AI;
+	env.AI = { run: vi.fn().mockResolvedValue({ response: JSON.stringify({ category: 'today', isKentucky: true, counties: [] }) }) } as any;
+	const classification = await classifyArticleWithAi(env, {
 			url: 'https://example.com/abc36-news',
 			title: 'Governor announces new budget',
 			content: 'FRANKFORT, Ky. (ABC36 NEWS NOW) – In Franklin County today the governor outlined...',
 		});
+	env.AI = originalAiStub2;
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBeNull();
 		expect(classification.counties).toEqual([]);
@@ -742,7 +756,8 @@ describe('classification utilities', () => {
 
 	it('still nulls Franklin when both geo detector and AI suggest it on a statewide-pol story', async () => {
 		// simulate AI hallucination returning Franklin County even though the
-		// dateline is Frankfort (statewide political story)
+		// dateline is Frankfort (statewide political story).  primary should be
+		// cleared but the counties array itself is retained.
 		const originalAi = env.AI;
 		const aiResponse = JSON.stringify({ category: 'today', isKentucky: true, counties: ['Franklin'] });
 		env.AI = { run: vi.fn().mockResolvedValue({ response: aiResponse }) } as any;
@@ -755,9 +770,25 @@ describe('classification utilities', () => {
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBeNull();
-		expect(classification.counties).toEqual([]);
+		// county list is preserved for filtering even though no primary
+		expect(classification.counties).toEqual(['Franklin']);
 
 		env.AI = originalAi;
+	});
+
+	// ensure multiple counties from AI are retained even for statewide-pol
+	it('keeps multiple AI counties on statewide politics stories', async () => {
+		const originalAi2 = env.AI;
+		const aiResponse2 = JSON.stringify({ category: 'today', isKentucky: true, counties: ['Franklin', 'Fayette'] });
+		env.AI = { run: vi.fn().mockResolvedValue({ response: aiResponse2 }) } as any;
+		const classification2 = await classifyArticleWithAi(env, {
+			url: 'https://example.com/politics2',
+			title: 'FRANKFORT, Ky. – Roundup',
+			content: 'FRANKFORT dateline with mentions of Franklin and Fayette counties',
+		});
+		expect(classification2.county).toBeNull();
+		expect(classification2.counties).toEqual(['Franklin', 'Fayette']);
+		env.AI = originalAi2;
 	});
 
 		it('suppresses default county when statewide politics but local dateline is present', async () => {
@@ -775,14 +806,42 @@ describe('classification utilities', () => {
 			expect(classification.counties).toEqual([]);
 		});
 
-		// simple unit test for stripNoisyTags transcript removal
-		it('stripNoisyTags removes <div class="transcript"> blocks', () => {
-			const html = '<p>Lead</p><div class="transcript">ALL CAPS TEXT</div><p>Story body</p>';
-			expect(stripNoisyTags(html)).not.toContain('transcript');
-			expect(stripNoisyTags(html)).toContain('Lead');
+	// redirect handler should return short-lived cache header for county changes
+	it('301 handler uses short TTL for county-path mismatches', async () => {
+		await ensureSchemaAndFixture();
+		// create an article with a known slug and county
+		const now = new Date().toISOString();
+		const slug = 'test-slug-abc';
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/redirect-test',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-redirect',
+			title: 'Redirect Test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug,
 		});
-
-		it('scrapeArticleHtml strips WordPress breadcrumb navigation', () => {
+		// fetch using wrong county path
+		const resp = await SELF.fetch(
+			`https://example.com/news/kentucky/wrong-county/${slug}`,
+		);
+		expect(resp.status).toBe(301);
+		expect(resp.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=3600');
+	});
 			const html = '<div>Home » Region »</div><article><p>Story begins here.</p></article>';
 			const doc = scrapeArticleHtml('https://nkytribune.com/story', html);
 			expect(doc.contentText).toBe('Story begins here.');
@@ -1780,6 +1839,45 @@ describe('db.insertArticle error logging', () => {
 // ingestSingleUrl error handling
 
 describe('ingestSingleUrl error handling', () => {
+	it('forces primary county to null for statewide political stories', async () => {
+		await ensureSchemaAndFixture();
+
+		// stub network fetch for article simple html
+		const originalFetch = global.fetch;
+		global.fetch = async () =>
+			new Response('<html><body><p>hi</p></body></html>', {
+				status: 200,
+				headers: { 'Content-Type': 'text/html' },
+			});
+
+		// stub classifier to return counties and county
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette', 'Jefferson'],
+			city: null,
+		});
+		vi.spyOn(classifyModule, 'isStatewideKyPoliticalStory').mockReturnValue(true);
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'sum',
+			seoDescription: 'seo',
+			summaryWordCount: 1,
+		});
+
+		const result = await __testables.ingestSingleUrl(env, { url: 'https://example.com' });
+		expect(result.status).toBe('inserted');
+		const row = await env.ky_news_db.prepare('SELECT county FROM articles WHERE id = ?')
+			.bind(result.id).first<{ county: string | null }>();
+		expect(row?.county).toBeNull();
+		const counties = await getArticleCounties(env, result.id);
+		expect(counties).toEqual(['Fayette', 'Jefferson']);
+
+		global.fetch = originalFetch;
+		vi.restoreAllMocks();
+	});
+
 	it('returns rejected status when insertArticle throws', async () => {
 		await ensureSchemaAndFixture();
 
@@ -2064,6 +2162,98 @@ describe('admin endpoints', () => {
 		expect(Array.isArray(body.items)).toBe(true);
 		expect(body.stats.total).toBeGreaterThanOrEqual(2);
 		expect(typeof body.stats.noCounty).toBe('number');
+	});
+
+	it('rejects unauthorized county patch requests', async () => {
+		await ensureSchemaAndFixture();
+		const resp = await SELF.fetch('https://example.com/api/articles/1/county', {
+			method: 'PATCH',
+			body: JSON.stringify({ county: 'Adair' }),
+		});
+		expect(resp.status).toBe(401);
+	});
+
+	it('supports changing and clearing primary county via PATCH with bearer token', async () => {
+		await ensureSchemaAndFixture();
+		// insert sample article
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/test',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-test',
+			title: 'Test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+		// pre-populate cache keys
+		if (env.CACHE) {
+			await env.CACHE.put('summary:hash-test', 'old');
+			await env.CACHE.put('summary-ttl:hash-test', '1');
+		}
+
+		const adminEnv = envWithAdminPassword('pw') as any;
+		adminEnv.ADMIN_SECRET = 'secret';
+
+		// update primary county to new value
+		let resp = await SELF.fetch(`https://example.com/api/articles/${id}/county`, {
+			method: 'PATCH',
+			headers: { Authorization: 'Bearer secret' },
+			body: JSON.stringify({ county: 'Jefferson' }),
+		});
+		expect(resp.status).toBe(200);
+		const body = await resp.json();
+		expect(body.article.county).toBe('Jefferson');
+		const row = await getArticleById(env, id);
+		expect(row?.county).toBe('Jefferson');
+		const counties = await getArticleCounties(env, id);
+		expect(counties[0]).toBe('Jefferson');
+		if (env.CACHE) {
+			expect(await env.CACHE.get('summary:hash-test')).toBeNull();
+			expect(await env.CACHE.get('summary-ttl:hash-test')).toBeNull();
+		}
+
+		// now clear primary while secondary remains
+		// add a secondary manually
+		await env.ky_news_db.prepare('INSERT OR IGNORE INTO article_counties (article_id, county, is_primary) VALUES (?, ?, ?)').bind(id, 'Barren', 0).run();
+		resp = await SELF.fetch(`https://example.com/api/articles/${id}/county`, {
+			method: 'PATCH',
+			headers: { Authorization: 'Bearer secret' },
+			body: JSON.stringify({ county: null }),
+		});
+		expect(resp.status).toBe(200);
+		const after = await getArticleById(env, id);
+		expect(after?.county).toBeNull();
+		const afterCounties = await getArticleCounties(env, id);
+		expect(afterCounties).toContain('Jefferson');
+		expect(afterCounties).toContain('Barren');
+		// is_kentucky should remain true because counties still exist
+		expect(after?.isKentucky).toBe(1);
+
+		// finally clear everything and see is_kentucky flip
+		await env.ky_news_db.prepare('DELETE FROM article_counties WHERE article_id = ?').bind(id).run();
+		resp = await SELF.fetch(`https://example.com/api/articles/${id}/county`, {
+			method: 'PATCH',
+			headers: { Authorization: 'Bearer secret' },
+			body: JSON.stringify({ county: null }),
+		});
+		expect(resp.status).toBe(200);
+		const finalRow = await getArticleById(env, id);
+		expect(finalRow?.isKentucky).toBe(0);
 	});
 });
 

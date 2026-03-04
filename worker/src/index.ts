@@ -18,6 +18,7 @@ import {
 	getCountyCounts,
 	getArticlesForUpdateCheck,
 	prependUpdateToSummary,
+	updateArticlePrimaryCounty,
 } from './lib/db';
 import {
 	HIGH_PRIORITY_SOURCE_SEEDS,
@@ -773,6 +774,48 @@ await updateArticlePublishedAt(env, id, new Date(parsedTs).toISOString());
 return json({ ok: true, id, publishedAt: new Date(parsedTs).toISOString() });
 }
 
+// administrative helper: correct the primary county on an existing article.
+// requires a bearer token (env.ADMIN_SECRET) rather than the usual
+// admin-panel password that the rest of the UI uses.
+if (url.pathname.match(/^\/api\/articles\/\d+\/county$/) && request.method === 'PATCH') {
+  const auth = request.headers.get('Authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const expected = ((env as any).ADMIN_SECRET || '');
+  if (!token || token !== expected) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+
+  const parts = url.pathname.split('/');
+  const id = Number(parts[3]);
+  if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+
+  const body = await parseJsonBody<{ county: string | null }>(request);
+  if (!body || !('county' in body)) return badRequest('Missing county field');
+
+  let countyVal: string | null = null;
+  if (body.county !== null && body.county !== undefined) {
+    countyVal = typeof body.county === 'string' ? body.county.trim() || null : null;
+  }
+
+  try {
+    const updated = await updateArticlePrimaryCounty(env, id, countyVal);
+    if (!updated) return json({ error: 'Article not found' }, 404);
+
+    // invalidate summary cache entries so clients see the revised URL/path
+    const summaryKey = `summary:${updated.urlHash}`;
+    const ttlKey = `summary-ttl:${updated.urlHash}`;
+    if (env.CACHE) {
+      await env.CACHE.delete(summaryKey).catch(() => {});
+      await env.CACHE.delete(ttlKey).catch(() => {});
+    }
+
+    return json({ article: updated });
+  } catch (err) {
+    console.error('[COUNTY UPDATE ERROR]', err, { id, county: countyVal });
+    return json({ error: 'county update failed' }, 500);
+  }
+}
+
 if (url.pathname === '/api/admin/article/update-content' && request.method === 'POST') {
 if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
@@ -1322,11 +1365,18 @@ if (url.pathname.startsWith('/news/')) {
 			if (article) {
 				const canonicalPath = buildArticlePath(article);
 				if (canonicalPath !== url.pathname) {
+					// determine cache policy: if the slug portion differs the redirect
+					// is for a true slug change (rare) so we may safely cache long-term.
+					// Otherwise it's a county/path correction and should expire quickly
+					// so that clients/devices can pick up subsequent fixes.
+					const cacheHeader = slug !== article.slug
+						? 'public, max-age=31536000, immutable'
+						: 'public, max-age=3600, s-maxage=3600';
 					return new Response(null, {
 						status: 301,
 						headers: {
 							'Location': canonicalPath,
-							'Cache-Control': 'public, max-age=31536000, immutable',
+							'Cache-Control': cacheHeader,
 						},
 					});
 				}

@@ -2,7 +2,7 @@ import type { ExtractedArticle, IngestResult, IngestSource, NewArticle } from '.
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
-import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE } from './classify';
+import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE, isStatewideKyPoliticalStory } from './classify';
 import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
 import { cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
@@ -119,6 +119,16 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     rssTitle,
     rssDescription,
   });
+
+  // For statewide Kentucky political roundups we intentionally clear any
+  // primary county even if our classifier returned one.  The `counties`
+  // array may still contain secondary tags for filtering purposes.
+  const statewideFlag = isStatewideKyPoliticalStory(
+    extracted.classificationText || extracted.contentText || ''
+  );
+  if (statewideFlag && classification.counties && classification.counties.length > 0) {
+    classification.county = null;
+  }
 
   const tierSuffix = classification.isKentucky
     ? classification.counties && classification.counties.length
