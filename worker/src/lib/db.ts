@@ -562,12 +562,21 @@ export async function updateArticleClassification(
 ): Promise<void> {
   const normalizedCounty = normalizeCountyName(patch.county);
 
+  // When the caller doesn't provide `isNational` we want to preserve the
+  // existing value instead of blindly setting it to `0`.  The old behavior
+  // treated `undefined` as `false`, which could clear a previously-tagged
+  // national article when the admin only edited the category or Kentucky flag.
+  // Using COALESCE allows us to conditionally update the column only when a
+  // value is supplied.
   const doUpdate = () =>
-    prepare(env, 'UPDATE articles SET category = ?, is_kentucky = ?, is_national = ?, county = ? WHERE id = ?')
+    prepare(
+      env,
+      'UPDATE articles SET category = ?, is_kentucky = ?, is_national = COALESCE(?, is_national), county = ? WHERE id = ?',
+    )
       .bind(
         patch.category,
         patch.isKentucky ? 1 : 0,
-        patch.isNational ? 1 : 0,
+        patch.isNational === undefined ? null : patch.isNational ? 1 : 0,
         normalizedCounty,
         id,
       )

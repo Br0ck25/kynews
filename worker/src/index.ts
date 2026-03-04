@@ -681,59 +681,77 @@ items: merged,
 }
 
 if (url.pathname === '/api/admin/retag' && request.method === 'POST') {
-if (!isAdminAuthorized(request, env)) {
-return json({ error: 'Unauthorized' }, 401);
-}
-const body = await parseJsonBody<{ id?: number; category?: string; isKentucky?: boolean; county?: string | null; counties?: string[] }>(request);
-const id = Number(body?.id ?? 0);
-if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
 
-const category = (body?.category ?? '').toString().trim().toLowerCase();
-// empty category is allowed (clears the tag); otherwise it must be valid
-if (category && !isAllowedCategory(category)) return badRequest('Invalid category');
+  const body = await parseJsonBody<{
+    id?: number;
+    category?: string;
+    isKentucky?: boolean;
+    county?: string | null;
+    counties?: string[];
+  }>(request);
+  const id = Number(body?.id ?? 0);
+  if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
 
-const forceKy = Boolean(body?.isKentucky);
-// compute county(s) only when Kentucky flag is true
-const countyVal =
-  forceKy && typeof body?.county === 'string' && body.county.trim()
-    ? body.county.trim()
-    : null;
-const countiesArr = forceKy
-  ? (Array.isArray(body?.counties)
-      ? body!.counties.map((c) => c.trim()).filter(Boolean)
-      : body?.county
-        ? [body.county.trim()]
-        : [])
-  : [];
-// national flag logic: explicit override when isKentucky provided, otherwise
-// treat category='national' as national as well
-let forceNat: boolean | undefined;
-if (typeof body?.isKentucky === 'boolean') {
-  forceNat = !body.isKentucky;
-} else if (category === 'national') {
-  forceNat = true;
-}
+  // normalize category but allow empty string to mean "none"; this is
+  // important for clearing a tag.
+  const category = (body?.category ?? '').toString().trim().toLowerCase();
+  if (category && !isAllowedCategory(category)) return badRequest('Invalid category');
 
-try {
-      await updateArticleClassification(env, id, {
-        category: category as Category, // may be empty to clear
-        isKentucky: forceKy,
-        isNational: forceNat,
-        county: countyVal,
-        counties: countiesArr,
-      });
-      return json({ ok: true, id });
-    } catch (err) {
-      console.error('[RETAG ERROR]', err, {
-        id,
-        category,
-        isKentucky: forceKy,
-        isNational: forceNat,
-        county: countyVal,
-        counties: countiesArr,
-      });
-      return json({ error: 'retag failed' }, 500);
-    }
+  // track whether the client explicitly provided a Kentucky flag.  we still
+  // compute a boolean for the update below but need to know if the value was
+  // omitted so that we can avoid clobbering the national flag in some cases.
+  const explicitKy = typeof body?.isKentucky === 'boolean' ? body.isKentucky : undefined;
+  const forceKy = Boolean(body?.isKentucky);
+
+  // only compute county(s) if the story is explicitly being marked as
+  // Kentucky; otherwise ignore any values the caller might have sent.
+  const countyVal =
+    explicitKy === true && typeof body?.county === 'string' && body.county.trim()
+      ? body.county.trim()
+      : null;
+  const countiesArr =
+    explicitKy === true
+      ? (Array.isArray(body?.counties)
+          ? body!.counties.map((c) => c.trim()).filter(Boolean)
+          : body?.county
+            ? [body.county.trim()]
+            : [])
+      : [];
+
+  // national flag logic: if the caller explicitly toggled the Kentucky
+  // checkbox we invert that value; otherwise we only set national when the
+  // selected category is 'national'.  Leaving the flag undefined means
+  // `updateArticleClassification` will leave the existing value intact.
+  let forceNat: boolean | undefined;
+  if (explicitKy !== undefined) {
+    forceNat = !explicitKy;
+  } else if (category === 'national') {
+    forceNat = true;
+  }
+
+  try {
+    await updateArticleClassification(env, id, {
+      category: category as Category, // may be empty to clear
+      isKentucky: forceKy,
+      isNational: forceNat,
+      county: countyVal,
+      counties: countiesArr,
+    });
+    return json({ ok: true, id });
+  } catch (err) {
+    console.error('[RETAG ERROR]', err, {
+      id,
+      category,
+      isKentucky: forceKy,
+      isNational: forceNat,
+      county: countyVal,
+      counties: countiesArr,
+    });
+    return json({ error: 'retag failed' }, 500);
+  }
 }
 
 if (url.pathname === '/api/admin/article/update-datetime' && request.method === 'POST') {

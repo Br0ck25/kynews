@@ -1457,6 +1457,44 @@ describe('database utilities', () => {
 		expect(row?.category).toBe('');
 	});
 
+	it('preserves existing national flag when patch omits it', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const id3 = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/preserve',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-preserve',
+			title: 'Preserve Nat',
+			author: null,
+			publishedAt: now,
+			category: 'weather',
+			isKentucky: true,
+			isNational: true,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		// update without mentioning isNational
+		await updateArticleClassification(env, id3, {
+			category: 'sports',
+			isKentucky: false,
+			county: null,
+		});
+
+		const row = await getArticleById(env, id3);
+		expect(row?.is_national).toBe(1); // should remain unchanged
+	});
+
 	it('listAdminArticles reflects updated counties', async () => {
 		await ensureSchemaAndFixture();
 		const now = new Date().toISOString();
@@ -2319,6 +2357,9 @@ describe('admin manual-article endpoint', () => {
 		expect(j3.ok).toBe(true);
 		const rowCleared = await getArticleById(adminEnv, 1);
 		expect(rowCleared.category).toBe('');
+		// toggling KY off while clearing the category should also mark the
+		// article as national
+		expect(rowCleared?.is_national).toBe(1);
 	});
 });
 

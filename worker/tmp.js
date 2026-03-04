@@ -410,18 +410,42 @@ async function handleRequest(request, env, ctx) {
         const id = Number(body?.id ?? 0);
         if (!Number.isFinite(id) || id <= 0)
             return badRequest('Missing or invalid article id');
-        const category = (body?.category || '').toLowerCase();
-        if (!isAllowedCategory(category))
+
+        const category = (body?.category || '').toString().trim().toLowerCase();
+        // allow empty category to clear tag
+        if (category && !isAllowedCategory(category))
             return badRequest('Invalid category');
+
+        // detect explicit kentucky flag
+        const explicitKy = typeof body?.isKentucky === 'boolean' ? body.isKentucky : undefined;
+        const forceKy = Boolean(body?.isKentucky);
+
+        const countyVal =
+            explicitKy === true && typeof body?.county === 'string' && body.county.trim()
+                ? body.county.trim()
+                : null;
+        const countiesArr =
+            explicitKy === true
+                ? Array.isArray(body?.counties)
+                    ? body.counties.map((c) => c.trim()).filter(Boolean)
+                    : body?.county
+                        ? [body.county.trim()]
+                        : []
+                : [];
+
+        let forceNat;
+        if (explicitKy !== undefined) {
+            forceNat = !explicitKy;
+        } else if (category === 'national') {
+            forceNat = true;
+        }
+
         await updateArticleClassification(env, id, {
             category: category,
-            isKentucky: Boolean(body?.isKentucky),
-            county: typeof body?.county === 'string' && body.county.trim() ? body.county.trim() : null,
-            counties: Array.isArray(body?.counties)
-                ? body.counties.map((c) => c.trim()).filter(Boolean)
-                : body?.county
-                    ? [body.county.trim()]
-                    : [],
+            isKentucky: forceKy,
+            isNational: forceNat,
+            county: countyVal,
+            counties: countiesArr,
         });
         return json({ ok: true, id });
     }
