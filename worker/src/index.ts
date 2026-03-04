@@ -1307,86 +1307,75 @@ const result = await queryArticles(env, {
 return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 }
 
-// --- Server-side social preview for article URLs ------------------------------------------------
-// Facebook (and other scrapers) do not execute JavaScript. Since the
-// front-end is a SPA, sharing a `/news/...` path would normally return the
-// bare index.html with the generic template OG tags (preview.PNG), which is
-// why the wrong image was showing up earlier.  To fix this we intercept those
-// requests here in the worker, look up the article by slug, and return a
-// minimal HTML page containing the appropriate meta tags.  The body includes
-// a redirect script so regular browsers still load the SPA.  We also add a
-// query-parameter flag to prevent the same browser from re-triggering the
-// preview on the second navigation, which otherwise caused an infinite reload.
+// --- Server-side social preview & canonical redirect for article URLs --------
+// When a bot (Facebook, Twitter, etc.) hits a `/news/...` path we want to
+// return a minimal HTML page containing the appropriate Open Graph tags so
+// the shared link shows the correct title/image.  In the old implementation
+// we rewrote the response into a JS page that redirected browsers back to
+// the same URL with a `?r=1` parameter; that query string confused the SPA's
+// router and broke every article link.  The new flow is simpler:
+//
+// * If the User-Agent indicates a bot/scraper, return the OG meta HTML
+//   directly. Bots don't execute JS so no redirect is necessary.
+// * For regular browsers we perform a **302 redirect** to the canonical
+//   path (computed with `buildArticlePath`).  This handles both reclassified
+//   articles and the initial preview navigation without ever modifying the
+//   visible URL.  If the incoming path is already canonical we simply fall
+//   through and let the SPA handler serve `/index.html` normally.
 if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
-	// if we've already redirected once, skip preview and fall through so the
-	// SPA assets can be served normally.  `r=1` is simply an arbitrary flag.
-	if (url.searchParams.has('r')) {
-		// let later logic handle it (e.g. static file or 404)
-	} else {
-		const segments = url.pathname.split('/').filter((s) => s.length > 0);
-		const slug = segments[segments.length - 1] || '';
-		if (slug) {
-			const article = await getArticleBySlug(env, slug);
-			if (article) {
-				const pageUrl = `https://localkynews.com${url.pathname}`;
-				const desc = (article.seoDescription || article.summary || '')
-					.replace(/<[^>]+>/g, ' ')
-					.replace(/\s+/g, ' ')
-					.trim()
-					.slice(0, 160);
-				const metas = [];
-				metas.push('<meta property="og:type" content="article"/>');
-				metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
-				metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-				if (article.imageUrl) {
-					metas.push(`<meta property="og:image" content="${escapeHtml(article.imageUrl)}"/>`);
-				}
-				metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
-				metas.push(`<meta property="og:site_name" content="Local KY News"/>`);
-				// include redirect parameter so second request bypasses this block
-				const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
-				return new Response(html, {
-					headers: { 'content-type': 'text/html; charset=utf-8' },
-				});
-			}
-		}
-	}
+  const userAgent = request.headers.get('User-Agent') || '';
+  const isBot = /facebookexternalhit|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot|discordbot|googlebot|bingbot|applebot|pinterest|vkshare|xing-contenttabreceiver|w3c_validator|curl|wget|python-requests|java\/|go-http|okhttp/i.test(userAgent);
+
+  const segments = url.pathname.split('/').filter((s) => s.length > 0);
+  const slug = segments[segments.length - 1] || '';
+
+  if (slug) {
+    const article = await getArticleBySlug(env, slug);
+    if (article) {
+      const canonicalPath = buildArticlePath(article);
+      const desc = (article.seoDescription || article.summary || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160);
+
+      if (isBot) {
+        // Return OG meta HTML directly to bots — no redirect needed, bots don't run JS
+        const pageUrl = `https://localkynews.com${canonicalPath}`;
+        const metas = [];
+        metas.push('<meta property="og:type" content="article"/>');
+        metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
+        metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
+        if (article.imageUrl) {
+          metas.push(`<meta property="og:image" content="${escapeHtml(article.imageUrl)}"/>`);
+        }
+        metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
+        metas.push('<meta property="og:site_name" content="Local KY News"/>');
+        const html = `<!doctype html><html><head>${metas.join('')}</head><body></body></html>`;
+        return new Response(html, {
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        });
+      }
+
+      // For regular browsers: if the current path differs from canonical, redirect to canonical.
+      // This handles reclassified articles too, replacing the separate 301 block below.
+      if (canonicalPath !== url.pathname) {
+        return new Response(null, {
+          status: 301,
+          headers: {
+            'Location': canonicalPath,
+            'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+          },
+        });
+      }
+
+      // Path is already canonical — fall through to SPA handler
+    }
+  }
 }
 
-// 301 redirect handler for reclassified articles.
-// When an article's category/county changes, its URL path changes.
-// Extract the slug (last path segment) and look it up in D1.
-// If found and the current path differs from canonical, redirect.
-if (url.pathname.startsWith('/news/')) {
-	const slug = url.pathname.split('/').filter(Boolean).pop();
-	if (slug && slug.length > 8) {
-		try {
-			const article = await getArticleBySlug(env, slug);
-			if (article) {
-				const canonicalPath = buildArticlePath(article);
-				if (canonicalPath !== url.pathname) {
-					// determine cache policy: if the slug portion differs the redirect
-					// is for a true slug change (rare) so we may safely cache long-term.
-					// Otherwise it's a county/path correction and should expire quickly
-					// so that clients/devices can pick up subsequent fixes.
-					const cacheHeader = slug !== article.slug
-						? 'public, max-age=31536000, immutable'
-						: 'public, max-age=3600, s-maxage=3600';
-					return new Response(null, {
-						status: 301,
-						headers: {
-							'Location': canonicalPath,
-							'Cache-Control': cacheHeader,
-						},
-					});
-				}
-				// path matches — fall through to SPA handler
-			}
-		} catch {
-			// DB lookup failed — fall through to SPA handler normally
-		}
-	}
-}
+// (The old 301 redirect handler that ran unconditionally after the preview
+// block has been removed; its logic is subsumed above.)
 
 // SPA fallback for any /news/ path (after preview logic)
 if (request.method === 'GET' && url.pathname.startsWith('/news/')) {

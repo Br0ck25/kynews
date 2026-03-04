@@ -3034,31 +3034,36 @@ describe('social preview HTML route', () => {
 		expect(capJson.caption).toBeDefined();
 		expect(capJson.caption).toContain('https://localkynews.com');
 		expect(capJson.caption).not.toContain('wnky.com');
-		const response = await SELF.fetch(`https://example.com${path}`);
-		// preview route may not be available in some test environments; accept 200 or 404
-		if (response.status !== 200) {
-			console.warn('preview route returned', response.status);
+		// simulate a bot user-agent to trigger OG preview HTML
+		const botResp = await SELF.fetch(`https://example.com${path}`, {
+			headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+		});
+		if (botResp.status !== 200) {
+			console.warn('bot preview route returned', botResp.status);
 		}
-		expect([200, 404]).toContain(response.status);
-		if (response.status === 200) {
-			const text = await response.text();
+		expect([200, 404]).toContain(botResp.status);
+		if (botResp.status === 200) {
+			const text = await botResp.text();
 			expect(text).toContain('<meta property="og:title" content="Test Title"');
 			expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
-			// redirect script should append flag to avoid infinite reloads
-			expect(text).toContain('window.location.href');
-			expect(text).toContain('?r=1');
+			// should not use JS redirect or query flags for bots
+			expect(text).not.toContain('window.location.href');
+			expect(text).not.toContain('?r=1');
 		}
 
-		// additional request including flag should return SPA shell instead of preview
-		const response2 = await SELF.fetch(`https://example.com${path}?r=1`);
-		if (response2.status !== 200) {
-			console.warn('redirected preview route returned', response2.status);
-		}
-		expect([200, 404]).toContain(response2.status);
-		if (response2.status === 200) {
-			const text2 = await response2.text();
-			expect(text2).toContain('<!doctype html');
-			expect(text2).not.toContain('<meta property="og:title"');
+		// regular browser request should either redirect to canonical or return SPA shell
+		const browserResp = await SELF.fetch(`https://example.com${path}`, {
+			headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+		});
+		if (browserResp.status === 301) {
+			expect(browserResp.headers.get('location')).toBe(path);
+		} else {
+			expect([200, 404]).toContain(browserResp.status);
+			if (browserResp.status === 200) {
+				const text3 = await browserResp.text();
+				expect(text3).toContain('<!doctype html');
+				expect(text3).not.toContain('<meta property="og:title"');
+			}
 		}
 
 		// hitting a county-level URL (no slug) should also return the SPA shell
