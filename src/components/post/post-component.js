@@ -16,6 +16,7 @@ import { useDispatch } from "react-redux";
 import { setPost } from "../../redux/actions/actions";
 import "./post-component.css";
 import { ToDateTime, countyToSlug } from "../../utils/functions";
+import { KENTUCKY_COUNTIES } from "../../constants/counties";
 import SiteService from "../../services/siteService";
 
 const useStyles = makeStyles((theme) => ({

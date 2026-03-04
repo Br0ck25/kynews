@@ -46,9 +46,9 @@ test('renders multiple county chips when post.tags include several counties', ()
     </Provider>
   );
 
-  // expect both county chips to appear
-  expect(screen.getByText(/Boone County/i)).toBeInTheDocument();
-  expect(screen.getByText(/Campbell County/i)).toBeInTheDocument();
+  // expect both county chips to appear (only exact county names)
+  expect(screen.getByText(/^Boone County$/i)).toBeInTheDocument();
+  expect(screen.getByText(/^Campbell County$/i)).toBeInTheDocument();
 });
 
 test('renders playable YouTube iframe when article link is a YouTube video', () => {

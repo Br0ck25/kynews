@@ -1,4 +1,4 @@
-import SiteService from './siteService';
+import SiteService, { mapWorkerArticleToPost } from './siteService';
 
 // helpers for constructing fetch responses easily
 function makeResponse(body, options = {}) {
@@ -126,11 +126,14 @@ describe('SiteService.request', () => {
 
   it('getPosts includes national category when articles carry is_national flag', async () => {
     const service = new SiteService();
+    // prevent automatic dev seeding (which would retry the same Response)
+    service.devSeedAttempted = true;
     const articles = [{ id: 20, category: '', is_national: 1 }];
     global.fetch.mockResolvedValue(makeResponse({ items: articles }));
 
     const result = await service.getPosts();
-    expect(result.posts[0].categories).toEqual(['national']);
+    // getPosts returns the posts array directly
+    expect(result[0].categories).toEqual(['national']);
   });
 
   it('getPosts omits limit parameter when the caller does not specify one', async () => {
@@ -145,6 +148,8 @@ describe('SiteService.request', () => {
 
   it('explicit category all is not overwritten by allowed-category check', async () => {
     const service = new SiteService('https://api.example');
+    // avoid seeding retry path
+    service.devSeedAttempted = true;
     global.fetch.mockResolvedValue(makeResponse({ items: [] }));
 
     await service.getPosts({ category: 'all', limit: 3 });

@@ -80,7 +80,7 @@ function mapWorkerArticleToPost(article) {
   // worker responses may use either `is_national` (numeric) or
   // `isNational` (boolean) depending on which mapper ran; handle both.
   if (
-    (article?.is_national === 1 || article?.isNational === true) &&
+    ((article?.is_national === 1) || article?.isNational === true) &&
     !categories.includes('national')
   ) {
     categories.push('national');
@@ -103,7 +103,8 @@ function mapWorkerArticleToPost(article) {
     county: article?.county ?? null,
     author: article?.author ?? null,
     isKentucky: Boolean(article?.isKentucky),
-    isNational: article?.is_national === 1,
+    // support both numeric and boolean representations of the national flag
+    isNational: article?.is_national === 1 || article?.isNational === true,
     // if extra counties were stored, expose them as tags so UI components can work with them
     tags: Array.isArray(article?.counties) ? article.counties : [],
   };
