@@ -130,11 +130,25 @@ function App() {
                     <Route exact path="/news">
                       <LocalPage />
                     </Route>
-                    {/* New SEO-friendly article URL routes — national only; kentucky slugs handled by KentuckyNewsPage */}
+                    {/* New SEO-friendly article URL routes.  We handle national and
+                    kentucky slugs explicitly so that the dispatcher can focus just on
+                    county pages and info subroutes.  The ArticleSlugPage itself is
+                    smart about extracting the slug from the last path segment, but
+                    having dedicated routes keeps React Router params sane. */}
                     <Route exact path="/news/national/:articleSlug">
                       <ArticleSlugPage />
                     </Route>
-                    {/* /news/kentucky/:countySlug[/:infoType?] — dispatcher handles county, info pages, and article slugs */}
+                    {/* kentucky articles where a specific county is part of the URL */}
+                    <Route exact path="/news/kentucky/:countySlug/:articleSlug">
+                      <ArticleSlugPage />
+                    </Route>
+                    {/* kentucky articles that are statewide (no county path segment) */}
+                    <Route exact path="/news/kentucky/:articleSlug">
+                      <ArticleSlugPage />
+                    </Route>
+                    {/* Existing dispatcher for county homepage and info pages.  This must
+                    come after the article routes so that `/news/kentucky/foo/bar` is
+                    not accidentally treated as a county. */}
                     <Route path="/news/kentucky/:countySlug/:infoType?">
                       <KentuckyNewsPage />
                     </Route>

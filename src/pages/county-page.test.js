@@ -262,9 +262,11 @@ test('direct visit to utilities route opens dialog', async () => {
 
 // article slugs under kentucky should also render ArticleSlugPage
 
-test('kentucky article slug routes render ArticleSlugPage', async () => {
-  // we don't care what service does, just ensure ArticleSlugPage mounts
-  jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
+test('kentucky article slug routes render ArticleSlugPage and fetch correct slug', async () => {
+  const getPostSpy = jest
+    .spyOn(SiteService.prototype, 'getPostBySlug')
+    .mockResolvedValue(null);
+
   const history = createMemoryHistory({ initialEntries: ["/news/kentucky/leslie-county/some-article-slug"] });
   render(
     <Provider store={store}>
@@ -276,8 +278,52 @@ test('kentucky article slug routes render ArticleSlugPage', async () => {
     </Provider>
   );
 
-  // ArticleSlugPage renders a heading or error message; look for text used there
+  // wait for slug to be resolved and service called with the last segment
+  await waitFor(() => {
+    expect(getPostSpy).toHaveBeenCalledWith('some-article-slug');
+  });
+  // the page still shows the not-found message because our mock returned null
   expect(await screen.findByText(/We couldn't find that article/i)).toBeInTheDocument();
+});
+
+// ensure statewide kentucky slug (no county) also works
+test('statewide kentucky article slug is extracted properly', async () => {
+  const spy = jest
+    .spyOn(SiteService.prototype, 'getPostBySlug')
+    .mockResolvedValue(null);
+  const history = createMemoryHistory({ initialEntries: ['/news/kentucky/just-an-article'] });
+
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType?">
+          <KentuckyNewsPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('just-an-article'));
+});
+
+// mount ArticleSlugPage directly to cover the national route
+test('national article slug route passes slug through', async () => {
+  const spy = jest
+    .spyOn(SiteService.prototype, 'getPostBySlug')
+    .mockResolvedValue(null);
+  const history = createMemoryHistory({ initialEntries: ['/news/national/foo-bar'] });
+
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/national/:articleSlug">
+          <ArticleSlugPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('foo-bar'));
 });
 
 // ensure the county page itself hides the info navigation buttons when

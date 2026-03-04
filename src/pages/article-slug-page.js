@@ -2,7 +2,7 @@ import React from "react";
 import { makeStyles } from "@material-ui/core/styles";
 import Post from "../components/post/post-component";
 import { Button, Typography, Card, CardContent } from "@material-ui/core";
-import { useParams, Link as RouterLink } from "react-router-dom";
+import { useParams, useLocation, Link as RouterLink } from "react-router-dom";
 import SiteService from "../services/siteService";
 import { articleToUrl } from "../utils/functions";
 
@@ -68,8 +68,23 @@ function setJsonLd(id, data) {
 export default function ArticleSlugPage() {
   const classes = useStyles();
   const params = useParams();
-  // articleSlug is present for two-segment routes; countySlug is the fallback for the dispatcher case
-  const slug = params.articleSlug || params.countySlug;
+  const location = useLocation();
+
+  // articleSlug was previously pulled from params or countySlug depending on which
+  // route was active.  That approach broke when the URL contains an extra county
+  // segment (e.g. `/news/kentucky/adair-county/my-story-123`) because the
+  // dispatcher route treated the article slug as `infoType` and params only
+  // held the county slug.  Instead we compute the slug robustly as the **last
+  // non-empty segment in the path**, which works for all variants:
+  //   /news/national/:slug
+  //   /news/kentucky/:county/:slug
+  //   /news/kentucky/:slug          (statewide article)
+  // and also handles the dispatcher case where the path is forwarded without a
+  // dedicated route parameter.
+  const slug = React.useMemo(() => {
+    const parts = location.pathname.split("/").filter(Boolean);
+    return parts.pop() || "";
+  }, [location.pathname]);
 
   const [resolvedPost, setResolvedPost] = React.useState(null);
   const [loading, setLoading] = React.useState(true);

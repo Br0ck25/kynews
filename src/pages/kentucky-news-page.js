@@ -7,10 +7,18 @@ import ArticleSlugPage from "./article-slug-page";
 /**
  * Dispatcher for /news/kentucky/:countySlug
  *
- * - If the URL segment ends with -county and maps to a known KY county
- *   (e.g. fayette-county) → render the CountyPage.
- * - Otherwise, treat the segment as an article slug
- *   (e.g. school-board-meeting-ab12cd34) → render ArticleSlugPage.
+ * Routing is a little tricky because the site supports four different
+ * patterns:
+ *   /news/kentucky/:countySlug                (county homepage)
+ *   /news/kentucky/:countySlug/:infoType      (info pages under a county)
+ *   /news/kentucky/:countySlug/:articleSlug   (county-specific story)
+ *   /news/kentucky/:articleSlug               (statewide story)
+ *
+ * The first two patterns are handled here.  The latter two are now defined
+ * explicitly in <App /> so React Router will mount <ArticleSlugPage />, but
+ * we still render that component for any other unexpected second segment.
+ * The article page itself figures out the slug by peeking at the last path
+ * segment rather than trusting a particular param name.
  */
 export default function KentuckyNewsPage() {
   const { countySlug, infoType } = useParams();
