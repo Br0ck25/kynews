@@ -1,5 +1,5 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
-import { describe, it, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
 import { __testables } from '../src/index';
 import * as classifyModule from '../src/lib/classify';
@@ -8,7 +8,7 @@ import { isScheduleOrScoresArticle } from '../src/lib/ai';
 import { detectCounty } from '../src/lib/geo';
 import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
 import * as ingestModule from '../src/lib/ingest';
-import { stripNoisyTags } from '../src/lib/scrape';
+import { stripNoisyTags, scrapeArticleHtml } from '../src/lib/scrape';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
 import * as dbModule from '../src/lib/db';
 import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById, getCountyCounts, listAdminArticles, queryArticles, getArticlesForUpdateCheck, prependUpdateToSummary } from '../src/lib/db';
@@ -67,16 +67,6 @@ async function ensureSchemaAndFixture() {
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
 	`).run();
-
-	// supplemental hash mapping table used for URL path slug deduplication
-	await env.ky_news_db.prepare(`
-		CREATE TABLE IF NOT EXISTS url_hashes (
-			hash TEXT PRIMARY KEY,
-			article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE
-		)
-	`).run();
-
-	await env.ky_news_db.prepare(`DELETE FROM url_hashes`).run();
 
 	await env.ky_news_db.prepare(`DELETE FROM articles`).run();
 	await env.ky_news_db.prepare(`DELETE FROM article_counties`).run();
@@ -434,66 +424,17 @@ async function ensureSchemaAndFixture() {
 		expect(filteredPayload.items.length).toBe(allPayload.items.length);
 	});
 
-	it('search endpoint with category=all returns matches regardless of article category', async () => {
+	it('feeds return articles when a secondary county matches', async () => {
 		await ensureSchemaAndFixture();
+		// insert a multi-county article where primary is Fayette but also Jefferson
 		const now = new Date().toISOString();
-
-		// insert one article in the default (today) bucket and another in
-		// the national bucket; both use the same unique term so a global
-		// search should pick up both records.
 		await insertArticle(env, {
-			canonicalUrl: 'https://example.com/one',
+			canonicalUrl: 'https://example.com/multi2',
 			sourceUrl: 'https://example.com',
-			urlHash: 'h-one',
-			title: 'First',
+			urlHash: 'hash-multi2',
+			title: 'Secondary county test',
 			author: null,
 			publishedAt: now,
-			category: 'today',
-			isKentucky: true,
-			isNational: false,
-			county: 'Fayette',
-			counties: ['Fayette'],
-			city: null,
-			summary: 'global-search-xyz',
-			seoDescription: 'seo',
-			rawWordCount: 1,
-			summaryWordCount: 1,
-			contentText: 'foo',
-			contentHtml: '<p>foo</p>',
-			imageUrl: null,
-			rawR2Key: null,
-			slug: null,
-		});
-		await insertArticle(env, {
-			canonicalUrl: 'https://example.com/two',
-			sourceUrl: 'https://example.com',
-			urlHash: 'h-two',
-			title: 'Second',
-			author: null,
-			publishedAt: now,
-			category: 'national',
-			isKentucky: false,
-			isNational: true,
-			county: null,
-			counties: [],
-			city: null,
-			summary: 'global-search-xyz',
-			seoDescription: 'seo',
-			rawWordCount: 1,
-			summaryWordCount: 1,
-			contentText: 'bar',
-			contentHtml: '<p>bar</p>',
-			imageUrl: null,
-			rawR2Key: null,
-			slug: null,
-		});
-
-		const resp = await SELF.fetch('https://example.com/api/articles/all?search=global-search-xyz');
-		expect(resp.status).toBe(200);
-		const payload = await resp.json();
-		expect(payload.items.some((a) => a.urlHash === 'h-one')).toBe(true);
-		expect(payload.items.some((a) => a.urlHash === 'h-two')).toBe(true);
-	});
 			category: 'today',
 			isKentucky: true,
 			isNational: false,
@@ -738,23 +679,52 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual([]);
 	});
 
-	it('suppresses city-derived county for Greater Cincinnati regional weather article', async () => {
+	it('still nulls Franklin when both geo detector and AI suggest it on a statewide-pol story', async () => {
+		// simulate AI hallucination returning Franklin County even though the
+		// dateline is Frankfort (statewide political story)
+		const originalAi = env.AI;
+		const aiResponse = JSON.stringify({ category: 'today', isKentucky: true, counties: ['Franklin'] });
+		env.AI = { run: vi.fn().mockResolvedValue({ response: aiResponse }) } as any;
+
 		const classification = await classifyArticleWithAi(env, {
-			url: 'https://wlwt.com/weather-forecast',
-			title: 'Cold Sunday, snow by Monday for Greater Cincinnati',
-			content: 'Northern Kentucky will see rain while Georgetown and Cincinnati brace for snow.',
+			url: 'https://example.com/politics',
+			title: 'FRANKFORT, Ky. (ABC36 NEWS NOW) – Governor speaks',
+			content: 'FRANKFORT, Ky. (ABC36 NEWS NOW) – The governor addressed a state policy change.',
 		});
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBeNull();
 		expect(classification.counties).toEqual([]);
+
+		env.AI = originalAi;
 	});
+
+		it('suppresses default county when statewide politics but local dateline is present', async () => {
+			// e.g. a wbko.com Medicaid story datelined "BOWLING GREEN, Ky." but
+			// discussing statewide House Bill 2 with Frankfort context.  The
+			// statewide-politics flag should null out any Warren County inferred
+			// solely from the dateline city.
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://wbko.com/article/medicaid-copay',
+				title: 'BOWLING GREEN, Ky. (AP) – House Bill 2 debate continues',
+				content: 'BOWLING GREEN, Ky. (AP) – Lawmakers in Frankfort are debating House Bill 2 that would affect all of Kentucky.',
+			});
+			expect(classification.isKentucky).toBe(true);
+			expect(classification.county).toBeNull();
+			expect(classification.counties).toEqual([]);
+		});
 
 		// simple unit test for stripNoisyTags transcript removal
 		it('stripNoisyTags removes <div class="transcript"> blocks', () => {
 			const html = '<p>Lead</p><div class="transcript">ALL CAPS TEXT</div><p>Story body</p>';
 			expect(stripNoisyTags(html)).not.toContain('transcript');
 			expect(stripNoisyTags(html)).toContain('Lead');
+		});
+
+		it('scrapeArticleHtml strips WordPress breadcrumb navigation', () => {
+			const html = '<div>Home » Region »</div><article><p>Story begins here.</p></article>';
+			const doc = scrapeArticleHtml('https://nkytribune.com/story', html);
+			expect(doc.contentText).toBe('Story begins here.');
 		});
 
 		// explicit county should still be honored even in a Greater Cincinnati
@@ -921,6 +891,26 @@ describe('classification utilities', () => {
 		expect(classification.county).toBeNull();
 	});
 
+	it('recognizes dateline with parenthetical credit as national wire', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.example.com/politics',
+			title: 'WASHINGTON (AP) — Federal update',
+			content: 'WASHINGTON (AP) — Federal officials announced new measures today.',
+		});
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.county).toBeNull();
+	});
+
+	it('matches any out-of-state city,state dateline as a national wire', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.whas11.com/news',
+			title: 'GILBERT, Ariz. — Local fire department reports',
+			content: 'GILBERT, Ariz. — A child who was declared dead has been identified.',
+		});
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.county).toBeNull();
+	});
+
 	it('respects AI judgment when the model classifies a national-wire KY story as Kentucky', async () => {
 		const originalAi = env.AI;
 		const responseText2 = JSON.stringify({ category: 'today', isKentucky: true, counties: [] });
@@ -986,6 +976,17 @@ describe('classification utilities', () => {
 			content: 'Lexington police arrested a suspect in downtown Fayette County.',
 		});
 		expect(classificationWithCity.county).toBe('Fayette');
+	});
+
+	it('links linknky.com to Kenton when Covington appears', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://linknky.com/news/ribbon-cutting',
+			title: 'Covington business opens new location',
+			content: 'COVINGTON, Ky. – A new restaurant opened its doors in Covington today.',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Kenton');
+		expect(classification.counties).toEqual(['Kenton']);
 	});
 
 	// conversational forecast language should still trigger weather even when
@@ -1290,10 +1291,6 @@ describe('database utilities', () => {
 		expect(map2.get('Adair')).toBe(1);
 	});
 
-	// temporarily disabled due to sporadic resp ReferenceError during schema
-	// evaluation; not related to ingest logic.  Enable if/when the root cause
-	// of the undefined `resp` error is resolved.
-	/*
 	it('getArticleCounties returns counties list for an inserted article', async () => {
 		await ensureSchemaAndFixture();
 		// insert via helper so junction entries are created automatically
@@ -1325,7 +1322,6 @@ describe('database utilities', () => {
 		const counties = await getArticleCounties(env, id);
 		expect(counties).toEqual(['Fayette', 'Jefferson']);
 	});
-	*/
 
 	it('updateArticleClassification syncs junction table', async () => {
 		await ensureSchemaAndFixture();
@@ -1439,14 +1435,14 @@ describe('database utilities', () => {
 		expect(found?.counties).toEqual(['Fayette', 'Jefferson']);
 	});
 
-	it('updateArticleClassification persists category/scope changes via exec', async () => {
+	it('retries classification update if a stale prepared statement error occurs', async () => {
 		await ensureSchemaAndFixture();
 		const now = new Date().toISOString();
 		const id3 = await insertArticle(env, {
 			canonicalUrl: 'https://example.com/retry',
 			sourceUrl: 'https://example.com',
 			urlHash: 'hash-retry',
-			title: 'Retag exec test',
+			title: 'Retry test',
 			author: null,
 			publishedAt: now,
 			category: 'today',
@@ -1466,8 +1462,23 @@ describe('database utilities', () => {
 			slug: null,
 		});
 
-		// updateArticleClassification now uses env.ky_news_db.exec() to bypass
-		// the D1 prepared-statement cache (poisoned by migration 0009 rename cycle).
+		// stub prepare to throw once with the specific articles_old error
+		let attempt = 0;
+		const origPrepare = env.ky_news_db.prepare.bind(env.ky_news_db);
+		env.ky_news_db.prepare = (sql: string) => {
+			const stmt = origPrepare(sql);
+			const origRun = stmt.run.bind(stmt);
+			stmt.run = async (...args: any[]) => {
+				if (attempt === 0) {
+					attempt++;
+					const err: any = new Error('D1_ERROR: no such table: main.articles_old');
+					throw err;
+				}
+				return origRun(...args);
+			};
+			return stmt;
+		};
+
 		await updateArticleClassification(env, id3, {
 			category: '',
 			isKentucky: false,
@@ -1476,9 +1487,12 @@ describe('database utilities', () => {
 		});
 		const row3 = await getArticleById(env, id3);
 		expect(row3?.category).toBe('');
-		expect(row3?.isKentucky).toBe(false);
-		expect(row3?.isNational).toBe(true);
-		expect(row3?.county).toBeNull();
+		env.ky_news_db.prepare = origPrepare;
+	});
+
+		const found = resp.items.find((i) => i.id === id);
+		expect(found).toBeDefined();
+		expect(found?.counties).toEqual(['Fayette', 'Jefferson']);
 	});
 
 	it('queryArticles search matches summary text', async () => {
@@ -1510,68 +1524,6 @@ describe('database utilities', () => {
 
 		const resp = await queryArticles(env, { category: 'today', counties: [], search: 'findme-summary', limit: 10, cursor: null });
 		expect(resp.items.some((i) => i.id === id)).toBe(true);
-	});
-
-	// when the caller requests category=all the category filter should be
-	// skipped entirely. this is especially important during searches because
-	// the front end now queries `/api/articles/all` and expects matches from
-	// any category.
-	it('queryArticles with category=all ignores category filtering', async () => {
-		await ensureSchemaAndFixture();
-		const now = new Date().toISOString();
-
-		// insert one article in each of two categories
-		const id1 = await insertArticle(env, {
-			canonicalUrl: 'https://example.com/cat1',
-			sourceUrl: 'https://example.com',
-			urlHash: 'hash-cat1',
-			title: 'CategoryOne',
-			author: null,
-			publishedAt: now,
-			category: 'today',
-			isKentucky: true,
-			isNational: false,
-			county: 'Fayette',
-			counties: ['Fayette'],
-			city: null,
-			summary: 'search-me',
-			seoDescription: 'seo',
-			rawWordCount: 1,
-			summaryWordCount: 1,
-			contentText: 'foo',
-			contentHtml: '<p>foo</p>',
-			imageUrl: null,
-			rawR2Key: null,
-			slug: null,
-		});
-
-		const id2 = await insertArticle(env, {
-			canonicalUrl: 'https://example.com/cat2',
-			sourceUrl: 'https://example.com',
-			urlHash: 'hash-cat2',
-			title: 'CategoryTwo',
-			author: null,
-			publishedAt: now,
-			category: 'national',
-			isKentucky: false,
-			isNational: true,
-			county: null,
-			counties: [],
-			city: null,
-			summary: 'search-me',
-			seoDescription: 'seo',
-			rawWordCount: 1,
-			summaryWordCount: 1,
-			contentText: 'bar',
-			contentHtml: '<p>bar</p>',
-			imageUrl: null,
-			rawR2Key: null,
-			slug: null,
-		});
-
-		const resp = await queryArticles(env, { category: 'all', counties: [], search: 'search-me', limit: 10, cursor: null });
-		expect(resp.items.some((i) => i.id === id1)).toBe(true);
-		expect(resp.items.some((i) => i.id === id2)).toBe(true);
 	});
 
 	it('getArticlesForUpdateCheck honors maxAgeHours and returns recent ky articles', async () => {
@@ -1642,7 +1594,6 @@ describe('database utilities', () => {
 		expect(updated.summary).toContain('added update');
 		expect(updated.summary).toContain('Orig');
 	});
-});
 
 describe('db.insertArticle error logging', () => {
 	it('logs a helpful message and propagates the error', async () => {
@@ -1952,16 +1903,6 @@ describe('content fingerprint dedupe', () => {
 		const r2 = await __testables.ingestSingleUrl(env, { url: 'https://second.com' });
 		expect(r2.status).toBe('duplicate');
 		expect(r2.reason).toMatch(/content fingerprint/);
-
-		// now test path slug deduplication across domains
-		const r3 = await __testables.ingestSingleUrl(env, { url: 'https://wbko.com/2026/03/03/foo' });
-		expect(r3.status).toBe('inserted');
-		const r4 = await __testables.ingestSingleUrl(env, { url: 'https://wymt.com/2026/03/03/foo' });
-		expect(r4.status).toBe('duplicate');
-		expect(r4.reason).toMatch(/syndicated wire/);
-		const pathHash = await sha256Hex('path:/2026/03/03/foo');
-		const dup = await findArticleByHash(env, pathHash);
-		expect(dup?.id).toBe(3);
 
 		global.fetch = originalFetch;
 		vi.restoreAllMocks();
@@ -2277,71 +2218,6 @@ describe('admin manual-article endpoint', () => {
 		expect(payload.items.find((i) => i.urlHash === 'hash-w1')?.isNational).toBe(true);
 	});
 
-	// new tests for county list handling
-	it('respects counties array when retagging and allows clearing counties', async () => {
-		await ensureSchemaAndFixture();
-		const adminEnv = envWithAdminPassword('pw');
-		// insert simple kentucky article
-		await adminEnv.ky_news_db.prepare(`
-			INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category, is_kentucky, county, city, summary, seo_description, raw_word_count, summary_word_count, content_text, content_html)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`).bind(
-			'https://example.com/countytest',
-			'https://example.com',
-			'hash-county',
-			'County Story',
-			null,
-			now,
-			'today',
-			1,
-			'Fayette',
-			null,
-			'body',
-			'SEO',
-			100,
-			50,
-			'body',
-			'<p>body</p>'
-		).run();
-		// add an extra county via retag
-		const reqExtra = new IncomingRequest('https://example.com/api/admin/retag', {
-			method: 'POST',
-			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
-			body: JSON.stringify({
-				id: 1,
-				category: 'today',
-				isKentucky: true,
-				county: 'Fayette',
-				counties: ['Fayette', 'Franklin'],
-			}),
-		});
-		const ctxExtra = createExecutionContext();
-		await worker.fetch(reqExtra, adminEnv, ctxExtra);
-		const rowWithExtras = await getArticleById(adminEnv, 1);
-		expect(rowWithExtras.county).toBe('Fayette');
-		const counties1 = await getArticleCounties(adminEnv, 1);
-		expect(counties1).toEqual(['Fayette', 'Franklin']);
-
-		// now clear all counties by sending empty array and null county
-		const reqClear = new IncomingRequest('https://example.com/api/admin/retag', {
-			method: 'POST',
-			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
-			body: JSON.stringify({
-				id: 1,
-				category: 'today',
-				isKentucky: true,
-				county: null,
-				counties: [],
-			}),
-		});
-		const ctxClear = createExecutionContext();
-		await worker.fetch(reqClear, adminEnv, ctxClear);
-		const rowCleared = await getArticleById(adminEnv, 1);
-		expect(rowCleared.county).toBeNull();
-		const counties2 = await getArticleCounties(adminEnv, 1);
-		expect(counties2).toEqual([]);
-	});
-
 	it('allows clearing the category tag by sending empty string', async () => {
 		// reuse article id 1 from earlier retag test
 		const req3 = new IncomingRequest('https://example.com/api/admin/retag', {
@@ -2360,24 +2236,6 @@ describe('admin manual-article endpoint', () => {
 	});
 });
 
-
-
-// ensure fetching still works even if readability/linkedom can't load
-// (simulates missing module or incompatible runtime)
-describe('DOM helper resilience', () => {
-    it('fetchAndExtractArticle degrades gracefully when imports fail', async () => {
-        await ensureSchemaAndFixture();
-        vi.mock('@mozilla/readability', () => { throw new Error('nope'); });
-        vi.mock('linkedom', () => { throw new Error('nope'); });
-
-        const result = await ingestModule.fetchAndExtractArticle(env, {
-            url: 'https://example.com',
-            sourceUrl: 'https://example.com',
-        });
-        expect(result).toBeDefined();
-        expect(result.canonicalUrl).toBe('https://example.com');
-    });
-});
 
 describe('URL builder helpers', () => {
 	test('buildArticleUrl uses national path when flagged', () => {

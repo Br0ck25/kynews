@@ -306,6 +306,10 @@ const KY_HARD_NEGATIVES: RegExp[] = [
  * as national unless it has genuine Kentucky geo signals in the text.
  */
 // wire override removed - replaced below
+// including a generic out-of-state dateline pattern that catches
+// any CITY, ST — or CITY, State — where the state is not "KY"/"Kentucky".
+// This prevents local outlets from tagging such wire stories with their
+// home county.  Example: "GILBERT, Ariz. —" or "TULSA, Okla. (AP) —".
 export const NATIONAL_WIRE_OVERRIDE_RE =
   /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[a-z]{2,}\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]\s*)/i;
 
@@ -438,9 +442,20 @@ export async function classifyArticleWithAi(
   // 5. Only after steps 1–4 fail AND the article is confirmed Kentucky do we
   //    consider using the source default county.  This prevents misleading
   //    tags when text already contains geo information.
-  const baseGeo = baseIsKentucky
+  // derive geography from the text.  If the article is statewide politics
+  // we will later discard any city/county detected here, since the dateline
+  // simply reflects the reporter's base, not the story subject.
+  let baseGeo = baseIsKentucky
     ? detectKentuckyGeo(semanticText)
     : { isKentucky: false, county: null, counties: [], city: null };
+
+  // FIX 3: When statewide KY political story is detected, clear out any
+  // county or city that the geo detector may have inferred (e.g. a
+  // "Bowling Green, Ky." dateline on a Frankfort legislative roundup).
+  // The county should remain null regardless of dateline evidence.
+  if (isStatewideKyPolitics) {
+    baseGeo = { ...baseGeo, county: null, counties: [], city: null };
+  }
 
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');
 
@@ -685,6 +700,11 @@ export async function classifyArticleWithAi(
     // (fallback/AI/geo/default). For all other stories we must also respect
     // the statewide-KY-politics flag: no county should survive that
     // override regardless of what the geo detector or the AI returned.
+    //
+    // NOTE: earlier in the pipeline we clear baseGeo when
+    // isStatewideKyPolitics is true, but the merge step must still guard
+    // against counties inferred later (fallback, AI, or geo) so that a
+    // "FRANKFORT, Ky." dateline can never produce Franklin County.
     const mergedCounty = isKySchoolsSource
       ? (fallback.county ?? aiCounty ?? aiGeo.county ?? allowedSourceDefaultCounty)
       : isStatewideKyPolitics

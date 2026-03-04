@@ -59,38 +59,11 @@ function prepare(env: Env, sql: string) {
 }
 
 export async function findArticleByHash(env: Env, urlHash: string): Promise<ArticleRecord | null> {
-  // first try the main articles table
   const result = await prepare(env, `SELECT * FROM articles WHERE url_hash = ? LIMIT 1`)
     .bind(urlHash)
     .first<ArticleRow>();
 
-  if (result) {
-    return mapArticleRow(result);
-  }
-  // if not found there, check the supplemental url_hashes mapping table
-  const link = await prepare(env, `SELECT article_id FROM url_hashes WHERE hash = ? LIMIT 1`)
-    .bind(urlHash)
-    .first<{ article_id: number }>();
-  if (link && link.article_id) {
-    return getArticleById(env, link.article_id);
-  }
-  return null;
-}
-
-// insert a hash mapping (used for URL path dedup and any future alternative keys)
-export async function insertUrlHash(env: Env, hash: string, articleId: number): Promise<void> {
-  // create table on-the-fly in case migrations haven't run in tests
-  await env.ky_news_db.prepare(
-    `CREATE TABLE IF NOT EXISTS url_hashes (
-      hash TEXT PRIMARY KEY,
-      article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE
-    )`
-  ).run();
-
-  await env.ky_news_db
-    .prepare(`INSERT OR IGNORE INTO url_hashes (hash, article_id) VALUES (?, ?)`)
-    .bind(hash, articleId)
-    .run();
+  return result ? mapArticleRow(result) : null;
 }
 
 export async function listRecentArticleTitles(env: Env, limit = 600): Promise<Array<{ id: number; title: string }>> {
@@ -125,7 +98,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
   const normalizedCounty = normalizeCountyName(article.county);
 
   try {
-    const result = await prepare(env,
+    const result = await prepare(env, 
         `INSERT INTO articles (
           canonical_url,
           source_url,
@@ -180,7 +153,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
     // insert county associations
     if (article.counties && article.counties.length > 0) {
       for (const county of article.counties) {
-        await prepare(env,
+        await prepare(env, 
             `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
              VALUES (?, ?, ?)`
           )
@@ -188,7 +161,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           .run();
       }
     } else if (article.county) {
-      await prepare(env,
+      await prepare(env, 
           `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
            VALUES (?, ?, 1)`
         )
@@ -223,7 +196,7 @@ export async function getArticlesForUpdateCheck(
     Date.now() - maxAgeHours * 60 * 60 * 1000
   ).toISOString();
 
-  const rows = await prepare(env,
+  const rows = await prepare(env, 
       `SELECT id, url_hash, canonical_url, title, summary,
               published_at, content_hash
        FROM articles
@@ -268,7 +241,7 @@ export async function prependUpdateToSummary(
   const updatedSummary =
     `Update (${timeLabel}): ${updateParagraph}\n\n${row.summary}`.trim();
 
-  await prepare(env,
+  await prepare(env, 
       `UPDATE articles
        SET summary = ?,
            content_hash = ?,
@@ -320,7 +293,7 @@ export async function updateArticleLinks(
   id: number,
   patch: { canonicalUrl: string; sourceUrl: string; urlHash: string },
 ): Promise<void> {
-  await prepare(env,
+  await prepare(env, 
       'UPDATE articles SET canonical_url = ?, source_url = ?, url_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     )
     .bind(patch.canonicalUrl, patch.sourceUrl, patch.urlHash, id)
@@ -347,7 +320,7 @@ export async function blockArticleByIdAndDelete(
   }
 
   await ensureBlockedArticlesTable(env);
-  await prepare(env,
+  await prepare(env, 
       `INSERT OR REPLACE INTO blocked_articles (canonical_url, source_url, url_hash, reason, created_at)
        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
     )
@@ -440,7 +413,7 @@ async function columnExists(env: Env, table: string, column: string): Promise<bo
 }
 
 export async function queryArticles(env: Env, options: {
-  category: Category | 'all';
+  category: Category;
   counties: string[];
   search: string | null;
   limit: number;
@@ -449,14 +422,7 @@ export async function queryArticles(env: Env, options: {
   const where: string[] = [];
   const binds: unknown[] = [];
 
-  // If caller requested `all` we deliberately *omit* any category-related
-  // predicates so the query can return articles regardless of their
-  // assigned category.  This is typically used in conjunction with a
-  // non-empty `search` term, but we don't actually care; returning every
-  // article when category=all is a valid behaviour.
-  if (options.category === 'all') {
-    // nothing to add
-  } else if (options.category === 'today') {
+  if (options.category === 'today') {
     where.push('is_kentucky = 1');
   } else if (options.category === 'sports') {
     where.push('category = ?');
@@ -584,31 +550,28 @@ export async function updateArticleClassification(
 ): Promise<void> {
   const normalizedCounty = normalizeCountyName(patch.county);
 
-  // D1's remote prepared-statement cache was poisoned during migration 0009
-  // (articles → articles_old → articles). Any prepare().bind().run() call that
-  // shares its stripped-SQL cache key with a statement compiled during that
-  // window fails with "no such table: main.articles_old" even though the table
-  // doesn't exist anymore.
-  //
-  // env.ky_news_db.exec() uses the same raw-execution path as
-  // `wrangler d1 execute --command` (confirmed working) and completely bypasses
-  // the prepared-statement cache.  All inputs are validated before this point
-  // so inlining literals is safe.
-  const escStr = (v: string | null): string =>
-    v === null ? 'NULL' : `'${v.replace(/'/g, "''")}'`;
-  const rawSql =
-    `UPDATE articles SET ` +
-    `category = ${escStr(patch.category)}, ` +
-    `is_kentucky = ${patch.isKentucky ? 1 : 0}, ` +
-    `is_national = ${patch.isNational ? 1 : 0}, ` +
-    `county = ${escStr(normalizedCounty)}, ` +
-    `updated_at = CURRENT_TIMESTAMP ` +
-    `WHERE id = ${id}`;
+  const doUpdate = () =>
+    prepare(env, 'UPDATE articles SET category = ?, is_kentucky = ?, is_national = ?, county = ? WHERE id = ?')
+      .bind(
+        patch.category,
+        patch.isKentucky ? 1 : 0,
+        patch.isNational ? 1 : 0,
+        normalizedCounty,
+        id,
+      )
+      .run();
 
-  await env.ky_news_db.exec(rawSql);
+  try {
+    await doUpdate();
+  } catch (err: any) {
+    if (err?.message?.includes('articles_old')) {
+      console.warn(`[RETAG] Stale cache detected for article ${id}, retrying with forced fresh SQL...`);
+      await doUpdate();
+    } else {
+      throw err;
+    }
+  }
 
-  // Build the full county sync as a single exec() batch so no prepare() calls
-  // touch the poisoned D1 statement cache at all.
   let countiesList: string[] = [];
   if (patch.counties && patch.counties.length > 0) {
     countiesList = patch.counties
@@ -618,16 +581,20 @@ export async function updateArticleClassification(
     countiesList = [normalizedCounty];
   }
 
-  // Delete + re-insert via exec() — bypasses prepared-statement cache entirely.
-  const stmts: string[] = [`DELETE FROM article_counties WHERE article_id = ${id}`];
+  await prepare(env, 'DELETE FROM article_counties WHERE article_id = ?')
+    .bind(id)
+    .run();
+
   for (const county of countiesList) {
-    const isPrimary = county === normalizedCounty ? 1 : 0;
-    stmts.push(
-      `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary) ` +
-      `VALUES (${id}, ${escStr(county)}, ${isPrimary})`,
-    );
+    try {
+        await prepare(env, `INSERT OR IGNORE INTO article_counties (article_id, county, is_primary)
+             VALUES (?, ?, ?)`)
+          .bind(id, county, county === normalizedCounty ? 1 : 0)
+          .run();
+    } catch (e) {
+        console.error(`[RETAG] Failed to insert county ${county} for article ${id}`, e);
+    }
   }
-  await env.ky_news_db.exec(stmts.join('; '));
 }
 
 function normalizeCountyName(value: string | null): string | null {
@@ -687,7 +654,7 @@ export async function getSourceStats(env: Env): Promise<Array<{
   latestPublishedAt: string;
   status: 'active' | 'idle';
 }>> {
-  const rows = await prepare(env,
+  const rows = await prepare(env, 
       `SELECT source_url, COUNT(*) as article_count, MAX(published_at) as latest_published_at
        FROM articles
        GROUP BY source_url
@@ -711,7 +678,7 @@ export async function getSourceStats(env: Env): Promise<Array<{
 }
 
 async function ensureBlockedArticlesTable(env: Env): Promise<void> {
-  await prepare(env,
+  await prepare(env, 
       `CREATE TABLE IF NOT EXISTS blocked_articles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         canonical_url TEXT NOT NULL,

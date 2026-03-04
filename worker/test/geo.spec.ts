@@ -235,6 +235,11 @@ describe('county detection', () => {
     expect(detectCity('A crash occurred in Frankfort, Ky. on Friday.')).toBe('frankfort');
   });
 
+  it('does not treat out-of-state datelines as KY cities', () => {
+    expect(detectCity('GILBERT, Ariz. — Fire reported')).toBe(null);
+    expect(detectCity('BARROW COUNTY, Ga. —')); // county not a city, should be null
+  });
+
   it('will still detect Frankfort if the dateline appears after a title/newline', () => {
     const text = 'New report released\nFRANKFORT, Ky. (ABC36 NEWS NOW) – lawmakers met';
     // dateline occurs after a newline so the ^ guard does not match

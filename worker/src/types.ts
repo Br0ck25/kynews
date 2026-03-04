@@ -7,12 +7,7 @@ export const ALLOWED_CATEGORIES = [
   'obituaries',
 ] as const;
 
-// NOTE: `'all'` is not included in `ALLOWED_CATEGORIES` because it is
-// not a real classification stored on articles; it is a virtual flag used
-// by the public API when the caller wants to query every article regardless
-// of category.  We widen the `Category` type to keep the compiler happy when
-// that value is threaded through request handlers.
-export type Category = (typeof ALLOWED_CATEGORIES)[number] | '' | 'all';
+export type Category = (typeof ALLOWED_CATEGORIES)[number] | '';
 
 export interface ArticleRecord {
   id: number;

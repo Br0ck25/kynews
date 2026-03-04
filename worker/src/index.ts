@@ -99,11 +99,6 @@ const PUBLIC_ARTICLE_CACHE_HEADERS = {
 	'cache-control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
 };
 
-// canonical base URL used when constructing absolute links (sitemaps, previews,
-// etc).  keeps the hard‑coded string in one convenient place rather than
-// repeating it inside each helper function.
-const BASE_URL = 'https://localkynews.com';
-
 interface SeedSourceStatus {
 sourceUrl: string;
 discoveredFeeds: number;
@@ -1081,7 +1076,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 	// Canonical URL: use source URL when valid, otherwise derive from title hash
 	const canonicalUrl = sourceUrl && isHttpUrl(sourceUrl)
 		? normalizeCanonicalUrl(sourceUrl)
-		: `${BASE_URL}/manual/${await sha256Hex(title + resolvedPublishedAt)}`;
+		: `https://localkynews.com/manual/${await sha256Hex(title + resolvedPublishedAt)}`;
 	const normalizedSourceUrl = sourceUrl ? normalizeCanonicalUrl(sourceUrl) : canonicalUrl;
 
 	const canonicalHash = await sha256Hex(canonicalUrl);
@@ -1221,12 +1216,8 @@ if (categoryMatch && request.method === 'GET') {
 //   schools     - Kentucky school stories (is_kentucky=1 AND category='schools')
 //   obituaries  - Kentucky obituaries only (is_kentucky=1 AND category='obituaries')
 const category = categoryMatch[1]?.toLowerCase();
-// `all` is a virtual category used only for searching across every
-// article; it is not stored in the database.  `isAllowedCategory` has
-// already been updated to accept it so the check here simply guards
-// against completely bogus values.
 if (!category || !isAllowedCategory(category)) {
-return badRequest('Invalid category. Allowed: today|national|sports|weather|schools|obituaries|all');
+return badRequest('Invalid category. Allowed: today|national|sports|weather|schools|obituaries');
 }
 
 // support both ?counties=Foo,Bar (existing) and the shorthand ?county=Foo
@@ -1270,7 +1261,7 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
 		if (slug) {
 			const article = await getArticleBySlug(env, slug);
 			if (article) {
-				const pageUrl = `${BASE_URL}${url.pathname}`;
+				const pageUrl = `https://localkynews.com${url.pathname}`;
 				const desc = (article.seoDescription || article.summary || '')
 					.replace(/<[^>]+>/g, ' ')
 					.replace(/\s+/g, ' ')
@@ -1448,9 +1439,26 @@ async function generateSitemap(env: Env): Promise<string> {
 		// sitemap if the DB is readonly or otherwise misbehaving.
 	}
 
-	// construct links using the shared BASE_URL constant
-	const baseUrl = BASE_URL;
+	const rows = await env.ky_news_db
+		.prepare(
+            `SELECT id, slug, county, category, is_national, published_at, updated_at FROM articles
+       WHERE is_kentucky = 1 OR is_national = 1
+       ORDER BY id DESC LIMIT 50000`,
+        )
+        .all<{ id: number; slug: string | null; county: string | null; category: string; is_national: number; published_at: string; updated_at: string }>();
+	const urls = (rows.results || []).map((row) => {
+		// normalize whatever timestamp we have and then take the UTC date portion
+		const iso = toIsoDateOrNull(row.updated_at || row.published_at || '');
+		const lastmod = iso ? iso.split('T')[0] : '';
+		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, Boolean(row.is_national), row.id);
+		return `  <url>
+    <loc>${loc}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>`;
+	});
 
+	// Add static pages
 	const staticPages = [
 		{ path: '/', priority: '1.0', changefreq: 'hourly' },
 		{ path: '/today', priority: '1.0', changefreq: 'hourly' },
@@ -1537,7 +1545,7 @@ const rows = await prepare(env,
 		.bind(cutoff)
 		.all<{ id: number; slug: string | null; county: string | null; category: string; title: string; published_at: string }>();
 
-	const baseUrl = BASE_URL;
+	const baseUrl = 'https://localkynews.com';
 	const items = (rows.results || []).map((row) => {
 		const pubDate = toIsoDateOrNull(row.published_at) || new Date().toISOString();
 		const safeTitle = (row.title || '')
@@ -1576,7 +1584,7 @@ ${items.join('\n')}
  * Generate a sitemap index pointing to both sitemaps.
  */
 function generateSitemapIndex(): string {
-	const baseUrl = BASE_URL;
+	const baseUrl = 'https://localkynews.com';
 	const now = new Date().toISOString().split('T')[0];
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -1615,10 +1623,6 @@ const sourceUrls = [...new Set([
 	...MASTER_SOURCE_SEEDS,
 	...SCHOOL_SOURCE_SEEDS,
 ].map((s) => s.trim()).filter(isHttpUrl))];
-
-// debug: log when the cron tick fires and how many sources we will try
-console.log('[SCHEDULED] tick - preparing to ingest', sourceUrls.length, 'sources');
-
 ctx.waitUntil(
 	runIngest(env, sourceUrls, SCHEDULED_LIMIT_PER_SOURCE, 'scheduled', {
 		maxSourcesPerRun: SCHEDULED_SOURCES_PER_RUN,
@@ -1643,9 +1647,6 @@ async function runIngest(
 	trigger: IngestRunMetrics['trigger'],
 	options: IngestRunOptions = {},
 ): Promise<void> {
-// debug: every invocation should log its trigger and source count
-console.log(`[INGEST] start trigger=${trigger} sourceCount=${sourceUrls.length}`);
-
 const started = Date.now();
 const { runSources, sourcesAvailable, nextOffset, shouldPersistRotation } = await selectSourcesForRun(
 	env,
@@ -1714,10 +1715,6 @@ const metrics: IngestRunMetrics = {
 	duplicateSamples,
 	insertedSamples,
 };
-
-// log and persist metrics
-console.log('[INGEST METRICS]', JSON.stringify(metrics));
-await env.CACHE.put(INGEST_METRICS_KEY, JSON.stringify(metrics), { expirationTtl: 60 * 60 * 24 * 7 }).catch(() => null);
 
 const rotationKey = `${INGEST_ROTATION_KEY_PREFIX}${trigger}`;
 await env.CACHE.put(rotationKey, String(nextOffset), { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => null);

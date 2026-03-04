@@ -1,30 +1,9 @@
 import type { ExtractedArticle, IngestResult, IngestSource, NewArticle } from '../types';
-// Readability and DOM parser are loaded lazily at runtime.  These
-// packages sometimes pull in Node‑specific bits, and a missing or
-// incompatible bundle caused the ingestion pipeline to throw on every
-// article.  Loading dynamically allows us to degrade gracefully when
-// the modules aren’t available.
-
-// placeholders for the modules once loaded
-let ReadabilityClass: typeof import('@mozilla/readability').Readability | null = null;
-let parseHTMLFn: typeof import('linkedom').parseHTML | null = null;
-
-async function ensureDomHelpers(): Promise<void> {
-  if (ReadabilityClass && parseHTMLFn) return;
-  try {
-    const rd = await import('@mozilla/readability');
-    const ld = await import('linkedom');
-    ReadabilityClass = rd.Readability;
-    parseHTMLFn = ld.parseHTML;
-  } catch (err) {
-    console.warn('[INGEST] unable to load readability/linkedom:', err);
-    ReadabilityClass = null;
-    parseHTMLFn = null;
-  }
-}
+import { Readability } from '@mozilla/readability';
+import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE } from './classify';
-import { findArticleByHash, insertArticle, insertUrlHash, isUrlHashBlocked, listRecentArticleTitles } from './db';
+import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
 import { cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
 
@@ -63,31 +42,6 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
       urlHash: sourceUrlHash,
       category: preflightDuplicate.category,
     };
-  }
-
-  // Syndicated-wire dedup: many station sites (Gray, Nexstar, etc.) publish
-  // identical AP/Reuters stories with the same URL path slug.  If two
-  // different domains share the same path we should treat the second as a
-  // duplicate immediately before doing any network or AI work.
-  let parsedUrl: URL | null = null;
-  try {
-    parsedUrl = new URL(normalizeCanonicalUrl(source.url));
-  } catch {}
-  if (parsedUrl) {
-    const pathSlug = parsedUrl.pathname.replace(/\/+$/, '').toLowerCase();
-    if (pathSlug.length > 20 && /\d{4}\/\d{2}\/\d{2}\//.test(pathSlug)) {
-      const pathHash = await sha256Hex(`path:${pathSlug}`);
-      const pathDuplicate = await findArticleByHash(env, pathHash);
-      if (pathDuplicate) {
-        return {
-          status: 'duplicate',
-          reason: 'syndicated wire story (same URL path on different domain)',
-          id: pathDuplicate.id,
-          urlHash: pathHash,
-          category: pathDuplicate.category,
-        };
-      }
-    }
   }
 
   const extracted = await fetchAndExtractArticle(env, source);
@@ -141,10 +95,6 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
           urlHash: canonicalHash,
         };
       }
-      // no write here any more; we only mark the fingerprint after a
-      // successful database insert (see end of this function).  earlier
-      // optimistic writes caused ‘pending’ values to poison the KV and
-      // block future articles that happened to share the same lead text.
     }
   }
 
@@ -261,16 +211,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
-  // record path hash for syndicated dedup (mirrors the preflight check above)
-  if (parsedUrl) {
-    const pathSlug = parsedUrl.pathname.replace(/\/+$/, '').toLowerCase();
-    if (pathSlug.length > 20 && /\d{4}\/\d{2}\/\d{2}\//.test(pathSlug)) {
-      const pathHash = await sha256Hex(`path:${pathSlug}`);
-      await insertUrlHash(env, pathHash, articleId).catch(() => {});
-    }
-  }
-
-  // after successful insert, update fingerprint entry to the real article id
+  // after successful insert, record fingerprint for a few days if we computed one
   if (contentFingerprintKey && env.CACHE) {
     await env.CACHE.put(contentFingerprintKey, String(articleId), {
       expirationTtl: 60 * 60 * 72,
@@ -313,7 +254,7 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
   }
 
   const scraped = scrapeArticleHtml(source.url, fetched.body);
-  const readability = await extractReadableArticle(fetched.body);
+  const readability = extractReadableArticle(fetched.body);
   // Do NOT prepend the title here — it causes AI to echo the title in summaries.
   // Keep readableText for classification only; use htmlToStructuredText for summarization.
   const readableText = (readability?.textContent ?? '').trim();
@@ -353,14 +294,10 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
   };
 }
 
-async function extractReadableArticle(rawHtml: string): Promise<{ title?: string; textContent?: string; content?: string } | null> {
-  // ensure the helper modules are available; if not, just bail out
-  await ensureDomHelpers();
-  if (!parseHTMLFn || !ReadabilityClass) return null;
-
+function extractReadableArticle(rawHtml: string): { title?: string; textContent?: string; content?: string } | null {
   try {
-    const { document } = parseHTMLFn(rawHtml);
-    const reader = new ReadabilityClass(document);
+    const { document } = parseHTML(rawHtml);
+    const reader = new Readability(document);
     const parsed = reader.parse();
     if (!parsed) return null;
 
