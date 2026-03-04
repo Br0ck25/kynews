@@ -201,6 +201,7 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   'si.com',
   'theathletic.com',
   'nbcsports.com',
+  'wlky.com', // Louisville CBS affiliate syndicates national wire stories
 ]);
 
 
@@ -267,7 +268,8 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'nky.com': 'Kenton',
   // Cincinnati/NKY broadcaster – no single KY county (see FIX 5)
   'wlwt.com': null,  // Cincinnati/NKY broadcaster – no single KY county (see FIX 5)
-  'wlky.com': 'Jefferson',   // Louisville CBS affiliate
+  'wlky.com': null,   // Louisville CBS affiliate – treat as national by default
+  'themountaineagle.com': 'Letcher', // Whitesburg newspaper
 
   // State-level sources (no default county — they cover all of KY)
   'kentuckylantern.com': null,
@@ -337,13 +339,25 @@ export const BETTING_CONTENT_RE =
  * In this case the source default county should not be applied —
  * the story belongs to all of Kentucky, not just the outlet's home.
  */
-function isStatewideKyPoliticalStory(text: string): boolean {
+export function isStatewideKyPoliticalStory(text: string): boolean {
   // FRANKFORT dateline = statewide KY story, no county pin
   if (/\bfrankfort,?\s*ky\.?\s*[-—–(]/i.test(text)) return true;
   // Explicit roundup language
   if (/\bwhat\s+kentuckians?\s+said\b|\bkentucky\s+(?:lawmakers?|delegation|legislators?|congressional\s+(?:delegation|members?))\b|\breactions?\s+from\s+kentucky\b/i.test(text)) {
     return true;
   }
+  // detect three or more distinct legislative districts
+  const districtMatches = text.match(/\b\d+(?:st|nd|rd|th)\s+District\b/gi) || [];
+  const uniqueDistricts = new Set(districtMatches.map((m) => m.toLowerCase()));
+  if (uniqueDistricts.size >= 3) return true;
+
+  // bills plus Frankfort/statewide context
+  if (/\b(?:House|Senate)\s+Bill\b/i.test(text)) {
+    if (/\bfrankfort\b|\bstatewide\b|\ball\s+of\s+kentucky\b/i.test(text)) {
+      return true;
+    }
+  }
+
   // Cross-chamber: both a KY senator AND a KY representative named
   const hasKySenator = /\b(?:kentucky\s+sen(?:ator)?|u\.s\.\s+sen\.\s+[A-Z][^.]{0,40}kentucky|sen\.\s+\w+\s+\w+[^.]{0,20}(?:r|d)-ky)\b/i.test(text);
   const hasKyRep = /\b(?:kentucky\s+rep(?:resentative)?|u\.s\.\s+rep\.\s+[A-Z][^.]{0,40}kentucky|rep\.\s+\w+\s+\w+[^.]{0,20}(?:r|d)-ky)\b/i.test(text);

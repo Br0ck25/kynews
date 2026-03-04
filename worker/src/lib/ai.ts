@@ -295,6 +295,14 @@ export async function summarizeArticle(
   summary = fixLeadingParagraphPunctuation(ensureCompleteLastSentence(summary));
   seo = enforceSeoLength(seo, summary);
 
+  // ensure first letter of summary and seo description are capitalized
+  if (summary.length > 0) {
+    summary = summary.charAt(0).toUpperCase() + summary.slice(1);
+  }
+  if (seo.length > 0) {
+    seo = seo.charAt(0).toUpperCase() + seo.slice(1);
+  }
+
   const result: SummaryResult = {
     summary,
     seoDescription: seo,
@@ -711,6 +719,11 @@ function cleanContentForSummarization(text: string, title: string): string {
   let t = decodeHtmlEntities(text || '')
     .replace(/\u00a0/g, ' ')
     .replace(/\r\n?/g, '\n');
+
+  // remove slideshow/pagination caption artifacts like "1/2 John Doe" or
+  // "2/3 Jane Smith" which often appear at the top or embedded in scraped
+  // content
+  t = t.replace(/(^|\n)\s*\d+\/\d+\s+[A-Z][a-zA-Z\s]+\s+/g, '$1');
 
   if (title) {
     const escaped = title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

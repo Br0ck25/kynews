@@ -921,6 +921,7 @@ export const KY_CITY_TO_COUNTY = {
   "ermine": "Letcher",
   "farraday": "Letcher",
   "fleming-neon": "Letcher",
+  "fleming neon": "Letcher",
   "gordon": "Letcher",
   "isom": "Letcher",
   "jenkins": "Letcher",

@@ -21,4 +21,16 @@ describe('classification fallback geo integration', () => {
     expect(geo.counties).toEqual(['Fayette']);
     expect(geo.county).toBe('Fayette');
   });
+
+  it('maps Fleming-Neon to Letcher county', () => {
+    const geo = detectKentuckyGeo('The story took place in Fleming-Neon.');
+    expect(geo.counties).toEqual(['Letcher']);
+    expect(geo.county).toBe('Letcher');
+  });
+
+  it('does not assign a county for bare "Fleming" without signal', () => {
+    const geo = detectKentuckyGeo('Fleming is mentioned here but no context.');
+    expect(geo.counties).toEqual([]);
+    expect(geo.county).toBeNull();
+  });
 });
