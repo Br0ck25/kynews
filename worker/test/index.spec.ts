@@ -841,6 +841,14 @@ describe('classification utilities', () => {
 		);
 		expect(resp.status).toBe(301);
 		expect(resp.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=3600');
+
+		// also verify canonicalization when the county slug is missing the
+		// "-county" suffix (stored county names are often just "Fayette").
+		const resp2 = await SELF.fetch(
+			`https://example.com/news/kentucky/fayette/${slug}`,
+		);
+		expect(resp2.status).toBe(301);
+		expect(resp2.headers.get('location')).toBe(`/news/kentucky/fayette-county/${slug}`);
 	});
 			const html = '<div>Home » Region »</div><article><p>Story begins here.</p></article>';
 			const doc = scrapeArticleHtml('https://nkytribune.com/story', html);

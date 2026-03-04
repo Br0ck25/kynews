@@ -1463,20 +1463,22 @@ function buildArticleUrl(
  * current classification. Must match the frontend routing logic.
  */
 function buildArticlePath(article: {
-	slug: string | null;
-	category: string;
-	isKentucky: boolean;
-	county: string | null;
+  slug: string | null;
+  category: string;
+  isKentucky: boolean;
+  county: string | null;
 }): string {
-	if (!article.slug) return '/';
-	if (article.isKentucky && article.county) {
-		const countySlug = article.county.toLowerCase().replace(/\s+/g, '-');
-		return `/news/kentucky/${countySlug}/${article.slug}`;
-	}
-	if (article.isKentucky) {
-		return `/news/kentucky/${article.slug}`;
-	}
-	return `/news/${article.category}/${article.slug}`;
+  if (!article.slug) return '/';
+  if (article.isKentucky && article.county) {
+    let countyStr = article.county.trim();
+    if (!/county$/i.test(countyStr)) countyStr += ' County';
+    const countySlug = countyStr.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return `/news/kentucky/${countySlug}/${article.slug}`;
+  }
+  if (article.isKentucky) {
+    return `/news/kentucky/${article.slug}`;
+  }
+  return `/news/${article.category}/${article.slug}`;
 }
 
 /**
