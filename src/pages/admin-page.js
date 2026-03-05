@@ -108,12 +108,20 @@ export default function AdminPage() {
   const [manualSuccess, setManualSuccess] = useState(null);
   const [manualError, setManualError] = useState("");
 
-  // --- Facebook diagnostics state ---
+  // --- Facebook diagnostics state (create-article tab) ---
   const [fbDiagId, setFbDiagId] = useState("");
   const [fbDiagCaption, setFbDiagCaption] = useState(null);
   const [fbDiagPostResult, setFbDiagPostResult] = useState(null);
   const [fbDiagError, setFbDiagError] = useState("");
   const [fbDiagLoading, setFbDiagLoading] = useState(false);
+
+  // --- Per-article facebook caption/post state (articles table) ---
+  const [rowCaptionLoadingId, setRowCaptionLoadingId] = useState(null);
+  const [rowCaptions, setRowCaptions] = useState({});
+  const [rowCaptionErrors, setRowCaptionErrors] = useState({});
+  const [rowPostLoadingId, setRowPostLoadingId] = useState(null);
+  const [rowPostResults, setRowPostResults] = useState({});
+  const [rowPostErrors, setRowPostErrors] = useState({});
 
   const handleDiagCaption = async () => {
     setFbDiagError("");
@@ -136,6 +144,46 @@ export default function AdminPage() {
       setFbDiagError(err?.errorMessage || String(err));
     } finally {
       setFbDiagLoading(false);
+    }
+  };
+
+  // generate caption for a specific article row
+  const handleRowCaption = async (id) => {
+    if (!id) return;
+    setRowCaptionErrors((prev) => ({ ...prev, [id]: "" }));
+    setRowCaptions((prev) => ({ ...prev, [id]: null }));
+    setRowCaptionLoadingId(id);
+    try {
+      const res = await service.facebookCaption(id);
+      if (res.ok) {
+        setRowCaptions((prev) => ({ ...prev, [id]: res.caption || "" }));
+      } else {
+        setRowCaptionErrors((prev) => ({ ...prev, [id]: res.error || "unknown error" }));
+      }
+    } catch (err) {
+      setRowCaptionErrors((prev) => ({ ...prev, [id]: err?.errorMessage || String(err) }));
+    } finally {
+      setRowCaptionLoadingId(null);
+    }
+  };
+
+  // post caption for an article row to Facebook (optional)
+  const handleRowPost = async (id) => {
+    if (!id) return;
+    setRowPostErrors((prev) => ({ ...prev, [id]: "" }));
+    setRowPostResults((prev) => ({ ...prev, [id]: null }));
+    setRowPostLoadingId(id);
+    try {
+      const res = await service.facebookPost(id);
+      if (res.ok) {
+        setRowPostResults((prev) => ({ ...prev, [id]: res.result || null }));
+      } else {
+        setRowPostErrors((prev) => ({ ...prev, [id]: res.error || "unknown error" }));
+      }
+    } catch (err) {
+      setRowPostErrors((prev) => ({ ...prev, [id]: err?.errorMessage || String(err) }));
+    } finally {
+      setRowPostLoadingId(null);
     }
   };
 
@@ -1483,6 +1531,19 @@ export default function AdminPage() {
                                   Save date
                                 </Button>
                               )}
+
+                              {/* new facebook caption/post controls */}
+                              <Button size="small" variant="outlined" color="primary"
+                                disabled={rowCaptionLoadingId === row.id}
+                                onClick={() => handleRowCaption(row.id)}>
+                                {rowCaptionLoadingId === row.id ? "…" : "Caption"}
+                              </Button>
+                              <Button size="small" variant="outlined" color="primary"
+                                disabled={rowPostLoadingId === row.id}
+                                onClick={() => handleRowPost(row.id)}>
+                                {rowPostLoadingId === row.id ? "…" : "Post FB"}
+                              </Button>
+
                               <Button size="small" variant="outlined" color="secondary"
                                 disabled={deletingId === row.id}
                                 onClick={() => deleteArticle(row, false)}>
@@ -1496,6 +1557,33 @@ export default function AdminPage() {
                             </Box>
                           </TableCell>
                         </TableRow>
+                        {/* optionally display caption/post results below the review row */}
+                        {(rowCaptions[row.id] !== undefined || rowCaptionErrors[row.id] || rowPostResults[row.id] !== undefined || rowPostErrors[row.id]) && (
+                          <TableRow>
+                            <TableCell colSpan={10} style={{ paddingTop: 0, paddingBottom: 0 }}>
+                              {rowCaptionErrors[row.id] && (
+                                <Typography color="error" variant="body2" style={{ marginTop: 8 }}>
+                                  {rowCaptionErrors[row.id]}
+                                </Typography>
+                              )}
+                              {rowCaptions[row.id] !== undefined && (
+                                <Typography variant="body2" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
+                                  <strong>Caption:</strong> {rowCaptions[row.id] || '<empty>'}
+                                </Typography>
+                              )}
+                              {rowPostErrors[row.id] && (
+                                <Typography color="error" variant="body2" style={{ marginTop: 8 }}>
+                                  {rowPostErrors[row.id]}
+                                </Typography>
+                              )}
+                              {rowPostResults[row.id] !== undefined && (
+                                <Typography variant="body2" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
+                                  <strong>Post result:</strong> {JSON.stringify(rowPostResults[row.id])}
+                                </Typography>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )}
                         <TableRow>
                           <TableCell colSpan={10} style={{ paddingTop: 0, paddingBottom: 0, border: isExpanded ? undefined : "none" }}>
                             <Collapse in={isExpanded} unmountOnExit>
@@ -1510,7 +1598,7 @@ export default function AdminPage() {
                                   value={contentEdit.title !== undefined ? contentEdit.title : row.title || ""}
                                   onChange={(e) => setContentEdits(prev => ({ ...prev, [row.id]: { ...prev[row.id], title: e.target.value } }))}
                                 />
-                                <TextField
+                        <TextField
                                   fullWidth
                                   multiline
                                   rows={6}
