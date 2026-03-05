@@ -1,3 +1,5 @@
+// ensure FB app id constant is populated
+process.env.REACT_APP_FB_APP_ID = 'testid';
 import React from 'react';
 import { render, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route } from 'react-router-dom';
@@ -35,6 +37,7 @@ describe('ArticleSlugPage metadata', () => {
 
     await waitFor(() => {
       expect(getMeta('og:image')).toBe('https://localkynews.com/img/preview.PNG');
+      expect(getMeta('fb:app_id')).toBe('testid');
     });
   });
 });

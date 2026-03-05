@@ -1,4 +1,5 @@
 import type { ArticleRecord } from '../types';
+import { BASE_URL } from '../index';
 
 /**
  * Clean up a headline for a Facebook post. Strips common trailing branding
@@ -70,7 +71,7 @@ function countySlug(countyName: string): string {
 }
 
 // build a full URL for an article using our public site origin
-function articleUrl(article: ArticleRecord, baseUrl = 'https://localkynews.com'): string {
+function articleUrl(article: ArticleRecord, baseUrl = BASE_URL): string {
   if (!article.slug) {
     return `${baseUrl}/post?articleId=${article.id}`;
   }
@@ -94,7 +95,7 @@ export function generateFacebookCaption(article: ArticleRecord | null): string {
 
   let url = articleUrl(article);
   // ensure the url actually points at our site; fallback just in case
-  if (!url.startsWith('https://localkynews.com')) {
+  if (!url.startsWith(BASE_URL)) {
     url = articleUrl(article);
   }
   const hashtags = generateFacebookHashtags(article);

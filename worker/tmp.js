@@ -31,6 +31,13 @@ const ROBOTS_BYPASS_URLS = new Set([
 const PUBLIC_ARTICLE_CACHE_HEADERS = {
     'cache-control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
 };
+
+// canonical base URL for the site.  Having this at module scope ensures that
+// any code that accidentally references it without declaring a local variable
+// will still work (previously the sitemap logic defined baseUrl inside the
+// function and a reference outside of that scope resulted in a runtime
+// ReferenceError: "baseUrl is not defined").
+const BASE_URL = 'https://localkynews.com';
 /** All route handling extracted so the outer fetch() can wrap it in a try/catch
  *  that guarantees CORS headers on every response, even unhandled exceptions. */
 async function handleRequest(request, env, ctx) {
@@ -849,7 +856,7 @@ async function handleRequest(request, env, ctx) {
             if (slug) {
                 const article = await getArticleBySlug(env, slug);
                 if (article) {
-                    const pageUrl = `https://localkynews.com${url.pathname}`;
+                    const pageUrl = `${BASE_URL}${url.pathname}`;
                     const desc = (article.seoDescription || article.summary || '')
                         .replace(/<[^>]+>/g, ' ')
                         .replace(/\s+/g, ' ')
@@ -877,6 +884,9 @@ async function handleRequest(request, env, ctx) {
                         article.imageUrl || defaultImage
                       )}"/>
                     `);
+                    if(env.FB_APP_ID){
+                        metas.push(`<meta property="fb:app_id" content="${escapeHtml(env.FB_APP_ID)}"/>`);
+                    }
                     // include redirect parameter so second request bypasses this block
                     const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
                     return new Response(html, {
@@ -935,7 +945,7 @@ function countyNameToSlug(countyName) {
         cleaned += ' County';
     return cleaned.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
-function buildArticleUrl(baseUrl, slug, county, category, id) {
+function buildArticleUrl(baseUrl = BASE_URL, slug, county, category, id) {
     if (!slug)
         return `${baseUrl}/post?articleId=${id}`;
     if (county)
@@ -961,7 +971,7 @@ async function generateSitemap(env) {
        WHERE is_kentucky = 1 OR category = 'national'
        ORDER BY id DESC LIMIT 50000`)
         .all();
-    const baseUrl = 'https://localkynews.com';
+    const baseUrl = BASE_URL;
     const urls = (rows.results || []).map((row) => {
         const lastmod = (row.updated_at || row.published_at || '').split('T')[0];
         const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, row.id);
@@ -1021,6 +1031,7 @@ ${[...staticXml, ...urls].join('\n')}
  */
 async function generateNewsSitemap(env) {
     const cacheKey = 'sitemap:news';
+    const baseUrl = BASE_URL;
     if (env.CACHE) {
         const cached = await env.CACHE.get(cacheKey).catch(() => null);
         if (cached)
@@ -1071,7 +1082,7 @@ ${items.join('\n')}
  * Generate a sitemap index pointing to both sitemaps.
  */
 function generateSitemapIndex() {
-    const baseUrl = 'https://localkynews.com';
+    const baseUrl = BASE_URL;
     const now = new Date().toISOString().split('T')[0];
     return `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

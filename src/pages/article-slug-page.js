@@ -26,6 +26,9 @@ const useStyles = makeStyles((theme) => ({
 
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
+// allow optional FB App ID to be provided via environment variables
+const FB_APP_ID =
+  (import.meta.env.REACT_APP_FB_APP_ID || import.meta.env.VITE_FB_APP_ID || "").trim();
 
 function setMeta(attr, value, content) {
   let el = document.querySelector(`meta[${attr}="${value}"]`);
@@ -136,6 +139,7 @@ export default function ArticleSlugPage() {
     setMeta("name", "twitter:title", post.title || SITE_NAME);
     setMeta("name", "twitter:description", cleanDesc);
     setMeta("name", "twitter:image", post.image || defaultImage);
+    if (FB_APP_ID) setMeta("property", "fb:app_id", FB_APP_ID);
 
     const publisherName =
       post.sourceName ||
@@ -200,6 +204,7 @@ export default function ArticleSlugPage() {
       // always present when leaving an article page.
       setMeta("property", "og:image", `${SITE_URL}/img/preview.PNG`);
       setMeta("name", "twitter:image", `${SITE_URL}/img/preview.PNG`);
+      setMeta("property", "fb:app_id", FB_APP_ID || "0");
       document.getElementById("json-ld-article")?.remove();
       document.getElementById("json-ld-breadcrumb-post")?.remove();
     };

@@ -19,6 +19,7 @@ import {
 	getArticlesForUpdateCheck,
 	prependUpdateToSummary,
 	updateArticlePrimaryCounty,
+	prepare,
 } from './lib/db';
 import {
 	HIGH_PRIORITY_SOURCE_SEEDS,
@@ -85,7 +86,8 @@ declare global {
 		INGEST_QUEUE?: Queue<QueueJob>;
 		// asset binding provided by wrangler to serve static files
 		ASSETS?: { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
-	}
+	// optional Facebook application ID used for OG tags in preview pages
+	FB_APP_ID?: string;
 }
 
 const STRUCTURED_SEARCH_SOURCE_URLS = new Set<string>([
@@ -100,20 +102,29 @@ const PUBLIC_ARTICLE_CACHE_HEADERS = {
 	'cache-control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
 };
 
+// canonical base URL for all article links and sitemaps. Having a single constant
+// avoids subtle bugs where a locally scoped variable might not be defined at
+// runtime ("baseUrl is not defined" errors) and makes it easy to change if the
+// domain ever moves.
+export const BASE_URL = 'https://localkynews.com';
+
+// status object returned by ingestSeedSource; kept separate to avoid inlining a
+// huge anonymous type at the call site and to make test fixtures easier to
+// construct.
 interface SeedSourceStatus {
-sourceUrl: string;
-discoveredFeeds: number;
-selectedFeed: string | null;
-fallbackUsed: boolean;
-processed: number;
-inserted: number;
-duplicate: number;
-rejected: number;
-lowWordDiscards: number;
-errors: string[];
-rejectedSamples: IngestDecisionSample[];
-duplicateSamples: IngestDecisionSample[];
-insertedSamples: IngestDecisionSample[];
+	sourceUrl: string;
+	discoveredFeeds: number;
+	selectedFeed: string | null;
+	fallbackUsed: boolean;
+	processed: number;
+	inserted: number;
+	duplicate: number;
+	rejected: number;
+	lowWordDiscards: number;
+	errors: string[];
+	rejectedSamples: IngestDecisionSample[];
+	duplicateSamples: IngestDecisionSample[];
+	insertedSamples: IngestDecisionSample[];
 }
 
 interface IngestDecisionSample {
@@ -1370,6 +1381,13 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
           )}"/>
         `);
 
+        // always include the tag; use configured ID or fall back to '0'
+        metas.push(
+          `<meta property="fb:app_id" content="${escapeHtml(
+            env.FB_APP_ID || '0'
+          )}"/>`
+        );
+
         // include redirect parameter so second request bypasses this block
         const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
         return new Response(html, {
@@ -1497,6 +1515,7 @@ function buildArticlePath(article: {
  */
 async function generateSitemap(env: Env): Promise<string> {
 	const cacheKey = 'sitemap:main';
+	const baseUrl = BASE_URL;
 	if (env.CACHE) {
 		const cached = await env.CACHE.get(cacheKey).catch(() => null);
 		if (cached) return cached;
@@ -1604,6 +1623,7 @@ ${[...staticXml, ...urls].join('\n')}
  */
 async function generateNewsSitemap(env: Env): Promise<string> {
 	const cacheKey = 'sitemap:news';
+	const baseUrl = BASE_URL;
 	if (env.CACHE) {
 		const cached = await env.CACHE.get(cacheKey).catch(() => null);
 		if (cached) return cached;
@@ -1630,7 +1650,6 @@ const rows = await prepare(env,
 		.bind(cutoff)
 		.all<{ id: number; slug: string | null; county: string | null; category: string; title: string; published_at: string }>();
 
-	const baseUrl = 'https://localkynews.com';
 	const items = (rows.results || []).map((row) => {
 		const pubDate = toIsoDateOrNull(row.published_at) || new Date().toISOString();
 		const safeTitle = (row.title || '')
@@ -1669,7 +1688,7 @@ ${items.join('\n')}
  * Generate a sitemap index pointing to both sitemaps.
  */
 function generateSitemapIndex(): string {
-	const baseUrl = 'https://localkynews.com';
+	const baseUrl = BASE_URL;
 	const now = new Date().toISOString().split('T')[0];
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

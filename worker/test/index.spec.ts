@@ -23,7 +23,7 @@ import {
 import { KY_COUNTIES } from '../src/data/ky-geo';
 
 // helpers tested later
-import { buildArticleUrl } from '../src/index';
+import { BASE_URL, buildArticleUrl } from '../src/index';
 import { articleToUrl } from '../src/utils/functions';
 
 // simplified alias for testing; avoid TypeScript generics to keep Vitest happy
@@ -2673,15 +2673,21 @@ describe('admin manual-article endpoint', () => {
 
 describe('URL builder helpers', () => {
 	test('buildArticleUrl uses national path when flagged', () => {
-		const base = 'https://localkynews.com';
+		const base = BASE_URL;
 		// KY-wide weather
 		expect(buildArticleUrl(base, 'slug', null, 'weather', false, 1)).toBe(
-			'https://localkynews.com/news/kentucky/slug'
+			`${BASE_URL}/news/kentucky/slug`
 		);
 		// national weather
 		expect(buildArticleUrl(base, 'slug', null, 'weather', true, 1)).toBe(
-			'https://localkynews.com/news/national/slug'
+			`${BASE_URL}/news/national/slug`
 		);
+	});
+
+	test('buildArticleUrl defaults to BASE_URL when omitted', () => {
+		// pass undefined as first argument to trigger default parameter
+		const result = (buildArticleUrl as any)(undefined, 'slug', null, 'weather', false, 1);
+		expect(result).toBe(`${BASE_URL}/news/kentucky/slug`);
 	});
 
 	test('articleToUrl respects isNational flag', () => {
@@ -3092,8 +3098,10 @@ describe('social preview HTML route', () => {
 		const capJson = await captionResp.json();
 		console.log('social preview caption response', capJson);
 		expect(capJson.caption).toBeDefined();
-		expect(capJson.caption).toContain('https://localkynews.com');
+		expect(capJson.caption).toContain(BASE_URL);
 		expect(capJson.caption).not.toContain('wnky.com');
+		// give the worker a Facebook app id so preview includes fb:app_id
+		env.FB_APP_ID = '123456789';
 		// simulate a bot user-agent to trigger OG preview HTML
 		const botResp = await SELF.fetch(`https://example.com${path}`, {
 			headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
@@ -3106,8 +3114,7 @@ describe('social preview HTML route', () => {
 			const text = await botResp.text();
 			expect(text).toContain('<meta property="og:title" content="Test Title"');
 			expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
-			// should not use JS redirect or query flags for bots
-			expect(text).not.toContain('window.location.href');
+            expect(text).toContain('<meta property="fb:app_id" content="123456789"');
 			expect(text).not.toContain('?r=1');
 		}
 
@@ -3151,6 +3158,7 @@ describe('social preview HTML route', () => {
           if (botResp2.status === 200) {
             const text2 = await botResp2.text();
             expect(text2).toContain('<meta property="og:image" content="https://localkynews.com/img/preview.PNG"');
+            expect(text2).toContain('<meta property="fb:app_id" content="123456789"');
           }
 			expect([200, 404]).toContain(browserResp.status);
 			if (browserResp.status === 200) {

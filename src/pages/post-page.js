@@ -22,6 +22,8 @@ const useStyles = makeStyles({
 
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
+const FB_APP_ID =
+  (import.meta.env.REACT_APP_FB_APP_ID || import.meta.env.VITE_FB_APP_ID || "").trim();
 
 /**
  * Injects/updates a <meta> tag in <head> by name or property.
@@ -127,6 +129,7 @@ export default function PostPage() {
     setMeta("name", "twitter:title", post.title || SITE_NAME);
     setMeta("name", "twitter:description", cleanDesc);
     setMeta("name", "twitter:image", post.image || defaultImage);
+    if (FB_APP_ID) setMeta("property", "fb:app_id", FB_APP_ID);
 
     // JSON-LD: NewsArticle schema (section 5.5)
     const publisherName =
@@ -197,6 +200,7 @@ export default function PostPage() {
       setCanonical(SITE_URL);
       setMeta("property", "og:image", `${SITE_URL}/img/preview.PNG`);
       setMeta("name", "twitter:image", `${SITE_URL}/img/preview.PNG`);
+      setMeta("property", "fb:app_id", FB_APP_ID || "0");
       const ldScript = document.getElementById("json-ld-article");
       if (ldScript) ldScript.remove();
       const bcScript = document.getElementById("json-ld-breadcrumb-post");
