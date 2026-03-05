@@ -291,10 +291,37 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
   const normalizedCanonical = normalizeCanonicalUrl(scraped.canonicalUrl);
   const normalizedSource = normalizeCanonicalUrl(source.sourceUrl ?? source.url);
 
+  // For government/agency sites where the page <title> is the site name
+  // rather than the article title, prefer the RSS-provided title.
+  const resolvedTitle = (() => {
+    const readabilityTitle = readability?.title?.trim() || '';
+    const scrapedTitle = scraped.title?.trim() || '';
+    const rssTitle = source.providedTitle?.trim() || '';
+
+    // If the readability/scraped title looks like a generic site name
+    // (short, no punctuation, matches the domain brand) prefer the RSS title.
+    const isSiteName = (t: string) =>
+      t.length < 60 &&
+      !/[,.:!?\'"()\d]/.test(t) &&
+      rssTitle &&
+      t !== rssTitle &&
+      (
+        /^kentucky\s+state\s+police$/i.test(t) ||
+        /^(?:home|news|press releases?|latest news)$/i.test(t) ||
+        // Generic: title is 1-4 words and RSS title is clearly longer/more specific
+        (t.split(/\s+/).length <= 4 && rssTitle.split(/\s+/).length > 4)
+      );
+
+    if (isSiteName(readabilityTitle) || isSiteName(scrapedTitle)) {
+      return rssTitle || readabilityTitle || scrapedTitle || source.url;
+    }
+    return readabilityTitle || scrapedTitle || rssTitle || source.url;
+  })();
+
   return {
     canonicalUrl: normalizedCanonical,
     sourceUrl: normalizedSource,
-    title: readability?.title || scraped.title || source.providedTitle || source.url,
+    title: resolvedTitle,
     author: scraped.author,
     publishedAt: resolvedPublishedAt,
     contentHtml: readableHtml || scraped.contentHtml,

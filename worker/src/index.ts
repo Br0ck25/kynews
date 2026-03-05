@@ -1342,18 +1342,34 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
       if (isBot) {
         // Return OG meta HTML directly to bots — no redirect needed, bots don't run JS
         const pageUrl = `https://localkynews.com${canonicalPath}`;
+        // When an article doesn't provide its own image, Facebook/Twitter will
+        // happily fall back to whatever image they can scrape from the page.  The
+        // SPA shell is just the logo, which results in every preview showing the
+        // site icon.  To make the behaviour match the client‑side code we always
+        // emit an explicit og:image tag; use the article's image when available
+        // and otherwise point at the default preview graphic.
+        const defaultImage = `${new URL(pageUrl).origin}/img/preview.PNG`;
+
         const metas = [];
         metas.push('<meta property="og:type" content="article"/>');
         metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
         metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-        if (article.imageUrl) {
-          metas.push(`<meta property="og:image" content="${escapeHtml(article.imageUrl)}"/>`);
-        }
+        metas.push(
+          `<meta property="og:image" content="${escapeHtml(
+            article.imageUrl || defaultImage
+          )}"/>
+        `);
         metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
         metas.push('<meta property="og:site_name" content="Local KY News"/>');
-        const html = `<!doctype html><html><head>${metas.join('')}</head><body></body></html>`;
-        return new Response(html, {
-          headers: { 'content-type': 'text/html; charset=utf-8' },
+
+        // Twitter uses its own tags and also wants the large image card.
+        metas.push('<meta name="twitter:card" content="summary_large_image"/>');
+        metas.push(
+          `<meta name="twitter:image" content="${escapeHtml(
+            article.imageUrl || defaultImage
+          )}"/>
+        `);
+
         });
       }
 

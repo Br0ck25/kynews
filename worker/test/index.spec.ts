@@ -6,7 +6,8 @@ import * as classifyModule from '../src/lib/classify';
 import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed, isStatewideKyPoliticalStory } from '../src/lib/classify';
 import { isScheduleOrScoresArticle } from '../src/lib/ai';
 import { detectCounty } from '../src/lib/geo';
-import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull } from '../src/lib/http';
+import * as httpModule from '../src/lib/http';
+import { normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, cachedTextFetch } from '../src/lib/http';
 import * as ingestModule from '../src/lib/ingest';
 import { stripNoisyTags, scrapeArticleHtml } from '../src/lib/scrape';
 import { findHighlySimilarTitle } from '../src/lib/ingest';
@@ -685,6 +686,24 @@ describe('classification utilities', () => {
 		expect(category).toBe('sports');
 	});
 
+	it('fetchAndExtractArticle prefers RSS title when site title is generic', async () => {
+		// simulate a governmental site whose <title> is the site name
+		vi.spyOn(httpModule, 'cachedTextFetch').mockResolvedValue({
+			status: 200,
+			contentType: 'text/html',
+			body: '<html><head><title>Kentucky State Police</title></head><body><article><h1>Real Article Title</h1><p>Content</p></article></body></html>',
+		} as any);
+		const source = {
+			url: 'https://kentuckystatepolice.ky.gov/press-release.html',
+			providedTitle: 'Governor announces new safety initiative',
+			providedDescription: '',
+			feedPublishedAt: undefined,
+		};
+		const extracted = await ingestModule.fetchAndExtractArticle(env, source as any);
+		expect(extracted.title).toBe('Governor announces new safety initiative');
+		vi.restoreAllMocks();
+	});
+
 	it('ignores kentucky lantern branding in title for national stories', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://kentuckylantern.com/2026/02/03/repub/trump-doubles-down-on-calling-for-the-feds-to-take-over-state-elections/',
@@ -709,6 +728,14 @@ describe('classification utilities', () => {
 		expect(classifyModule.getSourceDefaultCounty('https://wlwt.com/anything')).toBeNull();
 	});
 
+	it('getSourceDefaultCounty recognizes kentuckystatepolice.ky.gov as statewide (null)', () => {
+		expect(classifyModule.getSourceDefaultCounty('https://kentuckystatepolice.ky.gov/news')).toBeNull();
+	});
+
+	it('getSourceDefaultCounty returns Pulaski for k105.com', () => {
+		expect(classifyModule.getSourceDefaultCounty('https://k105.com/article')).toBe('Pulaski');
+	});
+
 	it('classification picks up multiple counties in shared-suffix phrase', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://example.com/knox-laurel',
@@ -718,6 +745,31 @@ describe('classification utilities', () => {
 
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.counties).toEqual(['Laurel', 'Knox']);
+	});
+
+	it('does not let a bare county name override source default for kykernel.com', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://kykernel.com/sports/uk-game',
+			title: 'UK Wildcats vs Opponent',
+			content: 'Pendleton scored a touchdown in the second quarter.',
+		});
+		// fallback county for kykernel.com is Fayette
+		expect(classification.county).toBe('Fayette');
+	});
+
+	it('allows explicit "X County" mentions to override source default', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://kykernel.com/local-news',
+			title: 'Community meeting',
+			content: 'Pendleton County sheriff held a press conference.',
+		});
+		expect(classification.county).toBe('Pendleton');
+	});
+
+	it('national wire regex matches foreign datelines like Dubai/United Arab Emirates', () => {
+		expect(classifyModule.NATIONAL_WIRE_OVERRIDE_RE.test('DUBAI, United Arab Emirates — Story')).toBe(true);
+		expect(classifyModule.NATIONAL_WIRE_OVERRIDE_RE.test('JERUSALEM, Israel — Report')).toBe(true);
+		expect(classifyModule.NATIONAL_WIRE_OVERRIDE_RE.test('MOSCOW, Russia — News')).toBe(true);
 	});
 
 	it('treats FRANKFORT dateline stories as statewide Kentucky content with no county', async () => {
@@ -850,10 +902,18 @@ describe('classification utilities', () => {
 		expect(resp2.status).toBe(301);
 		expect(resp2.headers.get('location')).toBe(`/news/kentucky/fayette-county/${slug}`);
 	});
-			const html = '<div>Home » Region »</div><article><p>Story begins here.</p></article>';
-			const doc = scrapeArticleHtml('https://nkytribune.com/story', html);
-			expect(doc.contentText).toBe('Story begins here.');
-		});
+
+	it('strips breadcrumbs from scraped HTML', () => {
+		const html = '<div>Home » Region »</div><article><p>Story begins here.</p></article>';
+		const doc = scrapeArticleHtml('https://nkytribune.com/story', html);
+		expect(doc.contentText).toBe('Story begins here.');
+	});
+
+	it('removes WordPress vertical nav menus before article text', () => {
+		const html = 'Business\nEducation\nGovernment\n<article><p>Content after nav</p></article>';
+		const doc = scrapeArticleHtml('https://example.com/story', html);
+		expect(doc.contentText).toBe('Content after nav');
+	});
 
 		// explicit county should still be honored even in a Greater Cincinnati
 		// regional article; suppression only applies when the county was derived
@@ -3051,13 +3111,47 @@ describe('social preview HTML route', () => {
 			expect(text).not.toContain('?r=1');
 		}
 
-		// regular browser request should either redirect to canonical or return SPA shell
-		const browserResp = await SELF.fetch(`https://example.com${path}`, {
-			headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-		});
-		if (browserResp.status === 301) {
-			expect(browserResp.headers.get('location')).toBe(path);
-		} else {
+          // create another article without an image to ensure we emit the fallback
+          await env.ky_news_db
+            .prepare(
+              `INSERT INTO articles (
+                canonical_url, source_url, url_hash, title, author, published_at, category,
+                is_kentucky, county, city, summary, seo_description, raw_word_count,
+                summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              'https://example.com/ky-test2',
+              'https://example.com',
+              'test-hash-2',
+              'No Image Title',
+              null,
+              now,
+              'today',
+              1,
+              'Boone',
+              'boone',
+              'Summary',
+              'SEO',
+              100,
+              50,
+              'body',
+              '<p>body</p>',
+              null,
+              null,
+              'test-noimage-slug'
+            )
+            .run();
+
+          const pathNoImage = '/news/kentucky/boone-county/test-noimage-slug';
+          const botResp2 = await SELF.fetch(`https://example.com${pathNoImage}`, {
+            headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+          });
+          expect([200, 404]).toContain(botResp2.status);
+          if (botResp2.status === 200) {
+            const text2 = await botResp2.text();
+            expect(text2).toContain('<meta property="og:image" content="https://localkynews.com/img/preview.PNG"');
+          }
 			expect([200, 404]).toContain(browserResp.status);
 			if (browserResp.status === 200) {
 				const text3 = await browserResp.text();

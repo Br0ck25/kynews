@@ -275,6 +275,8 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'kentuckylantern.com': null,
   'kentuckytoday.com': null,
   'kentuckysportsradio.com': null,
+  'kentuckystatepolice.ky.gov': null, // KSP covers all of KY — no single county default
+  'k105.com': 'Pulaski',  // K-105 radio, Somerset / Pulaski County area
 };
 
 /**
@@ -483,6 +485,18 @@ export async function classifyArticleWithAi(
     // after the AI pass, so the geo detector result is not discarded.
   }
 
+  // FIX 5 (continued): evaluate whether the detected county is supported by
+  // an explicit mention in the article text.  If not, drop it so that a
+  // source default county (if present) can survive.
+  const hasExplicitCountyMention = baseGeo.county
+    ? COUNTY_PATTERNS.some(
+        (p) => p.county === baseGeo.county && p.pattern.test(semanticText)
+      )
+    : false;
+
+  const effectiveGeoCounty = hasExplicitCountyMention ? baseGeo.county : null;
+  const effectiveGeoCounties = hasExplicitCountyMention ? (baseGeo.counties || []) : [];
+
   // District-owned *.kyschools.us domains should generally be treated as
   // school-related stories unless the semantic classifier already identified a
   // more specific category (sports/weather/etc).  Previously we only forced
@@ -516,11 +530,11 @@ export async function classifyArticleWithAi(
   let fallback: ClassificationResult = {
     isKentucky: baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource,
     county:
-      baseGeo.county ??
+      effectiveGeoCounty ??
       (!baseGeo.city && (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource)
         ? allowedSourceDefaultCounty
         : null),
-    counties: baseGeo.counties ? [...baseGeo.counties] : [],
+    counties: effectiveGeoCounties ? [...effectiveGeoCounties] : [],
     city: baseGeo.city,
     category: hasKhsaa ? 'sports' : category,
     isNational: false, // will populate after we know isKentucky

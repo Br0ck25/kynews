@@ -859,11 +859,24 @@ async function handleRequest(request, env, ctx) {
                     metas.push('<meta property="og:type" content="article"/>');
                     metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
                     metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-                    if (article.imageUrl) {
-                        metas.push(`<meta property="og:image" content="${escapeHtml(article.imageUrl)}"/>`);
-                    }
+                    // always emit an og:image tag so crawlers never fall back to the
+                    // generic preview graphic; use the article picture if present,
+                    // otherwise point at the static site thumbnail.
+                    const defaultImage = `${new URL(pageUrl).origin}/img/preview.PNG`;
+                    metas.push(
+                      `<meta property="og:image" content="${escapeHtml(
+                        article.imageUrl || defaultImage
+                      )}"/>
+                    `);
                     metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
                     metas.push(`<meta property="og:site_name" content="Local KY News"/>`);
+                    // also include basic twitter tags to mirror the SPA output
+                    metas.push('<meta name="twitter:card" content="summary_large_image"/>');
+                    metas.push(
+                      `<meta name="twitter:image" content="${escapeHtml(
+                        article.imageUrl || defaultImage
+                      )}"/>
+                    `);
                     // include redirect parameter so second request bypasses this block
                     const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
                     return new Response(html, {

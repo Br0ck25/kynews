@@ -74,9 +74,9 @@ Before summarizing, clean the input:
   schedules, and any navigation or sidebar content.
 - Remove social sharing labels (Facebook, Twitter, Threads, Flipboard, etc.)
 
-Summarize the cleaned article to approximately 35–50% of its original
+Summarize the cleaned article to approximately 70–80% of its original
 length. If the original article is under 400 words, cap your summary
-at 200 words maximum.
+at 350 words maximum.
 
 Your summary must:
 - Begin with who, what, where, and why this is newsworthy.
@@ -249,7 +249,7 @@ export async function summarizeArticle(
       ],
       temperature: 0,
       seed: 42,
-      max_completion_tokens: 2000,
+      max_completion_tokens: 4000,
     })) as AiResultLike;
 
     const aiText = extractAiText(aiRaw).trim();
@@ -257,10 +257,10 @@ export async function summarizeArticle(
       const cleaned = stripBoilerplateFromOutput(aiText, title);
 
       const aiWords = wordCount(cleaned);
-      const minWords = Math.round(originalWords * 0.35);
+      const minWords = Math.round(originalWords * 0.60);
       const maxWords = originalWords < 400
-        ? 200
-        : Math.round(originalWords * 0.50);
+        ? 350
+        : Math.round(originalWords * 0.80);
 
       let validatedText = cleaned;
 
@@ -635,7 +635,7 @@ function deterministicFallbackSummary(content: string, originalWords: number): {
   summary: string;
   seoDescription: string;
 } {
-  const target = clamp(Math.round(originalWords * 0.45), 30, 250);
+  const target = clamp(Math.round(originalWords * 0.75), 30, 900);
   const words = content.split(/\s+/u).filter(Boolean);
   const raw = words.slice(0, target).join(' ').trim();
   const summary = ensureCompleteLastSentence(raw);
@@ -752,9 +752,16 @@ function cleanContentForSummarization(text: string, title: string): string {
   t = t.replace(/^CLICK HERE\b.+$/gim, '');
   t = t.replace(/^Click below to jump to[:\s].+$/gim, '');
   t = t.replace(/^(?:RELATED|READ MORE|MORE|SEE ALSO|WATCH|ALSO|SIGN UP|SUBSCRIBE|DOWNLOAD)[:\s].+$/gim, '');
+  // Strip WordPress category navigation menus — vertical lists of nav labels
+  // that appear at the top of scraped content from sites like nkytribune.com
+  t = t.replace(
+    /^(?:(?:Business|Education|Government|Health|Living|News|NonProfit|Region\/State|Sports|Voices|About|Contact|Subscribe|Advertise|Events|Opinion|Community|Politics|Economy|Environment|Science|Technology|Culture|Arts|Entertainment|Local|National|World|Weather|Obituaries|Jobs|Classifieds)\s*\n){2,}/i,
+    '',
+  );
+  // Strip standalone "Home » Category » " breadcrumb lines that remain after the nav strip
+  t = t.replace(/^(?:Home\s*[»›>|]\s*)+[^.!?\n]{0,120}(?:[»›>|][^.!?\n]{0,120})*\n?/im, '');
   t = t.replace(/^(?:Facebook|Twitter|X|Threads|Flipboard|Comments|Print|Email|Share|Instagram)\s*$/gim, '');
   t = t.replace(/^By\s+[A-Z][a-zA-Z .'-]{2,60}(?:Fox News|AP|Reuters|Staff|Reporter|Digital|Correspondent)?.*$/gm, '');
-  t = t.replace(/^Published\s+\w+\s+\d{1,2},\s+\d{4}.*$/gmi, '');
   t = t.replace(
     /^Published\s+\d{1,2}:\d{2}\s*(?:am|pm)\s+\w+,\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},\s+\d{4}.*$/gim,
     '',

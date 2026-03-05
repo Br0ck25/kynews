@@ -72,6 +72,26 @@ export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocum
     .replace(/^(?:Home\s*[»›>|]\s*)+[^.!?\n]{0,120}(?:[»›>|][^.!?\n]{0,120})*\s*/i, '')
     .trim();
 
+  // Strip WordPress/WP-based vertical nav menus that appear as a list of
+  // category names on separate lines before the article body.
+  // Pattern: 3+ short single-word/hyphenated lines (nav items) followed by article content.
+  const contentTextClean2 = contentTextClean
+    .replace(
+      /^(?:(?:Business|Education|Government|Health|Living|News|NonProfit|Region\/State|Sports|Voices|About|Contact|Subscribe|Advertise|Events|Opinion|Community|Politics|Economy|Environment|Science|Technology|Culture|Arts|Entertainment|Local|National|World|Weather|Obituaries|Jobs|Classifieds)\s*\n){2,}/i,
+      '',
+    )
+    .trim();
+
+  return {
+    canonicalUrl: normalizeCanonicalUrl(absolutizeMaybe(canonical, sourceUrl)),
+    title: normalizeText(title),
+    author: author ? normalizeText(author) : null,
+    publishedAt,
+    contentHtml: cleanedHtml,
+    contentText: contentTextClean2,
+    imageUrl: imageUrl ? absolutizeMaybe(imageUrl, sourceUrl) : null,
+  };
+
   return {
     canonicalUrl: normalizeCanonicalUrl(absolutizeMaybe(canonical, sourceUrl)),
     title: normalizeText(title),
