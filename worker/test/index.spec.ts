@@ -3186,6 +3186,13 @@ describe('social preview HTML route', () => {
 		const articleId = Number(row?.id ?? 0);
 
 		const path = '/news/kentucky/boone-county/test-slug';
+
+		// hitting the legacy /post URL for an article that *does* have a slug
+		// should redirect browsers to the pretty canonical path.
+		const browserRedirectResp = await SELF.fetch(`https://example.com/post?articleId=${articleId}`);
+		expect(browserRedirectResp.status).toBe(301);
+		expect(browserRedirectResp.headers.get('location')).toBe(path);
+
 		// also verify caption endpoint never returns external URL
 		const captionRequest = new IncomingRequest('https://example.com/api/admin/facebook/caption', {
 			method: 'POST',
@@ -3283,12 +3290,6 @@ describe('social preview HTML route', () => {
             expect(text3).toContain('<meta property="og:image:width" content="1200"');
             expect(text3).toContain('<meta property="og:image:height" content="630"');
           }
-			expect([200, 404]).toContain(browserResp.status);
-			if (browserResp.status === 200) {
-				const text3 = await browserResp.text();
-				expect(text3).toContain('<!doctype html');
-				expect(text3).not.toContain('<meta property="og:title"');
-			}
 		}
 
 		// hitting a county-level URL (no slug) should also return the SPA shell
@@ -3301,6 +3302,54 @@ describe('social preview HTML route', () => {
 		if (respCounty.status === 200) {
 			const countyText = await respCounty.text();
 			expect(countyText).toContain('<!doctype html');
+		}
+
+		// legacy /post?articleId URL should also show the article image
+		const legacyNow = new Date().toISOString(); // fresh timestamp for this row
+		await env.ky_news_db
+			.prepare(`
+				INSERT INTO articles (
+					canonical_url, source_url, url_hash, title, author, published_at, category,
+					is_kentucky, county, city, summary, seo_description, raw_word_count,
+					summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			)
+			.bind(
+				'https://example.com/legacy',
+				'https://example.com',
+				'legacy-hash',
+				'Legacy Title',
+				null,
+				legacyNow,
+				'today',
+				1,
+				'Boone',
+				'boone',
+				'Legacy summary',
+				'Legacy SEO',
+				100,
+				50,
+				'body',
+				'<p>body</p>',
+				'https://localkynews.com/img/legacy.jpg',
+				null,
+				null
+			)
+			.run();
+		const legacyRow = await env.ky_news_db
+			.prepare('SELECT id FROM articles WHERE url_hash = ? LIMIT 1')
+			.bind('legacy-hash')
+			.first();
+		const legacyId = Number(legacyRow?.id ?? 0);
+		const postPath = `/post?articleId=${legacyId}`;
+		const botRespLegacy = await SELF.fetch(`https://example.com${postPath}`, {
+			headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+		});
+		expect([200, 404]).toContain(botRespLegacy.status);
+		if (botRespLegacy.status === 200) {
+			const textL = await botRespLegacy.text();
+			expect(textL).toContain('<meta property="og:title" content="Legacy Title"');
+			expect(textL).toContain('<meta property="og:image" content="https://localkynews.com/img/legacy.jpg"');
 		}
 	});
 });

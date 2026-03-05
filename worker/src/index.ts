@@ -1320,7 +1320,8 @@ return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 }
 
 // --- Server-side social preview & canonical redirect for article URLs --------
-// When a bot (Facebook, Twitter, etc.) hits a `/news/...` path we want to
+// When a bot (Facebook, Twitter, etc.) hits an article URL (either a
+// `/news/...` path or the legacy `/post?articleId=...` route) we want to
 // return a minimal HTML page containing the appropriate Open Graph tags so
 // the shared link shows the correct title/image.  In the old implementation
 // we rewrote the response into a JS page that redirected browsers back to
@@ -1334,17 +1335,104 @@ return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 //   articles and the initial preview navigation without ever modifying the
 //   visible URL.  If the incoming path is already canonical we simply fall
 //   through and let the SPA handler serve `/index.html` normally.
-if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
+if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathname === '/post')) {
   const userAgent = request.headers.get('User-Agent') || '';
   const isBot = /facebookexternalhit|facebookbot|facebot|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot|discordbot|googlebot|bingbot|applebot|pinterest|vkshare|xing-contenttabreceiver|w3c_validator|curl|wget|python-requests|java\/|go-http|okhttp/i.test(userAgent);
+
+  // look up the article either by slug (normal path) or by ID using the
+  // legacy /post?articleId= query parameter.  canonicalPath will later be
+  // used for redirects and for the og:url tag.
+  let article: any = null;
+  let canonicalPath = url.pathname;
+
+  if (url.pathname === '/post') {
+    const idParam = url.searchParams.get('articleId');
+    const idNum = Number(idParam);
+    if (idParam && Number.isFinite(idNum) && idNum > 0) {
+      article = await getArticleById(env, idNum);
+      if (article) {
+        if (article.slug) {
+          canonicalPath = buildArticlePath(article);
+        } else {
+          canonicalPath = `/post?articleId=${idNum}`;
+        }
+
+        // if we found an article via the legacy ID route, we can respond
+        // immediately just like the `/news/...` branch would have later.
+        const desc = (article.seoDescription || article.summary || '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 160);
+
+        if (isBot) {
+          const pageUrl = `https://localkynews.com${canonicalPath}`;
+          const fallbackImage = 'https://localkynews.com/preview.png';
+          let previewImage = article.imageUrl;
+          if (!previewImage && article.contentHtml) {
+            const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
+            if (match && match[1]) {
+              previewImage = match[1];
+            }
+          }
+          if (!previewImage) {
+            try {
+              const fetchResp = await fetch(article.canonicalUrl + `?_=${Date.now()}`);
+              if (fetchResp.ok) {
+                const body = await fetchResp.text();
+                const { scrapeArticleHtml } = await import('./lib/scrape');
+                const scraped = scrapeArticleHtml(article.canonicalUrl, body);
+                if (scraped.imageUrl) {
+                  previewImage = scraped.imageUrl;
+                }
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          if (previewImage && !/^https?:\/\//i.test(previewImage)) {
+            try {
+              previewImage = new URL(previewImage, pageUrl).toString();
+            } catch {}
+          }
+          const metas = [];
+          metas.push('<meta property="og:type" content="article"/>');
+          metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
+          metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
+          const ogImage = previewImage || fallbackImage;
+          metas.push(`<meta property="og:image" content="${escapeHtml(ogImage)}"/>`);
+          metas.push(`<meta property="og:image:width" content="1200"/>`);
+          metas.push(`<meta property="og:image:height" content="630"/>`);
+          metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
+          metas.push('<meta property="og:site_name" content="Local KY News"/>');
+          metas.push('<meta name="twitter:card" content="summary_large_image"/>');
+          metas.push(`<meta name="twitter:image" content="${escapeHtml(ogImage)}"/>`);
+          metas.push(`<meta property="fb:app_id" content="${escapeHtml(env.FB_APP_ID || '0')}"/>`);
+          const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
+          return new Response(html, {
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          });
+        }
+        if (!isBot && canonicalPath !== url.pathname) {
+          return new Response(null, {
+            status: 301,
+            headers: {
+              Location: canonicalPath,
+              'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+            },
+          });
+        }
+      }
+    }
+  }
 
   const segments = url.pathname.split('/').filter((s) => s.length > 0);
   const slug = segments[segments.length - 1] || '';
 
-  if (slug) {
-    const article = await getArticleBySlug(env, slug);
+  if (!article && slug) {
+    article = await getArticleBySlug(env, slug);
     if (article) {
-      const canonicalPath = buildArticlePath(article);
+      canonicalPath = buildArticlePath(article);
       const desc = (article.seoDescription || article.summary || '')
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
@@ -1391,6 +1479,12 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
           } catch {
             /* ignore */
           }
+        }
+        // ensure the image URL is absolute; bots expect a full URL
+        if (previewImage && !/^https?:\/\//i.test(previewImage)) {
+          try {
+            previewImage = new URL(previewImage, pageUrl).toString();
+          } catch {}
         }
         const metas = [];
         metas.push('<meta property="og:type" content="article"/>');
@@ -1443,8 +1537,9 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
 // (The old 301 redirect handler that ran unconditionally after the preview
 // block has been removed; its logic is subsumed above.)
 
-// SPA fallback for any /news/ path (after preview logic)
-if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
+// SPA fallback for any /news/ path or the legacy /post endpoint
+// (after preview logic)
+if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathname === '/post')) {
 	// serve the React app shell so client JS can render the appropriate page
 	if (env.ASSETS) {
 		return env.ASSETS.fetch('/index.html');
