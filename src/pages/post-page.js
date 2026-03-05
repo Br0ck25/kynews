@@ -119,13 +119,14 @@ export default function PostPage() {
     setMeta("property", "og:description", cleanDesc);
     setMeta("property", "og:url", pageUrl);
     setMeta("property", "og:site_name", SITE_NAME);
-    if (post.image) setMeta("property", "og:image", post.image);
+    const defaultImage = `${SITE_URL}/img/preview.PNG`;
+    setMeta("property", "og:image", post.image || defaultImage);
 
     // Twitter card
     setMeta("name", "twitter:card", "summary_large_image");
     setMeta("name", "twitter:title", post.title || SITE_NAME);
     setMeta("name", "twitter:description", cleanDesc);
-    if (post.image) setMeta("name", "twitter:image", post.image);
+    setMeta("name", "twitter:image", post.image || defaultImage);
 
     // JSON-LD: NewsArticle schema (section 5.5)
     const publisherName =
@@ -194,6 +195,8 @@ export default function PostPage() {
       const genericDesc = "Kentucky News - local, state, and national updates for all 120 Kentucky counties.";
       setMeta("name", "description", genericDesc);
       setCanonical(SITE_URL);
+      setMeta("property", "og:image", `${SITE_URL}/img/preview.PNG`);
+      setMeta("name", "twitter:image", `${SITE_URL}/img/preview.PNG`);
       const ldScript = document.getElementById("json-ld-article");
       if (ldScript) ldScript.remove();
       const bcScript = document.getElementById("json-ld-breadcrumb-post");

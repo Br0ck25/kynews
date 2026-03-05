@@ -128,12 +128,14 @@ export default function ArticleSlugPage() {
     setMeta("property", "og:description", cleanDesc);
     setMeta("property", "og:url", pageUrl);
     setMeta("property", "og:site_name", SITE_NAME);
-    if (post.image) setMeta("property", "og:image", post.image);
+    // ensure OG image is always absolute; fall back to generic preview graphic
+    const defaultImage = `${SITE_URL}/img/preview.PNG`;
+    setMeta("property", "og:image", post.image || defaultImage);
 
     setMeta("name", "twitter:card", "summary_large_image");
     setMeta("name", "twitter:title", post.title || SITE_NAME);
     setMeta("name", "twitter:description", cleanDesc);
-    if (post.image) setMeta("name", "twitter:image", post.image);
+    setMeta("name", "twitter:image", post.image || defaultImage);
 
     const publisherName =
       post.sourceName ||
@@ -194,6 +196,10 @@ export default function ArticleSlugPage() {
         "Kentucky News - local, state, and national updates for all 120 Kentucky counties.";
       setMeta("name", "description", genericDesc);
       setCanonical(SITE_URL);
+      // restore default image tags as well so the generic shell metadata is
+      // always present when leaving an article page.
+      setMeta("property", "og:image", `${SITE_URL}/img/preview.PNG`);
+      setMeta("name", "twitter:image", `${SITE_URL}/img/preview.PNG`);
       document.getElementById("json-ld-article")?.remove();
       document.getElementById("json-ld-breadcrumb-post")?.remove();
     };
