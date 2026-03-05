@@ -1435,6 +1435,18 @@ if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathna
 
   if (!article && slug) {
     article = await getArticleBySlug(env, slug);
+
+    // if the database somehow returned a row with no slug value we treat it
+    // as if the article does not exist.  without this guard the later
+    // canonicalPath computation would produce `/` and bots would scrape the
+    // homepage metadata instead of receiving a 404.
+    if (article && !article.slug) {
+      article = null;
+      if (isBot) {
+        return new Response('Not found', { status: 404 });
+      }
+    }
+
     if (article) {
       canonicalPath = buildArticlePath(article);
       const desc = (article.seoDescription || article.summary || '')
@@ -1625,6 +1637,11 @@ function buildArticlePath(article: {
   isKentucky: boolean;
   county: string | null;
 }): string {
+  // article.slug should always be a non-empty string for valid articles.
+  // The only time this helper returns '/' is when slug is falsy, which
+  // signals a misbehaving caller; the preview logic now guards against that
+  // and treats it as a missing article.  Returning '/' here directly would
+  // cause bots to scrape the homepage instead of an intended story.
   if (!article.slug) return '/';
   if (article.isKentucky && article.county) {
     let countyStr = article.county.trim();

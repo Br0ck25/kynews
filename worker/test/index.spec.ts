@@ -3146,6 +3146,16 @@ describe('admin facebook post endpoint', () => {
 // tests for server-side social preview route
 
 describe('social preview HTML route', () => {
+	it('returns 404 when slug is not present in database', async () => {
+		await ensureSchemaAndFixture();
+		const missingPath = '/news/kentucky/boone-county/nonexistent-slug';
+		const botResp = await SELF.fetch(`https://example.com${missingPath}`, {
+			headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+		});
+		// bots should see a 404 instead of the generic shell
+		expect(botResp.status).toBe(404);
+	});
+
 	it('returns og meta tags and redirect script for kentucky article', async () => {
 		await ensureSchemaAndFixture();
 		// insert sample article with image and slug
