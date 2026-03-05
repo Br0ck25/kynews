@@ -3286,11 +3286,67 @@ describe('social preview HTML route', () => {
           expect([200, 404]).toContain(botResp3.status);
           if (botResp3.status === 200) {
             const text3 = await botResp3.text();
-            expect(text3).toContain('<meta property="og:image" content="https://localkynews.com/preview.png"');
+            expect(text3).toContain('<meta property="og:image" content="https://localkynews.com/img/preview.PNG"');
             expect(text3).toContain('<meta property="og:image:width" content="1200"');
             expect(text3).toContain('<meta property="og:image:height" content="630"');
           }
 		}
+
+        // additional regression: bots should still see metadata even when the
+        // URL already contains a query string such as `?r=1` (earlier versions
+        // ignored `searchParams.has('r')` and returned the shell).  simulate
+        // that situation with the earlier article that had a normal image.
+        const botRespWithQuery = await SELF.fetch(`https://example.com${path}?r=1`, {
+          headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+        });
+        expect([200, 404]).toContain(botRespWithQuery.status);
+        if (botRespWithQuery.status === 200) {
+          const textQ = await botRespWithQuery.text();
+          expect(textQ).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
+        }
+
+        // also verify that a relative value in the DB gets converted to an absolute
+        // URL before being emitted so crawlers don't end up with "/foo.jpg".
+        await env.ky_news_db
+          .prepare(
+            `INSERT INTO articles (
+                canonical_url, source_url, url_hash, title, author, published_at, category,
+                is_kentucky, county, city, summary, seo_description, raw_word_count,
+                summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            'https://example.com/reltest',
+            'https://example.com',
+            'rel-hash',
+            'Relative Image Test',
+            null,
+            now,
+            'today',
+            1,
+            'Boone',
+            'boone',
+            'Summary',
+            'SEO',
+            100,
+            50,
+            'body',
+            '<p>body</p>',
+            '/foo.jpg',
+            null,
+            'relative-slug'
+          )
+          .run();
+
+        const relPath = '/news/kentucky/boone-county/relative-slug';
+        const botRespRel = await SELF.fetch(`https://example.com${relPath}`, {
+          headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+        });
+        expect([200, 404]).toContain(botRespRel.status);
+        if (botRespRel.status === 200) {
+          const textR = await botRespRel.text();
+          expect(textR).toContain('<meta property="og:image" content="https://example.com/foo.jpg"');
+        }
 
 		// hitting a county-level URL (no slug) should also return the SPA shell
 		const countyPath = '/news/kentucky/adair-county';

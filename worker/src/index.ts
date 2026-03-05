@@ -1367,7 +1367,11 @@ if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathna
 
         if (isBot) {
           const pageUrl = `https://localkynews.com${canonicalPath}`;
-          const fallbackImage = 'https://localkynews.com/preview.png';
+          // fallback graphic used when no article image can be determined.  The
+          // client-side SPA already uses `/img/preview.PNG` so the bot response
+          // must match that path; the previous hard‑coded `/preview.png` was
+          // missing in production and caused Facebook to scrape the shell logo.
+          const fallbackImage = 'https://localkynews.com/img/preview.PNG';
           let previewImage = article.imageUrl;
           if (!previewImage && article.contentHtml) {
             const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
@@ -1452,7 +1456,10 @@ if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathna
         // available.  We want a consistent preview graphic even when the
         // article doesn't supply any image regardless of whether the stored
         // content contains an <img> tag.
-        const fallbackImage = 'https://localkynews.com/preview.png';
+        // match the client‑side default so bots see the same preview image
+        // that appears in the SPA shell.  Previously this URL was wrong and
+        // caused Facebook to fall back to the site logo when scraping.
+        const fallbackImage = 'https://localkynews.com/img/preview.PNG';
 
         // determine which image to use. priority:
         // 1. explicit article.imageUrl

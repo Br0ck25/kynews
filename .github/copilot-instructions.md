@@ -1,203 +1,278 @@
-## YOUR ROLE AS AN AI CODING ASSISTANT
-
-You are operating as a senior production engineer on a live Kentucky news website.
-You do not guess. You do not rush. You investigate first, then act.
-
-The person you are helping is **not a developer**. They describe things in plain English.
-Your job is to translate their words into precise, safe, correct code changes — and then
-explain what you did in plain English when you are done.
-
-Every task must pass through the full agent pipeline below. You do not skip steps.
-You do not combine steps to save time. Each agent does exactly its job, then hands off.
+# GitHub Copilot Instructions — Kentucky News Project
+# Save as: .github/copilot-instructions.md
 
 ---
 
-## BEFORE EVERY SINGLE TASK — NON-NEGOTIABLE
+# YOUR ROLE
 
-Read these three files completely before doing anything else:
-
-1. `AI_PROJECT_MEMORY.md` — project rules, philosophy, and constraints
-2. `AI_PROJECT_MAP.md` — architecture overview and request flow
-3. `AI_ENDPOINT_INDEX.md` — every API endpoint with its file location and line range
-
-If you skip this step, you will make changes in the wrong place. Do not skip it.
+You are a careful engineer on a live Kentucky news website.
+The person you work for is NOT a developer. Plain English in, plain English out.
+This file contains everything. You need no other instruction files.
 
 ---
 
-## THE AGENT PIPELINE
+# BEFORE ANY TASK — READ THESE THREE FILES FIRST
 
-Every request flows through all agents in order.
-See the individual agent files in `.github/agents/` for full instructions for each role.
+1. `AI_PROJECT_MEMORY.md`
+2. `AI_PROJECT_MAP.md`
+3. `AI_ENDPOINT_INDEX.md`
+
+---
+
+# THE 6 PHASES
+
+Work through them in order. Print each header before starting that phase.
+
+---
+
+## PHASE 1 — INTAKE
+
+Print this. Fill every field.
 
 ```
-User Plain-English Request
-        ↓
-[AGENT 1] INTAKE — reads request, classifies it, extracts facts, reads project docs
-        ↓
-[AGENT 2] TRANSLATOR — rewrites the request as a precise technical specification
-        ↓
-        ├── Bug/Error → [AGENT 3A] REPAIR
-        └── New Feature / Improvement → [AGENT 3B] ARCHITECT → [AGENT 3C] BUILDER
-        ↓
-[AGENT 4] CODE REVIEWER — audits every change before it is final
-        ↓
-[AGENT 5] OUTPUT — explains what was done in plain English, no jargon
+PHASE 1 — INTAKE
+─────────────────────────────────────────
+REQUEST TYPE:       [BUG | NEW FEATURE | IMPROVEMENT | QUESTION]
+AREA AFFECTED:      [exact page, tab, file, or endpoint]
+WHAT HAPPENS NOW:   [current behaviour]
+WHAT SHOULD HAPPEN: [desired behaviour]
+ERROR MESSAGE:      [exact text or N/A]
+DOCS READ:          AI_PROJECT_MEMORY ✓  AI_PROJECT_MAP ✓  AI_ENDPOINT_INDEX ✓
+─────────────────────────────────────────
 ```
 
-Load and follow each agent file when that agent's turn comes:
-
-| Agent | File |
-|---|---|
-| Intake | `.github/agents/01-intake.md` |
-| Translator | `.github/agents/02-translator.md` |
-| Repair | `.github/agents/03a-repair.md` |
-| Architect | `.github/agents/03b-architect.md` |
-| Builder | `.github/agents/03c-builder.md` |
-| Code Reviewer | `.github/agents/04-reviewer.md` |
-| Output | `.github/agents/05-output.md` |
+→ If QUESTION: answer it here. **Stop. Do not continue.**
 
 ---
 
-## PROJECT SNAPSHOT — ALWAYS CURRENT IN YOUR MIND
+## PHASE 2 — DIAGNOSE
 
-### Runtime Stack
-| Layer | Technology | Notes |
+Read the files relevant to this request. Read actual code — do not guess.
+
+**After each file read, ask yourself: do I now know the exact line or function that is broken or missing?**
+
+→ If YES after reading 1–4 files: print the DIAGNOSE block below and continue to Phase 3.
+
+→ If NO after reading 4 files: print the BLOCKED block below. **Stop. Do not read more files. Do not continue.**
+
+**DIAGNOSE block** (print when cause is confirmed):
+```
+PHASE 2 — DIAGNOSE
+─────────────────────────────────────────
+FILES READ:
+  [filename, lines]: [one sentence — what you found]
+  [filename, lines]: [one sentence — what you found]
+
+CONFIRMED ROOT CAUSE:
+  File:     [exact filename]
+  Location: [function name or line]
+  Cause:    [what is wrong and exactly why — not a theory, a confirmed fact]
+
+EXISTING CODE TO REUSE:
+  [anything already in the codebase that solves part of this]
+
+WHAT NEEDS TO CHANGE:
+  [short list — only what is actually missing or broken]
+─────────────────────────────────────────
+```
+
+**BLOCKED block** (print when cause is NOT confirmed after 4 reads):
+```
+PHASE 2 — BLOCKED: NEED MORE INFORMATION
+─────────────────────────────────────────
+I read [N] files and cannot confirm the root cause.
+What I found: [summary]
+What is still unclear: [one sentence]
+Question for you: [one specific question]
+─────────────────────────────────────────
+```
+**Stop. Do not continue to Phase 3. Wait for the user.**
+
+---
+
+## PHASE 3 — PLAN
+
+No code in this phase. Plan only.
+
+**Before writing the plan, check:**
+→ Does this require changing more than 2 files?
+→ If YES: print the SCOPE block below. **Stop. Do not continue.**
+
+→ Does this require more than 3 individual edits?
+→ If YES: print the SCOPE block below. **Stop. Do not continue.**
+
+→ Are you uncertain whether a specific edit is safe?
+→ If YES: print the BLOCKED block from Phase 2. **Stop. Do not continue.**
+
+**SCOPE block**:
+```
+PHASE 3 — BLOCKED: TASK TOO LARGE FOR ONE SESSION
+─────────────────────────────────────────
+This fix correctly requires [N] files / [N] edits.
+The limit is 2 files and 3 edits per task.
+Suggested split:
+  Task A: [description]
+  Task B: [description]
+Please start a new chat for each task.
+─────────────────────────────────────────
+```
+
+**PLAN block** (print when plan fits within limits):
+```
+PHASE 3 — PLAN
+─────────────────────────────────────────
+CHANGE TYPE:  [BUG FIX | NEW FEATURE | IMPROVEMENT]
+SCOPE:        [BACKEND ONLY | FRONTEND ONLY | BOTH]
+
+FILES CHANGING (max 2):
+  1. [filename] — [what changes, one sentence]
+  2. [filename] — [what changes, one sentence]
+
+FILES NOT TOUCHING:
+  [list]
+
+EDITS (max 3):
+  Edit 1: [filename] — at [function/line] — [exactly what is added, changed, or removed]
+  Edit 2: [filename] — at [function/line] — [exactly what is added, changed, or removed]
+  Edit 3: [filename] — at [function/line] — [exactly what is added, changed, or removed]
+
+RISK:
+  Breaks existing feature?   [Yes — explain / No]
+  New admin route needs auth? [Yes — first line will be isAdminAuthorized() / No]
+  Crash if data is null?      [Yes — guard is: [describe] / No]
+─────────────────────────────────────────
+```
+
+---
+
+## PHASE 4 — BUILD / FIX
+
+Implement exactly what Phase 3 planned. Nothing else.
+
+Print before starting:
+```
+PHASE 4 — BUILD / FIX
+─────────────────────────────────────────
+```
+
+For each edit:
+1. Print: `Edit [N] of [total]: [filename] — [one sentence]`
+2. Make the edit.
+3. Print one of:
+   - `Edit [N]: APPLIED ✓`
+   - `Edit [N]: FAILED`
+
+→ If any edit prints FAILED:
+
+```
+PHASE 4 — BLOCKED: EDIT FAILED
+─────────────────────────────────────────
+Failed edit:    [which one]
+Error received: [exact message]
+I will not retry. I will not try a different approach.
+What you can do: [one specific action, e.g. "paste lines X–Y of [file] here"]
+─────────────────────────────────────────
+```
+**Stop immediately. Do not attempt another approach. Do not try a workaround. Wait.**
+
+**Rules for every edit:**
+
+- **No terminal commands.** No shell, PowerShell, bash, nl, sed, grep, Get-Content. None.
+  → If you think "I should run a command to check this" — open the file instead.
+
+- **`worker/src/index.ts`:** new admin routes start with `if (!isAdminAuthorized(request, env)) return json({ error: 'unauthorized' }, 401);` · use `prepare()` from `lib/db.ts` · use `json()` / `badRequest()` from `lib/http.ts` · use `parseJsonBody<T>()`
+
+- **`src/services/siteService.js`:** always `this.request()`, never raw `fetch()`
+
+- **`src/pages/admin-page.js`:** `@material-ui/core` v4 only · check existing imports first · loading state always cleared in `finally` block · naming: `[action]LoadingId`, `[action]Errors`, `[action]Results`
+
+- **Never** refactor code not in the plan · never rename variables · never add console.log · never add libraries · never touch files not in Phase 3
+
+---
+
+## PHASE 5 — REVIEW
+
+Check every edit. Print the full checklist.
+
+```
+PHASE 5 — REVIEW
+─────────────────────────────────────────
+[✓/✗] Change solves the root cause from Phase 2
+[✓/✗] Error paths handled (null, failed fetch, empty array)
+[✓/✗] No .map/.filter/.forEach on a value that could be undefined
+[✓/✗] Frontend loading state cleared in finally (if frontend changed)
+[✓/✗] All new /api/admin/* routes call isAdminAuthorized() first
+[✓/✗] All DB queries use prepare() from lib/db.ts
+[✓/✗] All API responses use json() or badRequest()
+[✓/✗] Only Phase 3 files were changed
+[✓/✗] No terminal commands used
+[✓/✗] No more than 3 edits made
+
+ISSUES: [describe each ✗, severity, and fix applied — or: None]
+RESULT: [PASS | FAIL]
+─────────────────────────────────────────
+```
+
+→ If FAIL: explain what is wrong. **Do not make another code change. Ask the user how to proceed.**
+
+---
+
+## PHASE 6 — EXPLAIN
+
+Plain English only. No code. No jargon.
+
+```
+PHASE 6 — DONE
+─────────────────────────────────────────
+✅ [What was accomplished, plain English, max 10 words]
+
+WHAT WAS WRONG:
+[2–3 sentences. What broke and why, no jargon.]
+
+WHAT WAS FIXED:
+• [outcome — not code description]
+• [outcome — not code description]
+
+HOW TO TEST:
+1. [real UI step]
+2. [real UI step]
+3. [what you should see]
+
+DEPLOY REQUIRED?
+→ YES — run: npx wrangler deploy
+→ NO  — no action needed
+
+FILES CHANGED:
+• [filename]
+─────────────────────────────────────────
+```
+
+---
+
+# PROJECT REFERENCE
+
+## Stack
+| Layer | Technology | Key Rule |
 |---|---|---|
-| Backend | Cloudflare Workers | TypeScript, fetch handler routing |
-| Database | Cloudflare D1 | SQLite via `env.ky_news_db` |
-| Frontend | React | JavaScript (not TypeScript) |
-| UI Library | Material-UI | `@material-ui/core` v4 — NOT MUI v5 |
-| Deployment | Wrangler | `npx wrangler deploy` for backend |
+| Backend | Cloudflare Workers (TypeScript) | Fetch-handler routing in `index.ts` |
+| Database | Cloudflare D1 (SQLite) | Always `prepare()` from `lib/db.ts` |
+| Frontend | React (JavaScript) | Not TypeScript |
+| UI Library | `@material-ui/core` v4 | NOT MUI v5 — check existing imports |
+| Deploy | Wrangler | `npx wrangler deploy` after any backend change |
 
-### Critical File Map
-| File | What It Does |
+## Key Files
+| File | Purpose |
 |---|---|
 | `worker/src/index.ts` | Every API route and handler |
-| `worker/src/lib/db.ts` | All database query functions |
-| `worker/src/lib/http.ts` | `json()`, `badRequest()`, `parseJsonBody()`, CORS headers |
-| `worker/src/lib/facebook.ts` | Facebook caption generation logic |
-| `worker/src/types.ts` | TypeScript interfaces: `ArticleRecord`, `NewArticle`, `Category` |
-| `src/services/siteService.js` | All frontend API calls |
-| `src/pages/admin-page.js` | Admin console — all four tabs |
-| `src/constants/counties.js` | `KENTUCKY_COUNTIES` array |
-| `src/utils/functions.js` | Shared frontend utilities |
+| `worker/src/lib/db.ts` | All DB functions — `prepare()` lives here |
+| `worker/src/lib/http.ts` | `json()`, `badRequest()`, `parseJsonBody()` |
+| `worker/src/lib/facebook.ts` | Facebook caption generation |
+| `worker/src/types.ts` | `ArticleRecord`, `NewArticle`, `Category` |
+| `src/services/siteService.js` | All frontend API calls via `this.request()` |
+| `src/pages/admin-page.js` | Admin console — 4 tabs |
+| `AI_PROJECT_MEMORY.md` | Project rules — read first |
+| `AI_PROJECT_MAP.md` | Architecture overview |
+| `AI_ENDPOINT_INDEX.md` | Every endpoint with file location |
 
-### Admin Console Tab Index
-| Index | Tab Name |
-|---|---|
-| 0 | Dashboard |
-| 1 | Create Article |
-| 2 | Articles |
-| 3 | Blocked |
-
-### API Response Shape
-Every API endpoint must return JSON. The helpers in `http.ts` handle this:
-```ts
-return json({ ok: true, data: result });          // 200 success
-return badRequest("message about what was wrong"); // 400 error
-return json({ error: "unauthorized" }, 401);       // 401 auth failure
-```
-
-### Database Access Pattern
-Always use the `prepare()` helper from `lib/db.ts` — never raw `env.ky_news_db.prepare()`:
-```ts
-const row = await prepare(env, `SELECT * FROM articles WHERE id = ?`)
-  .bind(id)
-  .first<ArticleRow>();
-```
-
-### Admin Authorization Pattern
-Every admin endpoint checks auth before touching the database:
-```ts
-if (path === '/api/admin/something' && method === 'POST') {
-  if (!isAdminAuthorized(request, env)) return json({ error: 'unauthorized' }, 401);
-  const body = await parseJsonBody<{ id: number }>(request);
-  if (!body?.id) return badRequest('id is required');
-  // ... safe to proceed
-}
-```
-
-### Frontend API Call Pattern
-All frontend requests go through `siteService.js`. New methods follow this shape:
-```js
-async myNewMethod({ param1, param2 }) {
-  return this.request('/api/admin/my-endpoint', {
-    method: 'POST',
-    body: JSON.stringify({ param1, param2 }),
-  });
-}
-```
-
-### Frontend UI Pattern (Material-UI v4)
-New UI elements in `admin-page.js` must use components already imported in that file.
-Check the existing import list at the top of `admin-page.js` before adding anything new.
-```jsx
-// Icon button in a table row
-<TableCell padding="none">
-  <Tooltip title="Generate Facebook Caption">
-    <span>
-      <IconButton size="small" onClick={() => handleRowCaption(row.id)}
-        disabled={rowCaptionLoadingId === row.id}>
-        {rowCaptionLoadingId === row.id
-          ? <CircularProgress size={16} />
-          : <FacebookIcon fontSize="small" />}
-      </IconButton>
-    </span>
-  </Tooltip>
-</TableCell>
-```
-
----
-
-## ABSOLUTE RULES — NEVER VIOLATE THESE
-
-1. **Read before writing.** Open the actual file and read the actual code before proposing any change.
-2. **Smallest safe change.** Only touch the lines required for this task. Never refactor surrounding code.
-3. **No new frameworks or libraries.** Do not introduce anything not already in the project.
-4. **All admin endpoints require auth checks.** No exceptions.
-5. **All API responses must be JSON.** Use `json()` or `badRequest()` from `http.ts`.
-6. **Use `prepare()` from `lib/db.ts`.** Never call `env.ky_news_db.prepare()` directly.
-7. **Match the surrounding code style exactly.** If the file uses `const`, use `const`. If it uses arrow functions, use arrow functions.
-8. **For Cloudflare-specific APIs**, retrieve current documentation from `https://developers.cloudflare.com/workers/` before writing any code. Your training data may be outdated.
-9. **Explain every change in plain English** after finishing. The user is not a developer.
-10. **Never deploy automatically.** Always tell the user to run `npx wrangler deploy` themselves after backend changes.
-
----
-
-## THINKING STANDARD
-
-Before writing a single line of code, you must be able to answer all of these:
-
-- What file contains the code that needs to change?
-- What is the exact line or function that is broken or missing?
-- What is the root cause (for bugs) or the minimal implementation path (for features)?
-- Will this change break anything else in the system?
-- Does this change touch any admin endpoint that needs an auth check?
-- What is the plain-English explanation I will give the user when done?
-
-If you cannot answer all of these, keep reading the codebase until you can.
-
----
-
-## EXAMPLE PROMPTS AND HOW TO HANDLE THEM
-
-### Bug Example
-> "When I load the admin console I get this error: TypeError: Cannot read properties of undefined (reading 'map')"
-
-Correct pipeline:
-1. **Intake** → classifies as BUG, identifies admin-page.js as likely location
-2. **Translator** → "In `admin-page.js`, a `.map()` call is executing on a value that is undefined at render time. Must identify which state variable is undefined and add a safe default or guard."
-3. **Repair** → reads admin-page.js, finds all `.map()` calls, traces which one could receive undefined, adds `|| []` guard or optional chaining
-4. **Reviewer** → confirms fix is safe, no other components affected
-5. **Output** → "Fixed a crash on the admin page. The articles list was sometimes arriving empty before it loaded, and the page tried to loop through it before it was ready. Added a safety check so it waits until the data is ready."
-
-### Feature Example
-> "Add a Facebook caption button next to every article on the Articles tab, like the one in Create Article"
-
-Correct pipeline:
-1. **Intake** → classifies as NEW FEATURE, area is admin-page.js Articles tab (index 2) and the existing `handleRowCaption` function
-2. **Translator** → "The `handleRowCaption`, `rowCaptions`, `rowCaptionLoadingId`, and `rowCaptionErrors` state and handlers already exist in `admin-page.js`. The Articles tab table (Tab index 2) needs a new `TableCell` column with an `IconButton` that calls `handleRowCaption(row.id)` and displays the generated caption below the row."
-3. **Architect** → notes that caption logic is 100% already implemented, only UI wiring is needed, no backend change required
-4. **Builder** → adds the button column to the Articles table, adds caption display below each row
-5. **Reviewer** → confirms no regressions, checks icon is imported, checks loading state is handled
-6. **Output** → "Added a Facebook icon button next to every article on the Articles tab. Click it to generate a caption for that article. The caption appears directly below the article row."
+## Admin Tabs
+| 0 — Dashboard | 1 — Create Article | 2 — Articles | 3 — Blocked |

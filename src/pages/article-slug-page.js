@@ -133,12 +133,24 @@ export default function ArticleSlugPage() {
     setMeta("property", "og:site_name", SITE_NAME);
     // ensure OG image is always absolute; fall back to generic preview graphic
     const defaultImage = `${SITE_URL}/img/preview.PNG`;
-    setMeta("property", "og:image", post.image || defaultImage);
+    // post.image may be a relative path so coerce to a full URL like the
+    // server-side preview logic does.  this only affects clients, but it
+    // prevents the DOM-based tags from ending up with "/foo.jpg" which
+    // crawlers could potentially misinterpret.
+    let ogImage = post.image || defaultImage;
+    if (ogImage && !/^https?:\/\//i.test(ogImage)) {
+      try {
+        ogImage = new URL(ogImage, SITE_URL).toString();
+      } catch {
+        // ignore and keep whatever value we already had
+      }
+    }
+    setMeta("property", "og:image", ogImage);
 
     setMeta("name", "twitter:card", "summary_large_image");
     setMeta("name", "twitter:title", post.title || SITE_NAME);
     setMeta("name", "twitter:description", cleanDesc);
-    setMeta("name", "twitter:image", post.image || defaultImage);
+    setMeta("name", "twitter:image", ogImage);
     if (FB_APP_ID) setMeta("property", "fb:app_id", FB_APP_ID);
 
     const publisherName =
