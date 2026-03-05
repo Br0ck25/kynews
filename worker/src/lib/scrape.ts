@@ -14,10 +14,14 @@ const META_REGEXPS: Record<string, RegExp[]> = {
     /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']description["'][^>]*>/i,
   ],
   image: [
-    /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
-    /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image["'][^>]*>/i,
+    // og:image with optional suffix (e.g. og:image:secure_url)
+    /<meta[^>]+property=["']og:image(?:[:][^"']*)?["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image(?:[:][^"']*)?["'][^>]*>/i,
+    // twitter image meta
     /<meta[^>]+name=["']twitter:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
     /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']twitter:image["'][^>]*>/i,
+    // general link rel image_src
+    /<link[^>]+rel=["']image_src["'][^>]*href=["']([^"']+)["'][^>]*>/i,
   ],
   author: [
     /<meta[^>]+name=["']author["'][^>]*content=["']([^"']+)["'][^>]*>/i,
@@ -54,13 +58,36 @@ export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocum
   const canonical = findMeta('canonical', html) ?? sourceUrl;
   const author = findMeta('author', html);
   const publishedAt = toIsoDateOrNull(findMeta('publishedAt', html));
-  const imageUrl = findMeta('image', html);
+  let imageUrl = findMeta('image', html);
 
   const articleHtml =
     matchFirst(html, /<article[^>]*>([\s\S]*?)<\/article>/i) ??
     matchFirst(html, /<main[^>]*>([\s\S]*?)<\/main>/i) ??
     matchFirst(html, /<body[^>]*>([\s\S]*?)<\/body>/i) ??
     html;
+
+  // If no image meta was found, look for a picture inside the article
+  // fragment.  We prefer the first explicitly-loaded source, then fall back
+  // to lazy-/data-src attributes or the first URL in a srcset.
+  if (!imageUrl) {
+    let imgMatch = articleHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (!imgMatch) {
+      imgMatch = articleHtml.match(/<img[^>]+data-src=["']([^"']+)["']/i);
+    }
+    if (!imgMatch) {
+      const setMatch = articleHtml.match(/<img[^>]+srcset=["']([^"']+)["']/i);
+      if (setMatch && setMatch[1]) {
+        // take the first src from the set (comma separated list)
+        const parts = setMatch[1].split(',').map((p) => p.trim());
+        if (parts.length > 0) {
+          imgMatch = [null, parts[0].split(' ')[0]];
+        }
+      }
+    }
+    if (imgMatch && imgMatch[1]) {
+      imageUrl = imgMatch[1];
+    }
+  }
 
   const cleanedHtml = stripNoisyTags(articleHtml);
   const contentText = normalizeText(stripHtml(cleanedHtml));
@@ -89,16 +116,6 @@ export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocum
     publishedAt,
     contentHtml: cleanedHtml,
     contentText: contentTextClean2,
-    imageUrl: imageUrl ? absolutizeMaybe(imageUrl, sourceUrl) : null,
-  };
-
-  return {
-    canonicalUrl: normalizeCanonicalUrl(absolutizeMaybe(canonical, sourceUrl)),
-    title: normalizeText(title),
-    author: author ? normalizeText(author) : null,
-    publishedAt,
-    contentHtml: cleanedHtml,
-    contentText: contentTextClean,
     imageUrl: imageUrl ? absolutizeMaybe(imageUrl, sourceUrl) : null,
   };
 }

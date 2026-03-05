@@ -915,10 +915,23 @@ describe('classification utilities', () => {
 		expect(doc.contentText).toBe('Content after nav');
 	});
 
-		// explicit county should still be honored even in a Greater Cincinnati
-		// regional article; suppression only applies when the county was derived
-		// from a city match.
-		it('honors explicit county mention in Greater Cincinnati article', async () => {
+		it('falls back to first <img> when no og:image meta is present', () => {
+			const html = '<article><p>Story</p><img src="/images/foo.jpg"/></article>';
+			const doc = scrapeArticleHtml('https://example.com/story', html);
+			expect(doc.imageUrl).toBe('https://example.com/images/foo.jpg');
+		});
+
+		it('uses data-src when src is missing', () => {
+			const html = '<article><img data-src="/foo2.png"/></article>';
+			const doc = scrapeArticleHtml('https://example.com/story', html);
+			expect(doc.imageUrl).toBe('https://example.com/foo2.png');
+		});
+
+		it('parses srcset and picks first URL', () => {
+			const html = '<article><img srcset="/a.jpg 1x, /b.jpg 2x"/></article>';
+			const doc = scrapeArticleHtml('https://example.com/story', html);
+			expect(doc.imageUrl).toBe('https://example.com/a.jpg');
+		});
 			const classification = await classifyArticleWithAi(env, {
 				url: 'https://wlwt.com/weather-forecast',
 				title: 'Boone County under winter weather advisory',
@@ -1941,6 +1954,73 @@ describe('ingestSingleUrl error handling', () => {
 		expect(row?.county).toBeNull();
 		const counties = await getArticleCounties(env, result.id);
 		expect(counties).toEqual(['Fayette', 'Jefferson']);
+
+		global.fetch = originalFetch;
+		vi.restoreAllMocks();
+	});
+
+	it('scrapes inline <img> when og:image meta is absent', async () => {
+		await ensureSchemaAndFixture();
+
+		// stub network fetch with html containing only an inline image
+		const originalFetch = global.fetch;
+		global.fetch = async () =>
+			new Response('<html><body><article><img src="/foo.jpg"/></article></body></html>', {
+				status: 200,
+				headers: { 'Content-Type': 'text/html' },
+			});
+
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+		});
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'x',
+			seoDescription: 'y',
+			summaryWordCount: 1,
+		});
+
+		const res = await __testables.ingestSingleUrl(env, { url: 'https://example.com/article' });
+		expect(res.status).toBe('inserted');
+		const row = await env.ky_news_db
+			.prepare('SELECT image_url, slug, county FROM articles WHERE id = ?')
+			.bind(res.id)
+			.first<{ image_url: string | null; slug: string; county: string | null }>();
+		expect(row?.image_url).toBe('https://example.com/foo.jpg');
+
+		// also verify the bot preview route picks that image
+		if (row?.slug) {
+			// compute URL similar to articleToUrl logic used by SPA
+			let previewPath = `/news/kentucky/${row.slug}`;
+			if (row.county) {
+				const countySlug = row.county.toLowerCase().replace(/\s+/g, '-') + '-county';
+				previewPath = `/news/kentucky/${countySlug}/${row.slug}`;
+			}
+			const botResp = await SELF.fetch(`https://example.com${previewPath}`, {
+				headers: {
+					'User-Agent':
+						'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+				},
+			});
+			expect([200, 404]).toContain(botResp.status);
+			if (botResp.status === 200) {
+				const text = await botResp.text();
+				expect(text).toContain('<meta property="og:image" content="https://example.com/foo.jpg"');
+			}
+			// also ensure facebookbot UA (newer crawler) triggers same metadata
+			const botResp2 = await SELF.fetch(`https://example.com${previewPath}`, {
+				headers: { 'User-Agent': 'facebookbot/2.0 (+http://www.facebook.com/externalhit_uatext.php)' },
+			});
+			expect([200, 404]).toContain(botResp2.status);
+			if (botResp2.status === 200) {
+				const text2 = await botResp2.text();
+				expect(text2).toContain('<meta property="og:image" content="https://example.com/foo.jpg"');
+			}
+		}
 
 		global.fetch = originalFetch;
 		vi.restoreAllMocks();
@@ -3151,13 +3231,22 @@ describe('social preview HTML route', () => {
             .run();
 
           const pathNoImage = '/news/kentucky/boone-county/test-noimage-slug';
+          // simulate our ingestion stored the article body containing an inline
+          // image even though imageUrl was null
+          await env.ky_news_db
+            .prepare('UPDATE articles SET content_html = ? WHERE slug = ?')
+            .bind('<p>body</p><img src="/inline.jpg"/>', 'test-noimage-slug')
+            .run();
+
+          // preview should now pick the inline.jpg from contentHtml without
+          // needing to fetch the external page at all
           const botResp2 = await SELF.fetch(`https://example.com${pathNoImage}`, {
             headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
           });
           expect([200, 404]).toContain(botResp2.status);
           if (botResp2.status === 200) {
             const text2 = await botResp2.text();
-            expect(text2).toContain('<meta property="og:image" content="https://localkynews.com/img/preview.PNG"');
+            expect(text2).toContain('<meta property="og:image" content="https://example.com/inline.jpg"');
             expect(text2).toContain('<meta property="fb:app_id" content="123456789"');
           }
 			expect([200, 404]).toContain(browserResp.status);

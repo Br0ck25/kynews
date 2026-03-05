@@ -1336,7 +1336,7 @@ return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 //   through and let the SPA handler serve `/index.html` normally.
 if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
   const userAgent = request.headers.get('User-Agent') || '';
-  const isBot = /facebookexternalhit|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot|discordbot|googlebot|bingbot|applebot|pinterest|vkshare|xing-contenttabreceiver|w3c_validator|curl|wget|python-requests|java\/|go-http|okhttp/i.test(userAgent);
+  const isBot = /facebookexternalhit|facebookbot|facebot|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot|discordbot|googlebot|bingbot|applebot|pinterest|vkshare|xing-contenttabreceiver|w3c_validator|curl|wget|python-requests|java\/|go-http|okhttp/i.test(userAgent);
 
   const segments = url.pathname.split('/').filter((s) => s.length > 0);
   const slug = segments[segments.length - 1] || '';
@@ -1362,13 +1362,39 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
         // and otherwise point at the default preview graphic.
         const defaultImage = `${new URL(pageUrl).origin}/img/preview.PNG`;
 
+        // determine which image to use.  priority:
+        // 1. explicit article.imageUrl
+        // 2. first <img> inside stored contentHtml (works for our own posts)
+        // 3. attempt external fetch+scrape (useful for third-party sources)
+        let previewImage = article.imageUrl;
+        if (!previewImage && article.contentHtml) {
+          const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
+          if (match && match[1]) {
+            previewImage = match[1];
+          }
+        }
+        if (!previewImage) {
+          try {
+            const fetchResp = await fetch(article.canonicalUrl + `?_=${Date.now()}`);
+            if (fetchResp.ok) {
+              const body = await fetchResp.text();
+              const { scrapeArticleHtml } = await import('./lib/scrape');
+              const scraped = scrapeArticleHtml(article.canonicalUrl, body);
+              if (scraped.imageUrl) {
+                previewImage = scraped.imageUrl;
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+        }
         const metas = [];
         metas.push('<meta property="og:type" content="article"/>');
         metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
         metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
         metas.push(
           `<meta property="og:image" content="${escapeHtml(
-            article.imageUrl || defaultImage
+            previewImage || defaultImage
           )}"/>
         `);
         metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
@@ -1378,7 +1404,7 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
         metas.push('<meta name="twitter:card" content="summary_large_image"/>');
         metas.push(
           `<meta name="twitter:image" content="${escapeHtml(
-            article.imageUrl || defaultImage
+            previewImage || defaultImage
           )}"/>
         `);
 

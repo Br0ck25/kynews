@@ -870,9 +870,29 @@ async function handleRequest(request, env, ctx) {
                     // generic preview graphic; use the article picture if present,
                     // otherwise point at the static site thumbnail.
                     const defaultImage = `${new URL(pageUrl).origin}/img/preview.PNG`;
+                    let previewImage = article.imageUrl;
+                    if (!previewImage && article.contentHtml) {
+                        const mm = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
+                        if (mm && mm[1]) {
+                            previewImage = mm[1];
+                        }
+                    }
+                    if (!previewImage) {
+                        try {
+                            const fetchResp = await fetch(article.canonicalUrl + `?_=${Date.now()}`);
+                            if (fetchResp.ok) {
+                                const body = await fetchResp.text();
+                                const { scrapeArticleHtml } = await import('./lib/scrape');
+                                const scraped = scrapeArticleHtml(article.canonicalUrl, body);
+                                if (scraped.imageUrl) {
+                                    previewImage = scraped.imageUrl;
+                                }
+                            }
+                        } catch (_e) {}
+                    }
                     metas.push(
                       `<meta property="og:image" content="${escapeHtml(
-                        article.imageUrl || defaultImage
+                        previewImage || defaultImage
                       )}"/>
                     `);
                     metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
