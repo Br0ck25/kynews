@@ -1370,6 +1370,10 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
           )}"/>
         `);
 
+        // include redirect parameter so second request bypasses this block
+        const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
+        return new Response(html, {
+          headers: { 'content-type': 'text/html; charset=utf-8' },
         });
       }
 
