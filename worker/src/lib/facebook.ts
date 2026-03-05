@@ -37,7 +37,8 @@ export function generateFacebookHook(summary: string = '', county?: string): str
 export function generateFacebookHashtags(article: ArticleRecord): string {
   const tags: string[] = [];
   if (article.county) {
-    tags.push(`#${article.county.replace(/\s+/g, '')}County`);
+    // add KY suffix to make the hashtag more specific/searchable
+    tags.push(`#${article.county.replace(/\s+/g, '')}CountyKY`);
   }
   // include a generic Kentucky tag for all KY stories
   tags.push('#KentuckyNews');
@@ -90,8 +91,10 @@ export function generateFacebookCaption(article: ArticleRecord | null): string {
   if (!isKy) return '';
 
   const headline = cleanFacebookHeadline(article.title || '');
+  // only pass the county value; city should never be treated as a
+  // county when constructing the hook text
   const hook = generateFacebookHook(article.summary || '',
-    article.county || (article.city || undefined));
+    article.county || undefined);
 
   let url = articleUrl(article);
   // ensure the url actually points at our site; fallback just in case

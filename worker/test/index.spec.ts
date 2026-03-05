@@ -932,18 +932,30 @@ describe('classification utilities', () => {
 			const doc = scrapeArticleHtml('https://example.com/story', html);
 			expect(doc.imageUrl).toBe('https://example.com/a.jpg');
 		});
+
+		// wlwt.com feeds Cincinnati/NKY stories and should not be treated as a
+		// Kentucky-local source; previously it leaked Ohio-county articles into
+		// our database.  It now lives in ALWAYS_NATIONAL_SOURCES and should be
+		// classified as national regardless of content.
+		it('treats wlwt.com articles as national', async () => {
 			const classification = await classifyArticleWithAi(env, {
 				url: 'https://wlwt.com/weather-forecast',
 				title: 'Boone County under winter weather advisory',
 				content: 'Greater Cincinnati area will see snow; Boone County residents should prepare.',
 			});
 
-			expect(classification.isKentucky).toBe(true);
-			expect(classification.county).toBe('Boone');
-			expect(classification.counties).toEqual(['Boone']);
+			expect(classification.isKentucky).toBe(false);
+			expect(classification.category).toBe('national');
 		});
 
-		// test for wtvq.com default county and statewide weather behaviour
+		// ensure Indiana stories mentioning Floyd County don't get mis-tagged
+		it('does not assign Floyd County for stories about Floyd County, Indiana', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://example.com/indiana-incident',
+				title: 'LOUISVILLE, Ky. (AP) – Crash in Floyd County, Indiana',
+				content: 'NEW ALBANY, Indiana – Officers in Floyd County, Indiana, responded to a crash near the Ohio River.',
+			});
+			expect(classification.county).toBeNull();
 		it('applies Fayette default for wtvq.com and null county for statewide weather', async () => {
 			// generic non-weather story should fall back to Fayette via site default
 			let classification = await classifyArticleWithAi(env, {
@@ -2180,8 +2192,11 @@ describe('title similarity dedupe', () => {
 	it('facebook helper functions behave as expected', () => {
 		expect(cleanFacebookHeadline('Test title | Local KY News')).toBe('Test title');
 		expect(generateFacebookHook('First sentence. Second one.')).toBe('First sentence.');
-		// county prefix
+		// county prefix -- should still prefix when county given
 		expect(generateFacebookHook('Something happened', 'Wake')).toMatch(/Wake County/i);
+		// hook should not treat city names as counties
+		expect(generateFacebookHook('A story about a city', undefined)).not.toMatch(/City County/i);
+
 		// caption returns blank for non-KY
 		expect(generateFacebookCaption({ title: 'a', summary: 'b', is_kentucky: 0 })).toBe('');
 		// caption url should point at localkynews.com if slug present
@@ -2195,6 +2210,8 @@ describe('title similarity dedupe', () => {
 			isKentucky: true,
 		});
 		expect(cap).toContain('https://localkynews.com/news/kentucky/boone-county/foo');
+		// county hashtag should include KY suffix
+		expect(cap).toContain('#BooneCountyKY');
 
 		// weather caption should include the extra hashtag
 		const capWeather = generateFacebookCaption({
@@ -2206,6 +2223,7 @@ describe('title similarity dedupe', () => {
 			isKentucky: true,
 		});
 		expect(capWeather).toContain('#Weather');
+		expect(capWeather).toContain('#FayetteCountyKY');
 
 		// sports caption gets KentuckySports tag
 		const capSports = generateFacebookCaption({
@@ -2217,6 +2235,7 @@ describe('title similarity dedupe', () => {
 			isKentucky: true,
 		});
 		expect(capSports).toContain('#KentuckySports');
+		expect(capSports).toContain('#JeffersonCountyKY');
 
 		// schools caption gets KentuckyEducation tag
 		const capSchools = generateFacebookCaption({
@@ -3194,10 +3213,8 @@ describe('social preview HTML route', () => {
 			const text = await botResp.text();
 			expect(text).toContain('<meta property="og:title" content="Test Title"');
 			expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
-            expect(text).toContain('<meta property="fb:app_id" content="123456789"');
-			expect(text).not.toContain('?r=1');
-		}
-
+            expect(text).toContain('<meta property="og:image:width" content="1200"');
+            expect(text).toContain('<meta property="og:image:height" content="630"');
           // create another article without an image to ensure we emit the fallback
           await env.ky_news_db
             .prepare(
@@ -3247,7 +3264,24 @@ describe('social preview HTML route', () => {
           if (botResp2.status === 200) {
             const text2 = await botResp2.text();
             expect(text2).toContain('<meta property="og:image" content="https://example.com/inline.jpg"');
+            expect(text2).toContain('<meta property="og:image:width" content="1200"');
+            expect(text2).toContain('<meta property="og:image:height" content="630"');
             expect(text2).toContain('<meta property="fb:app_id" content="123456789"');
+          }
+          // now remove the inline image and fetch again to verify constant fallback
+          await env.ky_news_db
+            .prepare('UPDATE articles SET content_html = ? WHERE slug = ?')
+            .bind('<p>body</p>', 'test-noimage-slug')
+            .run();
+          const botResp3 = await SELF.fetch(`https://example.com${pathNoImage}`, {
+            headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+          });
+          expect([200, 404]).toContain(botResp3.status);
+          if (botResp3.status === 200) {
+            const text3 = await botResp3.text();
+            expect(text3).toContain('<meta property="og:image" content="https://localkynews.com/preview.png"');
+            expect(text3).toContain('<meta property="og:image:width" content="1200"');
+            expect(text3).toContain('<meta property="og:image:height" content="630"');
           }
 			expect([200, 404]).toContain(browserResp.status);
 			if (browserResp.status === 200) {

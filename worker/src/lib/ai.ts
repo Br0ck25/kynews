@@ -779,6 +779,28 @@ function cleanContentForSummarization(text: string, title: string): string {
   t = t.replace(/^(.+)\n\1$/gm, '$1');
   t = t.replace(/\n{3,}/g, '\n\n');
 
+  // Strip TV closed-caption transcript blocks that leaked through as plain text.
+  // These are identified by being predominantly uppercase with short sentences.
+  // Pattern: 3+ consecutive lines that are >80% uppercase characters.
+  const lines = t.split('\n');
+  const cleanedLines: string[] = [];
+  let capsRunCount = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const upperCount = (trimmed.match(/[A-Z]/g) || []).length;
+    const letterCount = (trimmed.match(/[A-Za-z]/g) || []).length;
+    const isMostlyCaps = letterCount > 20 && upperCount / letterCount > 0.75;
+    if (isMostlyCaps) {
+      capsRunCount++;
+      // If we've seen 3+ caps lines in a row, this is a transcript block — skip
+      if (capsRunCount >= 3) continue;
+    } else {
+      capsRunCount = 0;
+    }
+    cleanedLines.push(line);
+  }
+  t = cleanedLines.join('\n');
+
   return t.trim();
 }
 

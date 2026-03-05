@@ -203,6 +203,7 @@ const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Butler',   // Ohio, Pennsylvania, etc.
   'Clinton',  // many states
   'Barren',   // exists elsewhere
+  'Floyd',    // exists in both Kentucky AND Indiana (borders Louisville metro)
   // 'Hart' already present above
 ]);
 

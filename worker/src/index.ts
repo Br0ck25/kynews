@@ -1360,9 +1360,13 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
         // site icon.  To make the behaviour match the client‑side code we always
         // emit an explicit og:image tag; use the article's image when available
         // and otherwise point at the default preview graphic.
-        const defaultImage = `${new URL(pageUrl).origin}/img/preview.PNG`;
+        // Build a fallback image URL we can rely on when nothing else is
+        // available.  We want a consistent preview graphic even when the
+        // article doesn't supply any image regardless of whether the stored
+        // content contains an <img> tag.
+        const fallbackImage = 'https://localkynews.com/preview.png';
 
-        // determine which image to use.  priority:
+        // determine which image to use. priority:
         // 1. explicit article.imageUrl
         // 2. first <img> inside stored contentHtml (works for our own posts)
         // 3. attempt external fetch+scrape (useful for third-party sources)
@@ -1392,20 +1396,17 @@ if (request.method === 'GET' && url.pathname.startsWith('/news/')) {
         metas.push('<meta property="og:type" content="article"/>');
         metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
         metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-        metas.push(
-          `<meta property="og:image" content="${escapeHtml(
-            previewImage || defaultImage
-          )}"/>
-        `);
+        const ogImage = previewImage || fallbackImage;
+        metas.push(`<meta property="og:image" content="${escapeHtml(ogImage)}"/>`);
+        metas.push(`<meta property="og:image:width" content="1200"/>`);
+        metas.push(`<meta property="og:image:height" content="630"/>`);
         metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
         metas.push('<meta property="og:site_name" content="Local KY News"/>');
 
         // Twitter uses its own tags and also wants the large image card.
         metas.push('<meta name="twitter:card" content="summary_large_image"/>');
         metas.push(
-          `<meta name="twitter:image" content="${escapeHtml(
-            previewImage || defaultImage
-          )}"/>
+          `<meta name="twitter:image" content="${escapeHtml(ogImage)}"/>
         `);
 
         // always include the tag; use configured ID or fall back to '0'

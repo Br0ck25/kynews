@@ -202,6 +202,7 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   'theathletic.com',
   'nbcsports.com',
   'wlky.com', // Louisville CBS affiliate syndicates national wire stories
+  'wlwt.com', // Cincinnati NBC affiliate — covers Ohio/NKY border; not a KY-primary source
 ]);
 
 
@@ -417,6 +418,7 @@ export async function classifyArticleWithAi(
   const isNationalWireStory =
     NATIONAL_WIRE_OVERRIDE_RE.test(semanticLeadText);
 
+
   const isStatewideKyPolitics =
     isStatewideKyPoliticalStory(semanticLeadText);
 
@@ -471,6 +473,25 @@ export async function classifyArticleWithAi(
   // The county should remain null regardless of dateline evidence.
   if (isStatewideKyPolitics) {
     baseGeo = { ...baseGeo, county: null, counties: [], city: null };
+  }
+
+  // If the article is explicitly about an Indiana location, suppress county
+  // assignment even if a KY-matching county name appears in the text.  This
+  // handles stories where Floyd County, Indiana (bordering Louisville) is
+  // mentioned; without the guard the geo detector will accidentally tag the
+  // story as Floyd County, KY because the dateline or other nearby text often
+  // contains "Louisville, Ky.".
+  const isIndianaStory = /\b(?:southern\s+indiana|indiana\s+law\s+enforcement|indiana\s+state\s+police|greenville,\s*indiana|new\s+albany,\s*indiana|jeffersonville,\s*indiana)\b/i.test(semanticLeadText);
+  if (isIndianaStory && !isAlwaysNational) {
+    if (baseGeo.county && !COUNTY_PATTERNS.some(p =>
+      p.county === baseGeo.county &&
+      /\bkentucky\b|\bky\b/i.test(semanticText.slice(
+        Math.max(0, semanticText.toLowerCase().indexOf(p.county.toLowerCase()) - 100),
+        semanticText.toLowerCase().indexOf(p.county.toLowerCase()) + 100
+      ))
+    )) {
+      baseGeo = { ...baseGeo, county: null, counties: [], city: null };
+    }
   }
 
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');

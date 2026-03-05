@@ -137,7 +137,10 @@ function stripNoisyTags(html: string): string {
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, ' ')
     // Strip TV closed-caption transcript blocks — all-caps text
     // that dominates summaries when articles have thin prose.
-    .replace(/<div[^>]+class=["'][^"']*\btranscript\b[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, ' ');
+    // The previous regex was too greedy and stopped at the first closing
+    // </div> when nested divs were present.  Use a pattern that consumes any
+    // nested closing tags in a run.
+    .replace(/<div\b[^>]*\bclass=["'][^"']*\btranscript\b[^"']*["'][^>]*>[\s\S]*?<\/div>(\s*<\/div>)*/gi, ' ');
 }
 
 function stripHtml(html: string): string {
