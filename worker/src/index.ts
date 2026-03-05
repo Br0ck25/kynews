@@ -1449,7 +1449,15 @@ if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathna
 
     if (article) {
       canonicalPath = buildArticlePath(article);
-      const desc = (article.seoDescription || article.summary || '')
+      // sanity: buildArticlePath should never return '/' for a non‑empty slug.
+      // if it does, treat it as not found so we don't give bots homepage tags.
+      if (canonicalPath === '/' && article.slug) {
+        article = null;
+        if (isBot) {
+          return new Response('Not found', { status: 404 });
+        }
+      }
+      const desc = (article?.seoDescription || article?.summary || '')
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
@@ -2795,6 +2803,8 @@ export const __testables = {
 	generateNewsSitemap,
 	generateSitemapIndex,
 	rebalanceSchoolHeavyRunSources,
+	// expose internal helpers for unit tests
+	buildArticlePath,
 	// exposing runIngest allows tests to stub the heavy ingestion routine
 	runIngest,
 	// make ingestSingleUrl available for unit tests

@@ -3156,6 +3156,53 @@ describe('social preview HTML route', () => {
 		expect(botResp.status).toBe(404);
 	});
 
+	// simulate a logic error where buildArticlePath returns '/' despite a valid slug
+	it('guards against bogus canonical path by returning 404 for bots', async () => {
+		await ensureSchemaAndFixture();
+		// insert a real article so slug lookup succeeds
+		const now = new Date().toISOString();
+		await env.ky_news_db.prepare(
+			`INSERT INTO articles (
+				canonical_url, source_url, url_hash, title, author, published_at, category,
+				is_kentucky, county, city, summary, seo_description, raw_word_count,
+				summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		).bind(
+			'https://example.com/guard',
+			'https://example.com',
+			'guard-hash',
+			'Guard Title',
+			null,
+			now,
+			'today',
+			1,
+			'Boone',
+			'boone',
+			'Summary',
+			'SEO',
+			100,
+			50,
+			'body',
+			'<p>body</p>',
+			'https://localkynews.com/img/guard.jpg',
+			null,
+			'guard-slug'
+		).run();
+
+		// temporarily stub buildArticlePath to return '/'
+		const orig = __testables.buildArticlePath;
+		__testables.buildArticlePath = () => '/';
+
+		const path = '/news/kentucky/boone-county/guard-slug';
+		const botResp = await SELF.fetch(`https://example.com${path}`, {
+			headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+		});
+		expect(botResp.status).toBe(404);
+
+		// restore original helper
+		__testables.buildArticlePath = orig;
+	});
+
 	it('returns og meta tags and redirect script for kentucky article', async () => {
 		await ensureSchemaAndFixture();
 		// insert sample article with image and slug
