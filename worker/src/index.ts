@@ -82,12 +82,13 @@ type QueueJob =
 // augment the generated Env interface so that TypeScript knows the binding is
 // available once we add it in wrangler.jsonc.
 declare global {
-	interface Env {
+	interface Env extends Cloudflare.Env {
 		INGEST_QUEUE?: Queue<QueueJob>;
 		// asset binding provided by wrangler to serve static files
 		ASSETS?: { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
-	// optional Facebook application ID used for OG tags in preview pages
-	FB_APP_ID?: string;
+		// optional Facebook application ID used for OG tags in preview pages
+		FB_APP_ID?: string;
+	}
 }
 
 const STRUCTURED_SEARCH_SOURCE_URLS = new Set<string>([
@@ -1648,7 +1649,7 @@ const rows = await prepare(env,
        ORDER BY published_at DESC LIMIT 1000`,
 		)
 		.bind(cutoff)
-		.all<{ id: number; slug: string | null; county: string | null; category: string; title: string; published_at: string }>();
+		.all<{ id: number; slug: string | null; county: string | null; category: string; is_national: number; title: string; published_at: string }>();
 
 	const items = (rows.results || []).map((row) => {
 		const pubDate = toIsoDateOrNull(row.published_at) || new Date().toISOString();

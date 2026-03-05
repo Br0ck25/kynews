@@ -53,7 +53,7 @@ interface RecentTitleRow {
 // unique comment. Using Math.random() ensures that even retries within the
 // same millisecond produce a unique SQL string, bypassing the D1 cache bug
 // that causes "no such table: articles_old" after migrations.
-function prepare(env: Env, sql: string) {
+export function prepare(env: Env, sql: string) {
   const uniqueSql = `${sql} /* cache_bust_${Math.random()} */`;
   return env.ky_news_db.prepare(uniqueSql);
 }
