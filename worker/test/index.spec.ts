@@ -3269,8 +3269,47 @@ describe('social preview HTML route', () => {
 		expect(botResp.status).toBe(404);
 	});
 
+	// regression guard for a real slug pattern seen on site
+	it('serves a real example slug correctly', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const sampleSlug = 'consistently-otega-owehs-senior-spotlight-a0358cac';
+		await env.ky_news_db.prepare(`
+			INSERT INTO articles (
+				canonical_url, source_url, url_hash, title, author, published_at, category,
+				is_kentucky, county, city, summary, seo_description, raw_word_count,
+				summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind(
+			'https://example.com/demo',
+			'https://example.com',
+			'demo-hash',
+			'Demo Title',
+			null,
+			now,
+			'today',
+			1,
+			'Fayette',
+			'lexington',
+			'Summary',
+			'SEO',
+			100,
+			50,
+			'body',
+			'<p>body</p>',
+			'https://localkynews.com/img/demo.jpg',
+			null,
+			sampleSlug
+		).run();
+
+		const path = `/news/kentucky/fayette-county/${sampleSlug}`;
+		const browserResp = await SELF.fetch(`https://example.com${path}`);
+		expect(browserResp.status).toBe(200);
+		expect(browserResp.redirected).toBe(false);
+	});
+
 	// simulate a logic error where buildArticlePath returns '/' despite a valid slug
-	it('guards against bogus canonical path by returning 404 for bots', async () => {
+	it('guards against bogus canonical path by returning 404 for bots and not redirecting browsers', async () => {
 		await ensureSchemaAndFixture();
 		// insert a real article so slug lookup succeeds
 		const now = new Date().toISOString();
@@ -3307,10 +3346,18 @@ describe('social preview HTML route', () => {
 		__testables.buildArticlePath = () => '/';
 
 		const path = '/news/kentucky/boone-county/guard-slug';
+
+		// bot should still get a 404
 		const botResp = await SELF.fetch(`https://example.com${path}`, {
 			headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
 		});
 		expect(botResp.status).toBe(404);
+
+		// a plain browser request should *not* follow a redirect to '/'
+		const browserResp = await SELF.fetch(`https://example.com${path}`);
+		expect(browserResp.status).toBe(200);
+		expect(browserResp.redirected).toBe(false);
+		expect(browserResp.url).toBe(`https://example.com${path}`);
 
 		// restore original helper
 		__testables.buildArticlePath = orig;
@@ -3357,6 +3404,13 @@ describe('social preview HTML route', () => {
 
 		const path = '/news/kentucky/boone-county/test-slug';
 
+		// a plain browser GET on the full URL should not redirect; we should
+		// receive the SPA shell for article rendering.
+		const browserPathResp = await SELF.fetch(`https://example.com${path}`);
+		expect(browserPathResp.status).toBe(200);
+		expect(browserPathResp.redirected).toBe(false);
+		expect(browserPathResp.url).toBe(`https://example.com${path}`);
+
 		// hitting the legacy /post URL for an article that *does* have a slug
 		// should redirect browsers to the pretty canonical path.
 		const browserRedirectResp = await SELF.fetch(`https://example.com/post?articleId=${articleId}`);
@@ -3402,6 +3456,38 @@ describe('social preview HTML route', () => {
         expect(botRespMobile.status).toBe(200);
         const textMobile = await botRespMobile.text();
         expect(textMobile).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
+
+        // ensure that when the worker is invoked without an ASSETS binding we
+        // still serve the SPA shell by proxying to the origin.  this replicates
+        // the production Pages setup where the worker only handles /news/*
+        // routes and static assets live elsewhere.  a 404 response from the
+        // earlier bug was caused by env.ASSETS being undefined and no fallback
+        // existing.
+        {
+          // stub global.fetch so we can detect the index.html request and
+          // return a recognizable payload.
+          const originalFetch = global.fetch;
+          let sawIndex = false;
+          global.fetch = async (req: any, init?: any) => {
+            const urlStr = typeof req === 'string' ? req : req.url;
+            if (urlStr.endsWith('/index.html')) {
+              sawIndex = true;
+              return new Response('<html>SPA SHELL</html>', {
+                status: 200,
+                headers: { 'content-type': 'text/html' },
+              });
+            }
+            return originalFetch(req, init);
+          };
+
+          const browserResp = await SELF.fetch(`https://example.com${path}`);
+          expect(browserResp.status).toBe(200);
+          const browserText = await browserResp.text();
+          expect(browserText).toContain('SPA SHELL');
+          expect(sawIndex).toBe(true);
+
+          global.fetch = originalFetch;
+        }
 
         // HEAD requests should also return the OG tags (Facebook sometimes probes
         // with HEAD before GET)

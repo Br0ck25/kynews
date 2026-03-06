@@ -1481,7 +1481,15 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
       // sanity: buildArticlePath should never return '/' for a non‑empty slug.
       // if it does, treat it as not found so we don't give bots homepage tags.
       if (canonicalPath === '/' && article.slug) {
+        // sanity check triggered: buildArticlePath unexpectedly returned '/'.
+        // treat the article as missing to avoid serving homepage metadata.
+        // For bots we return 404 immediately; for regular browsers we _must not_
+        // issue a 301 redirect to '/' (the next block below would do that if we
+        // left canonicalPath untouched).  instead, reset canonicalPath to the
+        // incoming path so the later comparison becomes false and the request
+        // falls through to the normal SPA fallback.
         article = null;
+        canonicalPath = url.pathname;
         if (isBot) {
           return new Response('Not found', { status: 404 });
         }
@@ -1568,11 +1576,33 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 
 // SPA fallback for any /news/ path or the legacy /post endpoint
 // (after preview logic)
+//
+// When the worker is invoked for `/news/*` URLs we still need to serve the
+// single‑page app shell so the browser can hydrate and render the article.
+// In a standalone deployment we could simply bind the build output as
+// `ASSETS` and call `env.ASSETS.fetch('/index.html')` (this is how unit tests
+// exercise the code).  However, the production release runs on Cloudflare
+// Pages where the static assets are hosted separately; the worker is only
+// routed for the subset of paths that need dynamic content (/api, /news,
+// /post, /sitemap*).  In that configuration `env.ASSETS` is undefined, so we
+// must proxy the request back to the Pages origin rather than attempting to
+// fetch a non‑existent binding.  The origin URL (`BASE_URL/index.html`) is
+// not covered by the worker route, so calling `fetch()` here will go straight
+// to the Pages site and return the correct HTML.  Without this branch the
+// request would fall through to the final 404 handler (which is what caused
+// all article links to break after the preview change).
 if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathname === '/post')) {
-	// serve the React app shell so client JS can render the appropriate page
-	if (env.ASSETS) {
-		return env.ASSETS.fetch('/index.html');
-	}
+    // serve the React app shell so client JS can render the appropriate page
+    if (env.ASSETS) {
+        return env.ASSETS.fetch('/index.html');
+    }
+    // no ASSETS binding means we're probably running behind Pages; fetch
+    // the static shell from the origin domain instead.
+    const originUrl = `${BASE_URL}/index.html`;
+    // simple GET; headers from the original request are unnecessary for the
+    // static shell.  Avoid passing the Request object itself as the init
+    // parameter (it would be interpreted incorrectly).
+    return fetch(originUrl);
 }
 
 // --- Sitemap routes (Section 7: News Sitemap Strategy) ---
