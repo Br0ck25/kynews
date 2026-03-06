@@ -254,7 +254,7 @@ export async function summarizeArticle(
 
     const aiText = extractAiText(aiRaw).trim();
     if (aiText) {
-      const cleaned = stripBoilerplateFromOutput(aiText, title);
+      const cleaned = enforceparagraphBreaks(stripBoilerplateFromOutput(aiText, title));
 
       const aiWords = wordCount(cleaned);
       const minWords = Math.round(originalWords * 0.60);
@@ -781,6 +781,13 @@ export function cleanContentForSummarization(text: string, title: string): strin
   );
   t = t.replace(/^Published\b[^\n]*$/gim, '');
   t = t.replace(/^Updated\b[^\n]*$/gim, '');
+  // Strip inline photo credit suffixes appended to caption sentences.
+  // Pattern: "...Lexington, Ky. Photo by Vincenzo Ciaramitaro | Kentucky Kernel"
+  // These appear as "[sentence]. Photo by [Name] | [Publication]" on one line.
+  t = t.replace(/\s+Photo\s+by\s+[A-Z][a-zA-Z\s.'-]{2,50}(?:\s*[|\/]\s*[A-Za-z\s.'-]{2,60})?\s*$/gm, '');
+  // Strip standalone figcaption-style lines: entire line that matches "Name | Publication" or
+  // ends with "| Publication Name" after a photo description sentence.
+  t = t.replace(/^[^\n]{20,200}\s*[|\/]\s*(?:Kentucky Kernel|Kentucky Today|Lex18|LEX 18|WKYT|WDRB|WBKO|AP Photo|Getty Images?|[A-Z][a-zA-Z\s]{2,40})\s*$/gm, '');
   t = t.replace(/^Photo by\b[^\n]*$/gim, '');
   t = t.replace(/^(?:Here is the original article|Source|Original article|Read more at)[:\s]+https?:\/\/\S+.*$/gim, '');
   t = t.replace(/^[A-Z][A-Z0-9\s'",.!?\-\u2013\u2014]{30,}$/gm, '');
@@ -839,6 +846,11 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   t = t.replace(/^Published\b[^\n]*$/gim, '');
   t = t.replace(/^Updated\b[^\n]*$/gim, '');
   t = t.replace(/^Photo by\b[^\n]*$/gim, '');
+  // Strip inline photo credit suffixes appended to caption sentences.
+  t = t.replace(/\s+Photo\s+by\s+[A-Z][a-zA-Z\s.'-]{2,50}(?:\s*[|\/]\s*[A-Za-z\s.'-]{2,60})?\s*$/gm, '');
+  // Strip standalone figcaption-style lines: entire line that matches "Name | Publication" or
+  // ends with "| Publication Name" after a photo description sentence.
+  t = t.replace(/^[^\n]{20,200}\s*[|\/]\s*(?:Kentucky Kernel|Kentucky Today|Lex18|LEX 18|WKYT|WDRB|WBKO|AP Photo|Getty Images?|[A-Z][a-zA-Z\s]{2,40})\s*$/gm, '');
   t = t.replace(/^CLICK HERE\b.+$/gim, '');
   t = t.replace(/^Click below to jump to[:\s].+$/gim, '');
   t = t.replace(/^(?:Here is the original article|Source|Original article)[:\s]+https?:\/\/\S+.*$/gim, '');
@@ -1076,4 +1088,26 @@ function hasHallucinatedNumbers(original: string, summary: string): boolean {
     }
   }
   return false;
+}
+
+/**
+ * If the AI returns a wall of text (no paragraph breaks), split it into
+ * readable paragraphs of roughly 2–3 sentences each.
+ * Leaves text that already has paragraph breaks (double newlines) untouched.
+ */
+function enforceparagraphBreaks(text: string): string {
+  // Already has paragraph structure — don't touch it
+  if (/\n\n/.test(text)) return text;
+
+  // Split on sentence boundaries, then group into 2–3 sentence paragraphs
+  const sentenceRe = /(?<=[.!?]["')\u201d\u2019]*)\s+(?=[A-Z"'\u201c])/g;
+  const sentences = text.split(sentenceRe).map(s => s.trim()).filter(Boolean);
+
+  if (sentences.length <= 3) return text; // too short to need splitting
+
+  const paragraphs: string[] = [];
+  for (let i = 0; i < sentences.length; i += 3) {
+    paragraphs.push(sentences.slice(i, i + 3).join(' '));
+  }
+  return paragraphs.join('\n\n');
 }
