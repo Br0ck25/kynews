@@ -19,15 +19,29 @@ export function cleanFacebookHeadline(title: string): string {
 export function generateFacebookHook(summary: string = '', county?: string): string {
   const text = (summary || '').trim();
   if (!text) return '';
+
   const sentences = text.split(/(?<=[.?!])\s+/);
   let hook = sentences[0] || text;
-  const words = hook.split(/\s+/);
-  if (words.length > 40) {
-    hook = words.slice(0, 40).join(' ') + '…';
+
+  // ignore hooks that are too short to be useful -- single-word/abbreviation
+  // or otherwise under a reasonable length.  In those cases we prefer to
+  // omit the hook entirely so the caption doesn't end up saying nothing
+  // meaningful (e.g. just "Gov.").
+  const wordCount = hook.split(/\s+/).filter(Boolean).length;
+  if (wordCount < 3 || hook.length < 20) {
+    hook = '';
   }
-  if (county && !new RegExp(county, 'i').test(hook)) {
-    hook = `In ${county} County, ${hook}`;
+
+  if (hook) {
+    const words = hook.split(/\s+/);
+    if (words.length > 40) {
+      hook = words.slice(0, 40).join(' ') + '…';
+    }
+    if (county && !new RegExp(county, 'i').test(hook)) {
+      hook = `In ${county} County, ${hook}`;
+    }
   }
+
   return hook;
 }
 
@@ -93,8 +107,13 @@ export function generateFacebookCaption(article: ArticleRecord | null): string {
   const headline = cleanFacebookHeadline(article.title || '');
   // only pass the county value; city should never be treated as a
   // county when constructing the hook text
-  const hook = generateFacebookHook(article.summary || '',
+  let hook = generateFacebookHook(article.summary || '',
     article.county || undefined);
+  // if the summary didn't produce a useful hook (e.g. it was just "Gov.")
+  // try falling back to the full content text which may contain more detail.
+  if (!hook && article.contentText) {
+    hook = generateFacebookHook(article.contentText, article.county || undefined);
+  }
 
   let url = articleUrl(article);
   // ensure the url actually points at our site; fallback just in case

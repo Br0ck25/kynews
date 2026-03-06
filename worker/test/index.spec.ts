@@ -2253,6 +2253,9 @@ describe('title similarity dedupe', () => {
 	it('facebook helper functions behave as expected', () => {
 		expect(cleanFacebookHeadline('Test title | Local KY News')).toBe('Test title');
 		expect(generateFacebookHook('First sentence. Second one.')).toBe('First sentence.');
+		// very short summaries or single words shouldn't become hooks
+		expect(generateFacebookHook('Gov.')).toBe('');
+		expect(generateFacebookHook('Hi')).toBe('');
 		// county prefix -- should still prefix when county given
 		expect(generateFacebookHook('Something happened', 'Wake')).toMatch(/Wake County/i);
 		// hook should not treat city names as counties
@@ -2270,6 +2273,19 @@ describe('title similarity dedupe', () => {
 			category: 'today',
 			isKentucky: true,
 		});
+		// if summary is too short it shouldn't appear in the caption
+		// but we can fall back to contentText if available
+		const capShort = generateFacebookCaption({
+			id: 12,
+			title: 'Test',
+			summary: 'Gov.',
+			contentText: 'This is the body text. Extra info.',
+			county: 'Clark',
+			category: 'today',
+			isKentucky: true,
+		});
+		expect(capShort).not.toContain('Gov.');
+		expect(capShort).toContain('This is the body text.');
 		expect(cap).toContain('https://localkynews.com/news/kentucky/boone-county/foo');
 		// county hashtag should include KY suffix
 		expect(cap).toContain('#BooneCountyKY');
