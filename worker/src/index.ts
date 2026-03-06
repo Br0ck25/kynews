@@ -1605,6 +1605,31 @@ if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathna
     return fetch(originUrl);
 }
 
+// --- RSS feed routes ------------------------------------------------------
+// users requested an RSS version of the “today” feed so they can subscribe
+// externally.  This behaves much like the `/api/articles/today` endpoint but
+// returns XML instead of JSON.  Query parameters are identical (counties
+// short/long form).  We generate the feed on‑the‑fly and cache it for a short
+// period to reduce DB load.
+
+if (request.method === 'GET' && url.pathname === '/today.rss') {
+    // parse counties exactly like the JSON endpoint
+    const rawCounties = parseCommaList(url.searchParams.get('counties') || url.searchParams.get('county'));
+    let counties = normalizeCountyList(rawCounties) as string[];
+    // avoid blowing up D1 by passing an enormous filter list
+    if (counties.length > 100) {
+        // treat as if no filter was provided; too many binds would overflow SQLite
+        counties = [];
+    }
+    const xml = await generateTodayRss(env, counties);
+    return new Response(xml, {
+        headers: {
+            'content-type': 'application/rss+xml; charset=utf-8',
+            'cache-control': 'public, max-age=300, s-maxage=300',
+        },
+    });
+}
+
 // --- Sitemap routes (Section 7: News Sitemap Strategy) ---
 if (url.pathname === '/sitemap-index.xml' && request.method === 'GET') {
 	return new Response(generateSitemapIndex(), {
@@ -1869,6 +1894,103 @@ ${items.join('\n')}
 		await env.CACHE.put(cacheKey, xml, { expirationTtl: 3600 }).catch(() => {});
 	}
 	return xml;
+}
+
+/**
+ * Escape text for inclusion in XML nodes.  only a handful of characters
+ * require replacement.
+ */
+function escapeXml(str: string): string {
+    return (str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
+/**
+ * Build a simple RSS feed for the "today" category.  exported so unit
+ * tests can call it directly.
+ */
+async function generateTodayRss(env: Env, counties: string[]): Promise<string> {
+    // guard against obscene county lists; we'll just ignore the filter completely
+    if (counties.length > 100) {
+        counties = [];
+    }
+
+    const baseUrl = BASE_URL;
+
+    async function fetchWith(cty: string[]) {
+        return await queryArticles(env, {
+            category: 'today',
+            counties: cty,
+            search: null,
+            limit: 50,
+            cursor: null,
+            includeNonKentucky: true,
+        });
+    }
+
+    let usedCounties = counties;
+    let result;
+
+    // attempt cache using original counties and flag
+    const initialKey = `rss:today:${usedCounties.sort().join(',')}:includeAll`;
+    if (env.CACHE) {
+        const cached = await env.CACHE.get(initialKey).catch(() => null);
+        if (cached) return cached;
+    }
+
+    try {
+        result = await fetchWith(usedCounties);
+    } catch (err: any) {
+        if (typeof err.message === 'string' && err.message.includes('too many SQL variables')) {
+            result = { items: [], nextCursor: null };
+        } else {
+            throw err;
+        }
+    }
+
+    // fallback to global feed if filtering produced no results
+    if ((result.items?.length ?? 0) === 0 && usedCounties.length > 0) {
+        usedCounties = [];
+        try {
+            result = await fetchWith(usedCounties);
+        } catch {
+            // ignore
+        }
+    }
+
+    const itemsXml = (result.items || []).map((item) => {
+        const title = escapeXml(item.title || '');
+        const link = buildArticleUrl(baseUrl, item.slug, item.county, item.category, item.isNational, item.id);
+        const pub = item.publishedAt ? new Date(item.publishedAt).toUTCString() : new Date().toUTCString();
+        const description = escapeXml(item.summary || '');
+        return `  <item>
+    <title>${title}</title>
+    <link>${link}</link>
+    <pubDate>${pub}</pubDate>
+    <description>${description}</description>
+  </item>`;
+    }).join('\n');
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>Local KY News - Today</title>
+<link>${baseUrl}/today</link>
+<description>Kentucky Today feed</description>
+${itemsXml}
+</channel>
+</rss>`;
+
+    const cacheKey = `rss:today:${usedCounties.sort().join(',')}:includeAll`;
+    if (env.CACHE) {
+        await env.CACHE.put(cacheKey, xml, { expirationTtl: 300 }).catch(() => {});
+    }
+
+    return xml;
 }
 
 /**
@@ -2833,6 +2955,7 @@ export const __testables = {
 	getCountyCounts,
 	generateSitemap,
 	generateNewsSitemap,
+	generateTodayRss,
 	generateSitemapIndex,
 	rebalanceSchoolHeavyRunSources,
 	// expose internal helpers for unit tests

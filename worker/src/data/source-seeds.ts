@@ -58,7 +58,6 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://www.wnky.com/feed/',
   'https://kychamberbottomline.com/feed/',
   'https://www.wcpo.com/news/state/state-kentucky.rss',
-  'https://www.owensborotimes.com/feed/',
   'https://stateline.org/feed/',
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=247',
   'https://www.newsfromthestates.com/api/v2/article/category?article_category=187491',

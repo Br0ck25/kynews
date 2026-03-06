@@ -82,6 +82,10 @@
 		{ "pattern": "www.localkynews.com/sitemap-news.xml", "zone_name": "localkynews.com" },
 		{ "pattern": "www.localkynews.com/sitemap-index.xml", "zone_name": "localkynews.com" },
 
+		// RSS feed for the “today” page must hit the worker instead of Pages
+		{ "pattern": "localkynews.com/today.rss", "zone_name": "localkynews.com" },
+		{ "pattern": "www.localkynews.com/today.rss", "zone_name": "localkynews.com" },
+
 	],
 	/**
 	 * Smart Placement

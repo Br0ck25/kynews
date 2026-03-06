@@ -456,6 +456,12 @@ export async function queryArticles(env: Env, options: {
   search: string | null;
   limit: number;
   cursor: string | null;
+  /**
+   * when true we ignore the normal "is_kentucky = 1" restriction that
+   * applies to the "today" category.  callers such as the RSS generator use
+   * this so that non‑Kentucky stories are still included.
+   */
+  includeNonKentucky?: boolean;
 }): Promise<ArticleListResponse> {
   const where: string[] = [];
   const binds: unknown[] = [];
@@ -463,7 +469,9 @@ export async function queryArticles(env: Env, options: {
   if (options.category === 'all') {
     // special case: no category filter, return articles from every bucket
   } else if (options.category === 'today') {
-    where.push('is_kentucky = 1');
+    if (!options.includeNonKentucky) {
+      where.push('is_kentucky = 1');
+    }
   } else if (options.category === 'national') {
     // include rows whose category is explicitly "national" or that have the
     // national flag set.  this allows admins to flip a story to national without
