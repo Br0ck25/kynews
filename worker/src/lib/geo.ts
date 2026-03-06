@@ -288,6 +288,10 @@ export const HIGH_AMBIGUITY_CITIES = new Set([
   'louisville', // Louisville, Jefferson County KY — but "Louisville Cardinals", "UofL", "beat Louisville" appear constantly in national sports coverage. Requires explicit location signal (KY, street, zip) to avoid false positives.
   'lexington',  // Lexington, Fayette County KY — often appears in national sports (UK basketball, VMI/W&L, brand names) without KY context.
   'fleming',    // Fleming-Neon ambiguity; treat conservatively
+  'greenville',   // Greenville, Indiana (Floyd County Indiana area); Greenville SC/TX/NC/MS
+  'smith',        // Smith County, TN; very common surname; maps to Harlan KY
+  'bowling green',// Bowling Green, OH / MO / WI etc.; requires explicit KY context
+  'covington',    // Covington, VA / GA / TN / IN / OH — currently in classify.ts but should be here
 ]);
 
 // dateline cities that should be ignored entirely when they appear at the

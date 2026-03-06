@@ -1441,7 +1441,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           metas.push('<meta name="twitter:card" content="summary_large_image"/>');
           metas.push(`<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>`);
           metas.push(`<meta property="fb:app_id" content="${escapeHtml(env.FB_APP_ID || '0')}"/>`);
-          const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
+          const html = `<!doctype html><html><head>${metas.join('')}</head><body></body></html>`;
           return new Response(html, {
             headers: { 'content-type': 'text/html; charset=utf-8' },
           });
@@ -1548,7 +1548,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         );
 
         // include redirect parameter so second request bypasses this block
-        const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
+        const html = `<!doctype html><html><head>${metas.join('')}</head><body></body></html>`;
         return new Response(html, {
           headers: { 'content-type': 'text/html; charset=utf-8' },
         });
