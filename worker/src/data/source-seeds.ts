@@ -81,6 +81,7 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://www.wlwt.com/topstories-rss',
   'https://www.cbssports.com/rss/headlines/',
   'https://www.cbssports.com/rss/headlines/college-basketball/',
+	'https://thecitizen.com/feed/',
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [

@@ -1378,6 +1378,11 @@ return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 //   articles and the initial preview navigation without ever modifying the
 //   visible URL.  If the incoming path is already canonical we simply fall
 //   through and let the SPA handler serve `/index.html` normally.
+//
+// **IMPORTANT:** these routes are only effective when requests actually hit
+// this Worker.  The production Pages deployment must proxy `/news/*` and
+// `/post*` to the worker (see `worker/wrangler.jsonc`); otherwise crawlers
+// and browsers will receive the static shell with the generic logo image.
 // include HEAD so preliminary bot probes still see our OG tags
 if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.startsWith('/news/') || url.pathname === '/post')) {
   const userAgent = request.headers.get('User-Agent') || '';

@@ -3497,27 +3497,27 @@ describe('social preview HTML route', () => {
           expect(textQ).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
         }
 
-        // also verify that a relative value in the DB gets converted to an absolute
-        // URL before being emitted so crawlers don't end up with "/foo.jpg".
-        await env.ky_news_db
-          .prepare(
-            `INSERT INTO articles (
-                canonical_url, source_url, url_hash, title, author, published_at, category,
-                is_kentucky, county, city, summary, seo_description, raw_word_count,
-                summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            'https://example.com/reltest',
-            'https://example.com',
-            'rel-hash',
-            'Relative Image Test',
-            null,
-            now,
-            'today',
-            1,
-            'Boone',
-            'boone',
+        // NOTE: relative URL test will be appended further down after
+        // we assert the routing configuration.
+    });
+
+    // route configuration must include the preview paths so production traffic
+    // flows through the worker rather than serving the static shell.  without
+    // this the OG tags above will never reach Facebook and other social crawlers.
+    it('worker routes include article preview patterns', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+        const configPath = path.resolve(__dirname, '../wrangler.jsonc');
+        const text = await fs.promises.readFile(configPath, 'utf-8');
+        const cfg = JSON.parse(text);
+        const patterns = (cfg.routes || []).map((r) => r.pattern);
+        expect(patterns).toContain('localkynews.com/news/*');
+        expect(patterns).toContain('www.localkynews.com/news/*');
+        expect(patterns).toContain('localkynews.com/post*');
+        expect(patterns).toContain('www.localkynews.com/post*');
+    });
+
+    // continue with remaining tests
             'Summary',
             'SEO',
             100,
