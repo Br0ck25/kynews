@@ -203,6 +203,7 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   'nbcsports.com',
   'wlky.com', // Louisville CBS affiliate syndicates national wire stories
   'wlwt.com', // Cincinnati NBC affiliate — covers Ohio/NKY border; not a KY-primary source
+  'whas11.com', // Louisville ABC affiliate — syndicates AP wire and Indiana stories
 ]);
 
 
@@ -263,7 +264,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   // Louisville Metro
   'wdrb.com': 'Jefferson',
   'wave3.com': 'Jefferson',
-  'whas11.com': 'Jefferson',
+  'whas11.com': null, // now in ALWAYS_NATIONAL_SOURCES; wire content only
   'courier-journal.com': 'Jefferson',
   // Northern Kentucky
   'nky.com': 'Kenton',
@@ -467,6 +468,22 @@ export async function classifyArticleWithAi(
     ? detectKentuckyGeo(semanticText)
     : { isKentucky: false, county: null, counties: [], city: null };
 
+  // Honour explicit "COUNTY NAME, Ky." dateline at the very start of the article.
+  // This catches all-caps datelines like "OHIO COUNTY, Ky." that may be missed by
+  // the geo detector's word-boundary patterns when the text is fully uppercase.
+  const dateline_county_match = semanticLeadText.match(
+    /^([A-Z][A-Za-z\s]{2,20})\s+COUNTY\s*,\s*Ky\b/i
+  );
+  if (dateline_county_match) {
+    const datelineCounty = dateline_county_match[1].trim();
+    const normalizedDatelineCounty = KY_COUNTIES.find(
+      (c) => c.toLowerCase() === datelineCounty.toLowerCase()
+    );
+    if (normalizedDatelineCounty && !baseGeo.county) {
+      baseGeo = { ...baseGeo, county: normalizedDatelineCounty, counties: [normalizedDatelineCounty] };
+    }
+  }
+
   // FIX 3: When statewide KY political story is detected, clear out any
   // county or city that the geo detector may have inferred (e.g. a
   // "Bowling Green, Ky." dateline on a Frankfort legislative roundup).
@@ -481,7 +498,7 @@ export async function classifyArticleWithAi(
   // mentioned; without the guard the geo detector will accidentally tag the
   // story as Floyd County, KY because the dateline or other nearby text often
   // contains "Louisville, Ky.".
-  const isIndianaStory = /\b(?:southern\s+indiana|indiana\s+law\s+enforcement|indiana\s+state\s+police|greenville,\s*indiana|new\s+albany,\s*indiana|jeffersonville,\s*indiana)\b/i.test(semanticLeadText);
+  const isIndianaStory = /\b(?:southern\s+indiana|indiana\s+law\s+enforcement|indiana\s+state\s+police|greenville,?\s*(?:indiana|ind\.?)|new\s+albany,?\s*(?:indiana|ind\.?)|jeffersonville,?\s*(?:indiana|ind\.?)|clarksville,?\s*(?:indiana|ind\.?)|sellersburg,?\s*(?:indiana|ind\.?)|charlestown,?\s*(?:indiana|ind\.?)|\bInd\.?\s*\(WDRB\)|\bInd\.?\s*[-—–]|\bIND\.?\s*[-—–]|,\s*Ind\.?\s*[-—–])\b/i.test(semanticLeadText);
   if (isIndianaStory && !isAlwaysNational) {
     if (baseGeo.county && !COUNTY_PATTERNS.some(p =>
       p.county === baseGeo.county &&
@@ -552,9 +569,17 @@ export async function classifyArticleWithAi(
     isKentucky: baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource,
     county:
       effectiveGeoCounty ??
-      (!baseGeo.city && (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource)
-        ? allowedSourceDefaultCounty
-        : null),
+      (
+        (
+          !baseGeo.city ||
+          // A city in HIGH_AMBIGUITY_CITIES never produced a county assignment;
+          // allow the source default county to fill in when such a city was detected.
+          HIGH_AMBIGUITY_CITIES.has((baseGeo.city || '').toLowerCase())
+        ) &&
+        (baseIsKentucky || louisvilleSportsSignal || isKySchoolsSource)
+          ? allowedSourceDefaultCounty
+          : null
+      ),
     counties: effectiveGeoCounties ? [...effectiveGeoCounties] : [],
     city: baseGeo.city,
     category: hasKhsaa ? 'sports' : category,
@@ -616,7 +641,7 @@ export async function classifyArticleWithAi(
     return fallback;
   }
 
-  if (!shouldUseAiFallback(cleanTitle, cleanContent, fallback)) {
+  if (isNationalWireStory || !shouldUseAiFallback(cleanTitle, cleanContent, fallback)) {
     return fallback;
   }
 
@@ -1069,6 +1094,9 @@ function countKentuckyMentions(text: string, allowAmbiguousCities: boolean): num
  * - National story that nonetheless has at least one KY hint (AI double-check)
  */
 function shouldUseAiFallback(title: string, content: string, current: ClassificationResult): boolean {
+  // Never use AI for national wire stories — the wire dateline heuristic is
+  // authoritative and the AI may hallucinate a Kentucky county from the source name.
+  // (This guard receives isNationalWireStory via closure; we check it in the caller.)
   const fullText = `${title}\n${content}`;
 
   if (current.isKentucky && !current.county) return true;

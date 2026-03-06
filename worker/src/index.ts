@@ -47,7 +47,7 @@ import { KY_COUNTIES } from './data/ky-geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
 import { classifyArticleWithAi } from './lib/classify';
 import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
-import type { Category, NewArticle } from './types';
+import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption } from './lib/facebook';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
@@ -1068,6 +1068,39 @@ if (url.pathname === '/api/admin/facebook/caption' && request.method === 'POST')
 	return json({ ok: true, caption });
 }
 
+// helper reused by several endpoints: choose a sensible preview image URL for an
+// article record.  This mirrors the logic used when rendering OG tags for bots.
+async function selectPreviewImage(article: ArticleRecord): Promise<string | null> {
+	let previewImage = article.imageUrl || null;
+	if (!previewImage && article.contentHtml) {
+		const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
+		if (match && match[1]) previewImage = match[1];
+	}
+	if (!previewImage) {
+		try {
+			const fetchResp = await fetch((article.canonicalUrl || '') + `?_=${Date.now()}`);
+			if (fetchResp.ok) {
+				const body = await fetchResp.text();
+				const { scrapeArticleHtml } = await import('./lib/scrape');
+				const scraped = scrapeArticleHtml(article.canonicalUrl || '', body);
+				if (scraped.imageUrl) {
+					previewImage = scraped.imageUrl;
+				}
+			}
+		} catch {
+			/* ignore network errors */
+		}
+	}
+	if (previewImage && !/^https?:\/\//i.test(previewImage)) {
+		try {
+			previewImage = new URL(previewImage, article.canonicalUrl || BASE_URL).toString();
+		} catch {
+			/* ignore invalid URL */
+		}
+	}
+	return previewImage || null;
+}
+
 // optionally post the generated caption link to a Facebook page using Graph API
 if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
@@ -1092,16 +1125,26 @@ if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 		return json({ error: 'Facebook credentials not configured' }, 500);
 	}
 
+	// figure out what image (if any) should be used for the preview.  this is
+	// the same value that the crawler would see when scraping the article link,
+	// and by passing it explicitly to the Graph API we override the logo fallback.
+	const pictureUrl = await selectPreviewImage(article);
+
 	// perform Graph API request
 	try {
+		const params: Record<string, string> = {
+			message: caption,
+			link: article.canonicalUrl || article.sourceUrl || '',
+			access_token: pageToken,
+		};
+		if (pictureUrl) {
+			params.picture = pictureUrl;
+		}
+
 		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-			body: new URLSearchParams({
-				message: caption,
-				link: article.canonicalUrl || article.sourceUrl || '',
-				access_token: pageToken,
-			}),
+			body: new URLSearchParams(params),
 		});
 		const postData = await postResp.json();
 		return json({ ok: true, result: postData });
@@ -1335,9 +1378,15 @@ return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 //   articles and the initial preview navigation without ever modifying the
 //   visible URL.  If the incoming path is already canonical we simply fall
 //   through and let the SPA handler serve `/index.html` normally.
-if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathname === '/post')) {
+// include HEAD so preliminary bot probes still see our OG tags
+if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.startsWith('/news/') || url.pathname === '/post')) {
   const userAgent = request.headers.get('User-Agent') || '';
-  const isBot = /facebookexternalhit|facebookbot|facebot|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot|discordbot|googlebot|bingbot|applebot|pinterest|vkshare|xing-contenttabreceiver|w3c_validator|curl|wget|python-requests|java\/|go-http|okhttp/i.test(userAgent);
+  // Facebook’s crawler uses several different user‑agents.  Mobile app
+  // previews often use strings like "FB_IAB" or include "FBAV" which were
+  // previously missed, causing us to serve the SPA shell with the default logo
+  // instead of the proper og:image.  Broaden the regexp to catch the extra
+  // variants while still avoiding false positives for normal users.
+  const isBot = /facebookexternalhit|facebookbot|facebot|fb_iab|fbav|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot|discordbot|googlebot|bingbot|applebot|pinterest|vkshare|xing-contenttabreceiver|w3c_validator|curl|wget|python-requests|java\/|go-http|okhttp/i.test(userAgent);
 
   // look up the article either by slug (normal path) or by ID using the
   // legacy /post?articleId= query parameter.  canonicalPath will later be
@@ -1372,45 +1421,20 @@ if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathna
           // must match that path; the previous hard‑coded `/preview.png` was
           // missing in production and caused Facebook to scrape the shell logo.
           const fallbackImage = 'https://localkynews.com/img/preview.PNG';
-          let previewImage = article.imageUrl;
-          if (!previewImage && article.contentHtml) {
-            const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
-            if (match && match[1]) {
-              previewImage = match[1];
-            }
-          }
-          if (!previewImage) {
-            try {
-              const fetchResp = await fetch(article.canonicalUrl + `?_=${Date.now()}`);
-              if (fetchResp.ok) {
-                const body = await fetchResp.text();
-                const { scrapeArticleHtml } = await import('./lib/scrape');
-                const scraped = scrapeArticleHtml(article.canonicalUrl, body);
-                if (scraped.imageUrl) {
-                  previewImage = scraped.imageUrl;
-                }
-              }
-            } catch {
-              /* ignore */
-            }
-          }
-          if (previewImage && !/^https?:\/\//i.test(previewImage)) {
-            try {
-              previewImage = new URL(previewImage, pageUrl).toString();
-            } catch {}
-          }
+          // choose the same preview image logic we also use for Graph API
+          // posts.  selectPreviewImage returns null if no suitable photo exists.
           const metas = [];
           metas.push('<meta property="og:type" content="article"/>');
           metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
           metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-          const ogImage = previewImage || fallbackImage;
-          metas.push(`<meta property="og:image" content="${escapeHtml(ogImage)}"/>`);
+          const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+          metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
           metas.push(`<meta property="og:image:width" content="1200"/>`);
           metas.push(`<meta property="og:image:height" content="630"/>`);
           metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
           metas.push('<meta property="og:site_name" content="Local KY News"/>');
           metas.push('<meta name="twitter:card" content="summary_large_image"/>');
-          metas.push(`<meta name="twitter:image" content="${escapeHtml(ogImage)}"/>`);
+          metas.push(`<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>`);
           metas.push(`<meta property="fb:app_id" content="${escapeHtml(env.FB_APP_ID || '0')}"/>`);
           const html = `<!doctype html><html><head>${metas.join('')}</head><body><script>window.location.href='${pageUrl}?r=1';</script></body></html>`;
           return new Response(html, {
@@ -1485,40 +1509,13 @@ if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathna
         // 1. explicit article.imageUrl
         // 2. first <img> inside stored contentHtml (works for our own posts)
         // 3. attempt external fetch+scrape (useful for third-party sources)
-        let previewImage = article.imageUrl;
-        if (!previewImage && article.contentHtml) {
-          const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
-          if (match && match[1]) {
-            previewImage = match[1];
-          }
-        }
-        if (!previewImage) {
-          try {
-            const fetchResp = await fetch(article.canonicalUrl + `?_=${Date.now()}`);
-            if (fetchResp.ok) {
-              const body = await fetchResp.text();
-              const { scrapeArticleHtml } = await import('./lib/scrape');
-              const scraped = scrapeArticleHtml(article.canonicalUrl, body);
-              if (scraped.imageUrl) {
-                previewImage = scraped.imageUrl;
-              }
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-        // ensure the image URL is absolute; bots expect a full URL
-        if (previewImage && !/^https?:\/\//i.test(previewImage)) {
-          try {
-            previewImage = new URL(previewImage, pageUrl).toString();
-          } catch {}
-        }
+        // use the shared preview-image logic so bots and Graph posts agree
         const metas = [];
         metas.push('<meta property="og:type" content="article"/>');
         metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
         metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-        const ogImage = previewImage || fallbackImage;
-        metas.push(`<meta property="og:image" content="${escapeHtml(ogImage)}"/>`);
+        const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+        metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
         metas.push(`<meta property="og:image:width" content="1200"/>`);
         metas.push(`<meta property="og:image:height" content="630"/>`);
         metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
@@ -1527,7 +1524,7 @@ if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathna
         // Twitter uses its own tags and also wants the large image card.
         metas.push('<meta name="twitter:card" content="summary_large_image"/>');
         metas.push(
-          `<meta name="twitter:image" content="${escapeHtml(ogImage)}"/>
+          `<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>
         `);
 
         // always include the tag; use configured ID or fall back to '0'

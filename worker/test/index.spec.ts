@@ -673,6 +673,19 @@ async function ensureSchemaAndFixture() {
 		expect(body.items[0].title).toBe('Legacy Kentucky Weather');
 	});
 
+describe('AI cleanup utilities', () => {
+	it('strips image caption/alt text prior to dateline', () => {
+		const raw = "Some caption\nLEXINGTON, Ky. (AP) — Story content";
+		const cleaned = (aiModule as any).cleanContentForSummarization(raw, '');
+		expect(cleaned).toBe("LEXINGTON, Ky. (AP) — Story content");
+	});
+
+	it('removes dateline from summary output', () => {
+		const out = (aiModule as any).stripBoilerplateFromOutput("LEXINGTON, Ky. (LEX 18) — Summary text", '');
+		expect(out).toBe("Summary text");
+	});
+});
+
 describe('classification utilities', () => {
 	it('rejects short content under minimum threshold', () => {
 		expect(isShortContentAllowed('https://facebook.com/story/123', 10)).toBe(false);
@@ -956,6 +969,7 @@ describe('classification utilities', () => {
 				content: 'NEW ALBANY, Indiana – Officers in Floyd County, Indiana, responded to a crash near the Ohio River.',
 			});
 			expect(classification.county).toBeNull();
+		});
 		it('applies Fayette default for wtvq.com and null county for statewide weather', async () => {
 			// generic non-weather story should fall back to Fayette via site default
 			let classification = await classifyArticleWithAi(env, {
@@ -975,6 +989,53 @@ describe('classification utilities', () => {
 			expect(classification.isKentucky).toBe(true);
 			expect(classification.county).toBeNull();
 			expect(classification.counties).toEqual([]);
+		});
+
+		// extra regression cases added for recent fixes
+		it('recognizes Indiana abbreviation in isIndianaStory guard', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://example.com/indiana-abbrev',
+				title: 'GREENVILLE, Ind. — Police investigate',
+				content: 'GREENVILLE, Ind. — A shooting occurred in southern Indiana.',
+			});
+			expect(classification.county).toBeNull();
+		});
+
+		it('applies Jefferson default for wdrb.com when only Louisville mentioned', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://wdrb.com/news/louisville-incident',
+				title: 'Louisville Metro Police respond to incident',
+				content: 'Louisville Metro Police say ...',
+			});
+			expect(classification.county).toBe('Jefferson');
+		});
+
+		it('detects explicit Ohio County dateline and assigns Ohio county', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://example.com/ohio-county',
+				title: 'OHIO COUNTY, Ky. — Local news',
+				content: 'OHIO COUNTY, Ky. — Something happened in Ohio County.',
+			});
+			expect(classification.county).toBe('Ohio');
+		});
+
+		it('detects Mt. Sterling mapping to Montgomery', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://example.com/mt-sterling-event',
+				title: 'MT. STERLING, Ky. — Town festival',
+				content: 'MT. STERLING, Ky. — Turkey trot held in city.',
+			});
+			expect(classification.county).toBe('Montgomery');
+		});
+
+		it('whas11 source is always treated as national regardless of content', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://www.whas11.com/local-kentucky',
+				title: 'Louisville celebration draws thousands',
+				content: 'The parade in downtown Louisville drew thousands of viewers.',
+			});
+			expect(classification.isKentucky).toBe(false);
+			expect(classification.county).toBeNull();
 		});
 
 		// national wire-like always-national source should ignore Kentucky hints
@@ -3142,6 +3203,58 @@ describe('admin facebook post endpoint', () => {
 		const body = await resp.json();
 		expect(body.error).toMatch(/credentials/i);
 	});
+
+	it('passes picture parameter when article has an image', async () => {
+		await ensureSchemaAndFixture();
+
+		// configure FB credentials in the environment
+		const adminEnv = envWithAdminPassword('secret');
+		(adminEnv as any).FACEBOOK_PAGE_ID = 'page123';
+		(adminEnv as any).FACEBOOK_PAGE_ACCESS_TOKEN = 'token123';
+
+		// make sure the example story has an image URL set
+		const row = await env.ky_news_db
+			.prepare(`SELECT id FROM articles WHERE canonical_url = ? LIMIT 1`)
+			.bind('https://example.com/ky-today')
+			.first();
+		const articleId = Number(row?.id ?? 0);
+		expect(articleId).toBeGreaterThan(0);
+		await env.ky_news_db
+			.prepare(`UPDATE articles SET image_url = ? WHERE id = ?`)
+			.bind('https://foo.bar/image.jpg', articleId)
+			.run();
+
+		const originalFetch = global.fetch;
+		let lastUrl = '';
+		let lastBody = '';
+		global.fetch = async (input: RequestInfo, init?: RequestInit) => {
+			lastUrl = input.toString();
+			if (init && init.body instanceof URLSearchParams) {
+				lastBody = init.body.toString();
+			} else if (typeof init?.body === 'string') {
+				lastBody = init.body;
+			}
+			return new Response(JSON.stringify({ id: 'ok' }));
+		};
+
+		const request = new IncomingRequest('https://example.com/api/admin/facebook/post', {
+			method: 'POST',
+			headers: {
+				'x-admin-key': 'secret',
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({ id: articleId }),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(request, adminEnv, ctx);
+		expect(resp.status).toBe(200);
+		const payload = await resp.json();
+		expect(payload.ok).toBe(true);
+		expect(lastUrl).toMatch(/graph\.facebook\.com/);
+		expect(lastBody).toContain('picture=https%3A%2F%2Ffoo.bar%2Fimage.jpg');
+
+		global.fetch = originalFetch;
+	});
 });
 // tests for server-side social preview route
 
@@ -3279,6 +3392,28 @@ describe('social preview HTML route', () => {
 			expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
             expect(text).toContain('<meta property="og:image:width" content="1200"');
             expect(text).toContain('<meta property="og:image:height" content="630"');
+        }
+
+        // also verify the mobile‑app UA is treated as a bot and returns the same
+        const mobileUa = 'Mozilla/5.0 (Linux; Android 10; SM-G973U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.105 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/315.0.0.42.123]';
+        const botRespMobile = await SELF.fetch(`https://example.com${path}`, {
+          headers: { 'User-Agent': mobileUa },
+        });
+        expect(botRespMobile.status).toBe(200);
+        const textMobile = await botRespMobile.text();
+        expect(textMobile).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
+
+        // HEAD requests should also return the OG tags (Facebook sometimes probes
+        // with HEAD before GET)
+        const headResp = await SELF.fetch(`https://example.com${path}`, {
+          method: 'HEAD',
+          headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+        });
+        expect(headResp.status).toBe(200);
+        // We expect the body to be empty on HEAD but headers should not include OG
+        // tags – the important part is that we didn't redirect to the SPA.
+        expect(headResp.headers.get('content-type')).toContain('text/html');
+
           // create another article without an image to ensure we emit the fallback
           await env.ky_news_db
             .prepare(

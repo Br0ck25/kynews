@@ -715,7 +715,7 @@ export function isScheduleOrScoresArticle(text: string): boolean {
 /**
  * Strip junk from article text before sending to AI.
  */
-function cleanContentForSummarization(text: string, title: string): string {
+export function cleanContentForSummarization(text: string, title: string): string {
   let t = decodeHtmlEntities(text || '')
     .replace(/\u00a0/g, ' ')
     .replace(/\r\n?/g, '\n');
@@ -729,6 +729,19 @@ function cleanContentForSummarization(text: string, title: string): string {
     const escaped = title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     t = t.replace(new RegExp(`^\\s*${escaped}\\s*\n?`, 'i'), '');
   }
+
+  // Strip short heading-like lines that appear before the dateline — these are
+  // image alt text or duplicate captions from broadcast CMS pages (e.g. LEX18,
+  // WKYT). They look like the article title but are not exact matches.
+  // A "caption-like" line: 3–12 words, appears before the first dateline, no verb tense.
+  // Strip lines matching: appears before "CITY, Ky. (..." or "CITY, KY —" dateline.
+  t = t.replace(
+    /^[^\n]{10,120}\n(?=[A-Z][A-Z\s]{1,25},\s*(?:Ky|KY|KENTUCKY)[\s.,])/gm,
+    '',
+  );
+  // Also strip the "(LEX 18) —", "(WKYT)" etc. broadcaster attribution that
+  // prefixes the actual article body after a dateline.
+  t = t.replace(/\b\((?:LEX\s*18|WKYT|WKYT-TV|WLWT|WHAS11?|WDRB|WBKO|WNKY|WYMT|WTVQ|ABC\s*36|FOX\s*56|WAVE\s*3|NBC)\)\s*[-—–]?\s*/gi, '');
 
   t = t.replace(/^\s*Summary\s*$/gim, '');
 
@@ -780,26 +793,29 @@ function cleanContentForSummarization(text: string, title: string): string {
   t = t.replace(/\n{3,}/g, '\n\n');
 
   // Strip TV closed-caption transcript blocks that leaked through as plain text.
-  // These are identified by being predominantly uppercase with short sentences.
-  // Pattern: 3+ consecutive lines that are >80% uppercase characters.
-  const lines = t.split('\n');
-  const cleanedLines: string[] = [];
-  let capsRunCount = 0;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    const upperCount = (trimmed.match(/[A-Z]/g) || []).length;
-    const letterCount = (trimmed.match(/[A-Za-z]/g) || []).length;
-    const isMostlyCaps = letterCount > 20 && upperCount / letterCount > 0.75;
-    if (isMostlyCaps) {
-      capsRunCount++;
-      // If we've seen 3+ caps lines in a row, this is a transcript block — skip
-      if (capsRunCount >= 3) continue;
-    } else {
-      capsRunCount = 0;
+  // Two-pass: first mark each line, then remove entire runs of 3+ caps lines.
+  {
+    const rawLines = t.split('\n');
+    const isCapsLine = rawLines.map((line) => {
+      const trimmed = line.trim();
+      const upperCount = (trimmed.match(/[A-Z]/g) || []).length;
+      const letterCount = (trimmed.match(/[A-Za-z]/g) || []).length;
+      return letterCount > 20 && upperCount / letterCount > 0.75;
+    });
+    const removeIdx = new Set<number>();
+    let runStart = -1;
+    for (let i = 0; i <= rawLines.length; i++) {
+      if (i < rawLines.length && isCapsLine[i]) {
+        if (runStart === -1) runStart = i;
+      } else {
+        if (runStart !== -1 && (i - runStart) >= 3) {
+          for (let j = runStart; j < i; j++) removeIdx.add(j);
+        }
+        runStart = -1;
+      }
     }
-    cleanedLines.push(line);
+    t = rawLines.filter((_, i) => !removeIdx.has(i)).join('\n');
   }
-  t = cleanedLines.join('\n');
 
   return t.trim();
 }
@@ -807,7 +823,7 @@ function cleanContentForSummarization(text: string, title: string): string {
 /**
  * Strip common boilerplate that the AI may have echoed into its output.
  */
-function stripBoilerplateFromOutput(text: string, title: string): string {
+export function stripBoilerplateFromOutput(text: string, title: string): string {
   let t = decodeHtmlEntities(text || '')
     .replace(/\u00a0/g, ' ')
     .replace(/\r\n?/g, '\n');
@@ -818,6 +834,8 @@ function stripBoilerplateFromOutput(text: string, title: string): string {
   }
 
   t = t.replace(/^\s*Summary\s*$/gim, '');
+  // Strip dateline echoed at summary start: "CITY, Ky. (SOURCE) —" or "CITY, KY —"
+  t = t.replace(/^\s*[A-Z][A-Z\s]{0,25},\s*(?:Ky|KY|KENTUCKY)[\s.,][^\n]{0,80}[-—–]\s*/im, '');
   t = t.replace(/^Published\b[^\n]*$/gim, '');
   t = t.replace(/^Updated\b[^\n]*$/gim, '');
   t = t.replace(/^Photo by\b[^\n]*$/gim, '');
