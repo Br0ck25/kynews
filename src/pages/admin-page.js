@@ -108,6 +108,11 @@ export default function AdminPage() {
   const [manualSuccess, setManualSuccess] = useState(null);
   const [manualError, setManualError] = useState("");
 
+  // --- Manual URL ingest state ---
+  const [manualUrlInput, setManualUrlInput] = useState('');
+  const [manualUrlLoading, setManualUrlLoading] = useState(false);
+  const [manualUrlResult, setManualUrlResult] = useState(null);
+
   // --- Facebook diagnostics state (create-article tab) ---
   const [fbDiagId, setFbDiagId] = useState("");
   const [fbDiagCaption, setFbDiagCaption] = useState(null);
@@ -673,6 +678,45 @@ export default function AdminPage() {
     }
   };
 
+  // --- Manual URL ingest handler ---
+  const handleManualIngest = async () => {
+    const trimmed = manualUrlInput.trim();
+    if (!trimmed) return;
+    setManualUrlLoading(true);
+    setManualUrlResult(null);
+    try {
+      const adminKey = service.getAdminPanelKey();
+      const resp = await fetch('/api/admin/ingest-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-key': adminKey,
+        },
+        body: JSON.stringify({ url: trimmed }),
+      });
+      const data = await resp.json();
+      if (data.status === 'inserted') {
+        setManualUrlResult({
+          status: 'inserted',
+          message: 'Article ingested successfully.',
+          articleId: data.id,
+          articleTitle: data.title,
+          articleCounty: data.county,
+        });
+      } else if (data.status === 'duplicate') {
+        setManualUrlResult({ status: 'duplicate', message: 'This article is already in the database.' });
+      } else if (data.status === 'rejected') {
+        setManualUrlResult({ status: 'rejected', message: `Rejected: ${data.reason || 'unknown reason'}` });
+      } else {
+        setManualUrlResult({ status: 'error', message: data.error || 'Unknown error from server.' });
+      }
+    } catch (err) {
+      setManualUrlResult({ status: 'error', message: 'Network error — could not reach server.' });
+    } finally {
+      setManualUrlLoading(false);
+    }
+  };
+
   const logAction = (msg) => {
     setIngestLogs((prev) => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`]);
   };
@@ -860,6 +904,54 @@ export default function AdminPage() {
               {loading ? "Loading…" : "Refresh"}
             </Button>
           </Box>
+
+          {/* Manual URL ingest section */}
+          <div style={{ margin: '24px 0', padding: '16px', border: '1px solid #ddd', borderRadius: '8px', background: '#fafafa' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 600 }}>Manual Article Ingest</h3>
+            <p style={{ margin: '0 0 12px', fontSize: '0.85rem', color: '#555' }}>
+              Paste any article URL to fetch, summarize, tag, and add it to the site — same pipeline as the RSS feed.
+            </p>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="url"
+                value={manualUrlInput}
+                onChange={(e) => { setManualUrlInput(e.target.value); setManualUrlResult(null); }}
+                onKeyDown={(e) => e.key === 'Enter' && !manualUrlLoading && handleManualIngest()}
+                placeholder="https://example.com/article-url"
+                disabled={manualUrlLoading}
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.9rem' }}
+              />
+              <button
+                onClick={handleManualIngest}
+                disabled={manualUrlLoading || !manualUrlInput.trim()}
+                style={{
+                  padding: '8px 18px', borderRadius: '6px', border: 'none',
+                  background: manualUrlLoading || !manualUrlInput.trim() ? '#aaa' : '#1a56db',
+                  color: '#fff', fontWeight: 600, cursor: manualUrlLoading || !manualUrlInput.trim() ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap', fontSize: '0.9rem',
+                }}
+              >
+                {manualUrlLoading ? 'Ingesting…' : 'Ingest Article'}
+              </button>
+            </div>
+
+            {manualUrlResult && (
+              <div style={{
+                marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '0.875rem',
+                background: manualUrlResult.status === 'inserted' ? '#f0fff4' : manualUrlResult.status === 'duplicate' ? '#fffbeb' : '#fff5f5',
+                border: `1px solid ${manualUrlResult.status === 'inserted' ? '#86efac' : manualUrlResult.status === 'duplicate' ? '#fde68a' : '#fca5a5'}`,
+                color: manualUrlResult.status === 'inserted' ? '#166534' : manualUrlResult.status === 'duplicate' ? '#92400e' : '#991b1b',
+              }}>
+                {manualUrlResult.status === 'inserted' ? '✅' : manualUrlResult.status === 'duplicate' ? '⚠️' : '❌'}{' '}
+                {manualUrlResult.message}
+                {manualUrlResult.articleTitle && (
+                  <span> — <strong>{manualUrlResult.articleTitle}</strong>
+                    {manualUrlResult.articleCounty && ` (${manualUrlResult.articleCounty} County)`}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
 
           {metrics && (
             <Paper style={{ padding: 12, marginBottom: 16 }}>

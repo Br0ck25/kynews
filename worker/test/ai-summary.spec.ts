@@ -120,8 +120,8 @@ describe('summary sanitization', () => {
     expect(result.summary).toMatch(/women and the number has grown over time\.$/);
   });
 
-  it.skip('flags betting/odds content as unsummarizable via schedule detector', () => {
-    const base = 'Kentucky vs Vanderbilt odds; spread, money line, sportsbook promo code';
+  it('flags betting/odds content as unsummarizable via schedule detector', () => {
+    const base = 'Kentucky vs Vanderbilt odds; spread, money line, sportsbook promo code our pick';
     expect(isScheduleOrScoresArticle(base)).toBe(true);
   });
 });

@@ -687,11 +687,13 @@ export function isScheduleOrScoresArticle(text: string): boolean {
   const timeLine = /^\d{1,2}:\d{2}\s*(?:am|pm)/i;
   const channelLine = /^(?:FS\d?|ESPN[U2]?|CBS|NBC|ABC|TNT|TBS|BALLY|PEACOCK|MSG|NESN)\s*$/i;
 
-  // Betting odds / gambling model articles are not summarizable
-  const isBettingArticle =
-    /\b(?:spread|over\/under|money\s*line|point\s*spread|sportsbook|promo\s*code|betting\s*(?:line|odds|pick|advice|tip)|(?:ATS|SU)\s+record|DraftKings|FanDuel|BetMGM|Caesars|SportsLine|covers\.com|action\s+network)\b/i
-    .test(text) &&
-    /\b(?:pick|predict|model|simul|project|wager|bet)\b/i.test(text);
+  // Betting PREVIEW / ODDS articles: must have actual odds/picks language,
+  // not just brand mentions or general discussion of the gambling industry.
+  const hasBettingOddsLanguage =
+    /\b(?:spread|over\/under|money\s*line|point\s*spread|promo\s*code|(?:ATS|SU)\s+record|SportsLine|covers\.com|action\s+network)\b/i.test(text);
+  const hasBettingPickLanguage =
+    /\b(?:our\s+(?:pick|model|prediction)|expert\s+pick|best\s+bet|free\s+pick|against\s+the\s+spread|ATS\s+(?:pick|record)|(?:take|lean|side)\s+(?:the|with)\s+[A-Z])\b/i.test(text);
+  const isBettingArticle = hasBettingOddsLanguage && hasBettingPickLanguage;
 
   if (isBettingArticle) return true;
 

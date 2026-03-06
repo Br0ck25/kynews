@@ -1256,7 +1256,7 @@ describe('classification utilities', () => {
 	});
 
 	it('marks national betting/odds articles as non-KY and non-summarizable', async () => {
-		const text = 'Kentucky vs Vanderbilt odds: spread money line and promo code for betting';
+		const text = 'Kentucky vs Vanderbilt odds: spread money line and promo code our pick';
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://www.cbssports.com/college-basketball/odds/',
 			title: 'Kentucky vs Vanderbilt odds spread',
@@ -2235,6 +2235,14 @@ describe('ingestSingleUrl error handling', () => {
 				const text2 = await botResp2.text();
 				expect(text2).toContain('<meta property="og:image" content="https://example.com/foo.jpg"');
 			}
+			// simulate Facebook/Instagram in-app browser which cannot run the SPA
+			const iabResp = await SELF.fetch(`https://example.com${previewPath}`, {
+				headers: { 'User-Agent': 'Mozilla/5.0 FBAN/FBIOS' },
+			});
+			expect(iabResp.status).toBe(200);
+			const iabText = await iabResp.text();
+			expect(iabText).toContain('<h1>');
+			expect(iabText).toContain('Read full article at source');
 		}
 
 		global.fetch = originalFetch;
@@ -3112,6 +3120,57 @@ describe('admin ingest endpoint', () => {
 		expect(msg.ack).toHaveBeenCalled();
 		__testables.runIngest = originalRun;
 	});
+});
+
+describe('admin ingest-url endpoint', () => {
+  it('rejects unauthorized requests', async () => {
+    const response = await SELF.fetch('https://example.com/api/admin/ingest-url', {
+      method: 'POST',
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it('ingests a URL when authorized', async () => {
+    await ensureSchemaAndFixture();
+    const adminEnv = envWithAdminPassword('pw');
+    const original = __testables.ingestSingleUrl;
+    __testables.ingestSingleUrl = async (env, { url }) => {
+      return { status: 'inserted', id: 123, title: 'Test Title', county: 'Foo' };
+    };
+
+    const req = new IncomingRequest('https://example.com/api/admin/ingest-url', {
+      method: 'POST',
+      headers: { 'x-admin-key': 'pw' },
+      body: JSON.stringify({ url: 'https://example.com/test' }),
+    });
+    const ctx = createExecutionContext();
+    const resp = await worker.fetch(req, adminEnv, ctx);
+    expect(resp.status).toBe(200);
+    const data = await resp.json();
+    expect(data.status).toBe('inserted');
+    expect(data.id).toBe(123);
+
+    __testables.ingestSingleUrl = original;
+  });
+
+  it('returns 422 when ingest is rejected', async () => {
+    await ensureSchemaAndFixture();
+    const adminEnv = envWithAdminPassword('pw');
+    const original = __testables.ingestSingleUrl;
+    __testables.ingestSingleUrl = async () => ({ status: 'rejected', reason: 'bad' });
+
+    const req = new IncomingRequest('https://example.com/api/admin/ingest-url', {
+      method: 'POST',
+      headers: { 'x-admin-key': 'pw' },
+      body: JSON.stringify({ url: 'https://example.com/bad' }),
+    });
+    const resp = await worker.fetch(req, adminEnv, createExecutionContext());
+    expect(resp.status).toBe(422);
+    const js = await resp.json();
+    expect(js.status).toBe('rejected');
+
+    __testables.ingestSingleUrl = original;
+  });
 });
 
 // reclassify endpoint tests

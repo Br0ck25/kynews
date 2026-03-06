@@ -204,6 +204,7 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   'wlky.com', // Louisville CBS affiliate syndicates national wire stories
   'wlwt.com', // Cincinnati NBC affiliate — covers Ohio/NKY border; not a KY-primary source
   'whas11.com', // Louisville ABC affiliate — syndicates AP wire and Indiana stories
+  'stateline.org',        // States Newsroom / Stateline — national policy wire, covers all 50 states
 ]);
 
 
@@ -280,6 +281,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'kentuckysportsradio.com': null,
   'kentuckystatepolice.ky.gov': null, // KSP covers all of KY — no single county default
   'k105.com': 'Pulaski',  // K-105 radio, Somerset / Pulaski County area
+  'stateline.org': null,  // national wire — no county default
 };
 
 /**
@@ -1363,6 +1365,16 @@ function enforceCategoryEvidence(
 ): Category {
   if (category === 'today' || category === 'national') {
     return normalizeCategoryForKentuckyScope(category, isKentucky);
+  }
+
+  // Guard against AI hallucinating "weather" for sports articles.
+  // WYMT and similar TV stations cover both weather and sports; the model
+  // sometimes returns "weather" for sports game recaps.
+  if (category === 'weather') {
+    const hasSportsSignal = CATEGORY_PATTERNS.sports.some(p => p.test(title) || p.test(leadText));
+    if (hasSportsSignal) {
+      return normalizeCategoryForKentuckyScope('sports', isKentucky);
+    }
   }
 
   if (category === 'schools' && isKySchoolsSource) {

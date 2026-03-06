@@ -110,6 +110,8 @@ export const KY_CITY_TO_COUNTY: Record<string,string> = {
   "petersburg": "Boone",
   "union": "Boone",
   "verona": "Boone",
+  "walton": "Boone",
+  "walton verona": "Boone",
   "centerville": "Bourbon",
   "clintonville": "Bourbon",
   "little rock": "Bourbon",

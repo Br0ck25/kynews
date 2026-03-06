@@ -348,6 +348,25 @@ if (url.pathname === '/api/admin/ingest' && request.method === 'POST') {
 	return json({ ok: true, message: 'Admin ingest queued', sourcesTried: sourceUrls.length, limitPerSource }, 202);
 }
 
+// Manual single-URL ingest from the admin console.
+// Identical to /api/ingest/url but protected by the admin key so it can be
+// safely called from the admin UI without exposing the ingest pipeline publicly.
+if (url.pathname === '/api/admin/ingest-url' && request.method === 'POST') {
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+  const body = await parseJsonBody<{ url?: string }>(request);
+  const articleUrl = body?.url?.trim();
+  if (!articleUrl) return badRequest('Missing required field: url');
+  if (!isHttpUrl(articleUrl)) return badRequest('url must be an absolute http(s) URL');
+  try {
+    const result = await ingestSingleUrl(env, { url: articleUrl });
+    return json(result, result.status === 'rejected' ? 422 : 200);
+  } catch (error) {
+    return json({ error: 'ingest failed', details: safeError(error) }, 500);
+  }
+}
+
 // Internal endpoint: process a single county for the backfill job.  It is
 // called in two modes:
 //   * without `sourceUrl`: spawn a separate invocation for each source URL.
@@ -1391,6 +1410,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   // previously missed, causing us to serve the SPA shell with the default logo
   // instead of the proper og:image.  Broaden the regexp to catch the extra
   // variants while still avoiding false positives for normal users.
+  // Facebook and Instagram in-app browser — not a crawler but cannot execute
+  // the React SPA reliably. Detected separately so we can serve server-rendered
+  // HTML with article content directly in the body.
+  const isFacebookIab = /\bFBAN\/|FB_IAB|\bFBAV\/|\bFBIOS\b|\bFBMD\b|\bFBSV\/|Instagram/i.test(userAgent);
   const isBot = /facebookexternalhit|facebookbot|facebot|fb_iab|fbav|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot|discordbot|googlebot|bingbot|applebot|pinterest|vkshare|xing-contenttabreceiver|w3c_validator|curl|wget|python-requests|java\/|go-http|okhttp/i.test(userAgent);
 
   // look up the article either by slug (normal path) or by ID using the
@@ -1419,16 +1442,84 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           .trim()
           .slice(0, 160);
 
+        if (isFacebookIab && article) {
+          // Facebook/Instagram in-app browser: serve a lightweight server-rendered
+          // HTML page with the article content directly in the body. This bypasses
+          // the React SPA which cannot load correctly in the IAB due to JS/CORS
+          // restrictions. Include OG tags so the header still previews correctly.
+          const pageUrl = `https://localkynews.com${canonicalPath}`;
+          const desc = (article.seoDescription || article.summary || '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 300);
+          const fallbackImage = 'https://localkynews.com/img/preview.PNG';
+          const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+
+          // Render the summary as paragraphs
+          const summaryParagraphs = (article.summary || '')
+            .split(/\n\n+/)
+            .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
+            .filter((p: string) => p.length > 10)
+            .join('\n');
+
+          const countyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
+          const categoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
+
+          const iabHtml = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${escapeHtml(article.title)}</title>
+  <meta name="description" content="${escapeHtml(desc)}"/>
+  <meta property="og:type" content="article"/>
+  <meta property="og:title" content="${escapeHtml(article.title)}"/>
+  <meta property="og:description" content="${escapeHtml(desc)}"/>
+  <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
+  <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
+  <meta property="og:site_name" content="Local KY News"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;margin:0 auto;padding:16px;color:#111;line-height:1.6;}
+    h1{font-size:1.35rem;line-height:1.3;margin-bottom:8px;}
+    .meta{font-size:0.82rem;color:#666;margin-bottom:16px;}
+    .meta span{margin-right:12px;}
+    img.hero{width:100%;max-height:360px;object-fit:cover;border-radius:8px;margin-bottom:16px;}
+    p{margin:0 0 14px;}
+    .source-link{display:block;margin:20px 0;padding:14px;background:#f0f4ff;border-radius:8px;text-decoration:none;color:#1a56db;font-weight:600;text-align:center;font-size:0.95rem;}
+    .site-link{display:block;margin:12px 0 20px;text-align:center;font-size:0.85rem;color:#555;}
+    footer{border-top:1px solid #eee;margin-top:24px;padding-top:12px;font-size:0.78rem;color:#999;text-align:center;}
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(article.title)}</h1>
+  <div class="meta">
+    ${countyLabel ? `<span>📍 ${escapeHtml(countyLabel)}</span>` : ''}
+    ${categoryLabel ? `<span>${escapeHtml(categoryLabel)}</span>` : ''}
+    ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>` : ''}
+  </div>
+  ${imageForMeta && imageForMeta !== fallbackImage ? `<img class="hero" src="${escapeHtml(imageForMeta)}" alt="${escapeHtml(article.title)}" loading="eager"/>` : ''}
+  ${summaryParagraphs || `<p>${escapeHtml(desc)}</p>`}
+  <a class="source-link" href="${escapeHtml(article.canonicalUrl)}" target="_blank" rel="noopener">
+    Read full article at source →
+  </a>
+  <a class="site-link" href="${escapeHtml(pageUrl)}">
+    View on Local KY News
+  </a>
+  <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
+</body>
+</html>`;
+
+          return new Response(iabHtml, {
+            headers: {
+              'content-type': 'text/html; charset=utf-8',
+              'cache-control': 'public, max-age=300, s-maxage=300',
+            },
+          });
+        }
         if (isBot) {
           const pageUrl = `https://localkynews.com${canonicalPath}`;
-          // fallback graphic used when no article image can be determined.  The
-          // client-side SPA already uses `/img/preview.PNG` so the bot response
-          // must match that path; the previous hard‑coded `/preview.png` was
-          // missing in production and caused Facebook to scrape the shell logo.
-          const fallbackImage = 'https://localkynews.com/img/preview.PNG';
-          // choose the same preview image logic we also use for Graph API
-          // posts.  selectPreviewImage returns null if no suitable photo exists.
-          const metas = [];
           metas.push('<meta property="og:type" content="article"/>');
           metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
           metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
@@ -1499,6 +1590,74 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 160);
+
+      if (isFacebookIab && article) {
+        const pageUrl = `https://localkynews.com${canonicalPath}`;
+        const iabDesc = (article.seoDescription || article.summary || '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 300);
+        const fallbackImage = 'https://localkynews.com/img/preview.PNG';
+        const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+        const summaryParagraphs = (article.summary || '')
+          .split(/\n\n+/)
+          .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
+          .filter((p: string) => p.length > 10)
+          .join('\n');
+        const countyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
+        const categoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
+        const iabHtml = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${escapeHtml(article.title)}</title>
+  <meta name="description" content="${escapeHtml(iabDesc)}"/>
+  <meta property="og:type" content="article"/>
+  <meta property="og:title" content="${escapeHtml(article.title)}"/>
+  <meta property="og:description" content="${escapeHtml(iabDesc)}"/>
+  <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
+  <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
+  <meta property="og:site_name" content="Local KY News"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;margin:0 auto;padding:16px;color:#111;line-height:1.6;}
+    h1{font-size:1.35rem;line-height:1.3;margin-bottom:8px;}
+    .meta{font-size:0.82rem;color:#666;margin-bottom:16px;}
+    .meta span{margin-right:12px;}
+    img.hero{width:100%;max-height:360px;object-fit:cover;border-radius:8px;margin-bottom:16px;}
+    p{margin:0 0 14px;}
+    .source-link{display:block;margin:20px 0;padding:14px;background:#f0f4ff;border-radius:8px;text-decoration:none;color:#1a56db;font-weight:600;text-align:center;font-size:0.95rem;}
+    .site-link{display:block;margin:12px 0 20px;text-align:center;font-size:0.85rem;color:#555;}
+    footer{border-top:1px solid #eee;margin-top:24px;padding-top:12px;font-size:0.78rem;color:#999;text-align:center;}
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(article.title)}</h1>
+  <div class="meta">
+    ${countyLabel ? `<span>📍 ${escapeHtml(countyLabel)}</span>` : ''}
+    ${categoryLabel ? `<span>${escapeHtml(categoryLabel)}</span>` : ''}
+    ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>` : ''}
+  </div>
+  ${imageForMeta && imageForMeta !== fallbackImage ? `<img class="hero" src="${escapeHtml(imageForMeta)}" alt="${escapeHtml(article.title)}" loading="eager"/>` : ''}
+  ${summaryParagraphs || `<p>${escapeHtml(iabDesc)}</p>`}
+  <a class="source-link" href="${escapeHtml(article.canonicalUrl)}" target="_blank" rel="noopener">
+    Read full article at source →
+  </a>
+  <a class="site-link" href="${escapeHtml(pageUrl)}">
+    View on Local KY News
+  </a>
+  <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
+</body>
+</html>`;
+        return new Response(iabHtml, {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'public, max-age=300, s-maxage=300',
+          },
+        });
+      }
 
       if (isBot) {
         // Return OG meta HTML directly to bots — no redirect needed, bots don't run JS
