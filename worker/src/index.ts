@@ -2073,59 +2073,56 @@ function escapeXml(str: string): string {
  * tests can call it directly.
  */
 async function generateTodayRss(env: Env, counties: string[]): Promise<string> {
-    // guard against obscene county lists; we'll just ignore the filter completely
     if (counties.length > 100) {
         counties = [];
     }
 
     const baseUrl = BASE_URL;
 
-    async function fetchWith(cty: string[]) {
-        return await queryArticles(env, {
-            category: 'today',
-            counties: cty,
-            search: null,
-            limit: 50,
-            cursor: null,
-            includeNonKentucky: true,
-        });
-    }
+    type RssRow = {
+        id: number; title: string; slug: string | null; county: string | null;
+        category: string; is_national: number; published_at: string; summary: string;
+    };
 
-    let usedCounties = counties;
-    let result;
-
-    // attempt cache using original counties and flag
-    const initialKey = `rss:today:${usedCounties.sort().join(',')}:includeAll`;
-    if (env.CACHE) {
-        const cached = await env.CACHE.get(initialKey).catch(() => null);
-        if (cached) return cached;
-    }
-
+    let rows: RssRow[] = [];
     try {
-        result = await fetchWith(usedCounties);
-    } catch (err: any) {
-        if (typeof err.message === 'string' && err.message.includes('too many SQL variables')) {
-            result = { items: [], nextCursor: null };
-        } else {
-            throw err;
+        if (counties.length > 0) {
+            const placeholders = counties.map(() => '?').join(',');
+            const result = await prepare(env,
+                `SELECT id, title, slug, county, category, is_national, published_at, summary
+                 FROM articles
+                 WHERE category = 'today'
+                 AND (
+                   county IN (${placeholders})
+                   OR EXISTS (
+                     SELECT 1 FROM article_counties ac
+                     WHERE ac.article_id = articles.id AND ac.county IN (${placeholders})
+                   )
+                 )
+                 ORDER BY published_at DESC, id DESC LIMIT 50`
+            ).bind(...counties, ...counties).all<RssRow>();
+            rows = result.results ?? [];
         }
+        // If no county filter or county filter returned nothing, fetch global feed
+        if (rows.length === 0) {
+            const result = await prepare(env,
+                `SELECT id, title, slug, county, category, is_national, published_at, summary
+                 FROM articles
+                 WHERE category = 'today'
+                 ORDER BY published_at DESC, id DESC LIMIT 50`
+            ).all<RssRow>();
+            rows = result.results ?? [];
+        }
+    } catch (err) {
+        console.error('[RSS] DB query failed:', err);
+        rows = [];
     }
 
-    // fallback to global feed if filtering produced no results
-    if ((result.items?.length ?? 0) === 0 && usedCounties.length > 0) {
-        usedCounties = [];
-        try {
-            result = await fetchWith(usedCounties);
-        } catch {
-            // ignore
-        }
-    }
-
-    const itemsXml = (result.items || []).map((item) => {
-        const title = escapeXml(item.title || '');
-        const link = buildArticleUrl(baseUrl, item.slug, item.county, item.category, item.isNational, item.id);
-        const pub = item.publishedAt ? new Date(item.publishedAt).toUTCString() : new Date().toUTCString();
-        const description = escapeXml(item.summary || '');
+    const itemsXml = rows.map((row) => {
+        const title = escapeXml(row.title || '');
+        const link = buildArticleUrl(baseUrl, row.slug, row.county, row.category as any, row.is_national === 1, row.id);
+        const pub = row.published_at ? new Date(row.published_at).toUTCString() : new Date().toUTCString();
+        const description = escapeXml(row.summary || '');
         return `  <item>
     <title>${title}</title>
     <link>${link}</link>
@@ -2134,7 +2131,7 @@ async function generateTodayRss(env: Env, counties: string[]): Promise<string> {
   </item>`;
     }).join('\n');
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
 <channel>
 <title>Local KY News - Today</title>
@@ -2143,13 +2140,6 @@ async function generateTodayRss(env: Env, counties: string[]): Promise<string> {
 ${itemsXml}
 </channel>
 </rss>`;
-
-    const cacheKey = `rss:today:${usedCounties.sort().join(',')}:includeAll`;
-    if (env.CACHE) {
-        await env.CACHE.put(cacheKey, xml, { expirationTtl: 300 }).catch(() => {});
-    }
-
-    return xml;
 }
 
 /**

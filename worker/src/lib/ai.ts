@@ -790,6 +790,9 @@ export function cleanContentForSummarization(text: string, title: string): strin
   // Pattern: "...Lexington, Ky. Photo by Vincenzo Ciaramitaro | Kentucky Kernel"
   // These appear as "[sentence]. Photo by [Name] | [Publication]" on one line.
   t = t.replace(/\s+Photo\s+by\s+[A-Z][a-zA-Z\s.'-]{2,50}(?:\s*[|\/]\s*[A-Za-z\s.'-]{2,60})?\s*$/gm, '');
+  // Strip "Photographer Name/AP" or "Name/Getty" photo credits that appear at the
+  // very start of content (e.g. "Charles Krupa/AP LEXINGTON, Ky. —")
+  t = t.replace(/^[A-Z][a-zA-Z\s.'-]{2,50}\/(?:AP|Getty\s*Images?|Reuters|AFP)\s+/gm, '');
   // Strip standalone figcaption-style lines: entire line that matches "Name | Publication" or
   // ends with "| Publication Name" after a photo description sentence.
   t = t.replace(/^[^\n]{20,200}\s*[|\/]\s*(?:Kentucky Kernel|Kentucky Today|Lex18|LEX 18|WKYT|WDRB|WBKO|AP Photo|Getty Images?|[A-Z][a-zA-Z\s]{2,40})\s*$/gm, '');
@@ -862,6 +865,8 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   t = t.replace(/^Photo by\b[^\n]*$/gim, '');
   // Strip inline photo credit suffixes appended to caption sentences.
   t = t.replace(/\s+Photo\s+by\s+[A-Z][a-zA-Z\s.'-]{2,50}(?:\s*[|\/]\s*[A-Za-z\s.'-]{2,60})?\s*$/gm, '');
+  // Strip "Photographer Name/AP" or "Name/Getty" photo credits at the start of text
+  t = t.replace(/^[A-Z][a-zA-Z\s.'-]{2,50}\/(?:AP|Getty\s*Images?|Reuters|AFP)\s+/gm, '');
   // Strip standalone figcaption-style lines: entire line that matches "Name | Publication" or
   // ends with "| Publication Name" after a photo description sentence.
   t = t.replace(/^[^\n]{20,200}\s*[|\/]\s*(?:Kentucky Kernel|Kentucky Today|Lex18|LEX 18|WKYT|WDRB|WBKO|AP Photo|Getty Images?|[A-Z][a-zA-Z\s]{2,40})\s*$/gm, '');

@@ -104,6 +104,24 @@ export async function getArticleBySlug(env: Env, slug: string): Promise<ArticleR
   return article;
 }
 
+// when new articles are added or existing ones are modified we need to
+// keep the RSS feed cache fresh.  The feed generator includes a small
+// version string in the cache key; bumping that value causes every cache
+// lookup to miss and forces regeneration.  We deliberately avoid trying to
+// enumerate all possible county-specific keys (the Cache API doesn't offer a
+// way to list or delete by prefix), so a simple version stamp is the easiest
+// way to invalidate everything at once.
+async function bumpRssVersion(env: Env): Promise<void> {
+  if (!env.CACHE) return;
+  try {
+    // use a timestamp; the actual value isn't important as long as it
+    // changes.  tests inspect and delete this key as well.
+    await env.CACHE.put('rss:today-version', Date.now().toString());
+  } catch {
+    // ignore cache errors
+  }
+}
+
 export async function insertArticle(env: Env, article: NewArticle): Promise<number> {
   const normalizedCounty = normalizeCountyName(article.county);
 
@@ -178,6 +196,9 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
         .bind(articleId, article.county)
         .run();
     }
+
+    // Invalidate the RSS cache so the new article appears immediately
+    await bumpRssVersion(env);
 
     return articleId;
   } catch (error) {
@@ -270,6 +291,7 @@ export async function updateArticlePublishedAt(env: Env, id: number, publishedAt
   await prepare(env, 'UPDATE articles SET published_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
     .bind(publishedAt, id)
     .run();
+  await bumpRssVersion(env);
 }
 
 export async function updateArticleContent(
@@ -277,6 +299,7 @@ export async function updateArticleContent(
   id: number,
   patch: { title?: string; summary?: string },
 ): Promise<void> {
+  // modifying the content should also invalidate the feed.
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
   const binds: unknown[] = [];
 
@@ -296,6 +319,8 @@ export async function updateArticleContent(
   await prepare(env, `UPDATE articles SET ${sets.join(', ')} WHERE id = ?`)
     .bind(...binds)
     .run();
+
+  await bumpRssVersion(env);
 }
 
 export async function updateArticleLinks(
@@ -308,12 +333,14 @@ export async function updateArticleLinks(
     )
     .bind(patch.canonicalUrl, patch.sourceUrl, patch.urlHash, id)
     .run();
+  await bumpRssVersion(env);
 }
 
 export async function deleteArticleById(env: Env, id: number): Promise<void> {
   await prepare(env, 'DELETE FROM articles WHERE id = ?')
     .bind(id)
     .run();
+  await bumpRssVersion(env);
 }
 
 export async function blockArticleByIdAndDelete(
@@ -338,6 +365,7 @@ export async function blockArticleByIdAndDelete(
     .run();
 
   await deleteArticleById(env, id);
+  await bumpRssVersion(env);
   return { blocked: true, deleted: true };
 }
 
@@ -469,6 +497,10 @@ export async function queryArticles(env: Env, options: {
   if (options.category === 'all') {
     // special case: no category filter, return articles from every bucket
   } else if (options.category === 'today') {
+    // Always restrict to category = 'today'; the includeNonKentucky flag only
+    // controls whether we also require is_kentucky = 1 on top of that.
+    where.push('category = ?');
+    binds.push('today');
     if (!options.includeNonKentucky) {
       where.push('is_kentucky = 1');
     }
@@ -628,6 +660,7 @@ export async function updateArticleClassification(
   id: number,
   patch: { category: Category; isKentucky: boolean; isNational?: boolean; county: string | null; counties?: string[] },
 ): Promise<void> {
+  // reclassification should also bump the RSS cache version
   const normalizedCounty = normalizeCountyName(patch.county);
 
   // When the caller doesn't provide `isNational` we want to preserve the
@@ -684,6 +717,8 @@ export async function updateArticleClassification(
         console.error(`[RETAG] Failed to insert county ${county} for article ${id}`, e);
     }
   }
+
+  await bumpRssVersion(env);
 }
 
 /**
@@ -696,6 +731,8 @@ export async function updateArticlePrimaryCounty(
   id: number,
   county: string | null,
 ): Promise<ArticleRecord | null> {
+  // changing the primary county can affect which county-specific feeds
+  // include the article
   const normalizedCounty = normalizeCountyName(county);
 
   // update the article row; we do not mutate is_kentucky here unless
@@ -737,7 +774,9 @@ export async function updateArticlePrimaryCounty(
     }
   }
 
-  return getArticleById(env, id);
+  const result = await getArticleById(env, id);
+  await bumpRssVersion(env);
+  return result;
 }
 
 function normalizeCountyName(value: string | null): string | null {

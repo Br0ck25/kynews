@@ -239,7 +239,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   // Central Kentucky
   'kentucky.com': 'Fayette',             // Lexington Herald-Leader
   'kykernel.com': 'Fayette',              // UK student newspaper
-  'lex18.com': 'Fayette',
+  'lex18.com': null,   // covers all central/eastern KY; Fayette only when explicitly mentioned
   'wkyt.com': 'Fayette',
   'wymt.com': 'Perry',
   'jessaminejournalonline.com': 'Jessamine',
@@ -357,7 +357,7 @@ export function isStatewideKyPoliticalStory(text: string): boolean {
   // FRANKFORT dateline = statewide KY story ONLY when combined with political/legislative signals.
   // A pure Frankfort dateline on a schools/sports/business story should NOT suppress the county.
   const hasFrankfortDateline = /\bfrankfort,?\s*ky\.?\s*[-—–(]/i.test(text);
-  const hasPoliticalSignal = /\b(?:governor|legislature|lawmakers?|legislators?|general\s+assembly|state\s+(?:house|senate|budget|government|agency|department)|house\s+bill|senate\s+bill|rep\.|senator|legislation|policy|bill\s+would|signed\s+into\s+law|executive\s+order|state\s+budget|fiscal\s+year|appropriat)\b/i.test(text);
+  const hasPoliticalSignal = /\b(?:governor|legislature|lawmakers?|legislators?|general\s+assembly|state\s+(?:house|senate|budget|government|agency|department)|house\s+bill|senate\s+bill|rep\.|senator|legislation|policy|bill\s+would|signed\s+into\s+law|executive\s+order|state\s+budget|fiscal\s+year|appropriat|attorney\s+general|court\s+of\s+appeals|circuit\s+court|supreme\s+court|parole\s+board|statewide|across\s+(?:the\s+)?kentucky|across\s+(?:the\s+)?state|all\s+(?:of\s+)?kentucky|kentucky\s+(?:agencies|organizations|counties|communities|residents|families|children)|state\s+(?:funding|grant|award|contract|program|initiative|board|commission|office|law|statute|regulation)|state-?wide|cabinet\s+for|department\s+of)\b/i.test(text);
   if (hasFrankfortDateline && hasPoliticalSignal) return true;
   // Explicit roundup language
   if (/\bwhat\s+kentuckians?\s+said\b|\bkentucky\s+(?:lawmakers?|delegation|legislators?|congressional\s+(?:delegation|members?))\b|\breactions?\s+from\s+kentucky\b/i.test(text)) {

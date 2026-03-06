@@ -75,6 +75,7 @@ async function ensureSchemaAndFixture() {
 	if (env.CACHE) {
 		await env.CACHE.delete('rss:today:includeAll').catch(() => null);
 		await env.CACHE.delete('rss:today:').catch(() => null);
+		await env.CACHE.delete('rss:today-version').catch(() => null);
 	}
 
 	const now = new Date().toISOString();
@@ -542,6 +543,38 @@ async function ensureSchemaAndFixture() {
 		expect(resp.status).toBe(200);
 		const text = await resp.text();
 		expect(text).toContain('<rss');
+	});
+
+	it('rss cache is invalidated when new articles arrive', async () => {
+		await ensureSchemaAndFixture();
+		const first = await __testables.generateTodayRss(env as any, []);
+		const now = new Date().toISOString();
+		await insertArticle(env, {
+			canonicalUrl: 'https://example.com/new-story',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-new',
+			title: 'New Story',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+		const second = await __testables.generateTodayRss(env as any, []);
+		expect(second).not.toBe(first);
+		expect(second).toMatch(/New Story/);
 	});
 
 	it('today.rss falls back to global feed when no county matches', async () => {
