@@ -744,6 +744,9 @@ export function cleanContentForSummarization(text: string, title: string): strin
   // Also strip the "(LEX 18) —", "(WKYT)" etc. broadcaster attribution that
   // prefixes the actual article body after a dateline.
   t = t.replace(/\b\((?:LEX\s*18|WKYT|WKYT-TV|WLWT|WHAS11?|WDRB|WBKO|WNKY|WYMT|WTVQ|ABC\s*36|FOX\s*56|WAVE\s*3|NBC)\)\s*[-—–]?\s*/gi, '');
+  // Strip Envato/stock photo caption lines before they reach the AI
+  // e.g. "Shot of a doctor examining a man. Source: Envato/by YuriArcursPeopleimages."
+  t = t.replace(/^[^\n]{10,300}(?:Source:\s*Envato|Getty\s*Images?|iStock|Shutterstock|AP\s*Photo)[^\n]*\n?/gim, '');
 
   t = t.replace(/^\s*Summary\s*$/gim, '');
 
@@ -843,6 +846,15 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   }
 
   t = t.replace(/^\s*Summary\s*$/gim, '');
+  // Strip broadcaster attribution that the AI may echo: "(LEX 18) —", "(WKYT) —", etc.
+  t = t.replace(/^\s*\((?:LEX\s*18|WKYT|WKYT-TV|WLWT|WHAS11?|WDRB|WBKO|WNKY|WYMT|WTVQ|ABC\s*36|FOX\s*56|WAVE\s*3|NBC)\)\s*[-—–]?\s*/im, '');
+  // Strip inline broadcaster attribution mid-summary too (e.g. after dateline)
+  t = t.replace(/\b\((?:LEX\s*18|WKYT|WKYT-TV|WLWT|WHAS11?|WDRB|WBKO|WNKY|WYMT|WTVQ|ABC\s*36|FOX\s*56|WAVE\s*3|NBC)\)\s*[-—–]?\s*/gi, '');
+  // Strip Envato/stock photo captions that slip into the summary
+  // e.g. "Shot of a doctor examining a man with a blood pressure gauge. Source: Envato/by YuriArcursPeopleimages."
+  t = t.replace(/^[^\n]{10,300}(?:Source:\s*Envato|Getty\s*Images?|iStock|Shutterstock|AP\s*Photo)[^\n]*\n?/gim, '');
+  // Strip sentences that reference a "link down below" — the link doesn't exist in our summaries
+  t = t.replace(/[^.!?]*\b(?:using\s+the\s+link(?:\s+down\s+below)?|link\s+down\s+below|you\s+can\s+read\s+[^.]{0,60}using\s+the\s+link)[^.!?]*[.!?]?\s*/gi, '');
   // Strip dateline echoed at summary start: "CITY, Ky. (SOURCE) —" or "CITY, KY —"
   t = t.replace(/^\s*[A-Z][A-Z\s]{0,25},\s*(?:Ky|KY|KENTUCKY)[\s.,][^\n]{0,80}[-—–]\s*/im, '');
   t = t.replace(/^Published\b[^\n]*$/gim, '');

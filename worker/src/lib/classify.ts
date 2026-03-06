@@ -165,6 +165,11 @@ const KY_BRANDED_SOURCES: Array<{ hosts: string[]; stripPattern: RegExp }> = [
     stripPattern: /\blink\s+nky\b/gi,
   },
   {
+    // WTVQ (ABC 36) syndicates national content; strip trailing "- WTVQ" / "- ABC 36" from titles
+    hosts: ['wtvq.com'],
+    stripPattern: /\bwtvq\b|\babc\s*36\b/gi,
+  },
+  {
     hosts: ['kentucky.com'],
     // Kentucky.com (Herald-Leader) — strip standalone brand references but not
     // legitimate "Kentucky" usage in article text. We strip only the byline/footer form.
@@ -205,6 +210,7 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   'wlwt.com', // Cincinnati NBC affiliate — covers Ohio/NKY border; not a KY-primary source
   'whas11.com', // Louisville ABC affiliate — syndicates AP wire and Indiana stories
   'stateline.org',        // States Newsroom / Stateline — national policy wire, covers all 50 states
+  'wtvq.com',             // Lexington ABC affiliate — heavily syndicates national wire (AP/ABC); KY stories are rare
 ]);
 
 
@@ -240,8 +246,8 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'richmondregister.com': 'Madison',
   'bgdailynews.com': 'Warren',           // Bowling Green
   'wkuherald.com': 'Warren',
-  // Lexington ABC affiliate covers central/eastern KY (used for weather etc.)
-  'wtvq.com': 'Fayette',
+  // Lexington ABC affiliate — now in ALWAYS_NATIONAL_SOURCES; wire content dominates
+  'wtvq.com': null,
   // Northern Kentucky (multi-county coverage)
   'linknky.com': 'Kenton',   // Northern Kentucky news site (covington, florence, etc.)
 
@@ -282,6 +288,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'kentuckystatepolice.ky.gov': null, // KSP covers all of KY — no single county default
   'k105.com': 'Pulaski',  // K-105 radio, Somerset / Pulaski County area
   'stateline.org': null,  // national wire — no county default
+  'state-journal.com': 'Franklin',  // The State Journal — Frankfort / Franklin County paper
 };
 
 /**
@@ -320,7 +327,7 @@ const KY_HARD_NEGATIVES: RegExp[] = [
 // This prevents local outlets from tagging such wire stories with their
 // home county.  Example: "GILBERT, Ariz. —" or "TULSA, Okla. (AP) —".
 export const NATIONAL_WIRE_OVERRIDE_RE =
-  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[a-z]{2,}\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]\s*|(?:^|\n|\.\s+)[A-Z][A-Z\s]{1,25},\s*(?:United Arab Emirates|Afghanistan|Albania|Algeria|Argentina|Australia|Austria|Azerbaijan|Bahrain|Bangladesh|Belarus|Belgium|Bolivia|Bosnia|Brazil|Cambodia|Canada|Chile|China|Colombia|Croatia|Cuba|Cyprus|Denmark|Ecuador|Egypt|Ethiopia|Finland|France|Germany|Ghana|Greece|Guatemala|Haiti|Honduras|Hungary|India|Indonesia|Iran|Iraq|Ireland|Israel|Italy|Jamaica|Japan|Jordan|Kazakhstan|Kenya|Kuwait|Lebanon|Libya|Malaysia|Mali|Mexico|Moldova|Morocco|Myanmar|Nepal|Netherlands|New Zealand|Nicaragua|Nigeria|North Korea|Norway|Oman|Pakistan|Palestine|Panama|Paraguay|Peru|Philippines|Poland|Portugal|Qatar|Romania|Russia|Saudi Arabia|Senegal|Serbia|Somalia|South Africa|South Korea|Spain|Sri Lanka|Sudan|Sweden|Switzerland|Syria|Taiwan|Tanzania|Thailand|Tunisia|Turkey|Uganda|Ukraine|United Kingdom|Uruguay|Venezuela|Vietnam|Yemen|Zimbabwe)\s*)/i;
+  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[a-z]{2,}\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]\s*|(?:^|\n|\.\s+)[A-Z][A-Z\s]{1,25},\s*(?:United Arab Emirates|Afghanistan|Albania|Algeria|Argentina|Australia|Austria|Azerbaijan|Bahrain|Bangladesh|Belarus|Belgium|Bolivia|Bosnia|Brazil|Cambodia|Canada|Chile|China|Colombia|Croatia|Cuba|Cyprus|Denmark|Ecuador|Egypt|Ethiopia|Finland|France|Germany|Ghana|Greece|Guatemala|Haiti|Honduras|Hungary|India|Indonesia|Iran|Iraq|Ireland|Israel|Italy|Jamaica|Japan|Jordan|Kazakhstan|Kenya|Kuwait|Lebanon|Libya|Malaysia|Mali|Mexico|Moldova|Morocco|Myanmar|Nepal|Netherlands|New Zealand|Nicaragua|Nigeria|North Korea|Norway|Oman|Pakistan|Palestine|Panama|Paraguay|Peru|Philippines|Poland|Portugal|Qatar|Romania|Russia|Saudi Arabia|Senegal|Serbia|Somalia|South Africa|South Korea|Spain|Sri Lanka|Sudan|Sweden|Switzerland|Syria|Taiwan|Tanzania|Thailand|Tunisia|Turkey|Uganda|Ukraine|United Kingdom|Uruguay|Venezuela|Vietnam|Yemen|Zimbabwe)\s*)/i;
 
 
 /**
@@ -347,8 +354,11 @@ export const BETTING_CONTENT_RE =
  * the story belongs to all of Kentucky, not just the outlet's home.
  */
 export function isStatewideKyPoliticalStory(text: string): boolean {
-  // FRANKFORT dateline = statewide KY story, no county pin
-  if (/\bfrankfort,?\s*ky\.?\s*[-—–(]/i.test(text)) return true;
+  // FRANKFORT dateline = statewide KY story ONLY when combined with political/legislative signals.
+  // A pure Frankfort dateline on a schools/sports/business story should NOT suppress the county.
+  const hasFrankfortDateline = /\bfrankfort,?\s*ky\.?\s*[-—–(]/i.test(text);
+  const hasPoliticalSignal = /\b(?:governor|legislature|lawmakers?|legislators?|general\s+assembly|state\s+(?:house|senate|budget|government|agency|department)|house\s+bill|senate\s+bill|rep\.|senator|legislation|policy|bill\s+would|signed\s+into\s+law|executive\s+order|state\s+budget|fiscal\s+year|appropriat)\b/i.test(text);
+  if (hasFrankfortDateline && hasPoliticalSignal) return true;
   // Explicit roundup language
   if (/\bwhat\s+kentuckians?\s+said\b|\bkentucky\s+(?:lawmakers?|delegation|legislators?|congressional\s+(?:delegation|members?))\b|\breactions?\s+from\s+kentucky\b/i.test(text)) {
     return true;
@@ -1149,14 +1159,24 @@ const SOURCE_DEFAULT_CITY_EVIDENCE = new Map<string, string[]>([
   ['fayette',   ['lexington', 'fayette']],
   ['jefferson', ['louisville', 'jefferson']],
   ['warren',    ['bowling green', 'warren']],
-  ['kenton',    ['covington', 'erlanger', 'florence', 'independence', 'edgewood', 'kenton']],
-  ['campbell',  ['newport', 'alexandria', 'campbell']],
+  ['kenton',    ['covington', 'erlanger', 'florence', 'independence', 'edgewood', 'ludlow', 'kenton']],
+  ['campbell',  ['newport', 'alexandria', 'highland heights', 'cold spring', 'bellevue', 'dayton', 'campbell']],
   ['boyd',      ['ashland', 'boyd']],
   ['daviess',   ['owensboro', 'daviess']],
   ['mccracken', ['paducah', 'mccracken']],
   ['harlan',    ['harlan', 'harlan county']],
   ['madison',   ['richmond', 'berea', 'madison']],
   ['laurel',    ['london', 'laurel']],
+  ['butler',    ['morgantown', 'butler']],
+  ['barren',    ['glasgow', 'barren']],
+  ['floyd',     ['prestonsburg', 'floyd']],
+  ['johnson',   ['paintsville', 'johnson']],
+  ['perry',     ['hazard', 'perry']],
+  ['franklin',  ['frankfort', 'franklin']],
+  ['pike',      ['pikeville', 'pike']],
+  ['christian', ['hopkinsville', 'christian']],
+  ['pulaski',   ['somerset', 'pulaski']],
+  ['boone',     ['florence', 'boone', 'walton', 'union']],
 ]);
 
 function isCountyEvidenced(

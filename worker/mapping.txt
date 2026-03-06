@@ -94,7 +94,6 @@
   'east fork': 'Bath',
   'means': 'Bath',
   'midland': 'Bath',
-  'mount sterling': 'Bath',
   'olympia': 'Bath',
   'salt lick': 'Bath',
   'sharpsburg': 'Bath',

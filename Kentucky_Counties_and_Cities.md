@@ -10,7 +10,7 @@
 
 **Barren County:** Austin, Cave City, Eighty Eight, Etoile, Finney, Fountain Run, Glasgow, Hiseville, Lucas, Park City, Temple Hill
 
-**Bath County:** Bethel, Bourbon Furnace, Broomfield, Clearfield, East Fork, Means, Midland, Mount Sterling, Olympia, Salt Lick, Sharpsburg, Slate, Stepstone, White Oak
+**Bath County:** Bethel, Bourbon Furnace, Broomfield, Clearfield, East Fork, Means, Midland, Olympia, Salt Lick, Sharpsburg, Slate, Stepstone, White Oak
 
 **Bell County:** Arjay, Artemus, Beverly, Calvin, Ferndale, Flat Lick, Fourmile, Frakes, Harlan (partial), Kettle Island, Middlesboro, Miracle, Pineville, Putney, Saint Charles, Shawanee, Stoney Fork, Trosper
 
