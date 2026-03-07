@@ -33,4 +33,24 @@ describe('AdminPage manual body formatting', () => {
     body.focus();
     fireEvent(body, pasteEvent);
     expect(body.value).toBe('<strong>Hi</strong>');
+  });
+
+  it('shows scheduled label when publishing with future date', async () => {
+    const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
+      .mockResolvedValue({ status: 'inserted', id: 123, category: 'today', isKentucky: true, county: null });
+
+    render(<AdminPage />);
+    const title = screen.getByLabelText(/Title \*/i);
+    const body = screen.getByLabelText(/Body \(optional\)/i);
+    const dateInput = screen.getByLabelText(/Date & Time/i);
+    fireEvent.change(title, { target: { value: 'Sched' } });
+    fireEvent.change(body, { target: { value: 'Test' } });
+    const future = new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 16);
+    fireEvent.change(dateInput, { target: { value: future } });
+
+    fireEvent.click(screen.getByText(/Publish Article/i));
+    // wait for async logic
+    await screen.findByText(/Article scheduled/i);
+    expect(createSpy).toHaveBeenCalled();
+    createSpy.mockRestore();
   });});

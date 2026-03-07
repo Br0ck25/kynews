@@ -2044,6 +2044,63 @@ describe('database utilities', () => {
 		expect(resp.items.some((i) => i.id === id)).toBe(true);
 	});
 
+	it('queryArticles hides future-dated articles and shows past ones', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date();
+		const future = new Date(now.getTime() + 3600 * 1000).toISOString();
+		const past = new Date(now.getTime() - 3600 * 1000).toISOString();
+		await insertArticle(env, {
+			canonicalUrl: 'https://example.com/fut',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-fut',
+			title: 'Future',
+			author: null,
+			publishedAt: future,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+			summary: 'x',
+			seoDescription: '',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+		await insertArticle(env, {
+			canonicalUrl: 'https://example.com/pas',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-pas',
+			title: 'Past',
+			author: null,
+			publishedAt: past,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+			summary: 'x',
+			seoDescription: '',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		const resp = await queryArticles(env, { category: 'all', counties: [], search: null, limit: 10, cursor: null });
+		expect(resp.items.some((i) => i.title === 'Future')).toBe(false);
+		expect(resp.items.some((i) => i.title === 'Past')).toBe(true);
+	});
+
 	it('getArticlesForUpdateCheck honors maxAgeHours and returns recent ky articles', async () => {
 		await ensureSchemaAndFixture();
 		const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();

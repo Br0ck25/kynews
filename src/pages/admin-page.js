@@ -696,7 +696,13 @@ export default function AdminPage() {
         isKentucky: manualIsKentucky,
       });
       if (result?.status === "inserted") {
-        const label = manualIsDraft ? "Draft saved" : "Article published";
+        let label;
+        if (manualIsDraft) {
+          label = "Draft saved";
+        } else {
+          const nowIso = new Date().toISOString();
+          label = publishedAtIso > nowIso ? "Article scheduled" : "Article published";
+        }
         setManualSuccess(
           `${label}! ID: ${result.id} | Category: ${result.category} | ` +
             `${result.isKentucky ? 'Kentucky' : 'National'}${
@@ -1372,6 +1378,7 @@ export default function AdminPage() {
               <TextField
                 variant="outlined" size="small"
                 label="Date & Time (optional — defaults to now)"
+                helperText="Pick a future time to schedule publication; article will remain hidden until then."
                 type="datetime-local"
                 value={manualPublishedAt}
                 onChange={(e) => setManualPublishedAt(e.target.value)}
