@@ -212,3 +212,35 @@ describe('SiteService.request', () => {
     });
   });
 });
+
+// new tests for the previewIngestUrl helper
+
+describe('SiteService.previewIngestUrl', () => {
+  const ORIGINAL_FETCH = global.fetch;
+  afterEach(() => {
+    global.fetch = ORIGINAL_FETCH;
+    jest.clearAllMocks();
+  });
+
+  it('posts to the correct endpoint and returns parsed JSON', async () => {
+    const service = new SiteService('https://api.host');
+    global.fetch = jest.fn().mockResolvedValue(
+      makeResponse({ status: 'inserted', title: 'abc' })
+    );
+
+    const result = await service.previewIngestUrl('https://example.com/foo');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [[url, opts]] = global.fetch.mock.calls;
+    expect(url).toContain('/api/admin/ingest-url-preview');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toEqual({ url: 'https://example.com/foo' });
+    expect(result.status).toBe('inserted');
+  });
+
+  it('throws if the fetch returns an error status', async () => {
+    const service = new SiteService();
+    global.fetch = jest.fn().mockResolvedValue(makeResponse({ error: 'oops' }, { status: 500 }));
+
+    await expect(service.previewIngestUrl('https://x')).rejects.toBeDefined();
+  });
+});

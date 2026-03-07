@@ -50,6 +50,37 @@ describe('AdminPage manual body formatting', () => {
     createSpy.mockRestore();
   });
 
+  it('fetches preview when ingesting a URL and populates the manual form', async () => {
+    const previewSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
+      .mockResolvedValue({
+        status: 'inserted',
+        title: 'Fancy Title',
+        summary: 'Summary text',
+        imageUrl: 'http://img.png',
+        category: 'weather',
+        county: 'Boone',
+        isKentucky: true,
+        publishedAt: '2025-01-01T12:00:00Z',
+      });
+
+    render(<AdminPage />);
+    const urlInput = screen.getByPlaceholderText('https://example.com/article-url');
+    fireEvent.change(urlInput, { target: { value: 'https://example.com/foo' } });
+    fireEvent.click(screen.getByText(/Ingest Article/i));
+
+    expect(previewSpy).toHaveBeenCalledWith('https://example.com/foo');
+
+    const titleInput = await screen.findByLabelText(/Title \*/i);
+    expect(titleInput.value).toBe('Fancy Title');
+    expect(screen.getByLabelText(/Body \(optional\)/i).value).toBe('Summary text');
+    expect(screen.getByLabelText(/Image URL/i).value).toBe('http://img.png');
+    expect(screen.getByLabelText(/Category \(optional\)/i).value).toBe('weather');
+    expect(screen.getByLabelText(/County \(optional\)/i).value).toBe('Boone');
+    expect(screen.getByText(/Preview loaded/i)).toBeInTheDocument();
+
+    previewSpy.mockRestore();
+  });
+
   it('displays server rejection reason when createManualArticle returns rejected', async () => {
     const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
       .mockResolvedValue({ status: 'rejected', message: 'too similar' });

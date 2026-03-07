@@ -81,6 +81,13 @@ export interface IngestSource {
   providedTitle?: string;
   providedDescription?: string;
   allowShortContent?: boolean;
+  /**
+   * When true the caller only wants a preview of what would happen if the
+   * URL were ingested.  The normal dedupe/classify/summarize pipeline runs,
+   * but nothing is written to the database or R2.  The returned result will
+   * still use the same `status` codes as a full insert.
+   */
+  preview?: boolean;
 }
 
 export interface IngestResult {
@@ -89,6 +96,24 @@ export interface IngestResult {
   id?: number;
   urlHash?: string;
   category?: Category;
+
+  // preview-only fields.  These are populated on the new admin preview
+  // endpoint so the UI can show the inferred title/summary/etc before the
+  // article is actually stored.  They are all optional so existing callers
+  // of `ingestSingleUrl` that ignore the extra properties continue to work.
+  title?: string;
+  summary?: string;
+  seoDescription?: string;
+  imageUrl?: string | null;
+  publishedAt?: string;
+  isKentucky?: boolean;
+  isNational?: boolean;
+  county?: string | null;
+  counties?: string[];
+  city?: string | null;
+  contentText?: string;
+  canonicalUrl?: string;
+  sourceUrl?: string;
 }
 
 export interface ExtractedArticle {

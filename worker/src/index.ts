@@ -367,6 +367,24 @@ if (url.pathname === '/api/admin/ingest-url' && request.method === 'POST') {
   }
 }
 
+// New preview endpoint: run the ingest pipeline but do not write anything.
+// Clients can call this to fetch a draft of title/summary/category etc.
+if (url.pathname === '/api/admin/ingest-url-preview' && request.method === 'POST') {
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+  const body = await parseJsonBody<{ url?: string }>(request);
+  const articleUrl = body?.url?.trim();
+  if (!articleUrl) return badRequest('Missing required field: url');
+  if (!isHttpUrl(articleUrl)) return badRequest('url must be an absolute http(s) URL');
+  try {
+    const result = await ingestSingleUrl(env, { url: articleUrl, preview: true });
+    return json(result, result.status === 'rejected' ? 422 : 200);
+  } catch (error) {
+    return json({ error: 'preview failed', details: safeError(error) }, 500);
+  }
+}
+
 // Internal endpoint: process a single county for the backfill job.  It is
 // called in two modes:
 //   * without `sourceUrl`: spawn a separate invocation for each source URL.
@@ -1193,6 +1211,12 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 	}>(request);
 	const providedCounty = body?.county?.trim() || null;
 	const isDraft = Boolean(body?.isDraft);
+
+	// extract/enforce trimmed strings for the fields we use repeatedly
+	const title = (body?.title || '').trim();
+	const postBody = (body?.body || '').trim();
+	const imageUrl = (body?.imageUrl || '').trim() || null;
+	const sourceUrl = (body?.sourceUrl || '').trim();
 
 	// Resolve publish time: drafts get far-future date so they never surface publicly
 	const rawPublishedAt = (body?.publishedAt || '').trim();

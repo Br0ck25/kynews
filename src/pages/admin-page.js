@@ -155,6 +155,7 @@ export default function AdminPage() {
   const [manualUrlInput, setManualUrlInput] = useState('');
   const [manualUrlLoading, setManualUrlLoading] = useState(false);
   const [manualUrlResult, setManualUrlResult] = useState(null);
+  const [manualUrlPreview, setManualUrlPreview] = useState(null); // holds preview object when available
 
   // --- Facebook diagnostics state (create-article tab) ---
   const [fbDiagId, setFbDiagId] = useState("");
@@ -714,6 +715,7 @@ export default function AdminPage() {
         );
         setFbPostUrl(""); setManualTitle(""); setManualBody("");
         setManualImageUrl(""); setManualCounty(""); setManualCategory(""); setManualIsKentucky(true);
+        setManualUrlPreview(null);
         setManualIsDraft(false); setManualPublishedAt("");
         applyFilter();
       } else if (result?.status === "duplicate") {
@@ -730,37 +732,40 @@ export default function AdminPage() {
     }
   };
 
-  // --- Manual URL ingest handler ---
+  // --- Manual URL ingest handler (now uses preview endpoint) ---
   const handleManualIngest = async () => {
     const trimmed = manualUrlInput.trim();
     if (!trimmed) return;
     setManualUrlLoading(true);
     setManualUrlResult(null);
+    setManualUrlPreview(null);
     try {
-      const adminKey = service.getAdminPanelKey();
-      const resp = await fetch('/api/admin/ingest-url', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-key': adminKey,
-        },
-        body: JSON.stringify({ url: trimmed }),
-      });
-      const data = await resp.json();
-      if (data.status === 'inserted') {
+      const result = await service.previewIngestUrl(trimmed);
+      if (result.status === 'inserted') {
+        // populate form fields with preview data (summary becomes body)
+        if (result.title) setManualTitle(result.title);
+        if (result.summary) setManualBody(result.summary);
+        if (result.imageUrl) setManualImageUrl(result.imageUrl);
+        if (result.county) setManualCounty(result.county);
+        if (result.category) setManualCategory(result.category);
+        if (result.isKentucky !== undefined) setManualIsKentucky(result.isKentucky);
+        if (result.publishedAt && !manualPublishedAt) {
+          setManualPublishedAt(toDateTimeLocalValue(result.publishedAt));
+        }
         setManualUrlResult({
           status: 'inserted',
-          message: 'Article ingested successfully.',
-          articleId: data.id,
-          articleTitle: data.title,
-          articleCounty: data.county,
+          message: 'Preview loaded – edit fields below before publishing.',
+          articleId: result.id,
+          articleTitle: result.title,
+          articleCounty: result.county,
         });
-      } else if (data.status === 'duplicate') {
+        setManualUrlPreview(result);
+      } else if (result.status === 'duplicate') {
         setManualUrlResult({ status: 'duplicate', message: 'This article is already in the database.' });
-      } else if (data.status === 'rejected') {
-        setManualUrlResult({ status: 'rejected', message: `Rejected: ${data.reason || 'unknown reason'}` });
+      } else if (result.status === 'rejected') {
+        setManualUrlResult({ status: 'rejected', message: `Rejected: ${result.reason || 'unknown reason'}` });
       } else {
-        setManualUrlResult({ status: 'error', message: data.error || 'Unknown error from server.' });
+        setManualUrlResult({ status: 'error', message: result.error || 'Unknown error from server.' });
       }
     } catch (err) {
       setManualUrlResult({ status: 'error', message: 'Network error — could not reach server.' });

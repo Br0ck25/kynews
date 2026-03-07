@@ -677,6 +677,18 @@ export default class SiteService {
   }
 
   /**
+   * Request a preview of what would happen if the given URL were ingested.
+   * The result mirrors the normal ingest response but includes extra fields
+   * (title, summary, category, etc) and no database row is created.
+   */
+  async previewIngestUrl(url) {
+    return this.request("/api/admin/ingest-url-preview", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+  }
+
+  /**
    * Update the title and/or summary of an existing article.
    * Returns { ok: true, id }
    */

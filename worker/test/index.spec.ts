@@ -2225,6 +2225,41 @@ describe('db.insertArticle error logging', () => {
 // ingestSingleUrl error handling
 
 describe('ingestSingleUrl error handling', () => {
+	it('skips database insertion when preview flag is provided', async () => {
+		await ensureSchemaAndFixture();
+
+		// stub network fetch with minimal HTML
+		const originalFetch = global.fetch;
+		global.fetch = async () =>
+			new Response('<html><body><p>xyz</p></body></html>', {
+				status: 200,
+				headers: { 'Content-Type': 'text/html' },
+			});
+
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+		});
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'preview',
+			seoDescription: 'seo',
+			summaryWordCount: 1,
+		});
+
+		const res = await __testables.ingestSingleUrl(env, { url: 'https://example.com', preview: true });
+		expect(res.status).toBe('inserted');
+		// no rows should have been written
+		const countRow = await env.ky_news_db.prepare('SELECT COUNT(*) as cnt FROM articles').first<{ cnt: number }>();
+		expect(countRow?.cnt).toBe(0);
+
+		global.fetch = originalFetch;
+		vi.restoreAllMocks();
+	});
+
 	it('forces primary county to null for statewide political stories', async () => {
 		await ensureSchemaAndFixture();
 
@@ -2866,6 +2901,22 @@ describe('admin manual-article endpoint', () => {
 		expect(response.status).toBe(401);
 	});
 
+	it('handles minimal payload without crashing', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		const req = new IncomingRequest('https://example.com/api/admin/manual-article', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({ title: 'Minimal Title' }),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const json = await resp.json();
+		expect(json.status).toBe('inserted');
+	});
+
 	it('allows inserting a national article with specified category', async () => {
 		await ensureSchemaAndFixture();
 		const adminEnv = envWithAdminPassword('pw');
@@ -3377,6 +3428,57 @@ describe('admin ingest-url endpoint', () => {
     expect(resp.status).toBe(422);
     const js = await resp.json();
     expect(js.status).toBe('rejected');
+
+    __testables.ingestSingleUrl = original;
+  });
+});
+
+// preview endpoint tests for manual ingest URL
+
+describe('admin ingest-url-preview endpoint', () => {
+  it('rejects unauthorized requests', async () => {
+    const response = await SELF.fetch('https://example.com/api/admin/ingest-url-preview', {
+      method: 'POST',
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it('returns preview data when authorized', async () => {
+    await ensureSchemaAndFixture();
+    const adminEnv = envWithAdminPassword('pw');
+    const original = __testables.ingestSingleUrl;
+    __testables.ingestSingleUrl = async (env, { url, preview }) => {
+      expect(preview).toBe(true);
+      return { status: 'inserted', title: 'Preview title', summary: 'Foo', category: 'today' };
+    };
+
+    const req = new IncomingRequest('https://example.com/api/admin/ingest-url-preview', {
+      method: 'POST',
+      headers: { 'x-admin-key': 'pw' },
+      body: JSON.stringify({ url: 'https://example.com/test' }),
+    });
+    const resp = await worker.fetch(req, adminEnv, createExecutionContext());
+    expect(resp.status).toBe(200);
+    const data = await resp.json();
+    expect(data.status).toBe('inserted');
+    expect(data.title).toBe('Preview title');
+
+    __testables.ingestSingleUrl = original;
+  });
+
+  it('forwards rejection status code from pipeline', async () => {
+    await ensureSchemaAndFixture();
+    const adminEnv = envWithAdminPassword('pw');
+    const original = __testables.ingestSingleUrl;
+    __testables.ingestSingleUrl = async () => ({ status: 'rejected', reason: 'bad' });
+
+    const req = new IncomingRequest('https://example.com/api/admin/ingest-url-preview', {
+      method: 'POST',
+      headers: { 'x-admin-key': 'pw' },
+      body: JSON.stringify({ url: 'https://example.com/bad' }),
+    });
+    const resp = await worker.fetch(req, adminEnv, createExecutionContext());
+    expect(resp.status).toBe(422);
 
     __testables.ingestSingleUrl = original;
   });

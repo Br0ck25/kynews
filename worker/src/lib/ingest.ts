@@ -151,6 +151,33 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
 
   const ai = await summarizeArticle(env, canonicalHash, extracted.title, extracted.contentText, extracted.publishedAt);
 
+  // if this is just a preview request we stop after summarization/classification
+  // and return the article fields without actually writing anything to the
+  // database or R2.  The returned object uses the same `status: 'inserted'`
+  // value that a real insertion would, so the frontend can treat the payload
+  // uniformly.  Extra fields (title/summary/etc) are added via the expanded
+  // IngestResult type.
+  if (source.preview) {
+    return {
+      status: 'inserted',
+      urlHash: canonicalHash,
+      category: classification.category,
+      title: extracted.title,
+      summary: ai.summary,
+      seoDescription: ai.seoDescription,
+      imageUrl: extracted.imageUrl,
+      publishedAt: extracted.publishedAt,
+      isKentucky: classification.isKentucky,
+      isNational: classification.isNational,
+      county: classification.county,
+      counties: classification.counties,
+      city: classification.city,
+      contentText: extracted.contentText,
+      canonicalUrl: extracted.canonicalUrl,
+      sourceUrl: extracted.sourceUrl,
+    };
+  }
+
   const rawR2Key = await storeRawPayloadBestEffort(env, canonicalHash, {
     source,
     extracted,
