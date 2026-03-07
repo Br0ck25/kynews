@@ -116,6 +116,26 @@ export default function AdminPage() {
   };
   const applyBold = () => wrapSelection("<strong>", "</strong>");
   const applyLarge = () => wrapSelection("<span style=\"font-size:1.25em\">", "</span>");
+
+  const handleManualBodyPaste = (e) => {
+    const clipboard = e.clipboardData || window.clipboardData;
+    const html = clipboard.getData('text/html');
+    if (html) {
+      e.preventDefault();
+      const ta = manualBodyRef.current;
+      if (!ta) return;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const before = manualBody.slice(0, start);
+      const after = manualBody.slice(end);
+      setManualBody(before + html + after);
+      setTimeout(() => {
+        ta.focus();
+        const pos = start + html.length;
+        ta.setSelectionRange(pos, pos);
+      }, 0);
+    }
+  };
   const [manualImageUrl, setManualImageUrl] = useState("");
   const [manualCounty, setManualCounty] = useState("");
   // new fields for explicit categorization/scope
@@ -1304,6 +1324,7 @@ export default function AdminPage() {
                 value={manualBody}
                 inputRef={manualBodyRef}
                 onChange={(e) => setManualBody(e.target.value)}
+                onPaste={handleManualBodyPaste}
                 style={{ marginBottom: 12 }}
               />
 

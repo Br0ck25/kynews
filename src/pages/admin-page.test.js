@@ -22,4 +22,15 @@ describe('AdminPage manual body formatting', () => {
     fireEvent.click(screen.getByLabelText(/Larger font/i));
     expect(body.value).toBe('<span style="font-size:1.25em">Size</span> me');
   });
-});
+  it('preserves bold/size styling when pasting rich text', () => {
+    render(<AdminPage />);
+    const body = screen.getByLabelText(/Body \(optional\)/i);
+    // simulate HTML paste
+    const pasteEvent = new ClipboardEvent('paste', {
+      clipboardData: new DataTransfer(),
+    });
+    pasteEvent.clipboardData.setData('text/html', '<strong>Hi</strong>');
+    body.focus();
+    fireEvent(body, pasteEvent);
+    expect(body.value).toBe('<strong>Hi</strong>');
+  });});
