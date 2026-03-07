@@ -81,6 +81,21 @@ describe('AdminPage manual body formatting', () => {
     previewSpy.mockRestore();
   });
 
+  it('shows server error text when preview request throws', async () => {
+    const previewSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
+      .mockRejectedValue({ errorMessage: 'boom!' });
+
+    render(<AdminPage />);
+    const urlInput = screen.getByPlaceholderText('https://example.com/article-url');
+    fireEvent.change(urlInput, { target: { value: 'https://example.com/bad' } });
+    fireEvent.click(screen.getByText(/Ingest Article/i));
+
+    const error = await screen.findByText(/boom!/i);
+    expect(error).toBeInTheDocument();
+
+    previewSpy.mockRestore();
+  });
+
   it('displays server rejection reason when createManualArticle returns rejected', async () => {
     const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
       .mockResolvedValue({ status: 'rejected', message: 'too similar' });

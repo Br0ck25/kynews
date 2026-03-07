@@ -243,4 +243,13 @@ describe('SiteService.previewIngestUrl', () => {
 
     await expect(service.previewIngestUrl('https://x')).rejects.toBeDefined();
   });
+
+  it('returns whatever JSON the server sent even if it has status:error', async () => {
+    const service = new SiteService();
+    global.fetch = jest.fn().mockResolvedValue(makeResponse({ status: 'error', error: 'oops' }, { status: 200 }));
+
+    const result = await service.previewIngestUrl('https://x');
+    expect(result.status).toBe('error');
+    expect(result.error).toBe('oops');
+  });
 });

@@ -3537,6 +3537,26 @@ describe('admin ingest-url-preview endpoint', () => {
 
     __testables.ingestSingleUrl = original;
   });
+
+  it('returns structured error object when pipeline throws', async () => {
+    await ensureSchemaAndFixture();
+    const adminEnv = envWithAdminPassword('pw');
+    const original = __testables.ingestSingleUrl;
+    __testables.ingestSingleUrl = async () => { throw new Error('boom'); };
+
+    const req = new IncomingRequest('https://example.com/api/admin/ingest-url-preview', {
+      method: 'POST',
+      headers: { 'x-admin-key': 'pw' },
+      body: JSON.stringify({ url: 'https://example.com/crash' }),
+    });
+    const resp = await worker.fetch(req, adminEnv, createExecutionContext());
+    expect(resp.status).toBe(200);
+    const js = await resp.json();
+    expect(js.status).toBe('error');
+    expect(js.error).toContain('boom');
+
+    __testables.ingestSingleUrl = original;
+  });
 });
 
 // reclassify endpoint tests

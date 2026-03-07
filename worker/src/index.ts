@@ -378,11 +378,20 @@ if (url.pathname === '/api/admin/ingest-url-preview' && request.method === 'POST
   const articleUrl = body?.url?.trim();
   if (!articleUrl) return badRequest('Missing required field: url');
   if (!isHttpUrl(articleUrl)) return badRequest('url must be an absolute http(s) URL');
+
   try {
     const result = await ingestSingleUrl(env, { url: articleUrl, preview: true });
     return json(result, result.status === 'rejected' ? 422 : 200);
   } catch (error) {
-    return json({ error: 'preview failed', details: safeError(error) }, 500);
+    // unexpected failure during the preview pipeline (network fetch, parse,
+    // etc).  Rather than returning a raw 500 that the UI treats as a network
+    // error, convert it to a structured response so the admin can see the
+    // underlying message and can retry or correct the URL.  The UI already
+    // knows how to render an object with `status: 'error'` and an `error`
+    // property.
+    const msg = safeError(error);
+    console.error('[PREVIEW FAILED]', msg);
+    return json({ status: 'error', error: msg });
   }
 }
 

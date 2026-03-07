@@ -780,7 +780,11 @@ export default function AdminPage() {
         setManualUrlResult({ status: 'error', message: result.error || 'Unknown error from server.' });
       }
     } catch (err) {
-      setManualUrlResult({ status: 'error', message: 'Network error — could not reach server.' });
+      // when SiteService throws we usually get an object from `toError()` with
+      // an `errorMessage` property; use that if available so the admin sees the
+      // real reason rather than a generic network error.
+      const msg = err?.errorMessage || err?.message || 'Network error — could not reach server.';
+      setManualUrlResult({ status: 'error', message: msg });
     } finally {
       setManualUrlLoading(false);
     }
