@@ -665,10 +665,11 @@ export default class SiteService {
    * Manually create an article from supplied fields (e.g. a Facebook post pasted by an admin).
    * Returns { status: 'inserted'|'duplicate', id, isDraft, category, county, canonicalUrl }
    */
-  async createManualArticle({ title, body, imageUrl, sourceUrl, county, isDraft, publishedAt, category, isKentucky }) {
+  async createManualArticle({ title, body, imageUrl, sourceUrl, county, isDraft, publishedAt, category, isKentucky, ignoreSimilarity }) {
     const payload = { title, body, imageUrl, sourceUrl, county, isDraft, publishedAt };
     if (category !== undefined) payload.category = category;
     if (isKentucky !== undefined) payload.isKentucky = isKentucky;
+    if (ignoreSimilarity) payload.ignoreSimilarity = true;
     return this.request("/api/admin/manual-article", {
       method: "POST",
       body: JSON.stringify(payload),

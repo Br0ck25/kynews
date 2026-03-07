@@ -35,6 +35,21 @@ describe('AdminPage manual body formatting', () => {
     expect(body.value).toBe('<strong>Hi</strong>');
   });
 
+  it('sends ignoreSimilarity flag when checkbox is checked', async () => {
+    const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
+      .mockResolvedValue({ status: 'inserted', id: 1, category: 'today', isKentucky: true, county: null });
+
+    render(<AdminPage />);
+    const title = screen.getByLabelText(/Title \*/i);
+    const checkbox = screen.getByLabelText(/Bypass automatic title similarity check/i);
+    fireEvent.change(title, { target: { value: 'Unique title' } });
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByText(/Publish Article/i));
+    await screen.findByText(/Article published/i);
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ ignoreSimilarity: true }));
+    createSpy.mockRestore();
+  });
+
   it('displays server rejection reason when createManualArticle returns rejected', async () => {
     const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
       .mockResolvedValue({ status: 'rejected', message: 'too similar' });

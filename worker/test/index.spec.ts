@@ -2920,6 +2920,53 @@ describe('admin manual-article endpoint', () => {
 		expect(row.county).toBe('Fayette');
 	});
 
+	it('allows bypassing title similarity when ignoreSimilarity=true', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		// insert an existing story with a particular title
+		const now = new Date().toISOString();
+		await adminEnv.ky_news_db.prepare(`
+			INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category, is_kentucky, county, city, summary, seo_description, raw_word_count, summary_word_count, content_text, content_html)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind(
+			'https://example.com/existing',
+			'https://example.com',
+			'existing-hash',
+			'Duplicate title example',
+			null,
+			now,
+			'today',
+			1,
+			'Fayette',
+			null,
+			'Summary',
+			'SEO',
+			100,
+			50,
+			'body',
+			'<p>body</p>'
+		).run();
+
+		// attempt to insert a manual article with the same title but tell the
+		// handler to ignore similarity
+		const req = new IncomingRequest('https://example.com/api/admin/manual-article', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				title: 'Duplicate title example',
+				body: 'New body',
+				isKentucky: true,
+				ignoreSimilarity: true,
+			}),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const json = await resp.json();
+		expect(json.status).toBe('inserted');
+	});
+
 	it('stores body verbatim and defaults source_url to site homepage', async () => {
 		await ensureSchemaAndFixture();
 		const adminEnv = envWithAdminPassword('pw');

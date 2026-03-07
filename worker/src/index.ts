@@ -1189,16 +1189,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		publishedAt?: string;
 		category?: string;
 		isKentucky?: boolean;
-	}>(request);
-
-	const title = body?.title?.trim();
-	// body text is optional – e.g. a post may be image-only or have only a title
-	const postBody = body?.body?.trim() || '';
-
-	if (!title) return badRequest('Missing required field: title');
-
-	const sourceUrl = body?.sourceUrl?.trim() || '';
-	const imageUrl = body?.imageUrl?.trim() || null;
+	  ignoreSimilarity?: boolean; // admin may bypass the title check
 	const providedCounty = body?.county?.trim() || null;
 	const isDraft = Boolean(body?.isDraft);
 
@@ -1226,7 +1217,13 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		return json({ status: 'duplicate', id: existing.id, message: 'An article with this URL already exists.' });
 	}
 
-	const similarTitle = await findHighlySimilarTitle(env, title);
+	let similarTitle = null;
+	if (!body?.ignoreSimilarity) {
+		// only run the expensive similarity check if the admin hasn't asked us
+		// to skip it.  the ingest worker still calls this helper directly so the
+		// global RSS rules remain untouched.
+		similarTitle = await findHighlySimilarTitle(env, title);
+	}
 	if (similarTitle) {
 		const reason = `title similarity ${(similarTitle.similarity * 100).toFixed(1)}% with article #${similarTitle.id}`;
 		return json({

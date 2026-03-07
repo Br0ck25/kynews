@@ -144,6 +144,7 @@ export default function AdminPage() {
 
   const [manualIsDraft, setManualIsDraft] = useState(false);
   const [manualPublishedAt, setManualPublishedAt] = useState("");
+  const [manualIgnoreSimilarity, setManualIgnoreSimilarity] = useState(false); // allow override of title check
   const [manualLoading, setManualLoading] = useState(false);
   const [manualFbLoading, setManualFbLoading] = useState(false);
   const [manualSuccess, setManualSuccess] = useState(null);
@@ -694,6 +695,7 @@ export default function AdminPage() {
         // pass admin overrides if provided
         category: manualCategory || undefined,
         isKentucky: manualIsKentucky,
+        ignoreSimilarity: manualIgnoreSimilarity,
       });
       if (result?.status === "inserted") {
         let label;
@@ -1376,6 +1378,18 @@ export default function AdminPage() {
                 </RadioGroup>
               </FormControl>
 
+              {/* Bypass title similarity check */}
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={manualIgnoreSimilarity}
+                    onChange={(e) => setManualIgnoreSimilarity(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label="Bypass automatic title similarity check"
+              />
+
               {/* Date & Time */}
               <TextField
                 variant="outlined" size="small"
@@ -1435,6 +1449,7 @@ export default function AdminPage() {
                     setManualImageUrl(""); setManualCounty(""); setManualCategory(""); setManualIsKentucky(true);
                     setManualIsDraft(false);
                     setManualPublishedAt(""); setManualError(""); setManualSuccess(null);
+                    setManualIgnoreSimilarity(false);
                   }}
                 >
                   Clear
