@@ -531,6 +531,10 @@ export async function classifyArticleWithAi(
     )) {
       baseGeo = { ...baseGeo, county: null, counties: [], city: null };
     }
+    // Also suppress the source default county so a WDRB/Louisville dateline
+    // on an Indiana story can't assign Jefferson County via city evidence.
+    // The story is happening in Indiana; the reporter's base is irrelevant.
+    sourceDefaultCounty = null;
   }
 
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');
