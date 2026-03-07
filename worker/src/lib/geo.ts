@@ -224,6 +224,13 @@ const NOISE_CITY_NAMES = new Set([
   'headquarters',
   'petroleum',
   'barefoot',
+  // Kentucky communities that are common English words and trigger false
+  // hits in non-geographic contexts.  Center is a Metcalfe County community
+  // but fires constantly on “Detention Center”, “Medical Center”, etc.
+  'center',
+  // Allen is a Floyd County town but text mentioning “Allen County” datelines
+  // should not be misattributed to Floyd; suppress the plain word.
+  'allen',
 ]);
 
 /**

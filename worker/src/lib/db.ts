@@ -572,12 +572,12 @@ export async function queryArticles(env: Env, options: {
     binds.push(Number.parseInt(options.cursor, 10) || Number.MAX_SAFE_INTEGER);
   }
 
-  const sqlLimit = Math.min((options.limit * 3) + 5, 300);
-  binds.push(sqlLimit);
-
   // Never surface articles scheduled in the future on public endpoints.
   where.push('published_at <= ?');
   binds.push(new Date().toISOString());
+
+  const sqlLimit = Math.min((options.limit * 3) + 5, 300);
+  binds.push(sqlLimit);
 
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1';
   const query = `SELECT * FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?`;

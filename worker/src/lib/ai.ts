@@ -727,6 +727,14 @@ export function cleanContentForSummarization(text: string, title: string): strin
   // content
   t = t.replace(/(^|\n)\s*\d+\/\d+\s+[A-Z][a-zA-Z\s]+\s+/g, '$1');
 
+  // Strip TV station nav/header junk scraped before the article body
+  // e.g. "Skip to content News Livestreams Weather alert(B137 / Wikipedia / CC BY-SA 4.0)"
+  t = t.replace(/^Skip\s+to\s+content\b[^\n]*/gim, '');
+  // Strip image attribution caption lines e.g. "Traffic alert(B137 / Wikipedia / CC BY-SA 4.0)"
+  t = t.replace(/^[^\n]{3,80}\([A-Z][^)]{3,60}\/\s*(?:Wikipedia|CC\s+BY|Wikimedia|AP|Getty|Reuters)[^)]*\)\s*$/gm, '');
+  // Strip "Source: ORG." image credit prefix lines e.g. "Source: SKYCTC."
+  t = t.replace(/^Source:\s*[A-Za-z0-9_.\-]{1,40}\.\s*/gim, '');
+
   if (title) {
     const escaped = title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     t = t.replace(new RegExp(`^\\s*${escaped}\\s*\n?`, 'i'), '');
@@ -849,6 +857,9 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   }
 
   t = t.replace(/^\s*Summary\s*$/gim, '');
+  t = t.replace(/^Skip\s+to\s+content\b[^\n]*/gim, '');
+  t = t.replace(/^[^\n]{3,80}\([A-Z][^)]{3,60}\/\s*(?:Wikipedia|CC\s+BY|Wikimedia|AP|Getty|Reuters)[^)]*\)\s*$/gm, '');
+  t = t.replace(/^Source:\s*[A-Za-z0-9_.\-]{1,40}\.\s*/gim, '');
   // Strip broadcaster attribution that the AI may echo: "(LEX 18) —", "(WKYT) —", etc.
   t = t.replace(/^\s*\((?:LEX\s*18|WKYT|WKYT-TV|WLWT|WHAS11?|WDRB|WBKO|WNKY|WYMT|WTVQ|ABC\s*36|FOX\s*56|WAVE\s*3|NBC)\)\s*[-—–]?\s*/im, '');
   // Strip inline broadcaster attribution mid-summary too (e.g. after dateline)
@@ -1115,14 +1126,22 @@ function hasHallucinatedNumbers(original: string, summary: string): boolean {
  * Leaves text that already has paragraph breaks (double newlines) untouched.
  */
 function enforceparagraphBreaks(text: string): string {
+  // Strip inline section-header lines echoed from the source
+  // (e.g. "From a bible study to a ministry", "How the program works")
+  // These are short Title Case lines with no terminal punctuation.
+  let t = text.replace(
+    /\n([A-Z][a-zA-Z ''\-]{3,60}(?:\s+[A-Za-z ''\-]{2,30}){0,6})\n(?=[A-Z])/g,
+    '\n\n'
+  );
+
   // Already has paragraph structure — don't touch it
-  if (/\n\n/.test(text)) return text;
+  if (/\n\n/.test(t)) return t.trim();
 
   // Split on sentence boundaries, then group into 2–3 sentence paragraphs
   const sentenceRe = /(?<=[.!?]["')\u201d\u2019]*)\s+(?=[A-Z"'\u201c])/g;
-  const sentences = text.split(sentenceRe).map(s => s.trim()).filter(Boolean);
+  const sentences = t.split(sentenceRe).map(s => s.trim()).filter(Boolean);
 
-  if (sentences.length <= 3) return text; // too short to need splitting
+  if (sentences.length <= 3) return t;
 
   const paragraphs: string[] = [];
   for (let i = 0; i < sentences.length; i += 3) {

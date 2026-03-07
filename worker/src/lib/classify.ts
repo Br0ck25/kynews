@@ -373,6 +373,15 @@ export function isStatewideKyPoliticalStory(text: string): boolean {
     if (/\bfrankfort\b|\bstatewide\b|\ball\s+of\s+kentucky\b/i.test(text)) {
       return true;
     }
+    // A bill before a committee is statewide legislation regardless of reporter's dateline
+    if (/\b(?:Judiciary|Education|Appropriations|Agriculture|Budget|Health|Labor|Revenue|Rules|Veterans|Transportation|Banking|Insurance)\s+Committee\b/i.test(text)) {
+      return true;
+    }
+    // A statewide bill reported from a local market (e.g. WBKO in Bowling Green)
+    if (/\b(?:louisville|lexington)\s+lawmaker\b|\brep\.\s+\w+\s+\w+,?\s+(?:D|R)-\d+\b/i.test(text) &&
+        /\bkentucky\s+(?:averages?|families|children|residents|landlord|evict|housing)\b/i.test(text)) {
+      return true;
+    }
   }
 
   // Cross-chamber: both a KY senator AND a KY representative named
@@ -1186,6 +1195,25 @@ function isCountyEvidenced(
   sourceDefault: string | null,
 ): boolean {
   if (!county) return true; // null is always valid
+  // Reject counties that appear ONLY in conviction history context.
+  // "Saltman has convictions in Daviess County" is background, not story location.
+  if (/\b(?:convictions?\s+in|convicted\s+in|prior\s+(?:record|conviction|offense)s?\s+in|criminal\s+history\s+in|sentenced\s+in|previously\s+(?:convicted|charged)\s+in)\b/i.test(semanticText)) {
+    const convictionCountyRe = new RegExp(
+      `\\b(?:convictions?\\s+in|convicted\\s+in|prior\\s+(?:record|conviction|offense)s?\\s+in|criminal\\s+history\\s+in|sentenced\\s+in|previously\\s+(?:convicted|charged)\\s+in)\\s+${escapeRegExp(county)}\\s+County\\b`,
+      'i'
+    );
+    const inConvictionContext = convictionCountyRe.test(semanticText);
+    const allMatches = semanticText.match(new RegExp(`\\b${escapeRegExp(county)}\\s+County\\b`, 'gi')) ?? [];
+    if (inConvictionContext && allMatches.length <= 2) {
+      const nonConvictionText = semanticText.replace(
+        /\b(?:convictions?\s+in|convicted\s+in|prior\s+(?:record|conviction|offense)s?\s+in|criminal\s+history\s+in|sentenced\s+in|previously\s+(?:convicted|charged)\s+in)[^.]*\./gi,
+        ''
+      );
+      if (!new RegExp(`\\b${escapeRegExp(county)}\\s+County\\b`, 'i').test(nonConvictionText)) {
+        return false;
+      }
+    }
+  }
   // Accept if geo detector already found it independently
   if (geoCounties.some((c) => c.toLowerCase() === county.toLowerCase())) {
     return true;
