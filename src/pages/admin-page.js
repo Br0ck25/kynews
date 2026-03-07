@@ -398,6 +398,17 @@ export default function AdminPage() {
     const patch = contentEdits[row.id] || {};
     const newTitle = patch.title ?? row.title;
     const newSummary = patch.summary !== undefined ? patch.summary : (row.summary || "");
+    let newImageUrl = patch.imageUrl !== undefined ? patch.imageUrl.trim() : (row.imageUrl || "");
+    if (newImageUrl === "") {
+      newImageUrl = null;
+    }
+
+    // validate image URL if provided (non-null)
+    if (newImageUrl && !isValidHttpUrl(newImageUrl)) {
+      setError("Image URL must be a valid http(s) URL.");
+      return;
+    }
+
     setSavingContentId(row.id);
     setError("");
     try {
@@ -405,11 +416,12 @@ export default function AdminPage() {
         id: row.id,
         title: newTitle,
         summary: newSummary,
+        imageUrl: newImageUrl,
       });
       setArticleRows((prev) =>
         prev.map((item) =>
           item.id === row.id
-            ? { ...item, title: newTitle, summary: newSummary }
+            ? { ...item, title: newTitle, summary: newSummary, imageUrl: newImageUrl }
             : item
         )
       );
@@ -1786,6 +1798,15 @@ export default function AdminPage() {
                                   style={{ marginBottom: 10 }}
                                   value={contentEdit.summary !== undefined ? contentEdit.summary : row.summary || ""}
                                   onChange={(e) => setContentEdits(prev => ({ ...prev, [row.id]: { ...prev[row.id], summary: e.target.value } }))}
+                                />
+                                <TextField
+                                  fullWidth
+                                  label="Image URL"
+                                  variant="outlined"
+                                  size="small"
+                                  style={{ marginBottom: 10 }}
+                                  value={contentEdit.imageUrl !== undefined ? contentEdit.imageUrl : row.imageUrl || ""}
+                                  onChange={(e) => setContentEdits(prev => ({ ...prev, [row.id]: { ...prev[row.id], imageUrl: e.target.value } }))}
                                 />
                                 <TextField
                                   fullWidth

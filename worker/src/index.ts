@@ -866,23 +866,29 @@ if (url.pathname.match(/^\/api\/articles\/\d+\/county$/) && request.method === '
 }
 
 if (url.pathname === '/api/admin/article/update-content' && request.method === 'POST') {
-if (!isAdminAuthorized(request, env)) {
-return json({ error: 'Unauthorized' }, 401);
-}
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
 
-const body = await parseJsonBody<{ id?: number; title?: string; summary?: string }>(request);
-const id = Number(body?.id ?? 0);
-if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+  const body = await parseJsonBody<{ id?: number; title?: string; summary?: string; imageUrl?: string | null }>(request);
+  if (!body) return badRequest('Missing request body');
+  const id = Number(body.id ?? 0);
+  if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
 
-const title = typeof body?.title === 'string' ? body.title.trim() : undefined;
-const summary = typeof body?.summary === 'string' ? body.summary.trim() : undefined;
+  const title = typeof body.title === 'string' ? body.title.trim() : undefined;
+  const summary = typeof body.summary === 'string' ? body.summary.trim() : undefined;
+  let imageUrl: string | null | undefined = undefined;
+  if ('imageUrl' in body) {
+    // allow null to clear
+    imageUrl = body.imageUrl === null ? null : String(body.imageUrl).trim();
+  }
 
-if (title === undefined && summary === undefined) {
-return badRequest('Provide at least one of: title, summary');
-}
+  if (title === undefined && summary === undefined && imageUrl === undefined) {
+    return badRequest('Provide at least one of: title, summary, imageUrl');
+  }
 
-await updateArticleContent(env, id, { title, summary });
-return json({ ok: true, id });
+  await updateArticleContent(env, id, { title, summary, imageUrl });
+  return json({ ok: true, id });
 }
 
 // regenerate summary for an existing article and update DB

@@ -692,10 +692,14 @@ export default class SiteService {
    * Update the title and/or summary of an existing article.
    * Returns { ok: true, id }
    */
-  async updateAdminArticleContent({ id, title, summary }) {
+  async updateAdminArticleContent({ id, title, summary, imageUrl }) {
+    const payload = { id, title, summary };
+    if (imageUrl !== undefined) {
+      payload.imageUrl = imageUrl;
+    }
     return this.request("/api/admin/article/update-content", {
       method: "POST",
-      body: JSON.stringify({ id, title, summary }),
+      body: JSON.stringify(payload),
     });
   }
 

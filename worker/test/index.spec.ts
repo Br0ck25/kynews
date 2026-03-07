@@ -2774,6 +2774,61 @@ describe('admin endpoints', () => {
 		const finalRow = await getArticleById(env, id);
 		expect(finalRow?.isKentucky).toBe(0);
 	});
+
+	it('allows admin to update title, summary and image URL via POST /api/admin/article/update-content', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/update1',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-update1',
+			title: 'Old',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 'old summary',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+		const adminEnv = envWithAdminPassword('pw') as any;
+		adminEnv.ADMIN_SECRET = 'secret';
+
+		const resp = await SELF.fetch('https://example.com/api/admin/article/update-content', {
+			method: 'POST',
+			headers: { Authorization: 'Bearer secret' },
+			body: JSON.stringify({ id, title: 'New title', summary: 'new summary', imageUrl: 'https://foo.com/pic.jpg' }),
+		});
+		expect(resp.status).toBe(200);
+		const body = await resp.json();
+		expect(body.ok).toBe(true);
+		expect(body.id).toBe(id);
+		const row = await getArticleById(env, id);
+		expect(row).not.toBeNull();
+		expect(row?.title).toBe('New title');
+		expect(row?.summary).toBe('new summary');
+		expect(row?.imageUrl).toBe('https://foo.com/pic.jpg');
+
+		// now clear the imageUrl explicitly
+		const resp2 = await SELF.fetch('https://example.com/api/admin/article/update-content', {
+			method: 'POST',
+			headers: { Authorization: 'Bearer secret' },
+			body: JSON.stringify({ id, imageUrl: null }),
+		});
+		expect(resp2.status).toBe(200);
+		const row2 = await getArticleById(env, id);
+		expect(row2?.imageUrl).toBeNull();
+	});
 });
 
 // backfill endpoint tests

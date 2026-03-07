@@ -297,7 +297,7 @@ export async function updateArticlePublishedAt(env: Env, id: number, publishedAt
 export async function updateArticleContent(
   env: Env,
   id: number,
-  patch: { title?: string; summary?: string },
+  patch: { title?: string; summary?: string; imageUrl?: string | null },
 ): Promise<void> {
   // modifying the content should also invalidate the feed.
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
@@ -311,6 +311,12 @@ export async function updateArticleContent(
   if (patch.summary !== undefined) {
     sets.push('summary = ?');
     binds.push(patch.summary.trim().slice(0, 8000));
+  }
+
+  if (patch.imageUrl !== undefined) {
+    sets.push('image_url = ?');
+    // allow null or trimmed string
+    binds.push(patch.imageUrl ? patch.imageUrl.trim().slice(0, 2000) : null);
   }
 
   if (sets.length === 1) return;

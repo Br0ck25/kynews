@@ -138,21 +138,22 @@ Change the published date/time for an article.
 ### POST /api/admin/article/update-content
 
 **Description:**
-Edit the title and/or summary of an article.
+Edit the title, summary, and/or image URL of an article.
 
 **Expected Input:**
 ```json
 {
   "id": number,
   "title": string,        // optional
-  "summary": string       // optional
+  "summary": string,      // optional
+  "imageUrl": string|null // optional – provide empty string or null to clear
 }
 ```
 
 **Handler Location:** `worker/src/index.ts` (line ~819).
 
 **Database Operations:**
-`updateArticleContent(env, id, { title, summary })`
+`updateArticleContent(env, id, { title, summary, imageUrl })`
 
 ### POST /api/admin/article/update-links
 
