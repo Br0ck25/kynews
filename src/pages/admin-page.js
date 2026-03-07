@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -95,6 +95,27 @@ export default function AdminPage() {
   const [fbPostUrl, setFbPostUrl] = useState("");
   const [manualTitle, setManualTitle] = useState("");
   const [manualBody, setManualBody] = useState("");
+  const manualBodyRef = useRef(null);
+
+  // formatting helpers for manual body textarea
+  const wrapSelection = (prefix, suffix) => {
+    const ta = manualBodyRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const before = manualBody.slice(0, start);
+    const selected = manualBody.slice(start, end);
+    const after = manualBody.slice(end);
+    const newValue = before + prefix + selected + suffix + after;
+    setManualBody(newValue);
+    // restore selection inside wrapped text
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(start + prefix.length, end + prefix.length);
+    }, 0);
+  };
+  const applyBold = () => wrapSelection("<strong>", "</strong>");
+  const applyLarge = () => wrapSelection("<span style=\"font-size:1.25em\">", "</span>");
   const [manualImageUrl, setManualImageUrl] = useState("");
   const [manualCounty, setManualCounty] = useState("");
   // new fields for explicit categorization/scope
@@ -1269,10 +1290,19 @@ export default function AdminPage() {
               />
 
               {/* Body (optional) */}
+              <Box style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+                <Button size="small" aria-label="Bold" onClick={applyBold}>
+                  <strong>B</strong>
+                </Button>
+                <Button size="small" aria-label="Larger font" onClick={applyLarge}>
+                  A↑
+                </Button>
+              </Box>
               <TextField fullWidth variant="outlined" size="small"
                 label="Body (optional)"
                 multiline rows={8}
                 value={manualBody}
+                inputRef={manualBodyRef}
                 onChange={(e) => setManualBody(e.target.value)}
                 style={{ marginBottom: 12 }}
               />

@@ -70,7 +70,8 @@ export default function FeaturedPost(props) {
 
   const summaryParagraphs = React.useMemo(() => {
     const raw = String(post?.shortDesc || "")
-      .replace(/<[^>]+>/g, " ")
+      // keep basic HTML tags so manual formatting can survive; other tags
+      // will be left in the string but should not appear in typical usage.
       .replace(/[\u2028\u2029]/g, "\n")
       .replace(/[ \t]+/g, " ")
       .trim();
@@ -303,9 +304,13 @@ export default function FeaturedPost(props) {
               Summary
             </Typography>
             {summaryParagraphs.map((para, index) => (
-              <Typography key={`${post.title}-summary-${index}`} variant="body1" paragraph>
-                {para}
-              </Typography>
+              <Typography
+                key={`${post.title}-summary-${index}`}
+                variant="body1"
+                paragraph
+                component="div"
+                dangerouslySetInnerHTML={{ __html: para }}
+              />
             ))}
           </div>
         )}

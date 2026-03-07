@@ -78,6 +78,30 @@ test('keeps key:value lines separate in summary', () => {
   expect(paras[2].textContent).toBe('County Seat: Pikeville');
 });
 
+// formatting preservation test
+test('bold/HTML in shortDesc is rendered correctly', () => {
+  const post = {
+    title: 'HTML Test',
+    image: '',
+    originalLink: 'http://example.com',
+    date: '2020-01-01',
+    contentText: '',
+    shortDesc: 'This is <strong>bold</strong> text',
+    isKentucky: true,
+    tags: [],
+  };
+
+  const { container } = render(
+    <Provider store={store}>
+      <Post post={post} />
+    </Provider>
+  );
+
+  const paras = container.querySelectorAll('.description p');
+  expect(paras.length).toBe(1);
+  expect(paras[0].innerHTML).toBe('This is <strong>bold</strong> text');
+});
+
 // new case for multiple counties
 test('renders multiple county chips when post.tags include several counties', () => {
   const post = {
