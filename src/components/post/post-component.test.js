@@ -52,6 +52,32 @@ test('does not merge numbered-heading with following paragraph', () => {
   expect(paras[1].textContent).toBe('Following text.');
 });
 
+// quick-facts regression test
+test('keeps key:value lines separate in summary', () => {
+  const post = {
+    title: 'Facts Test',
+    image: '',
+    originalLink: 'http://example.com',
+    date: '2020-01-01',
+    contentText: 'Quick Facts About Pike County\n\nEstablished: 1821\n\nCounty Seat: Pikeville',
+    shortDesc: 'Quick Facts About Pike County\n\nEstablished: 1821\n\nCounty Seat: Pikeville',
+    isKentucky: true,
+    tags: [],
+  };
+
+  const { container } = render(
+    <Provider store={store}>
+      <Post post={post} />
+    </Provider>
+  );
+
+  const paras = container.querySelectorAll('.description p');
+  expect(paras.length).toBe(3);
+  expect(paras[0].textContent).toBe('Quick Facts About Pike County');
+  expect(paras[1].textContent).toBe('Established: 1821');
+  expect(paras[2].textContent).toBe('County Seat: Pikeville');
+});
+
 // new case for multiple counties
 test('renders multiple county chips when post.tags include several counties', () => {
   const post = {

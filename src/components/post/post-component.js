@@ -99,6 +99,13 @@ export default function FeaturedPost(props) {
         mergedParagraphs.push(paragraph);
         return;
       }
+      // also avoid merging when the new paragraph looks like a key:value line
+      // (e.g. quick facts) – these should remain separate even though the
+      // previous paragraph may not end in punctuation.
+      if (/:/.test(paragraph)) {
+        mergedParagraphs.push(paragraph);
+        return;
+      }
 
       const shouldMerge =
         !/[.!?]["')\]]*$/.test(previous) ||
