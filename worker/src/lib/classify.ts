@@ -4,7 +4,7 @@
 // this file attempt to implement those rules automatically during article
 // ingestion.
 import type { Category, ClassificationResult } from '../types';
-import { detectCounty, detectCity, detectKentuckyGeo, HIGH_AMBIGUITY_CITIES, escapeRegExp, textContainsCounty } from './geo';
+import { detectCounty, detectCity, detectKentuckyGeo, HIGH_AMBIGUITY_CITIES, escapeRegExp, textContainsCounty, AMBIGUOUS_COUNTY_NAMES } from './geo';
 import { KY_COUNTIES } from '../data/ky-geo';
 
 type AiResultLike = {
@@ -249,9 +249,9 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   // Lexington ABC affiliate — now in ALWAYS_NATIONAL_SOURCES; wire content dominates
   'wtvq.com': null,
   // Northern Kentucky (multi-county coverage)
-  'linknky.com': 'Kenton',   // Northern Kentucky news site (covington, florence, etc.)
+  'linknky.com': null,   // NKY multi-county; county only when explicit in text (Florence → Boone, Newport → Campbell, etc.)
 
-  'nkytribune.com': 'Kenton',
+  'nkytribune.com': null,   // NKY Tribune covers all of NKY; only assign county when explicitly in text
   'webn.com': 'Kenton',
   'wcpo.com': null,
   // Central Kentucky
@@ -354,6 +354,15 @@ export const BETTING_CONTENT_RE =
  * the story belongs to all of Kentucky, not just the outlet's home.
  */
 export function isStatewideKyPoliticalStory(text: string): boolean {
+  // Multi-city event listings spanning multiple KY regions are statewide.
+  // Detect when 4+ distinct KY cities from different counties appear — this
+  // is a roundup article covering all of Kentucky, not a single-county story.
+  // Example: Women's History Month events in Lexington, Covington, Florence,
+  // Dayton, Fort Thomas, Maysville, Williamstown etc.
+  const kyMultiCityRe = /\b(?:lexington|louisville|covington|newport|florence|fort thomas|dayton|maysville|williamstown|erlanger|independence|richmond|frankfort|owensboro|paducah|bowling green|somerset|london|hazard|pikeville|ashland|morehead|corbin|glasgow|elizabethtown|hopkinsville|murray|berea|winchester|danville|nicholasville|georgetown|shelbyville|bardstown|harrodsburg|versailles|lawrenceburg|campbellsville|mount sterling|prestonsburg|paintsville|corbin|middlesboro)\b/gi;
+  const kyMultiCityMatches = new Set((text.match(kyMultiCityRe) ?? []).map(c => c.toLowerCase()));
+  if (kyMultiCityMatches.size >= 4) return true;
+
   // FRANKFORT dateline = statewide KY story ONLY when combined with political/legislative signals.
   // A pure Frankfort dateline on a schools/sports/business story should NOT suppress the county.
   const hasFrankfortDateline = /\bfrankfort,?\s*ky\.?\s*[-—–(]/i.test(text);
@@ -698,8 +707,12 @@ export async function classifyArticleWithAi(
       '                Return the most relevant county first (primary).',
       '                Each county must be one of the official 120 Kentucky counties listed below.',
       '                If no Kentucky county is clearly identified, return an empty array.',
-      '                Example: ["Fayette", "Clark"] for an article set in both ',
-      '                Lexington and Winchester, Kentucky.',
+      '                Example: ["Fayette", "Clark"] for an article set in both Lexington and Winchester KY.',
+      '                IMPORTANT: Only return counties where the STORY IS SET, not where people mentioned are FROM.',
+      '                Do NOT return a county just because a coach, athlete, or official has a surname',
+      '                matching a county name (e.g. "Johnson", "Martin", "Clark" as person surnames).',
+      '                Do NOT return a county just because a school\'s full name contains a county name',
+      '                unless the story is actually set in or about that county.',
       '                Example: ["Perry"] for an article set only in Hazard.',
       '                Example: [] if no county is identifiable.',
       `  All 120 KY counties: ${countyList}`,      '',
@@ -1216,6 +1229,15 @@ function isCountyEvidenced(
       if (!new RegExp(`\\b${escapeRegExp(county)}\\s+County\\b`, 'i').test(nonConvictionText)) {
         return false;
       }
+    }
+  }
+  // Suppress counties that appear exclusively as person surnames in sports articles.
+  // "Davey Johnson said", "coach Reesa Martin", "Eric Clark" — these are people, not places.
+  // Only trigger when: county is ambiguous AND no "County" suffix appears in text.
+  if (AMBIGUOUS_COUNTY_NAMES.has(county)) {
+    const withSuffixRe = new RegExp(`\\b${escapeRegExp(county)}\\s+County\\b`, 'i');
+    if (!withSuffixRe.test(semanticText) && !geoCounties.some((c) => c.toLowerCase() === county.toLowerCase())) {
+      return false;
     }
   }
   // Accept if geo detector already found it independently

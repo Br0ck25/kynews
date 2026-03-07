@@ -56,11 +56,12 @@ const INGEST_METRICS_KEY = 'admin:ingest:latest';
 const INGEST_ROTATION_KEY_PREFIX = 'admin:ingest:rotation:';
 const FALLBACK_CRAWL_MAX_LINKS = 12;
 const FALLBACK_CRAWL_MAX_SECTION_PAGES = 3;
-/** Articles to fetch per source on each scheduled cron tick. */
-const SCHEDULED_LIMIT_PER_SOURCE = 25;
-/** Sources processed per 2-minute cron tick. ~108 total ÷ 10 per tick ≈ 22‑minute full cycle (rotates through all seeds). */
-const SCHEDULED_SOURCES_PER_RUN = 10;
-/** How many sources to fetch simultaneously — balances speed vs D1/network pressure. */
+/** Articles per source per tick. 8 is sufficient — RSS feeds rarely publish more than
+ *  2–3 new articles per 2-minute window; excess calls are all deduped anyway. */
+const SCHEDULED_LIMIT_PER_SOURCE = 8;
+/** Normal-priority sources per tick (HIGH_PRIORITY always runs separately every tick). */
+const SCHEDULED_NORMAL_SOURCES_PER_RUN = 8;
+/** How many sources to fetch simultaneously. */
 const INGEST_CONCURRENCY = 10;
 /** KV key for the backfill-counties job status (polled by the admin UI). */
 const BACKFILL_STATUS_KEY = 'admin:backfill:latest';
@@ -2200,23 +2201,41 @@ return json({ error: 'Internal server error', details: safeError(err) }, 500);
 }
 },
 async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
-// Unified rotation across all sources, 10 at a time every 2 minutes.
-// HIGH_PRIORITY sources appear first so they get refreshed every cycle before
-// the normal sources, while still advancing the rotation offset in KV.
-const sourceUrls = [...new Set([
-	...HIGH_PRIORITY_SOURCE_SEEDS,
-	...MASTER_SOURCE_SEEDS,
-	...SCHOOL_SOURCE_SEEDS,
-].map((s) => s.trim()).filter(isHttpUrl))];
-ctx.waitUntil(
-	runIngest(env, sourceUrls, SCHEDULED_LIMIT_PER_SOURCE, 'scheduled', {
-		maxSourcesPerRun: SCHEDULED_SOURCES_PER_RUN,
-		rotateSources: true,
-	}),
-);
-// Check recent articles for source updates (runs every cron tick but self-limits to 20 articles per run)
-ctx.waitUntil(checkArticleUpdates(env));
+  // HIGH_PRIORITY sources run on every single tick (2-min breaking news refresh).
+  const highPrioritySources = [...new Set(
+    HIGH_PRIORITY_SOURCE_SEEDS.map((s) => s.trim()).filter(isHttpUrl)
+  )];
+
+  // NORMAL sources rotate: ~70 sources ÷ 8 per tick ≈ 18-min full cycle.
+  const normalSources = [...new Set([
+    ...MASTER_SOURCE_SEEDS,
+    ...SCHOOL_SOURCE_SEEDS,
+  ].map((s) => s.trim()).filter(isHttpUrl)
+   .filter((url) => !highPrioritySources.includes(url))
+  )];
+
+  // Always ingest high-priority sources first (no rotation — run them all every tick).
+  if (highPrioritySources.length > 0) {
+    ctx.waitUntil(
+      runIngest(env, highPrioritySources, SCHEDULED_LIMIT_PER_SOURCE, 'scheduled-high', {
+        maxSourcesPerRun: highPrioritySources.length,
+        rotateSources: false,
+      }),
+    );
+  }
+
+  // Rotate through normal sources 8 at a time.
+  ctx.waitUntil(
+    runIngest(env, normalSources, SCHEDULED_LIMIT_PER_SOURCE, 'scheduled-normal', {
+      maxSourcesPerRun: SCHEDULED_NORMAL_SOURCES_PER_RUN,
+      rotateSources: true,
+    }),
+  );
+
+  // Check recent articles for content updates (self-limits to 20 per run).
+  ctx.waitUntil(checkArticleUpdates(env));
 },
+
 // forward queue events to our exported handler
 async queue(batch: MessageBatch<QueueJob>, env: Env, ctx: ExecutionContext): Promise<void> {
 	return queue(batch, env, ctx);

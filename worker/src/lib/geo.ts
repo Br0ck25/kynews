@@ -110,9 +110,13 @@ function textContainsCountyStrict(text: string, county: string): boolean {
     // Reject if the preceding word looks like a proper name token
     // (starts with capital letter, or is all-caps, or ends with
     // punctuation that would indicate it's part of the same phrase)
+    // Strip trailing punctuation (period, comma, semicolon, etc.) before checking
+    // capitalization. Without this, "plan. Johnson said" treats "plan." as a
+    // lowercase word and incorrectly accepts "Johnson" as a county name.
+    const prevWordBase = prevWord.replace(/[.,;:!?'")\]]+$/, '');
     const isPropernamePrefix =
-      /^[A-Z]/.test(prevWord) ||   // starts with capital (Bowling, Russell)
-      /^[A-Z]+$/.test(prevWord);    // ALL-CAPS (BOWLING, WARREN)
+      /^[A-Z]/.test(prevWordBase) ||
+      /^[A-Z]+$/.test(prevWordBase);
     if (!isPropernamePrefix) {
       // Preceded by lowercase word (preposition, article, etc.) — accept
       // e.g. "in Green", "visiting Green", "near Green"
@@ -163,7 +167,7 @@ const DUAL_STATE_COUNTY_NAMES = new Set([
   'Ohio',
 ]);
 
-const AMBIGUOUS_COUNTY_NAMES = new Set([
+export const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Green',    // color / adjective
   'Ohio',     // river, state, university etc.
   'Logan',    // personal name
@@ -171,6 +175,9 @@ const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Monroe',   // Monroe doctrine, Marilyn Monroe
   'Mason',    // person name, mason jar
   'Warren',   // Warren Buffett
+  'Clark',    // Clark County KY — but extremely common surname (coaches, officials)
+  'Johnson',  // Johnson County KY — extremely common surname (Davey Johnson, coach names)
+  'Martin',   // Martin County KY — common surname (coach Reesa Martin, etc.)
   'Grant',    // grant funding
   'Lee',      // very common surname
   'Todd',     // common first/last name

@@ -19,4 +19,9 @@ describe('isStatewideKyPoliticalStory', () => {
   it('returns false for a single district mention', () => {
     expect(isStatewideKyPoliticalStory('94th District representative commented')).toBe(false);
   });
+
+  it('returns true for multi-city event listings', () => {
+    const t = 'Events in Lexington, Covington, Florence, and Dayton were announced today.';
+    expect(isStatewideKyPoliticalStory(t)).toBe(true);
+  });
 });

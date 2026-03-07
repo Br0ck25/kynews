@@ -81,8 +81,7 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://www.cbssports.com/rss/headlines/',
   'https://www.cbssports.com/rss/headlines/college-basketball/',
 	'https://thecitizen.com/feed/',
-	' https://www.popularmechanics.com/rss/default.xml',
-];
+	];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [
   // school feeds are deliberately left empty
