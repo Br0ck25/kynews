@@ -155,7 +155,7 @@ export default function AdminPage() {
   const [manualUrlInput, setManualUrlInput] = useState('');
   const [manualUrlLoading, setManualUrlLoading] = useState(false);
   const [manualUrlResult, setManualUrlResult] = useState(null);
-  const [manualUrlPreview, setManualUrlPreview] = useState(null); // holds preview object when available
+  // manual URL ingest no longer uses preview; just shows result status
 
   // --- Facebook diagnostics state (create-article tab) ---
   const [fbDiagId, setFbDiagId] = useState("");
@@ -727,7 +727,6 @@ export default function AdminPage() {
         );
         setFbPostUrl(""); setManualTitle(""); setManualBody("");
         setManualImageUrl(""); setManualCounty(""); setManualCategory(""); setManualIsKentucky(true);
-        setManualUrlPreview(null);
         setManualIsDraft(false); setManualPublishedAt("");
         applyFilter();
       } else if (result?.status === "duplicate") {
@@ -745,22 +744,6 @@ export default function AdminPage() {
   };
 
   // --- Manual URL ingest handler (now uses preview endpoint) ---
-  const applyManualUrlPreview = () => {
-    if (!manualUrlPreview) return;
-    const p = manualUrlPreview;
-    // copy each field into the create-article form; summary becomes body
-    if (p.title) setManualTitle(p.title);
-    if (p.summary) setManualBody(p.summary);
-    if (p.imageUrl) setManualImageUrl(p.imageUrl);
-    if (p.county) setManualCounty(p.county);
-    if (p.category) setManualCategory(p.category);
-    if (p.isKentucky !== undefined) setManualIsKentucky(p.isKentucky);
-    if (p.publishedAt && !manualPublishedAt) {
-      setManualPublishedAt(toDateTimeLocalValue(p.publishedAt));
-    }
-    // once applied we can clear the preview if we want, but keep the result
-    // message for continuity.
-  };
 
   // --- Manual URL ingest handler (now uses preview endpoint) ---
   const handleManualIngest = async () => {
@@ -768,18 +751,16 @@ export default function AdminPage() {
     if (!trimmed) return;
     setManualUrlLoading(true);
     setManualUrlResult(null);
-    setManualUrlPreview(null);
     try {
-      const result = await service.previewIngestUrl(trimmed);
+      const result = await service.ingestUrl(trimmed);
       if (result.status === 'inserted') {
         setManualUrlResult({
           status: 'inserted',
-          message: 'Preview available — review below or click "Use Preview" to copy into the form.',
+          message: `Ingested – ID: ${result.id}, category: ${result.category || 'none'}, ${result.isKentucky ? 'KY' : 'national'}`,
           articleId: result.id,
           articleTitle: result.title,
           articleCounty: result.county,
         });
-        setManualUrlPreview(result);
       } else if (result.status === 'duplicate') {
         setManualUrlResult({ status: 'duplicate', message: 'This article is already in the database.' });
       } else if (result.status === 'rejected') {
@@ -788,9 +769,6 @@ export default function AdminPage() {
         setManualUrlResult({ status: 'error', message: result.error || 'Unknown error from server.' });
       }
     } catch (err) {
-      // when SiteService throws we usually get an object from `toError()` with
-      // an `errorMessage` property; use that if available so the admin sees the
-      // real reason rather than a generic network error.
       const msg = err?.errorMessage || err?.message || 'Network error — could not reach server.';
       setManualUrlResult({ status: 'error', message: msg });
     } finally {
@@ -1306,25 +1284,7 @@ export default function AdminPage() {
             )}
 
             {/* preview panel */}
-            {manualUrlPreview && manualUrlResult?.status === 'inserted' && (
-              <div style={{
-                marginTop: '12px', padding: '12px', border: '1px solid #ccc', borderRadius: '6px', background: '#fff',
-              }}>
-                <strong>Preview</strong>
-                <div style={{ marginTop: '8px' }}><strong>Title:</strong> {manualUrlPreview.title}</div>
-                {manualUrlPreview.summary && <div><strong>Summary:</strong> {manualUrlPreview.summary}</div>}
-                {manualUrlPreview.imageUrl && <div><strong>Image:</strong> {manualUrlPreview.imageUrl}</div>}
-                {manualUrlPreview.category && <div><strong>Category:</strong> {manualUrlPreview.category}</div>}
-                {manualUrlPreview.county && <div><strong>County:</strong> {manualUrlPreview.county}</div>}
-                {manualUrlPreview.publishedAt && <div><strong>Published:</strong> {manualUrlPreview.publishedAt}</div>}
-                <button
-                  onClick={applyManualUrlPreview}
-                  style={{ marginTop: '8px', padding: '6px 12px', borderRadius: '4px', background: '#1a56db', color: '#fff', border: 'none', cursor: 'pointer' }}
-                >
-                  Use Preview in Form
-                </button>
-              </div>
-            )}
+
           </div>
 
           <Accordion defaultExpanded>

@@ -50,73 +50,10 @@ describe('AdminPage manual body formatting', () => {
     createSpy.mockRestore();
   });
 
-  it('fetches preview when ingesting a URL and shows preview without filling form', async () => {
-    const previewSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
-      .mockResolvedValue({
-        status: 'inserted',
-        title: 'Fancy Title',
-        summary: 'Summary text',
-        imageUrl: 'http://img.png',
-        category: 'weather',
-        county: 'Boone',
-        isKentucky: true,
-        publishedAt: '2025-01-01T12:00:00Z',
-      });
 
-    render(<AdminPage />);
-    const urlInput = screen.getByPlaceholderText('https://example.com/article-url');
-    fireEvent.change(urlInput, { target: { value: 'https://example.com/foo' } });
-    fireEvent.click(screen.getByText(/Ingest Article/i));
 
-    expect(previewSpy).toHaveBeenCalledWith('https://example.com/foo');
-
-    // form fields should remain blank
-    const titleInput = screen.getByLabelText(/Title \*/i);
-    expect(titleInput.value).toBe('');
-
-    // preview panel should show the metadata
-    const previewTitle = await screen.findByText(/Title:\s*Fancy Title/i);
-    expect(previewTitle).toBeInTheDocument();
-    expect(screen.getByText(/Summary text/i)).toBeInTheDocument();
-    expect(screen.getByText(/Category:\s*weather/i)).toBeInTheDocument();
-    expect(screen.getByText(/County:\s*Boone/i)).toBeInTheDocument();
-    expect(screen.getByText(/Published:/i)).toBeInTheDocument();
-
-    previewSpy.mockRestore();
-  });
-
-  it('allows applying preview data to the manual form', async () => {
-    const previewSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
-      .mockResolvedValue({
-        status: 'inserted',
-        title: 'Fancy Title',
-        summary: 'Summary text',
-        imageUrl: 'http://img.png',
-        category: 'weather',
-        county: 'Boone',
-        isKentucky: true,
-        publishedAt: '2025-01-01T12:00:00Z',
-      });
-
-    render(<AdminPage />);
-    const urlInput = screen.getByPlaceholderText('https://example.com/article-url');
-    fireEvent.change(urlInput, { target: { value: 'https://example.com/foo' } });
-    fireEvent.click(screen.getByText(/Ingest Article/i));
-
-    const applyBtn = await screen.findByText(/Use Preview in Form/i);
-    fireEvent.click(applyBtn);
-
-    expect(screen.getByLabelText(/Title \*/i).value).toBe('Fancy Title');
-    expect(screen.getByLabelText(/Body \(optional\)/i).value).toBe('Summary text');
-    expect(screen.getByLabelText(/Image URL/i).value).toBe('http://img.png');
-    expect(screen.getByLabelText(/Category \(optional\)/i).value).toBe('weather');
-    expect(screen.getByLabelText(/County \(optional\)/i).value).toBe('Boone');
-
-    previewSpy.mockRestore();
-  });
-
-  it('shows server error text when preview request throws', async () => {
-    const previewSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
+  it('shows server error text when ingest request throws', async () => {
+    const ingestSpy = jest.spyOn(SiteService.prototype, 'ingestUrl')
       .mockRejectedValue({ errorMessage: 'boom!' });
 
     render(<AdminPage />);
@@ -127,7 +64,22 @@ describe('AdminPage manual body formatting', () => {
     const error = await screen.findByText(/boom!/i);
     expect(error).toBeInTheDocument();
 
-    previewSpy.mockRestore();
+    ingestSpy.mockRestore();
+  });
+
+  it('calls ingestUrl and displays success message', async () => {
+    const ingestSpy = jest.spyOn(SiteService.prototype, 'ingestUrl')
+      .mockResolvedValue({ status: 'inserted', id: 42, category: 'today', isKentucky: true, county: 'Floyd' });
+
+    render(<AdminPage />);
+    const urlInput = screen.getByPlaceholderText('https://example.com/article-url');
+    fireEvent.change(urlInput, { target: { value: 'https://example.com/test' } });
+    fireEvent.click(screen.getByText(/Ingest Article/i));
+
+    const msg = await screen.findByText(/Ingested – ID: 42, category: today, KY/);
+    expect(msg).toBeInTheDocument();
+
+    ingestSpy.mockRestore();
   });
 
   it('shows rejection message when preview returns rejected', async () => {

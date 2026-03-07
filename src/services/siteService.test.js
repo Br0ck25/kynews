@@ -213,9 +213,9 @@ describe('SiteService.request', () => {
   });
 });
 
-// new tests for the previewIngestUrl helper
+// new tests for the ingestUrl helper
 
-describe('SiteService.previewIngestUrl', () => {
+describe('SiteService.ingestUrl', () => {
   const ORIGINAL_FETCH = global.fetch;
   afterEach(() => {
     global.fetch = ORIGINAL_FETCH;
@@ -228,10 +228,10 @@ describe('SiteService.previewIngestUrl', () => {
       makeResponse({ status: 'inserted', title: 'abc' })
     );
 
-    const result = await service.previewIngestUrl('https://example.com/foo');
+    const result = await service.ingestUrl('https://example.com/foo');
     expect(global.fetch).toHaveBeenCalledTimes(1);
     const [[url, opts]] = global.fetch.mock.calls;
-    expect(url).toContain('/api/admin/ingest-url-preview');
+    expect(url).toContain('/api/admin/ingest-url');
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({ url: 'https://example.com/foo' });
     expect(result.status).toBe('inserted');
@@ -241,14 +241,14 @@ describe('SiteService.previewIngestUrl', () => {
     const service = new SiteService();
     global.fetch = jest.fn().mockResolvedValue(makeResponse({ error: 'oops' }, { status: 500 }));
 
-    await expect(service.previewIngestUrl('https://x')).rejects.toBeDefined();
+    await expect(service.ingestUrl('https://x')).rejects.toBeDefined();
   });
 
   it('returns whatever JSON the server sent even if it has status:error', async () => {
     const service = new SiteService();
     global.fetch = jest.fn().mockResolvedValue(makeResponse({ status: 'error', error: 'oops' }, { status: 200 }));
 
-    const result = await service.previewIngestUrl('https://x');
+    const result = await service.ingestUrl('https://x');
     expect(result.status).toBe('error');
     expect(result.error).toBe('oops');
   });

@@ -681,8 +681,8 @@ export default class SiteService {
    * The result mirrors the normal ingest response but includes extra fields
    * (title, summary, category, etc) and no database row is created.
    */
-  async previewIngestUrl(url) {
-    return this.request("/api/admin/ingest-url-preview", {
+  async ingestUrl(url) {
+    return this.request("/api/admin/ingest-url", {
       method: "POST",
       body: JSON.stringify({ url }),
     });
