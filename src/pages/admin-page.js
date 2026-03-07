@@ -30,6 +30,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  Checkbox,
 } from "@material-ui/core";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import EditIcon from "@material-ui/icons/Edit";
