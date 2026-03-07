@@ -1189,7 +1189,8 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		publishedAt?: string;
 		category?: string;
 		isKentucky?: boolean;
-	  ignoreSimilarity?: boolean; // admin may bypass the title check
+		ignoreSimilarity?: boolean; // admin may bypass the title check
+	}>(request);
 	const providedCounty = body?.county?.trim() || null;
 	const isDraft = Boolean(body?.isDraft);
 
