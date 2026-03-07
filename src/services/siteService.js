@@ -97,7 +97,11 @@ function mapWorkerArticleToPost(article) {
     image: article?.imageUrl ?? null,
     imageText: article?.title ?? "Kentucky News",
     link: "/post",
-    originalLink: article?.canonicalUrl ?? article?.sourceUrl ?? "",
+    // prefer an explicit sourceUrl when available so manually‑created articles
+    // without an external link end up pointing back to our homepage.
+    originalLink: article?.sourceUrl
+      ? article.sourceUrl
+      : (article?.canonicalUrl ?? ""),
     sourceUrl: article?.sourceUrl ?? "",
     categories,
     county: article?.county ?? null,

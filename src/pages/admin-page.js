@@ -1236,7 +1236,11 @@ export default function AdminPage() {
                 posted (e.g. a wnky.com URL).</strong> For generating captions that point to
                 our own site, use the diagnostics box below.  Or fill fields manually.
                 All articles are tagged as Kentucky content; category is auto-classified by AI.
-                Drafts are saved privately and can be published later from the Articles tab.
+                When you leave the Facebook/source URL blank the story is treated as
+                original reporting: the body you enter will be published verbatim and
+                the article page will show “Original reporting by LocalKYNews” with a
+                link back to the homepage. Drafts are saved privately and can be
+                published later from the Articles tab.
               </Typography>
 
               {/* Facebook URL */}

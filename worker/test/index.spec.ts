@@ -2863,6 +2863,29 @@ describe('admin manual-article endpoint', () => {
 		expect(row.county).toBe('Fayette');
 	});
 
+	it('stores body verbatim and defaults source_url to site homepage', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		const req = new IncomingRequest('https://example.com/api/admin/manual-article', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				title: 'Original manual piece',
+				body: 'Entire content goes here.',
+				isKentucky: true,
+			}),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const json = await resp.json();
+		expect(json.status).toBe('inserted');
+		const row = await getArticleById(adminEnv, json.id);
+		expect(row.summary).toBe('Entire content goes here.');
+		expect(row.source_url).toBe('https://localkynews.com');
+	});
+
 	// additional tests for retag
 	it('rejects unauthorized retag requests', async () => {
 		const response = await SELF.fetch('https://example.com/api/admin/retag', {

@@ -1212,7 +1212,12 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 	const canonicalUrl = sourceUrl && isHttpUrl(sourceUrl)
 		? normalizeCanonicalUrl(sourceUrl)
 		: `https://localkynews.com/manual/${await sha256Hex(title + resolvedPublishedAt)}`;
-	const normalizedSourceUrl = sourceUrl ? normalizeCanonicalUrl(sourceUrl) : canonicalUrl;
+	// For manually authored original pieces with no external link, point
+	// the source back to the site homepage so the attribution box reads
+	// "Original reporting by LocalKYNews" and the link/button goes home.
+	const normalizedSourceUrl = sourceUrl
+		? normalizeCanonicalUrl(sourceUrl)
+		: 'https://localkynews.com';
 
 	const canonicalHash = await sha256Hex(canonicalUrl);
 
@@ -1268,21 +1273,11 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		: '';
 	const words = wordCount(postBody || title);
 
-	// Use the body as the summary so it displays on the article page.
-	// For longer bodies, run AI summarization; for short posts use the body directly.
-	let manualSummary = postBody;
-	let manualSeoDescription = '';
-	if (postBody) {
-		try {
-			const ai = await summarizeArticle(env, canonicalHash, title, postBody, resolvedPublishedAt);
-			manualSummary = ai.summary || postBody;
-			manualSeoDescription = ai.seoDescription || '';
-		} catch {
-			// AI failed — fall back to using body text directly as the summary
-			manualSummary = postBody;
-			manualSeoDescription = postBody.slice(0, 160).trim();
-		}
-	}
+	// For manual articles we treat the provided body as the full summary.
+	// We do *not* run AI summarization; the content should appear verbatim.
+	// SEO description is just the first 160 characters of the body (or blank).
+	const manualSummary = postBody;
+	const manualSeoDescription = postBody.slice(0, 160).trim();
 
 	const newArticle: NewArticle = {
 		canonicalUrl,
