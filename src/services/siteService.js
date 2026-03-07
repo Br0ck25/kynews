@@ -97,11 +97,14 @@ function mapWorkerArticleToPost(article) {
     image: article?.imageUrl ?? null,
     imageText: article?.title ?? "Kentucky News",
     link: "/post",
-    // prefer an explicit sourceUrl when available so manually‑created articles
-    // without an external link end up pointing back to our homepage.
-    originalLink: article?.sourceUrl
-      ? article.sourceUrl
-      : (article?.canonicalUrl ?? ""),
+    // prefer canonical URL for the "Read full story" button except when
+    // the canonical link is one of our manually generated slugs.  Those slugs
+    // point back to ourselves and should not be used as outbound links; instead
+    // fall back to sourceUrl (which for truly original pieces will be the
+    // homepage, and for manually sourced articles may be an external URL).
+    originalLink: article?.canonicalUrl && !article.canonicalUrl.startsWith("https://localkynews.com/manual/")
+      ? article.canonicalUrl
+      : (article?.sourceUrl || ""),
     sourceUrl: article?.sourceUrl ?? "",
     categories,
     county: article?.county ?? null,

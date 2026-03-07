@@ -182,4 +182,33 @@ describe('SiteService.request', () => {
       expect(post.categories).toEqual(['national']);
     });
   });
+
+  describe('mapWorkerArticleToPost originalLink mapping', () => {
+    it('uses canonicalUrl when it is not a manual slug', () => {
+      const articleData = {
+        canonicalUrl: 'https://example.com/article',
+        sourceUrl: 'https://feeds.example.com/rss',
+      };
+      const post = mapWorkerArticleToPost(articleData);
+      expect(post.originalLink).toBe('https://example.com/article');
+    });
+
+    it('falls back to sourceUrl when canonicalUrl is a manual slug', () => {
+      const articleData = {
+        canonicalUrl: 'https://localkynews.com/manual/abc123',
+        sourceUrl: 'https://external.com/story',
+      };
+      const post = mapWorkerArticleToPost(articleData);
+      expect(post.originalLink).toBe('https://external.com/story');
+    });
+
+    it('for a manual article with homepage sourceUrl returns homepage', () => {
+      const articleData = {
+        canonicalUrl: 'https://localkynews.com/manual/xyz',
+        sourceUrl: 'https://localkynews.com',
+      };
+      const post = mapWorkerArticleToPost(articleData);
+      expect(post.originalLink).toBe('https://localkynews.com');
+    });
+  });
 });
