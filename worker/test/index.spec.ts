@@ -2886,6 +2886,29 @@ describe('admin manual-article endpoint', () => {
 		expect(row.source_url).toBe('https://localkynews.com');
 	});
 
+	it('formats contentHtml correctly for numbered list paragraphs', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		const req = new IncomingRequest('https://example.com/api/admin/manual-article', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				title: 'List body',
+				body: '1. Heading\n\nFollowing text.',
+				isKentucky: true,
+			}),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const json = await resp.json();
+		expect(json.status).toBe('inserted');
+		const row = await getArticleById(adminEnv, json.id);
+		// contentHtml should wrap paragraphs separately, no <br> between them
+		expect(row.content_html).toBe('<p>1. Heading</p><p>Following text.</p>');
+	});
+
 	// additional tests for retag
 	it('rejects unauthorized retag requests', async () => {
 		const response = await SELF.fetch('https://example.com/api/admin/retag', {

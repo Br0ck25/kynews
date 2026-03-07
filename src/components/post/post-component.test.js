@@ -26,6 +26,32 @@ test('renders title and plain body text on full post component', () => {
   expect(screen.getByText(/Paragraph two/i)).toBeInTheDocument();
 });
 
+// list-handling regression test
+test('does not merge numbered-heading with following paragraph', () => {
+  const post = {
+    title: 'List Test',
+    image: '',
+    originalLink: 'http://example.com',
+    date: '2020-01-01',
+    contentText: '1. Heading\n\nFollowing text.',
+    shortDesc: '1. Heading\n\nFollowing text.',
+    isKentucky: true,
+    tags: [],
+  };
+
+  const { container } = render(
+    <Provider store={store}>
+      <Post post={post} />
+    </Provider>
+  );
+
+  // there should be two separate <p> elements in the description area
+  const paras = container.querySelectorAll('.description p');
+  expect(paras.length).toBe(2);
+  expect(paras[0].textContent).toBe('1. Heading');
+  expect(paras[1].textContent).toBe('Following text.');
+});
+
 // new case for multiple counties
 test('renders multiple county chips when post.tags include several counties', () => {
   const post = {

@@ -91,6 +91,15 @@ export default function FeaturedPost(props) {
       }
 
       const previous = mergedParagraphs[mergedParagraphs.length - 1];
+
+      // do not merge if the previous paragraph appears to be a numbered list
+      // heading (e.g. "1. Something") – users expect the following text to
+      // start a new paragraph.
+      if (/^\d+\./.test(previous)) {
+        mergedParagraphs.push(paragraph);
+        return;
+      }
+
       const shouldMerge =
         !/[.!?]["')\]]*$/.test(previous) ||
         /\b(?:Mr|Mrs|Ms|Dr|Gov|Rep|Sen|Lt|Gen|St|No)\.$/i.test(previous) ||
