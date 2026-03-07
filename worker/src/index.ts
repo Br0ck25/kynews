@@ -383,14 +383,17 @@ if (url.pathname === '/api/admin/ingest-url-preview' && request.method === 'POST
     const result = await ingestSingleUrl(env, { url: articleUrl, preview: true });
     return json(result, result.status === 'rejected' ? 422 : 200);
   } catch (error) {
-    // unexpected failure during the preview pipeline (network fetch, parse,
-    // etc).  Rather than returning a raw 500 that the UI treats as a network
-    // error, convert it to a structured response so the admin can see the
-    // underlying message and can retry or correct the URL.  The UI already
-    // knows how to render an object with `status: 'error'` and an `error`
-    // property.
     const msg = safeError(error);
     console.error('[PREVIEW FAILED]', msg);
+
+    // For common fetch/network errors we prefer to surface them as a normal
+    // "rejected" result rather than an opaque error object.  This keeps the
+    // HTTP status code and response shape consistent with the normal ingest
+    // pipeline so the frontend can simply display the rejection reason.
+    if (msg.startsWith('Failed to fetch URL')) {
+      return json({ status: 'rejected', reason: msg }, 422);
+    }
+
     return json({ status: 'error', error: msg });
   }
 }

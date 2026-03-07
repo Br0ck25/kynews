@@ -3557,6 +3557,28 @@ describe('admin ingest-url-preview endpoint', () => {
 
     __testables.ingestSingleUrl = original;
   });
+
+  it('converts fetch failures into rejected preview result', async () => {
+    await ensureSchemaAndFixture();
+    const adminEnv = envWithAdminPassword('pw');
+    const original = __testables.ingestSingleUrl;
+    __testables.ingestSingleUrl = async () => {
+      throw new Error('Failed to fetch URL (520): https://example.com/foo');
+    };
+
+    const req = new IncomingRequest('https://example.com/api/admin/ingest-url-preview', {
+      method: 'POST',
+      headers: { 'x-admin-key': 'pw' },
+      body: JSON.stringify({ url: 'https://example.com/bad' }),
+    });
+    const resp = await worker.fetch(req, adminEnv, createExecutionContext());
+    expect(resp.status).toBe(422);
+    const js = await resp.json();
+    expect(js.status).toBe('rejected');
+    expect(js.reason).toContain('Failed to fetch URL');
+
+    __testables.ingestSingleUrl = original;
+  });
 });
 
 // reclassify endpoint tests

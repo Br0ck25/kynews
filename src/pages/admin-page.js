@@ -745,6 +745,24 @@ export default function AdminPage() {
   };
 
   // --- Manual URL ingest handler (now uses preview endpoint) ---
+  const applyManualUrlPreview = () => {
+    if (!manualUrlPreview) return;
+    const p = manualUrlPreview;
+    // copy each field into the create-article form; summary becomes body
+    if (p.title) setManualTitle(p.title);
+    if (p.summary) setManualBody(p.summary);
+    if (p.imageUrl) setManualImageUrl(p.imageUrl);
+    if (p.county) setManualCounty(p.county);
+    if (p.category) setManualCategory(p.category);
+    if (p.isKentucky !== undefined) setManualIsKentucky(p.isKentucky);
+    if (p.publishedAt && !manualPublishedAt) {
+      setManualPublishedAt(toDateTimeLocalValue(p.publishedAt));
+    }
+    // once applied we can clear the preview if we want, but keep the result
+    // message for continuity.
+  };
+
+  // --- Manual URL ingest handler (now uses preview endpoint) ---
   const handleManualIngest = async () => {
     const trimmed = manualUrlInput.trim();
     if (!trimmed) return;
@@ -754,19 +772,9 @@ export default function AdminPage() {
     try {
       const result = await service.previewIngestUrl(trimmed);
       if (result.status === 'inserted') {
-        // populate form fields with preview data (summary becomes body)
-        if (result.title) setManualTitle(result.title);
-        if (result.summary) setManualBody(result.summary);
-        if (result.imageUrl) setManualImageUrl(result.imageUrl);
-        if (result.county) setManualCounty(result.county);
-        if (result.category) setManualCategory(result.category);
-        if (result.isKentucky !== undefined) setManualIsKentucky(result.isKentucky);
-        if (result.publishedAt && !manualPublishedAt) {
-          setManualPublishedAt(toDateTimeLocalValue(result.publishedAt));
-        }
         setManualUrlResult({
           status: 'inserted',
-          message: 'Preview loaded – edit fields below before publishing.',
+          message: 'Preview available — review below or click "Use Preview" to copy into the form.',
           articleId: result.id,
           articleTitle: result.title,
           articleCounty: result.county,
@@ -1294,6 +1302,27 @@ export default function AdminPage() {
                     {manualUrlResult.articleCounty && ` (${manualUrlResult.articleCounty} County)`}
                   </span>
                 )}
+              </div>
+            )}
+
+            {/* preview panel */}
+            {manualUrlPreview && manualUrlResult?.status === 'inserted' && (
+              <div style={{
+                marginTop: '12px', padding: '12px', border: '1px solid #ccc', borderRadius: '6px', background: '#fff',
+              }}>
+                <strong>Preview</strong>
+                <div style={{ marginTop: '8px' }}><strong>Title:</strong> {manualUrlPreview.title}</div>
+                {manualUrlPreview.summary && <div><strong>Summary:</strong> {manualUrlPreview.summary}</div>}
+                {manualUrlPreview.imageUrl && <div><strong>Image:</strong> {manualUrlPreview.imageUrl}</div>}
+                {manualUrlPreview.category && <div><strong>Category:</strong> {manualUrlPreview.category}</div>}
+                {manualUrlPreview.county && <div><strong>County:</strong> {manualUrlPreview.county}</div>}
+                {manualUrlPreview.publishedAt && <div><strong>Published:</strong> {manualUrlPreview.publishedAt}</div>}
+                <button
+                  onClick={applyManualUrlPreview}
+                  style={{ marginTop: '8px', padding: '6px 12px', borderRadius: '4px', background: '#1a56db', color: '#fff', border: 'none', cursor: 'pointer' }}
+                >
+                  Use Preview in Form
+                </button>
               </div>
             )}
           </div>
