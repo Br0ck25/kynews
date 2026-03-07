@@ -35,6 +35,19 @@ describe('AdminPage manual body formatting', () => {
     expect(body.value).toBe('<strong>Hi</strong>');
   });
 
+  it('displays server rejection reason when createManualArticle returns rejected', async () => {
+    const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
+      .mockResolvedValue({ status: 'rejected', message: 'too similar' });
+
+    render(<AdminPage />);
+    const title = screen.getByLabelText(/Title \*/i);
+    fireEvent.change(title, { target: { value: 'Foo' } });
+    fireEvent.click(screen.getByText(/Publish Article/i));
+    const error = await screen.findByText(/too similar/i);
+    expect(error).toBeInTheDocument();
+    createSpy.mockRestore();
+  });
+
   it('shows scheduled label when publishing with future date', async () => {
     const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
       .mockResolvedValue({ status: 'inserted', id: 123, category: 'today', isKentucky: true, county: null });

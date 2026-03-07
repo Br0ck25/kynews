@@ -716,7 +716,9 @@ export default function AdminPage() {
       } else if (result?.status === "duplicate") {
         setManualError(`Duplicate – an article with this URL already exists (ID: ${result.id}).`);
       } else {
-        setManualError("Unexpected response from server.");
+        // server returned something we weren't expecting; show its message if available
+        console.error('manual article response', result);
+        setManualError(result?.message || "Unexpected response from server.");
       }
     } catch (err) {
       setManualError(err?.errorMessage || "Failed to create article.");

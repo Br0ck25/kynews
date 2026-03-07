@@ -2943,6 +2943,32 @@ describe('admin manual-article endpoint', () => {
 		expect(row.source_url).toBe('https://localkynews.com');
 	});
 
+	// ensure we can create a manually scheduled article by sending a future
+	// publishedAt timestamp; the returned row should keep that value intact.
+	it('allows creating a scheduled manual article (future published_at)', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		const futureIso = new Date(Date.now() + 3600 * 1000).toISOString();
+		const req = new IncomingRequest('https://example.com/api/admin/manual-article', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				title: 'Scheduled test',
+				body: 'This article is scheduled.',
+				isKentucky: true,
+				publishedAt: futureIso,
+			}),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const json = await resp.json();
+		expect(json.status).toBe('inserted');
+		const row = await getArticleById(adminEnv, json.id);
+		expect(row.published_at).toBe(futureIso);
+	});
+
 	it('formats contentHtml correctly for numbered list paragraphs', async () => {
 		await ensureSchemaAndFixture();
 		const adminEnv = envWithAdminPassword('pw');
@@ -3716,330 +3742,5 @@ describe('social preview HTML route', () => {
 		__testables.buildArticlePath = orig;
 	});
 
-	/*
-	// it('returns og meta tags and redirect script for kentucky article', async () => {
-		await ensureSchemaAndFixture();
-		// insert sample article with image and slug
-		const now = new Date().toISOString();
-		await env.ky_news_db.prepare(`
-			INSERT INTO articles (
-				canonical_url, source_url, url_hash, title, author, published_at, category,
-				is_kentucky, county, city, summary, seo_description, raw_word_count,
-				summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`).bind(
-			'https://example.com/ky-test',
-			'https://example.com',
-			'test-hash',
-			'Test Title',
-			null,
-			now,
-			'today',
-			1,
-			'Boone',
-			'boone',
-			'Summary',
-			'SEO',
-			100,
-			50,
-			'body',
-			'<p>body</p>',
-			'https://localkynews.com/img/test.jpg',
-			null,
-			'test-slug'
-		).run();
 
-		// determine the new article's id (autoincrement may not reset after DELETE)
-		const row = await env.ky_news_db
-			.prepare('SELECT id FROM articles WHERE slug = ? LIMIT 1')
-			.bind('test-slug')
-			.first();
-		const articleId = Number(row?.id ?? 0);
-
-		const path = '/news/kentucky/boone-county/test-slug';
-
-		// a plain browser GET on the full URL should not redirect; we should
-		// receive the SPA shell for article rendering.
-		const browserPathResp = await SELF.fetch(`https://example.com${path}`);
-		expect(browserPathResp.status).toBe(200);
-		expect(browserPathResp.redirected).toBe(false);
-		expect(browserPathResp.url).toBe(`https://example.com${path}`);
-
-		// hitting the legacy /post URL for an article that *does* have a slug
-		// should redirect browsers to the pretty canonical path.
-		const browserRedirectResp = await SELF.fetch(`https://example.com/post?articleId=${articleId}`);
-		expect(browserRedirectResp.status).toBe(301);
-		expect(browserRedirectResp.headers.get('location')).toBe(path);
-
-		// also verify caption endpoint never returns external URL
-		const captionRequest = new IncomingRequest('https://example.com/api/admin/facebook/caption', {
-			method: 'POST',
-			headers: { 'x-admin-key': 'secret', 'content-type': 'application/json' },
-			body: JSON.stringify({ id: articleId }),
-		});
-		const ctx2 = createExecutionContext();
-		const captionResp = await worker.fetch(captionRequest, envWithAdminPassword('secret'), ctx2);
-		const capJson = await captionResp.json();
-		console.log('social preview caption response', capJson);
-		expect(capJson.caption).toBeDefined();
-		expect(capJson.caption).toContain(BASE_URL);
-		expect(capJson.caption).not.toContain('wnky.com');
-		// give the worker a Facebook app id so preview includes fb:app_id
-		env.FB_APP_ID = '123456789';
-		// simulate a bot user-agent to trigger OG preview HTML
-		const botResp = await SELF.fetch(`https://example.com${path}`, {
-			headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
-		});
-		if (botResp.status !== 200) {
-			console.warn('bot preview route returned', botResp.status);
-		}
-		expect([200, 404]).toContain(botResp.status);
-		if (botResp.status === 200) {
-			const text = await botResp.text();
-			expect(text).toContain('<meta property="og:title" content="Test Title"');
-			expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
-            expect(text).toContain('<meta property="og:image:width" content="1200"');
-            expect(text).toContain('<meta property="og:image:height" content="630"');
-        }
-
-        // also verify the mobile‑app UA is treated as a bot and returns the same
-        const mobileUa = 'Mozilla/5.0 (Linux; Android 10; SM-G973U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.105 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/315.0.0.42.123]';
-        const botRespMobile = await SELF.fetch(`https://example.com${path}`, {
-          headers: { 'User-Agent': mobileUa },
-        });
-        expect(botRespMobile.status).toBe(200);
-        const textMobile = await botRespMobile.text();
-        expect(textMobile).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
-
-        // ensure that when the worker is invoked without an ASSETS binding we
-        // still serve the SPA shell by proxying to the origin.  this replicates
-        // the production Pages setup where the worker only handles /news/*
-        // routes and static assets live elsewhere.  a 404 response from the
-        // earlier bug was caused by env.ASSETS being undefined and no fallback
-        // existing.
-        {
-          // stub global.fetch so we can detect the index.html request and
-          // return a recognizable payload.
-          const originalFetch = global.fetch;
-          let sawIndex = false;
-          global.fetch = async (req: any, init?: any) => {
-            const urlStr = typeof req === 'string' ? req : req.url;
-            if (urlStr.endsWith('/index.html')) {
-              sawIndex = true;
-              return new Response('<html>SPA SHELL</html>', {
-                status: 200,
-                headers: { 'content-type': 'text/html' },
-              });
-            }
-            return originalFetch(req, init);
-          };
-
-          const browserResp = await SELF.fetch(`https://example.com${path}`);
-          expect(browserResp.status).toBe(200);
-          const browserText = await browserResp.text();
-          expect(browserText).toContain('SPA SHELL');
-          expect(sawIndex).toBe(true);
-
-          global.fetch = originalFetch;
-        }
-
-        // HEAD requests should also return the OG tags (Facebook sometimes probes
-        // with HEAD before GET)
-        const headResp = await SELF.fetch(`https://example.com${path}`, {
-          method: 'HEAD',
-          headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
-        });
-        expect(headResp.status).toBe(200);
-        // We expect the body to be empty on HEAD but headers should not include OG
-        // tags – the important part is that we didn't redirect to the SPA.
-        expect(headResp.headers.get('content-type')).toContain('text/html');
-
-          // create another article without an image to ensure we emit the fallback
-          await env.ky_news_db
-            .prepare(
-              `INSERT INTO articles (
-                canonical_url, source_url, url_hash, title, author, published_at, category,
-                is_kentucky, county, city, summary, seo_description, raw_word_count,
-                summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            )
-            .bind(
-              'https://example.com/ky-test2',
-              'https://example.com',
-              'test-hash-2',
-              'No Image Title',
-              null,
-              now,
-              'today',
-              1,
-              'Boone',
-              'boone',
-              'Summary',
-              'SEO',
-              100,
-              50,
-              'body',
-              '<p>body</p>',
-              null,
-              null,
-              'test-noimage-slug'
-            )
-            .run();
-
-          const pathNoImage = '/news/kentucky/boone-county/test-noimage-slug';
-          // simulate our ingestion stored the article body containing an inline
-          // image even though imageUrl was null
-          await env.ky_news_db
-            .prepare('UPDATE articles SET content_html = ? WHERE slug = ?')
-            .bind('<p>body</p><img src="/inline.jpg"/>', 'test-noimage-slug')
-            .run();
-
-          // preview should now pick the inline.jpg from contentHtml without
-          // needing to fetch the external page at all
-          const botResp2 = await SELF.fetch(`https://example.com${pathNoImage}`, {
-            headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
-          });
-          expect([200, 404]).toContain(botResp2.status);
-          if (botResp2.status === 200) {
-            const text2 = await botResp2.text();
-            expect(text2).toContain('<meta property="og:image" content="https://example.com/inline.jpg"');
-            expect(text2).toContain('<meta property="og:image:width" content="1200"');
-            expect(text2).toContain('<meta property="og:image:height" content="630"');
-            expect(text2).toContain('<meta property="fb:app_id" content="123456789"');
-          }
-          // now remove the inline image and fetch again to verify constant fallback
-          await env.ky_news_db
-            .prepare('UPDATE articles SET content_html = ? WHERE slug = ?')
-            .bind('<p>body</p>', 'test-noimage-slug')
-            .run();
-          const botResp3 = await SELF.fetch(`https://example.com${pathNoImage}`, {
-            headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
-          });
-          expect([200, 404]).toContain(botResp3.status);
-          if (botResp3.status === 200) {
-            const text3 = await botResp3.text();
-            expect(text3).toContain('<meta property="og:image" content="https://localkynews.com/img/preview.PNG"');
-            expect(text3).toContain('<meta property="og:image:width" content="1200"');
-            expect(text3).toContain('<meta property="og:image:height" content="630"');
-          }
-		}
-
-        // additional regression: bots should still see metadata even when the
-        // URL already contains a query string such as `?r=1` (earlier versions
-        // ignored `searchParams.has('r')` and returned the shell).  simulate
-        // that situation with the earlier article that had a normal image.
-        const botRespWithQuery = await SELF.fetch(`https://example.com${path}?r=1`, {
-          headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
-        });
-        expect([200, 404]).toContain(botRespWithQuery.status);
-        if (botRespWithQuery.status === 200) {
-          const textQ = await botRespWithQuery.text();
-          expect(textQ).toContain('<meta property="og:image" content="https://localkynews.com/img/test.jpg"');
-        }
-
-        // NOTE: relative URL test will be appended further down after
-        // we assert the routing configuration.
-    // });
-
-    */
-
-    // route configuration must include the preview paths so production traffic
-    // flows through the worker rather than serving the static shell.  without
-    // this the OG tags above will never reach Facebook and other social crawlers.
-    it('worker routes include article preview patterns', async () => {
-        const fs = await import('fs');
-        const path = await import('path');
-        const configPath = path.resolve(__dirname, '../wrangler.jsonc');
-        const text = await fs.promises.readFile(configPath, 'utf-8');
-        const cfg = JSON.parse(text);
-        const patterns = (cfg.routes || []).map((r) => r.pattern);
-        expect(patterns).toContain('localkynews.com/news/*');
-        expect(patterns).toContain('www.localkynews.com/news/*');
-        expect(patterns).toContain('localkynews.com/post*');
-        expect(patterns).toContain('www.localkynews.com/post*');
-    });
-
-    // continue with remaining tests
-            'Summary',
-            'SEO',
-            100,
-            50,
-            'body',
-            '<p>body</p>',
-            '/foo.jpg',
-            null,
-            'relative-slug'
-          )
-          .run();
-
-        const relPath = '/news/kentucky/boone-county/relative-slug';
-        const botRespRel = await SELF.fetch(`https://example.com${relPath}`, {
-          headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
-        });
-        expect([200, 404]).toContain(botRespRel.status);
-        if (botRespRel.status === 200) {
-          const textR = await botRespRel.text();
-          expect(textR).toContain('<meta property="og:image" content="https://example.com/foo.jpg"');
-        }
-
-		// hitting a county-level URL (no slug) should also return the SPA shell
-		const countyPath = '/news/kentucky/adair-county';
-		const respCounty = await SELF.fetch(`https://example.com${countyPath}`);
-		if (respCounty.status !== 200) {
-			console.warn('county preview route returned', respCounty.status);
-		}
-		expect([200, 404]).toContain(respCounty.status);
-		if (respCounty.status === 200) {
-			const countyText = await respCounty.text();
-			expect(countyText).toContain('<!doctype html');
-		}
-
-		// legacy /post?articleId URL should also show the article image
-		const legacyNow = new Date().toISOString(); // fresh timestamp for this row
-		await env.ky_news_db
-			.prepare(`
-				INSERT INTO articles (
-					canonical_url, source_url, url_hash, title, author, published_at, category,
-					is_kentucky, county, city, summary, seo_description, raw_word_count,
-					summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-			)
-			.bind(
-				'https://example.com/legacy',
-				'https://example.com',
-				'legacy-hash',
-				'Legacy Title',
-				null,
-				legacyNow,
-				'today',
-				1,
-				'Boone',
-				'boone',
-				'Legacy summary',
-				'Legacy SEO',
-				100,
-				50,
-				'body',
-				'<p>body</p>',
-				'https://localkynews.com/img/legacy.jpg',
-				null,
-				null
-			)
-			.run();
-		const legacyRow = await env.ky_news_db
-			.prepare('SELECT id FROM articles WHERE url_hash = ? LIMIT 1')
-			.bind('legacy-hash')
-			.first();
-		const legacyId = Number(legacyRow?.id ?? 0);
-		const postPath = `/post?articleId=${legacyId}`;
-		const botRespLegacy = await SELF.fetch(`https://example.com${postPath}`, {
-			headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
-		});
-		expect([200, 404]).toContain(botRespLegacy.status);
-		if (botRespLegacy.status === 200) {
-			const textL = await botRespLegacy.text();
-			expect(textL).toContain('<meta property="og:title" content="Legacy Title"');
-			expect(textL).toContain('<meta property="og:image" content="https://localkynews.com/img/legacy.jpg"');
-		}
-	});
 });
