@@ -905,53 +905,6 @@ export default function AdminPage() {
             </Button>
           </Box>
 
-          {/* Manual URL ingest section */}
-          <div style={{ margin: '24px 0', padding: '16px', border: '1px solid #ddd', borderRadius: '8px', background: '#fafafa' }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 600 }}>Manual Article Ingest</h3>
-            <p style={{ margin: '0 0 12px', fontSize: '0.85rem', color: '#555' }}>
-              Paste any article URL to fetch, summarize, tag, and add it to the site — same pipeline as the RSS feed.
-            </p>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="url"
-                value={manualUrlInput}
-                onChange={(e) => { setManualUrlInput(e.target.value); setManualUrlResult(null); }}
-                onKeyDown={(e) => e.key === 'Enter' && !manualUrlLoading && handleManualIngest()}
-                placeholder="https://example.com/article-url"
-                disabled={manualUrlLoading}
-                style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.9rem' }}
-              />
-              <button
-                onClick={handleManualIngest}
-                disabled={manualUrlLoading || !manualUrlInput.trim()}
-                style={{
-                  padding: '8px 18px', borderRadius: '6px', border: 'none',
-                  background: manualUrlLoading || !manualUrlInput.trim() ? '#aaa' : '#1a56db',
-                  color: '#fff', fontWeight: 600, cursor: manualUrlLoading || !manualUrlInput.trim() ? 'not-allowed' : 'pointer',
-                  whiteSpace: 'nowrap', fontSize: '0.9rem',
-                }}
-              >
-                {manualUrlLoading ? 'Ingesting…' : 'Ingest Article'}
-              </button>
-            </div>
-
-            {manualUrlResult && (
-              <div style={{
-                marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '0.875rem',
-                background: manualUrlResult.status === 'inserted' ? '#f0fff4' : manualUrlResult.status === 'duplicate' ? '#fffbeb' : '#fff5f5',
-                border: `1px solid ${manualUrlResult.status === 'inserted' ? '#86efac' : manualUrlResult.status === 'duplicate' ? '#fde68a' : '#fca5a5'}`,
-                color: manualUrlResult.status === 'inserted' ? '#166534' : manualUrlResult.status === 'duplicate' ? '#92400e' : '#991b1b',
-              }}>
-                {manualUrlResult.status === 'inserted' ? '✅' : manualUrlResult.status === 'duplicate' ? '⚠️' : '❌'}{' '}
-                {manualUrlResult.message}
-                {manualUrlResult.articleTitle && (
-                  <span> — <strong>{manualUrlResult.articleTitle}</strong>
-                    {manualUrlResult.articleCounty && ` (${manualUrlResult.articleCounty} County)`}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
 
           {metrics && (
             <Paper style={{ padding: 12, marginBottom: 16 }}>
@@ -1224,6 +1177,54 @@ export default function AdminPage() {
       {/* ================================================================ */}
       {activeTab === 1 && (
         <Box>
+          {/* Manual URL ingest section */}
+          <div style={{ margin: '24px 0', padding: '16px', border: '1px solid #ddd', borderRadius: '8px', background: '#fafafa' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 600 }}>Manual Article Ingest</h3>
+            <p style={{ margin: '0 0 12px', fontSize: '0.85rem', color: '#555' }}>
+              Paste any article URL to fetch, summarize, tag, and add it to the site — same pipeline as the RSS feed.
+            </p>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="url"
+                value={manualUrlInput}
+                onChange={(e) => { setManualUrlInput(e.target.value); setManualUrlResult(null); }}
+                onKeyDown={(e) => e.key === 'Enter' && !manualUrlLoading && handleManualIngest()}
+                placeholder="https://example.com/article-url"
+                disabled={manualUrlLoading}
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.9rem' }}
+              />
+              <button
+                onClick={handleManualIngest}
+                disabled={manualUrlLoading || !manualUrlInput.trim()}
+                style={{
+                  padding: '8px 18px', borderRadius: '6px', border: 'none',
+                  background: manualUrlLoading || !manualUrlInput.trim() ? '#aaa' : '#1a56db',
+                  color: '#fff', fontWeight: 600, cursor: manualUrlLoading || !manualUrlInput.trim() ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap', fontSize: '0.9rem',
+                }}
+              >
+                {manualUrlLoading ? 'Ingesting…' : 'Ingest Article'}
+              </button>
+            </div>
+
+            {manualUrlResult && (
+              <div style={{
+                marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '0.875rem',
+                background: manualUrlResult.status === 'inserted' ? '#f0fff4' : manualUrlResult.status === 'duplicate' ? '#fffbeb' : '#fff5f5',
+                border: `1px solid ${manualUrlResult.status === 'inserted' ? '#86efac' : manualUrlResult.status === 'duplicate' ? '#fde68a' : '#fca5a5'}`,
+                color: manualUrlResult.status === 'inserted' ? '#166534' : manualUrlResult.status === 'duplicate' ? '#92400e' : '#991b1b',
+              }}>
+                {manualUrlResult.status === 'inserted' ? '✅' : manualUrlResult.status === 'duplicate' ? '⚠️' : '❌'}{' '}
+                {manualUrlResult.message}
+                {manualUrlResult.articleTitle && (
+                  <span> — <strong>{manualUrlResult.articleTitle}</strong>
+                    {manualUrlResult.articleCounty && ` (${manualUrlResult.articleCounty} County)`}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
           <Accordion defaultExpanded>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="h6">Create Manual Article</Typography>
