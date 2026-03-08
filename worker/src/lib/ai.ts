@@ -722,10 +722,12 @@ export function cleanContentForSummarization(text: string, title: string): strin
     .replace(/\u00a0/g, ' ')
     .replace(/\r\n?/g, '\n');
 
-  // remove slideshow/pagination caption artifacts like "1/2 John Doe" or
-  // "2/3 Jane Smith" which often appear at the top or embedded in scraped
-  // content
-  t = t.replace(/(^|\n)\s*\d+\/\d+\s+[A-Z][a-zA-Z\s]+\s+/g, '$1');
+  // Remove slideshow photo caption blocks: "1/22 Some caption text. (Photographer / Publication)"
+  // The caption runs from the slide counter to the closing parenthesized credit.
+  // Must handle hyphens, commas, periods, digits in the caption text.
+  t = t.replace(/(^|\n)\s*\d+\/\d+\s[^\n]*?\([^)]{3,80}\/[^)]{3,80}\)\s*/g, '$1');
+  // Also strip any remaining bare slide counters that had no credit: "3/22 Caption text\n"
+  t = t.replace(/(^|\n)\s*\d+\/\d+\s[^\n]{0,300}\n/g, '$1\n');
 
   // Strip TV station nav/header junk scraped before the article body
   // e.g. "Skip to content News Livestreams Weather alert(B137 / Wikipedia / CC BY-SA 4.0)"
@@ -855,6 +857,13 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
     const escaped = title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     t = t.replace(new RegExp(`^\\s*${escaped}\\s*\n?`, 'i'), '');
   }
+
+  // Remove slideshow photo caption blocks: "1/22 Some caption text. (Photographer / Publication)"
+  // The caption runs from the slide counter to the closing parenthesized credit.
+  // Must handle hyphens, commas, periods, digits in the caption text.
+  t = t.replace(/(^|\n)\s*\d+\/\d+\s[^\n]*?\([^)]{3,80}\/[^)]{3,80}\)\s*/g, '$1');
+  // Also strip any remaining bare slide counters that had no credit: "3/22 Caption text\n"
+  t = t.replace(/(^|\n)\s*\d+\/\d+\s[^\n]{0,300}\n/g, '$1\n');
 
   t = t.replace(/^\s*Summary\s*$/gim, '');
   t = t.replace(/^Skip\s+to\s+content\b[^\n]*/gim, '');
