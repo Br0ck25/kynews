@@ -7,6 +7,7 @@ import IconButton from '@material-ui/core/IconButton';
 import MenuIcon from '@material-ui/icons/Menu';
 import SideBarMenu from './sidebar-menu-component';
 import Constants from "../constants/constants";
+import logo from "../../localkynews.png"; // image to use in header
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -22,6 +23,12 @@ const useStyles = makeStyles((theme) => ({
     textAlign: "center",
     fontWeight: 700,
     letterSpacing: 0.2,
+  },
+  logo: {
+    maxHeight: 40,
+    width: 'auto',
+    margin: '0 auto',
+    display: 'block',
   },
   appBar: {
     backgroundColor: theme.palette.background.paper,
@@ -53,9 +60,8 @@ export default function AppHeader() {
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" className={classes.title}>
-            {headerTitle}
-          </Typography>
+          {/* display logo instead of text title */}
+          <img src={logo} alt={headerTitle} className={classes.logo} />
         </Toolbar>
       </AppBar>
 
