@@ -79,6 +79,20 @@ function setMeta(attr, value, content) {
   }
   el.setAttribute('content', content);
 }
+
+// helper shared by multiple pages; creates or updates a <link rel="canonical">
+// element and ensures the href is kept in sync. previously missing here which
+// caused a runtime ReferenceError when the cleanup called setCanonical().
+function setCanonical(href) {
+  let el = document.querySelector('link[rel="canonical"]');
+  if (!el) {
+    el = document.createElement('link');
+    el.setAttribute('rel', 'canonical');
+    document.head.appendChild(el);
+  }
+  el.setAttribute('href', href);
+}
+
 const SITE_NAME = "Local KY News";
 
 
@@ -211,13 +225,7 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
 
     // Self-referencing canonical (Section 5.2)
     const pageUrl = `${SITE_URL}/news/kentucky/${countyName.toLowerCase().replace(/\s+/g, "-")}-county`;
-    let canonical = document.querySelector('link[rel="canonical"]');
-    if (!canonical) {
-      canonical = document.createElement("link");
-      canonical.setAttribute("rel", "canonical");
-      document.head.appendChild(canonical);
-    }
-    canonical.setAttribute("href", pageUrl);
+    setCanonical(pageUrl);
 
     // JSON-LD schema (Section 5.5)
     setCountyJsonLd(countyName, lastUpdated);
