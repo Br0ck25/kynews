@@ -2154,6 +2154,23 @@ describe('database utilities', () => {
 		expect(list.some((a) => a.urlHash === 'old')).toBe(false);
 	});
 
+	it('getArticlesForUpdateCheck default window is 48 hours', async () => {
+		await ensureSchemaAndFixture();
+		const midDate = new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString();
+		const recent = new Date().toISOString();
+		await env.ky_news_db.prepare(`
+		   INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category, is_kentucky, is_national, county, city, summary, seo_description, raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash)
+		   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind('a','a','mid','Mid','m',midDate,'today',1,0,'Fayette',null,'s','seo',1,1,'x','<p>x</p>',null,null,null,null,'h').run();
+		await env.ky_news_db.prepare(`
+		   INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category, is_kentucky, is_national, county, city, summary, seo_description, raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash)
+		   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind('b','b','recent','Recent','r',recent,'today',1,0,'Jefferson',null,'s','seo',1,1,'x','<p>x</p>',null,null,null,null,'rh').run();
+
+		const list = await getArticlesForUpdateCheck(env);
+		expect(list.some((a) => a.urlHash === 'mid')).toBe(true);
+	});
+
 	it('prependUpdateToSummary adds timestamped update and stores new hash', async () => {
 		await ensureSchemaAndFixture();
 		const now = new Date().toISOString();
@@ -2732,6 +2749,45 @@ describe('admin endpoints', () => {
 		expect(body.summary).toBe('newsum');
 		const updated = await getArticleById(env, 1);
 		expect(updated?.summary).toBe('newsum');
+	});
+
+	it('allows manual update check for a single article via admin endpoint', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		const { meta } = await env.ky_news_db.prepare(`
+		   INSERT INTO articles (canonical_url, source_url, url_hash, title, author, published_at, category,
+		     is_kentucky, is_national, county, city, summary, seo_description, raw_word_count,
+		     summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash)
+		   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`).bind('c','c','hash-c','C','c',now,'today',1,0,'Fayette',null,'Orig','seo',1,1,'old content','<p>old</p>',null,null,null,null,'oldhash').run();
+		const id = Number(meta.last_row_id);
+
+		vi.spyOn(ingestModule, 'fetchAndExtractArticle').mockResolvedValue({
+		  canonicalUrl: 'https://example.com/c',
+		  sourceUrl: 'https://example.com',
+		  title: 'C',
+		  author: null,
+		  publishedAt: now,
+		  contentHtml: '<p>new</p>',
+		  contentText: 'old content plus update',
+		  classificationText: '',
+		  imageUrl: null,
+		});
+		vi.spyOn(aiModule, 'generateUpdateParagraph').mockResolvedValue('added update');
+
+		const resp = await SELF.fetch(`https://example.com/api/admin/articles/${id}/check-update`, { method: 'POST' });
+		expect(resp.status).toBe(200);
+		const body = await resp.json();
+		expect(body.ok).toBe(true);
+		expect(body.updated).toBe(true);
+		expect(body.updateParagraph).toBe('added update');
+		const updated = await getArticleById(env, id);
+		expect(updated?.summary).toMatch(/^Update \(/);
+	});
+
+	it('rejects unauthorized check-update requests', async () => {
+		const resp = await SELF.fetch('https://example.com/api/admin/articles/1/check-update', { method: 'POST' });
+		expect(resp.status).toBe(401);
 	});
 
 	it('classification audit endpoint returns stats and items', async () => {

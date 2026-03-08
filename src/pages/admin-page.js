@@ -236,6 +236,26 @@ export default function AdminPage() {
     }
   };
 
+  // manual update-check for a single article row
+  const handleRowCheck = async (id) => {
+    if (!id) return;
+    setRowCheckErrors((prev) => ({ ...prev, [id]: "" }));
+    setRowCheckResults((prev) => ({ ...prev, [id]: null }));
+    setRowCheckLoadingId(id);
+    try {
+      const res = await service.checkArticleUpdate({ id });
+      if (res.ok) {
+        setRowCheckResults((prev) => ({ ...prev, [id]: res }));
+      } else {
+        setRowCheckErrors((prev) => ({ ...prev, [id]: res.error || "unknown error" }));
+      }
+    } catch (err) {
+      setRowCheckErrors((prev) => ({ ...prev, [id]: err?.errorMessage || String(err) }));
+    } finally {
+      setRowCheckLoadingId(null);
+    }
+  };
+
   const handleDiagPost = async () => {
     setFbDiagError("");
     setFbDiagPostResult(null);
@@ -1726,6 +1746,11 @@ export default function AdminPage() {
                                 onClick={() => handleRowPost(row.id)}>
                                 {rowPostLoadingId === row.id ? "…" : "Post FB"}
                               </Button>
+                              <Button size="small" variant="outlined" color="primary"
+                                disabled={rowCheckLoadingId === row.id}
+                                onClick={() => handleRowCheck(row.id)}>
+                                {rowCheckLoadingId === row.id ? "Checking…" : "Check update"}
+                              </Button>
 
                               <Button size="small" variant="outlined" color="secondary"
                                 disabled={deletingId === row.id}
@@ -1741,7 +1766,7 @@ export default function AdminPage() {
                           </TableCell>
                         </TableRow>
                         {/* optionally display caption/post results below the review row */}
-                        {(rowCaptions[row.id] !== undefined || rowCaptionErrors[row.id] || rowPostResults[row.id] !== undefined || rowPostErrors[row.id]) && (
+                        {(rowCaptions[row.id] !== undefined || rowCaptionErrors[row.id] || rowPostResults[row.id] !== undefined || rowPostErrors[row.id] || rowCheckResults[row.id] !== undefined || rowCheckErrors[row.id]) && (
                           <TableRow>
                             <TableCell colSpan={10} style={{ paddingTop: 0, paddingBottom: 0 }}>
                               {rowCaptionErrors[row.id] && (
@@ -1762,6 +1787,16 @@ export default function AdminPage() {
                               {rowPostResults[row.id] !== undefined && (
                                 <Typography variant="body2" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
                                   <strong>Post result:</strong> {JSON.stringify(rowPostResults[row.id])}
+                                </Typography>
+                              )}
+                              {rowCheckErrors[row.id] && (
+                                <Typography color="error" variant="body2" style={{ marginTop: 8 }}>
+                                  {rowCheckErrors[row.id]}
+                                </Typography>
+                              )}
+                              {rowCheckResults[row.id] !== undefined && (
+                                <Typography variant="body2" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
+                                  <strong>Update check:</strong> {JSON.stringify(rowCheckResults[row.id])}
                                 </Typography>
                               )}
                             </TableCell>

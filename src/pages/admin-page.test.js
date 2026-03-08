@@ -115,6 +115,40 @@ describe('AdminPage manual body formatting', () => {
     previewSpy.mockRestore();
   });
 
+  it('renders check-update button and shows result when clicked', async () => {
+    // return a single article row for the Articles tab
+    jest.spyOn(SiteService.prototype, 'getAdminArticles').mockResolvedValue({
+      items: [{
+        id: 1,
+        title: 'Test',
+        publishedAt: new Date().toISOString(),
+        category: 'today',
+        isKentucky: 1,
+        counties: [],
+        county: null,
+        canonicalUrl: 'https://example.com',
+        sourceUrl: 'https://example.com',
+        slug: null,
+        status: 'Live',
+      }],
+      nextCursor: null,
+    });
+
+    const checkSpy = jest.spyOn(SiteService.prototype, 'checkArticleUpdate')
+      .mockResolvedValue({ ok: true, updated: true, updateParagraph: 'added update' });
+
+    render(<AdminPage />);
+    fireEvent.click(screen.getByRole('tab', { name: /Articles/i }));
+    const button = await screen.findByText(/Check update/i);
+    fireEvent.click(button);
+
+    const resultRow = await screen.findByText(/Update check:/i);
+    expect(resultRow).toBeInTheDocument();
+    expect(checkSpy).toHaveBeenCalledWith({ id: 1 });
+
+    checkSpy.mockRestore();
+  });
+
   it.skip('displays server rejection reason when createManualArticle returns rejected', async () => {
     const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
       .mockResolvedValue({ status: 'rejected', message: 'too similar' });

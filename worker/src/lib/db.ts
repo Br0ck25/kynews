@@ -213,7 +213,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
 
 export async function getArticlesForUpdateCheck(
   env: Env,
-  maxAgeHours: number = 24,
+  maxAgeHours: number = 48,
 ): Promise<Array<{
   id: number;
   urlHash: string;
@@ -234,7 +234,7 @@ export async function getArticlesForUpdateCheck(
        WHERE published_at >= ?
          AND is_kentucky = 1
        ORDER BY published_at DESC
-       LIMIT 100`
+       LIMIT 200`
     )
     .bind(cutoff)
     .all();

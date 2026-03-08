@@ -607,6 +607,13 @@ export default class SiteService {
     });
   }
 
+  // manually trigger update-check logic on a single article
+  async checkArticleUpdate({ id }) {
+    return this.request(`/api/admin/articles/${id}/check-update`, {
+      method: "POST",
+    });
+  }
+
   async deleteAdminArticle({ id, block = false, reason = "" }) {
     return this.request("/api/admin/article/delete", {
       method: "POST",

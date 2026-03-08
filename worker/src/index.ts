@@ -938,6 +938,74 @@ if (url.pathname === '/api/admin/article/update-content' && request.method === '
   return json({ ok: true, id });
 }
 
+// manual update check for a single article (admin only)
+if (url.pathname.startsWith('/api/admin/articles/') && url.pathname.endsWith('/check-update') && request.method === 'POST') {
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+  const parts = url.pathname.split('/');
+  const id = Number(parts[4]);
+  if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+  const article = await getArticleById(env, id);
+  if (!article) return json({ error: 'Article not found' }, 404);
+
+  try {
+    // Re-fetch with cache-busting (same approach as the scheduled cron)
+    const refetchUrl = article.canonicalUrl + `?_ts=${Date.now()}`;
+    const extracted = await fetchAndExtractArticle(env, {
+      url: refetchUrl,
+      sourceUrl: article.canonicalUrl,
+      providedTitle: article.title,
+      providedDescription: '',
+      // Omit feedPublishedAt so browserFetch UA is used (bypasses bot protection)
+    }).catch(() => null);
+
+    if (!extracted?.contentText) {
+      return json({ ok: false, reason: 'Could not fetch article content' });
+    }
+
+    const contentSample = extracted.contentText.split(/\s+/).slice(0, 3000).join(' ');
+    const newHash = await sha256Hex(contentSample);
+
+    // If no baseline hash yet, store it and report — no update paragraph generated
+    if (!article.contentHash) {
+      await prepare(env, 'UPDATE articles SET content_hash = ? WHERE id = ?')
+        .bind(newHash, article.id)
+        .run()
+        .catch(() => {});
+      return json({ ok: true, updated: false, reason: 'No baseline hash existed — hash stored. Run again to detect changes.' });
+    }
+
+    // Hash unchanged — no update needed
+    if (article.contentHash === newHash) {
+      return json({ ok: true, updated: false, reason: 'Content unchanged since last check' });
+    }
+
+    // Content changed — generate update paragraph
+    const updateParagraph = await generateUpdateParagraph(
+      env,
+      extracted.contentText,
+      article.summary,
+      article.publishedAt,
+    );
+
+    if (!updateParagraph) {
+      // Still update the hash so future checks have the new baseline
+      await prepare(env, 'UPDATE articles SET content_hash = ? WHERE id = ?')
+        .bind(newHash, article.id)
+        .run()
+        .catch(() => {});
+      return json({ ok: true, updated: false, reason: 'Content changed but no meaningful new information found' });
+    }
+
+    await prependUpdateToSummary(env, article.id, updateParagraph, newHash);
+
+    return json({ ok: true, updated: true, updateParagraph });
+  } catch (err) {
+    return json({ ok: false, reason: err instanceof Error ? err.message : String(err) }, 500);
+  }
+}
+
 // regenerate summary for an existing article and update DB
 if (url.pathname.startsWith('/api/admin/articles/') && url.pathname.endsWith('/regenerate-summary') && request.method === 'POST') {
   if (!isAdminAuthorized(request, env)) {
