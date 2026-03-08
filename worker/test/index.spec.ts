@@ -2641,26 +2641,14 @@ describe('title similarity dedupe', () => {
 		expect(capObit).not.toMatch(/#/);
 	});
 
-	it('follows share link redirect and scrapes post', async () => {
+it('scrapes a public post using crawler UA (share link)', async () => {
 		const share = 'https://www.facebook.com/share/p/14cehV53nQQ/';
-		let call = 0;
 		vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
-			call++;
-			if (call === 1) {
-				// share page uses meta refresh to the real post URL
-				return new Response(
-					'<html><head><meta http-equiv="refresh" content="0;URL=https://www.facebook.com/realpost/123"></head></html>',
-					{ status: 200, url: share }
-				);
-			}
-			if (call === 2) {
-				// the mbasic scrape of the resolved URL should return og tags
-				return new Response(
-					'<html><head><meta property="og:description" content="Hello world"><meta property="og:image" content="https://example.com/photo.jpg"></head></html>',
-					{ status: 200, url: 'https://mbasic.facebook.com/realpost/123' }
-				);
-			}
-			return new Response(null, { status: 404 });
+			// simulate facebookexternalhit resolving the share URL and returning og tags
+			return new Response(
+				'<html><head><meta property="og:description" content="Hello world"><meta property="og:image" content="https://example.com/photo.jpg"></head></html>',
+				{ status: 200, url: 'https://www.facebook.com/realpost/123' }
+			);
 		});
 
 		const result = await __testables.scrapeFacebookPostPublic(share);

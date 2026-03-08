@@ -3456,92 +3456,77 @@ function extractFacebookPostId(fbUrl: string): string | null {
  * mobile site that returns plain HTML without requiring JavaScript or authentication.
  * Extracts the post message and og:image from meta tags.
  */
+/**
+ * Scrape a public Facebook post by fetching its URL with the facebookexternalhit
+ * user-agent, which Facebook whitelists to serve og: meta tags for public posts
+ * without requiring login. mbasic.facebook.com was deprecated in 2023 and is no
+ * longer usable.
+ *
+ * For short share links (/share/p/{code}), we first resolve the redirect using
+ * facebookexternalhit to get the final post URL and its og: tags in one step,
+ * since Facebook serves the resolved post content directly for this UA.
+ */
 async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: string | null; imageUrl: string | null }> {
-	// For short share links (/share/p/{code}) we must first resolve the redirect
-	// to get the real post URL, then convert that to mbasic for scraping.
-	// For all other URLs we convert directly to mbasic.
-	let resolvedUrl = fbUrl;
-	const isShareLink = /\/share\/[a-z]\//.test(fbUrl) || /\/share\/p\//.test(fbUrl);
-	if (isShareLink) {
-		try {
-			// In Cloudflare Workers, redirect:'manual' returns an opaque response
-			// with no readable headers. Use redirect:'follow' instead and read
-			// response.url to get the final destination after all redirects.
-			const followResp = await fetch(fbUrl, {
-				method: 'GET',
-				redirect: 'follow',
-				headers: {
-					'user-agent': 'Mozilla/5.0 (Linux; Android 11; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0',
-					accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-					'accept-language': 'en-US,en;q=0.5',
-				},
-			});
-			// response.url is the final URL after redirects and may not change
-			// if the share page uses a meta refresh or JS redirect instead of
-			// an HTTP Location header.  If we didn't get a new URL, try to parse
-			// the response body for a client‑side redirect.
-			let finalUrl = followResp.url;
-			if (finalUrl === fbUrl) {
-				const text = await followResp.text();
-				// look for <meta http-equiv="refresh" content="0;URL=...">
-				const metaMatch = text.match(/<meta[^>]+http-equiv=["']refresh["'][^>]+content=["'][^"']*url=(https?:\/\/[^"']+)["']/i);
-				// look for simple javascript redirects
-				const jsMatch = text.match(/window\.location(?:\.href)?\s*=\s*["'](https?:\/\/[^"']+)["']/i);
-				if (metaMatch) {
-					finalUrl = metaMatch[1];
-				} else if (jsMatch) {
-					finalUrl = jsMatch[1];
-				}
-			}
-			if (finalUrl && finalUrl !== fbUrl) {
-				resolvedUrl = finalUrl;
-			}
-		} catch {
-			// If redirect resolution fails, fall through with original URL
-		}
-	}
+	// facebookexternalhit is Facebook's own crawler UA. Facebook serves real
+	// og:description content to this UA for public posts, bypassing login walls.
+	const FB_CRAWLER_UA = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)';
 
-	let mbasicUrl: string;
-	try {
-		const parsed = new URL(resolvedUrl);
-		parsed.hostname = 'mbasic.facebook.com';
-		mbasicUrl = parsed.toString();
-	} catch {
-		return { message: null, imageUrl: null };
-	}
-
-	const resp = await fetch(mbasicUrl, {
+	const fetchWithCrawlerUA = async (targetUrl: string) => fetch(targetUrl, {
+		method: 'GET',
+		redirect: 'follow',
 		headers: {
-			// Identify as a standard mobile browser – required for mbasic to return real content
-			'user-agent': 'Mozilla/5.0 (Linux; Android 11; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0',
-			accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+			'user-agent': FB_CRAWLER_UA,
+			'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 			'accept-language': 'en-US,en;q=0.5',
 			'cache-control': 'no-cache',
 		},
-		redirect: 'follow',
 	});
 
-	if (!resp.ok) return { message: null, imageUrl: null };
+	const parseOgFromHtml = (html: string): { message: string | null; imageUrl: string | null } => {
+		const descMatch =
+			html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ??
+			html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
+		const imageMatch =
+			html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["'](https?[^"']+)["']/i) ??
+			html.match(/<meta[^>]+content=["'](https?[^"']+)["'][^>]+property=["']og:image["']/i);
+		const message = descMatch?.[1] ? htmlEntityDecode(descMatch[1]) : null;
+		const rawImage = imageMatch?.[1] ? htmlEntityDecode(imageMatch[1]) : null;
+		// Filter out Facebook's generic placeholder images
+		const imageUrl = rawImage && !rawImage.includes('rsrc.php') && !rawImage.includes('static.xx.fbcdn') ? rawImage : null;
+		return { message, imageUrl };
+	};
 
-	const html = await resp.text();
+	// Attempt 1: fetch the URL directly with the crawler UA.
+	// For share links, Facebook redirects to the real post and serves og: tags.
+	// For direct post URLs, this fetches the post page directly.
+	try {
+		const resp = await fetchWithCrawlerUA(fbUrl);
+		if (resp.ok) {
+			const html = await resp.text();
+			const result = parseOgFromHtml(html);
+			if (result.message) return result;
 
-	// Extract og:description – on public pages this contains the post text
-	const descMatch =
-		html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ??
-		html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
+			// If we got a page but no og:description, and the final URL differs
+			// from what we requested (i.e. it resolved to a real post URL),
+			// try fetching that resolved URL once more.
+			if (resp.url && resp.url !== fbUrl && !resp.url.includes('/login')) {
+				try {
+					const resp2 = await fetchWithCrawlerUA(resp.url);
+					if (resp2.ok) {
+						const html2 = await resp2.text();
+						const result2 = parseOgFromHtml(html2);
+						if (result2.message) return result2;
+					}
+				} catch {
+					// fall through
+				}
+			}
+		}
+	} catch {
+		// fall through to return null
+	}
 
-	// Extract og:image (prefer fbcdn CDN URLs which are the actual post photo)
-	const imageMatch =
-		html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["'](https?[^"']+)["']/i) ??
-		html.match(/<meta[^>]+content=["'](https?[^"']+)["'][^>]+property=["']og:image["']/i);
-
-	const message = descMatch?.[1] ? htmlEntityDecode(descMatch[1]) : null;
-
-	// Filter out Facebook's generic fallback images (e.g. no-photo placeholder)
-	const rawImage = imageMatch?.[1] ? htmlEntityDecode(imageMatch[1]) : null;
-	const imageUrl = rawImage && !rawImage.includes('rsrc.php') ? rawImage : null;
-
-	return { message, imageUrl };
+	return { message: null, imageUrl: null };
 }
 
 /** Decode HTML entities in a string extracted from raw HTML attributes. */

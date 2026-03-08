@@ -752,7 +752,7 @@ export default function AdminPage() {
     setManualUrlLoading(true);
     setManualUrlResult(null);
     try {
-      const result = await service.ingestUrl(trimmed);
+      const result = await service.previewIngestUrl(trimmed);
       if (result.status === 'inserted') {
         setManualUrlResult({
           status: 'inserted',
