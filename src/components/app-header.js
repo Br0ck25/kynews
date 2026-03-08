@@ -27,7 +27,9 @@ const useStyles = makeStyles((theme) => ({
     backgroundColor: theme.palette.background.paper,
     borderBottom: `1px solid ${theme.palette.divider}`,
     boxShadow: "0 4px 14px rgba(0,0,0,.04)",
-    zIndex: theme.zIndex.drawer + 1, // ensure menu drawer sits beneath
+    // keep default zIndex (theme.zIndex.appBar) so that the drawer,
+    // which uses theme.zIndex.drawer (higher), will overlap the bar and
+    // reveal its close icon on desktop persistent menus.
   },
 }));
 
