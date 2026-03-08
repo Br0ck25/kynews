@@ -643,6 +643,7 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     contentHtml: row.content_html,
     imageUrl: row.image_url,
     rawR2Key: row.raw_r2_key,
+    contentHash: row.content_hash ?? null,
     slug: row.slug ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

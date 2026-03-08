@@ -511,6 +511,15 @@ if (url.pathname === '/api/admin/backfill-county' && request.method === 'POST') 
 	}
 }
 
+// Manual admin endpoint to trigger update check for all articles published in last 48h
+if (url.pathname === '/api/admin/check-updates' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+	ctx.waitUntil(checkArticleUpdates(env, 48));
+	return json({ ok: true });
+}
+
 // Backfill articles for counties that currently have fewer than `threshold` items.
 // Enqueue one job per county; the worker queue consumer will perform the heavy
 // ingest work without being subject to the 30‑second waitUntil cap.
@@ -3389,7 +3398,17 @@ async function checkArticleUpdates(env: Env, maxAgeHours: number = 24): Promise<
         article.publishedAt,
       );
 
-      if (!updateParagraph) continue;
+      if (!updateParagraph) {
+        // AI found no meaningful new info, but content DID change — advance the
+        // stored hash so this version isn't re-checked on every subsequent cron
+        // run.  Without this the same changed content would trigger the AI on
+        // every run and always return NO_UPDATE, wasting CPU and never settling.
+        await prepare(env, 'UPDATE articles SET content_hash = ? WHERE id = ?')
+          .bind(newHash, article.id)
+          .run()
+          .catch(() => {});
+        continue;
+      }
 
       // Prepend update to D1 summary and record new hash
       await prependUpdateToSummary(
