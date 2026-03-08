@@ -2536,6 +2536,11 @@ describe('title similarity dedupe', () => {
 		// hook should not treat city names as counties
 		expect(generateFacebookHook('A story about a city', undefined)).not.toMatch(/City County/i);
 
+		// very long summary should be truncated at the new 120-word limit
+		const extraLong = new Array(140).fill('word').join(' ');
+		const longHook = generateFacebookHook(extraLong);
+		expect(longHook.split(/\s+/).length).toBeLessThanOrEqual(121);
+
 		// caption returns blank for non-KY
 		expect(generateFacebookCaption({ title: 'a', summary: 'b', is_kentucky: 0 })).toBe('');
 		// caption url should point at localkynews.com if slug present

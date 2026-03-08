@@ -212,7 +212,7 @@ export function cleanHeadline(title) {
 
 /**
  * Pick a short hook from the article summary. Uses the first sentence
- * and trims to 40 words if necessary.
+ * and trims to 80 words if necessary (double the previous limit).
  */
 export function generateHook(summary = '', county = '') {
   const text = (summary || '').trim();
@@ -220,8 +220,8 @@ export function generateHook(summary = '', county = '') {
   const sentences = text.split(/(?<=[.?!])\s+/);
   let hook = sentences[0] || text;
   const words = hook.split(/\s+/);
-  if (words.length > 40) {
-    hook = words.slice(0, 40).join(' ') + '…';
+  if (words.length > 80) {
+    hook = words.slice(0, 80).join(' ') + '…';
   }
   // if county is provided and not already mentioned, prefix a location phrase
   if (county && !new RegExp(county, 'i').test(hook)) {

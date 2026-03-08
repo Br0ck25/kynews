@@ -1,212 +1,226 @@
 # AI ENDPOINT INDEX
 
-This document lists all API endpoints in the project so AI assistants can quickly locate the correct handler when debugging or implementing changes.
+This document lists all known API endpoints so AI assistants can quickly locate the correct handler when debugging or building features.
+
+Read AI_PROJECT_MEMORY.md for rules and patterns before making any changes.
+Read AI_PROJECT_MAP.md to understand how files connect.
 
 --------------------------------------------------
 
 API ARCHITECTURE
 
-All requests are handled by a Cloudflare Workers `fetch` handler defined
-in `worker/src/index.ts` (or the compiled `worker/tmp.js`).
+All requests are handled by the fetch handler in worker/src/index.ts.
 
-Typical request flow:
+Request flow:
 
-```
 request
-→ router (path detection in the fetch handler)
-→ endpoint handler
+→ fetch handler (worker/src/index.ts)
+→ path detection
+→ isAdminAuthorized() — admin routes only, always called first
 → validation
-→ database operation
-→ JSON response
-```
+→ database helper (worker/src/lib/db.ts)
+→ json() or badRequest() (worker/src/lib/http.ts)
+→ response
+
+--------------------------------------------------
+
+RESPONSE RULES
+
+Every endpoint must respond using helpers from worker/src/lib/http.ts.
+
+Success:   json(data)
+Failure:   badRequest(message)
+
+Never construct a raw Response object.
+Never return a plain string.
 
 --------------------------------------------------
 
 PUBLIC ENDPOINTS
 
-These routes are consumed by the front‑end and are open to the public.
+These routes are open to the public and consumed by the frontend.
 
-### GET /api/articles/:category
+--------------------------------------------------
 
-**Description:**
-Returns a list of articles in the requested category. Supported categories are
-`today`, `national`, `sports`, `weather`, `schools`, `obituaries` and `all`.
+GET /api/articles/:category
+
+Returns a list of articles for the given category.
+
+Supported category values:
+  today | national | sports | weather | schools | obituaries | all
+
 Optional query parameters:
+  counties   — comma-separated county names
+  county     — single county name
+  search     — full-text search term
+  limit      — number of results (default 20, max 100 for "all")
+  cursor     — pagination cursor
 
-- `counties` or `county` – comma‑separated list of county names
-- `search` – full‑text search term
-- `limit` – number of items to return (default 20, 100 for `all`)
-- `cursor` – pagination cursor
+Handler: worker/src/index.ts — categoryMatch block (~lines 1244–1310)
+Database: queryArticles(env, { category, counties, search, limit, cursor })
 
-**Handler Location:** `worker/src/index.ts` (see `categoryMatch` block around
-lines 1244–1310).
+--------------------------------------------------
 
-**Database Operations:**
-Calls `queryArticles(env, { category, counties, search, limit, cursor })` which
-runs a D1 query.
+GET /api/articles/item/:id
 
-### GET /api/articles/item/:id
-
-**Description:**
 Returns a single article by numeric ID.
 
-**Handler Location:** same file (`worker/src/index.ts`, lines 1250–1260).
+Handler: worker/src/index.ts (~lines 1250–1260)
+Database: getArticleById(env, id)
 
-**Database Operations:**
-`getArticleById(env, id)`
+--------------------------------------------------
 
-### GET /api/articles/slug/:slug
+GET /api/articles/slug/:slug
 
-**Description:**
 Returns a single article by slug string.
 
-**Handler Location:** `worker/src/index.ts` (lines 1244–1254).
-
-**Database Operations:**
-`getArticleBySlug(env, slug)`
-
-*(The classic `/api/articles` root without a category is not used; all public
-calls go through the patterns above.)*
+Handler: worker/src/index.ts (~lines 1244–1254)
+Database: getArticleBySlug(env, slug)
 
 --------------------------------------------------
 
 ADMIN ENDPOINTS
 
-Admin routes require authorization (see `isAdminAuthorized` in the fetch
-handler) before performing database actions.  Many additional admin paths exist
-(`/api/admin/reclassify`, `/api/admin/ingest`, `/api/admin/backfill-*`, etc.),
-but the ones most often modified by UI code are listed below.
+All admin routes require isAdminAuthorized() to be called before any database operation.
+Never add an admin route without this check.
 
-### POST /api/admin/retag
+--------------------------------------------------
 
-**Description:**
-Update the category/ky flag and county information for an article.
+POST /api/admin/retag
 
-**Expected Input:**
-```json
+Updates the category, Kentucky flag, and county data for an article.
+
+Input:
 {
   "id": number,
-  "category": string,        // may be empty to clear
-  "isKentucky": boolean,     // optional
-  "county": string|null,
-  "counties": string[]       // optional
+  "category": string,       — may be empty string to clear
+  "isKentucky": boolean,    — optional
+  "county": string | null,
+  "counties": string[]      — optional
 }
-```
 
-**Handler Location:** `worker/src/index.ts` (line ~684).
+Handler: worker/src/index.ts (~line 684)
+Database: updateArticleClassification(env, id, { … })
 
-**Database Operations:**
-`updateArticleClassification(env, id, { … })`
+--------------------------------------------------
 
-### POST /api/admin/article/delete
+POST /api/admin/article/delete
 
-**Description:**
-Deletes an article (optionally blocking it).
+Deletes an article. Optionally blocks it to prevent re-ingestion.
 
-**Expected Input:**
-```json
+Input:
 {
   "id": number,
-  "block": boolean,       // optional
-  "reason": string        // optional if blocking
+  "block": boolean,         — optional
+  "reason": string          — required if block is true
 }
-```
 
-**Handler Location:** `worker/src/index.ts` (line ~930).
+Handler: worker/src/index.ts (~line 930)
+Database:
+  deleteArticleById(env, id)
+  or blockArticleByIdAndDelete(env, id, reason) if blocking
 
-**Database Operations:**
-`deleteArticleById(env, id)` or `blockArticleByIdAndDelete(env, id, reason)`
+--------------------------------------------------
 
-### POST /api/admin/article/update-datetime
+POST /api/admin/article/update-datetime
 
-**Description:**
-Change the published date/time for an article.
+Changes the published date and time for an article.
 
-**Expected Input:**
-```json
+Input:
 {
   "id": number,
-  "publishedAt": string    // ISO timestamp
+  "publishedAt": string     — ISO 8601 timestamp
 }
-```
 
-**Handler Location:** `worker/src/index.ts` (line ~758).
+Handler: worker/src/index.ts (~line 758)
+Database: updateArticlePublishedAt(env, id, isoString)
 
-**Database Operations:**
-`updateArticlePublishedAt(env, id, isoString)`
+--------------------------------------------------
 
-### POST /api/admin/article/update-content
+POST /api/admin/article/update-content
 
-**Description:**
-Edit the title, summary, and/or image URL of an article.
+Edits the title, summary, and/or image URL of an article.
 
-**Expected Input:**
-```json
+Input:
 {
   "id": number,
-  "title": string,        // optional
-  "summary": string,      // optional
-  "imageUrl": string|null // optional – provide empty string or null to clear
+  "title": string,          — optional
+  "summary": string,        — optional
+  "imageUrl": string | null — optional — pass empty string or null to clear
 }
-```
 
-**Handler Location:** `worker/src/index.ts` (line ~819).
+Handler: worker/src/index.ts (~line 819)
+Database: updateArticleContent(env, id, { title, summary, imageUrl })
 
-**Database Operations:**
-`updateArticleContent(env, id, { title, summary, imageUrl })`
+--------------------------------------------------
 
-### POST /api/admin/article/update-links
+POST /api/admin/article/update-links
 
-**Description:**
-Change canonical/source URLs for an article (performs duplicate‑URL check).
+Updates the canonical URL and/or source URL for an article.
+Performs a duplicate URL check before saving.
 
-**Expected Input:**
-```json
+Input:
 {
   "id": number,
-  "canonicalUrl": string, // optional
-  "sourceUrl": string     // optional
+  "canonicalUrl": string,   — optional
+  "sourceUrl": string       — optional
 }
-```
 
-**Handler Location:** `worker/src/index.ts` (line ~886).
+Handler: worker/src/index.ts (~line 886)
+Database: updateArticleLinks(env, id, { canonicalUrl, sourceUrl, urlHash })
 
-**Database Operations:**
-`updateArticleLinks(env, id, { canonicalUrl, sourceUrl, urlHash })`
+--------------------------------------------------
 
+OTHER ADMIN ENDPOINTS
 
-Other admin endpoints (listing articles, blocked items, metrics, etc.) can be
-found in the same file; search for `/api/admin/` to explore.
+Additional endpoints exist for listing articles, blocked items, metrics,
+reclassification, ingestion, and backfill operations.
+
+To find them: search for /api/admin/ in worker/src/index.ts.
 
 --------------------------------------------------
 
 DATABASE ACCESS PATTERN
 
-Database engine: Cloudflare D1 (SQLite)
+Engine: Cloudflare D1 (SQLite)
+All queries go through helpers in worker/src/lib/db.ts.
+Never write raw queries inline in a route handler.
 
-Typical usage pattern in handlers:
+Use .run() when the query does not return rows:
+  env.DB.prepare(query).bind(values).run()
 
-```js
-const stmt = env.DB.prepare(query);
-stmt.bind(values);
-const result = await stmt.run();        // or .first()
-```
+Use .first() when expecting one row:
+  env.DB.prepare(query).bind(values).first()
 
-Helpers in `worker/src/lib/db.ts` encapsulate most common queries and are
-imported into the fetch handler.
+Use .all() when expecting multiple rows:
+  env.DB.prepare(query).bind(values).all()
+
+Never interpolate values directly into query strings.
+Always use .bind() to pass parameters.
 
 --------------------------------------------------
 
-DEBUGGING INSTRUCTIONS FOR AI
+ADDING A NEW ENDPOINT
+
+Before adding a new endpoint:
+
+1. Search this index and worker/src/index.ts to confirm it does not already exist.
+2. Follow the existing route structure in index.ts.
+3. Add the database helper to worker/src/lib/db.ts — do not write inline queries.
+4. Add the frontend call to src/services/siteService.js.
+5. If it is an admin route, call isAdminAuthorized() before any database operation.
+6. Respond only with json() or badRequest().
+7. Add the new endpoint to this index file.
+
+--------------------------------------------------
+
+DEBUGGING INSTRUCTIONS
 
 When an endpoint fails:
 
-1. Locate the endpoint in this index and note the handler file/line range.
-2. Open the corresponding section in `worker/src/index.ts` (or `worker/tmp.js` if
-   you're inspecting compiled code).
-3. Trace execution inside the handler, watching for validation or auth checks.
-4. Identify the failing database call or logic.
-5. Apply the minimal fix, keeping changes confined to that handler.
-6. Run the worker tests (`worker/test/index.spec.ts`) to ensure no regressions.
-
-Avoid touching unrelated endpoints and preserve the existing routing style.
+1. Find the endpoint in this index — note the handler file and line range.
+2. Open that section of worker/src/index.ts.
+3. Trace execution: auth check → validation → database call → response.
+4. Identify the exact failing line or missing logic.
+5. Apply the smallest safe fix confined to that handler.
+6. Do not touch unrelated endpoints or shared utilities unless the fix requires it.

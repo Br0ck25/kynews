@@ -364,7 +364,18 @@ if (url.pathname === '/api/admin/ingest-url' && request.method === 'POST') {
     const result = await ingestSingleUrl(env, { url: articleUrl });
     return json(result, result.status === 'rejected' ? 422 : 200);
   } catch (error) {
-    return json({ error: 'ingest failed', details: safeError(error) }, 500);
+    const msg = safeError(error);
+    console.error('[INGEST-URL FAILED]', msg);
+    // Surface fetch/bot-block errors as 422 with a readable message rather
+    // than an opaque 500 — the admin UI can then display the reason directly.
+    if (
+      msg.startsWith('Failed to fetch URL') ||
+      msg.startsWith('Bot protection detected') ||
+      msg.startsWith('Network error fetching')
+    ) {
+      return json({ status: 'rejected', reason: msg }, 422);
+    }
+    return json({ error: 'ingest failed', details: msg }, 500);
   }
 }
 

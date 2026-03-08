@@ -1,140 +1,162 @@
 # AI PROJECT MAP
 
-This document describes the architecture of the project so AI assistants can debug and modify the code safely.
+This document describes the physical structure of the project so AI assistants can locate files, understand how they connect, and make changes safely.
+
+Read AI_PROJECT_MEMORY.md for rules and patterns.
+Read AI_ENDPOINT_INDEX.md for endpoint locations and expected inputs.
 
 --------------------------------------------------
 
 PROJECT TYPE
 
-News website backend API.
+Kentucky-focused news website.
 
-Provides endpoints for:
-
-• article ingestion
-• article tagging
-• admin operations
-• content retrieval
+Backend: Cloudflare Workers API (TypeScript)
+Frontend: React (JavaScript) with @material-ui/core v4
+Database: Cloudflare D1 (SQLite)
+Deployment: Wrangler
 
 --------------------------------------------------
 
-RUNTIME ENVIRONMENT
+FOLDER STRUCTURE
 
-Runtime: Cloudflare Workers  
-Language: JavaScript  
-Database: Cloudflare D1 (SQLite)
+worker/
+  src/
+    index.ts              — All API routes and the main fetch handler
+    types.ts              — Shared TypeScript types
+    lib/
+      db.ts               — Database query helpers
+      http.ts             — Response helpers: json(), badRequest()
+      facebook.ts         — Facebook caption generation
 
-API style: fetch handler routing
+src/
+  pages/
+    admin-page.js         — Admin dashboard (all tabs)
+  services/
+    siteService.js        — Frontend functions that call the API
+
+.github/
+  copilot-instructions.md         — AI task router (start here)
+  instructions/
+    fix-and-improve.md            — Loaded for bug fixes and improvements
+    create.md                     — Loaded for new features
+
+AI_PROJECT_MEMORY.md      — Architecture rules and patterns
+AI_PROJECT_MAP.md         — This file
+AI_ENDPOINT_INDEX.md      — Full endpoint list with handler locations
 
 --------------------------------------------------
 
 REQUEST FLOW
 
-All requests enter through the main fetch handler.
-
-Typical flow:
+Every API request enters through the single fetch handler in worker/src/index.ts.
 
 request
-→ router / path detection
-→ endpoint handler
-→ validation
-→ database operation
-→ JSON response
+→ worker/src/index.ts (fetch handler)
+→ path detection (if/else or regex match)
+→ isAdminAuthorized() check (admin routes only)
+→ validation (required fields present)
+→ database helper in worker/src/lib/db.ts
+→ json() or badRequest() from worker/src/lib/http.ts
+→ response returned to client
 
 --------------------------------------------------
 
-API STRUCTURE
+BACKEND FILE RESPONSIBILITIES
 
-Endpoints follow this structure:
+worker/src/index.ts
+  Contains every route handler.
+  This is always the first file to check when debugging an endpoint.
+  Admin routes call isAdminAuthorized() before touching the database.
 
-/api/*
-    public endpoints
+worker/src/lib/db.ts
+  Contains all database query functions.
+  Handlers call these functions rather than writing raw queries inline.
+  All queries use prepare().bind().run() / .first() / .all()
 
-/api/admin/*
-    admin-only endpoints
+worker/src/lib/http.ts
+  Contains json() and badRequest().
+  Every API response must go through one of these two functions.
+  Never construct a raw Response manually.
 
-Examples:
+worker/src/lib/facebook.ts
+  Generates captions for Facebook sharing.
+  Only relevant to article publishing features.
 
-POST /api/admin/retag
-POST /api/admin/delete
-GET /api/articles
-GET /api/article/:id
-
---------------------------------------------------
-
-DATABASE
-
-Database engine: Cloudflare D1 (SQLite)
-
-Typical operations:
-
-• selecting articles
-• inserting articles
-• updating tags
-• deleting content
-• storing ingestion data
-
-Queries are executed using env.DB.
-
-Example pattern:
-
-env.DB.prepare(query).bind(values).run()
+worker/src/types.ts
+  Shared TypeScript types used across the backend.
+  Check here before adding new types.
 
 --------------------------------------------------
 
-COMMON SYSTEM COMPONENTS
+FRONTEND FILE RESPONSIBILITIES
 
-Router  
-Handles request path detection.
+src/services/siteService.js
+  All frontend API calls live here.
+  When adding a new endpoint, add the corresponding frontend call here.
+  Follows a consistent fetch pattern — copy existing functions when adding new ones.
 
-Endpoint Handlers  
-Process API requests.
-
-Validation  
-Ensures required parameters exist.
-
-Database Layer  
-Runs D1 queries.
-
-Response Layer  
-Returns JSON responses.
+src/pages/admin-page.js
+  The admin dashboard.
+  Organized into tabs (see tab map below).
+  UI changes to admin features happen here.
 
 --------------------------------------------------
 
-ADMIN SYSTEM
+ADMIN TAB MAP
 
-Admin endpoints require authorization.
+Tab 0 — Dashboard
+Tab 1 — Create Article
+Tab 2 — Articles
+Tab 3 — Blocked
 
-Common admin tasks include:
-
-• retagging articles
-• deleting articles
-• updating metadata
-
-Admin endpoints typically validate credentials before running database updates.
+When the user describes a problem on a specific admin tab, map it to this list
+to identify the correct section of admin-page.js.
 
 --------------------------------------------------
 
-DEBUGGING NOTES FOR AI
+HOW THE BACKEND AND FRONTEND CONNECT
 
-When debugging:
+Frontend (src/services/siteService.js)
+  calls →
+Backend (worker/src/index.ts route handler)
+  calls →
+Database helper (worker/src/lib/db.ts)
+  returns →
+Handler responds with json() or badRequest()
+  returns →
+Frontend receives response and updates UI
 
-1. Locate the endpoint handling the request.
-2. Trace the request flow from router → handler → database query.
-3. Identify where the error occurs.
-4. Apply the smallest safe fix.
+When tracing a bug, start at the frontend call in siteService.js,
+find the matching route in index.ts, then follow into db.ts if needed.
 
-Avoid changing unrelated endpoints.
+--------------------------------------------------
 
-Preserve the existing architecture.
+WHERE TO LOOK FOR COMMON PROBLEMS
+
+Problem: endpoint returns wrong data or crashes
+→ Start in worker/src/index.ts at the matching route handler
+
+Problem: database query returns wrong results or fails
+→ Check the helper function in worker/src/lib/db.ts
+
+Problem: admin UI not showing correct data or button not working
+→ Check src/pages/admin-page.js for the relevant tab
+
+Problem: frontend API call failing or sending wrong data
+→ Check src/services/siteService.js for the matching function
+
+Problem: response format is wrong or missing fields
+→ Check worker/src/lib/http.ts and the handler's json() call
 
 --------------------------------------------------
 
 AI RESPONSIBILITIES
 
-When modifying this project:
+When working in this project:
 
-• search the repository before proposing fixes
-• simulate request execution
-• identify the failing line
-• implement the smallest safe patch
-• ensure changes do not break other endpoints
+• Read AI_PROJECT_MEMORY.md for rules before making any change
+• Read AI_ENDPOINT_INDEX.md to locate the correct handler before editing
+• Use the folder structure and connection map above to find files quickly
+• Never modify files outside the confirmed path for the fix or feature
+• Preserve the existing routing style and architecture at all times

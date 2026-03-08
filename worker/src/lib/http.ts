@@ -181,6 +181,71 @@ export async function cachedTextFetch(
   return payload;
 }
 
+/**
+ * Fetch a URL using realistic browser-like headers to bypass basic bot detection
+ * (Cloudflare Bot Fight Mode, simple UA checks, etc.).  Used for manual admin
+ * article ingests where the operator explicitly requests a specific URL.
+ *
+ * Unlike `cachedTextFetch`, this function:
+ *  - Uses a realistic Chrome/desktop User-Agent
+ *  - Adds Accept-Language and other headers that browsers send
+ *  - Does NOT cache the result (manual ingests should always be fresh)
+ *  - Returns the same CachedFetchPayload shape for compatibility
+ */
+export async function browserFetch(url: string): Promise<{
+  body: string;
+  status: number;
+  contentType: string | null;
+  blockedByBot: boolean;
+}> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        'user-agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'accept':
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'accept-language': 'en-US,en;q=0.9',
+        'accept-encoding': 'gzip, deflate, br',
+        'cache-control': 'no-cache',
+        'pragma': 'no-cache',
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'none',
+        'sec-fetch-user': '?1',
+        'upgrade-insecure-requests': '1',
+      },
+      redirect: 'follow',
+    });
+  } catch (err) {
+    throw new Error(`Network error fetching ${url}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const body = await response.text();
+  const contentType = response.headers.get('content-type');
+
+  // Detect bot-block / JS challenge pages.
+  // These typically come as 200 OK but contain no real article content.
+  const lowerBody = body.toLowerCase();
+  const blockedByBot =
+    response.status === 403 ||
+    response.status === 429 ||
+    (response.status === 200 &&
+      body.length < 5000 &&
+      (lowerBody.includes('just a moment') ||
+        lowerBody.includes('checking your browser') ||
+        lowerBody.includes('enable javascript') ||
+        lowerBody.includes('cf-ray') ||
+        lowerBody.includes('cloudflare') ||
+        lowerBody.includes('access denied') ||
+        lowerBody.includes('403 forbidden') ||
+        lowerBody.includes('bot protection') ||
+        lowerBody.includes('please wait')));
+
+  return { body, status: response.status, contentType, blockedByBot };
+}
+
 function bufferToHex(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   const chars: string[] = [];

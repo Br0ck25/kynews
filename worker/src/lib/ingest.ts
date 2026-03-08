@@ -4,7 +4,7 @@ import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE, isStatewideKyPoliticalStory } from './classify';
 import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
-import { cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
+import { browserFetch, cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
 
 const TITLE_SIMILARITY_REJECT_THRESHOLD = 0.85; // lowered from 0.9 to catch more cross-outlet duplicates
@@ -264,12 +264,41 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
 }
 
 export async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<ExtractedArticle> {
-  const fetched = await cachedTextFetch(env, source.url, 1200);
-  if (fetched.status >= 400) {
-    throw new Error(`Failed to fetch URL (${fetched.status}): ${source.url}`);
+  // Manual admin ingests (preview: undefined with a direct URL call) use a
+  // browser-like UA to bypass basic bot detection on sites like kentucky.com.
+  // Scheduled RSS ingests continue to use the cached bot UA path.
+  const isManualIngest = source.allowShortContent === true || !source.feedPublishedAt;
+
+  let fetchedBody: string;
+  let fetchedStatus: number;
+  let fetchedContentType: string | null;
+
+  if (isManualIngest) {
+    const result = await browserFetch(source.url);
+    if (result.blockedByBot) {
+      throw new Error(
+        `Bot protection detected on ${new URL(source.url).hostname} — the site is blocking automated access. ` +
+        `Try copying the article text manually and using the manual text ingest option, ` +
+        `or access the article through a source that syndicates it.`
+      );
+    }
+    if (result.status >= 400) {
+      throw new Error(`Failed to fetch URL (${result.status}): ${source.url}`);
+    }
+    fetchedBody = result.body;
+    fetchedStatus = result.status;
+    fetchedContentType = result.contentType;
+  } else {
+    const fetched = await cachedTextFetch(env, source.url, 1200);
+    if (fetched.status >= 400) {
+      throw new Error(`Failed to fetch URL (${fetched.status}): ${source.url}`);
+    }
+    fetchedBody = fetched.body;
+    fetchedStatus = fetched.status;
+    fetchedContentType = fetched.contentType;
   }
 
-  const isHtml = (fetched.contentType ?? '').includes('html') || fetched.body.includes('<html');
+  const isHtml = (fetchedContentType ?? '').includes('html') || fetchedBody.includes('<html');
 
   if (!isHtml) {
     const description = source.providedDescription?.trim() ?? '';
@@ -290,8 +319,8 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
     };
   }
 
-  const scraped = scrapeArticleHtml(source.url, fetched.body);
-  const readability = extractReadableArticle(fetched.body);
+  const scraped = scrapeArticleHtml(source.url, fetchedBody);
+  const readability = extractReadableArticle(fetchedBody);
   // Do NOT prepend the title here — it causes AI to echo the title in summaries.
   // Keep readableText for classification only; use htmlToStructuredText for summarization.
   const readableText = (readability?.textContent ?? '').trim();
