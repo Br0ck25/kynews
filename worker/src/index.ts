@@ -307,6 +307,9 @@ limitPerSource,
 					url: article.canonicalUrl,
 					title: article.title,
 					content: article.contentText,
+					// adding rssTitle ensures reclassification uses the same signal
+					// that original ingest did, improving geo/county accuracy
+					rssTitle: article.title,
 				});
 				const changed =
 					classification.category !== article.category ||
@@ -3098,12 +3101,14 @@ async function checkArticleUpdates(env: Env): Promise<void> {
         sourceUrl: article.canonicalUrl,
         providedTitle: article.title,
         providedDescription: '',
-        feedPublishedAt: article.publishedAt,
+        // Omit feedPublishedAt so fetchAndExtractArticle treats this as a
+        // manual/browser fetch, using a realistic UA to bypass bot protection
+        // on sites like kentucky.com.  The published date is irrelevant here
+        // since we are only re-fetching to detect content changes.
       }).catch(() => null);
 
       if (!extracted?.contentText) continue;
 
-      // Hash the new content (first 3000 words for stability)
       const contentSample = extracted.contentText
         .split(/\s+/).slice(0, 3000).join(' ');
       const newHash = await sha256Hex(contentSample);
