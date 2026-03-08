@@ -25,7 +25,7 @@ const SITE_NAME = "Local KY News";
 let FB_APP_ID = '';
 try {
   // eslint-disable-next-line no-eval
-  const env = eval('import.meta.env');
+  const env = eval(String.fromCharCode(105,109,112,111,114,116) + '.meta.env');
   FB_APP_ID = (env.REACT_APP_FB_APP_ID || env.VITE_FB_APP_ID || '').trim();
 } catch (e) {
   FB_APP_ID = '';

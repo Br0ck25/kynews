@@ -830,6 +830,21 @@ describe('AI cleanup utilities', () => {
 		const out = (aiModule as any).stripBoilerplateFromOutput("LEXINGTON, Ky. (LEX 18) — Summary text", '');
 		expect(out).toBe("Summary text");
 	});
+
+	it('strips inline (Photo provided) captions before summarization', () => {
+		const raw = "Captain Dave aboard the ALOHA (Photo provided) set sail.";
+		const cleaned = (aiModule as any).cleanContentForSummarization(raw, '');
+		expect(cleaned).toBe("Captain Dave aboard the ALOHA  set sail.");
+	});
+
+	it('filters utility/infrastructure stories away from weather', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://example.com/story',
+			title: 'Utility crews respond after severe weather',
+			content: 'Severe weather caused outages. Kentucky Utilities said crews are working to restore power this afternoon.',
+		});
+		expect(classification.category).toBe('today');
+	});
 });
 
 describe('classification utilities', () => {

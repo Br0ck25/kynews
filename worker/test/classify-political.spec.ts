@@ -24,4 +24,16 @@ describe('isStatewideKyPoliticalStory', () => {
     const t = 'Events in Lexington, Covington, Florence, and Dayton were announced today.';
     expect(isStatewideKyPoliticalStory(t)).toBe(true);
   });
+
+  it('detects statewide when both a KY senator and KY representative are named in any order', () => {
+    const t1 = 'Northern Kentucky is represented by U.S. Rep. Jane Doe and U.S. Sen. John Smith';
+    const t2 = 'U.S. Sen. John Smith and U.S. Rep. Jane Doe spoke about policy in Kentucky';
+    expect(isStatewideKyPoliticalStory(t1)).toBe(true);
+    expect(isStatewideKyPoliticalStory(t2)).toBe(true);
+  });
+
+  it('flags Congressional district race coverage as statewide', () => {
+    const t = 'The 4th Congressional district race in Kentucky drew national attention';
+    expect(isStatewideKyPoliticalStory(t)).toBe(true);
+  });
 });

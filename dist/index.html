@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
 
 <head>
   <meta charset="utf-8" />
@@ -12,12 +12,11 @@
   <meta property="og:description" content="AI-assisted news summaries from credentialed Kentucky news organizations. All 120 counties covered. Full attribution to original reporters." />
   <meta property="og:site_name" content="Local KY News" />
   <meta property="og:url" content="https://localkynews.com/" />
-  <meta property="og:image" content="https://localkynews.com/img/preview.PNG" />
-  <meta property="fb:app_id" content="0" />
+  <meta property="og:image" content="https://localkynews.com/img/preview.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Local KY News — Kentucky's Local News Aggregator" />
   <meta name="twitter:description" content="AI-assisted news summaries from credentialed Kentucky news organizations. All 120 counties covered." />
-  <meta name="twitter:image" content="https://localkynews.com/img/preview.PNG" />
+  <meta name="twitter:image" content="https://localkynews.com/img/preview.png" />
   <link rel="manifest" href="/manifest.json" />
   <title>Local KY News — Kentucky's Local News Aggregator</title>
   <!-- DNS-prefetch for Google Fonts stylesheet (avoids exceeding the 4-preconnect limit) -->
@@ -65,7 +64,28 @@
         "@id": "https://localkynews.com/#organization",
         "name": "Local KY News",
         "url": "https://localkynews.com/",
-        "logo": "https://localkynews.com/img/logo512.png",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://localkynews.com/img/logo512.png",
+          "width": 512,
+          "height": 512
+        },
+        "foundingDate": "2025",
+        "description": "Local KY News is an AI-assisted news aggregation platform covering all 120 Kentucky counties, summarizing original reporting from credentialed local news organizations with full attribution.",
+        "areaServed": {
+          "@type": "State",
+          "name": "Kentucky",
+          "sameAs": "https://www.wikidata.org/wiki/Q1603"
+        },
+        "knowsAbout": [
+          "Kentucky local news",
+          "Kentucky county government",
+          "Kentucky schools",
+          "Kentucky public safety",
+          "Kentucky sports",
+          "Kentucky weather"
+        ],
+        "publishingPrinciples": "https://localkynews.com/editorial-policy",
         "sameAs": [],
         "contactPoint": {
           "@type": "ContactPoint",
@@ -76,7 +96,7 @@
     ]
   }
   </script>
-  <script type="module" crossorigin src="/assets/index-fbb72482.js"></script>
+  <script type="module" crossorigin src="/assets/index-b3b6167f.js"></script>
   <link rel="stylesheet" href="/assets/index-16f808fd.css">
 </head>
 

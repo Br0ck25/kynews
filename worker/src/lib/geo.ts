@@ -69,7 +69,7 @@ export function textContainsCounty(text: string, county: string): boolean {
     // suffix is present — bare word match is too noisy (e.g. "mason jar",
     // "Warren Buffett", "Lee Harvey Oswald").
     return new RegExp(
-      `\\b${escaped}\\s+(?:county|counties|cnty|co(?=\\s|$))\\b`, 'i'
+      `\\b${escaped}\\s+(?:county|counties|cnty|co\\.?)(?=[\\s.,)]|$)`, 'i'
     ).test(text);
   }
   // For unambiguous single-word county names we need to be stricter: the
@@ -216,7 +216,6 @@ export const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Simpson',  // Mississippi
   'Butler',   // Ohio, Pennsylvania, etc.
   'Clinton',  // many states
-  'Barren',   // exists elsewhere
   'Floyd',    // exists in both Kentucky AND Indiana (borders Louisville metro)
   // 'Hart' already present above
 ]);
@@ -427,7 +426,7 @@ export function detectCounty(input, rawInput) {
     // which is the whitespace character class. Using a plain space ` ` would also
     // work but `\s` is more explicit and handles tab-separated text if it ever appears.
     const countyPattern = new RegExp(
-      `\\b${escaped}\\s+(?:county|counties|cnty|co(?=[\\s]|$))\\b`,
+      `\\b${escaped}\\s+(?:county|counties|cnty|co\\.?)(?=[\\s.,)]|$)`,
       'i',
     );
 

@@ -808,6 +808,10 @@ export function cleanContentForSummarization(text: string, title: string): strin
   // ends with "| Publication Name" after a photo description sentence.
   t = t.replace(/^[^\n]{20,200}\s*[|\/]\s*(?:Kentucky Kernel|Kentucky Today|Lex18|LEX 18|WKYT|WDRB|WBKO|AP Photo|Getty Images?|[A-Z][a-zA-Z\s]{2,40})\s*$/gm, '');
   t = t.replace(/^Photo by\b[^\n]*$/gim, '');
+  // Strip "(Photo provided)", "(Photo courtesy of X)", "(Photo: Name)" inline captions
+  t = t.replace(/\s*\(Photo(?:\s+provided|\s+courtesy(?:\s+of\s+[^)]{0,60})?|:\s*[^)]{0,60}|\/[^)]{0,60})?\)/gi, '');
+  // Strip standalone caption lines ending with (Photo provided) or (Courtesy: X) or (Provided)
+  t = t.replace(/^[^\n]{10,200}\s*\((?:Photo\s+provided|Courtesy[^)]{0,60}|Provided)\)\s*$/gim, '');
   t = t.replace(/^(?:Here is the original article|Source|Original article|Read more at)[:\s]+https?:\/\/\S+.*$/gim, '');
   t = t.replace(/^[A-Z][A-Z0-9\s'",.!?\-\u2013\u2014]{30,}$/gm, '');
   t = t.replace(/^(?:NCAA\s+\w+|NFL|NBA|NHL|MLB|MLS|PWHL|WNBA)\s*$/gm, '');
@@ -884,6 +888,8 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   t = t.replace(/^Published\b[^\n]*$/gim, '');
   t = t.replace(/^Updated\b[^\n]*$/gim, '');
   t = t.replace(/^Photo by\b[^\n]*$/gim, '');
+  t = t.replace(/\s*\(Photo(?:\s+provided|\s+courtesy(?:\s+of\s+[^)]{0,60})?|:\s*[^)]{0,60}|\/[^)]{0,60})?\)/gi, '');
+  t = t.replace(/^[^\n]{10,200}\s*\((?:Photo\s+provided|Courtesy[^)]{0,60}|Provided)\)\s*$/gim, '');
   // Strip inline photo credit suffixes appended to caption sentences.
   t = t.replace(/\s+Photo\s+by\s+[A-Z][a-zA-Z\s.'-]{2,50}(?:\s*[|\/]\s*[A-Za-z\s.'-]{2,60})?\s*$/gm, '');
   // Strip "Photographer Name/AP" or "Name/Getty" photo credits at the start of text

@@ -202,6 +202,17 @@ describe('county detection', () => {
     expect(detectAllCounties('South Warren defeated North Hardin in overtime')).toEqual([]);
   });
 
+  // regression tests for new co\. abbreviation pattern and Barren county
+  it('recognizes county when abbreviated as Co.', () => {
+    const text = 'A sports story at Letcher Co. Central High School';
+    expect(detectCounty(text, text)).toBe('Letcher');
+  });
+
+  it('detects Barren County without needing explicit KY context', () => {
+    const text = 'A shooting occurred at Barren County courthouse';
+    expect(detectCounty(text, text)).toBe('Barren');
+  });
+
   it('does not auto-detect generic noise city names', () => {
     expect(detectCity('A story from Bliss, Kentucky')).toBe(null);
   });

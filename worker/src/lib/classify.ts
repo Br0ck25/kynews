@@ -112,7 +112,7 @@ const COUNTY_PATTERNS = KY_COUNTIES.map((county) => ({
   county,
   pattern: new RegExp(
     // include plural "counties" suffix to stay synced with geo.ts
-    `\\b${escapeRegExp(county)}\\s+(?:county|counties|cnty|co(?=[\\s]|$))\\b`,
+    `\\b${escapeRegExp(county)}\\s+(?:county|counties|cnty|co\\.?)(?=[\\s.,)]|$)`,
     'i',
   ),
 }));
@@ -470,10 +470,21 @@ export function isStatewideKyPoliticalStory(text: string): boolean {
     }
   }
 
-  // Cross-chamber: both a KY senator AND a KY representative named
-  const hasKySenator = /\b(?:kentucky\s+sen(?:ator)?|u\.s\.\s+sen\.\s+[A-Z][^.]{0,40}kentucky|sen\.\s+\w+\s+\w+[^.]{0,20}(?:r|d)-ky)\b/i.test(text);
-  const hasKyRep = /\b(?:kentucky\s+rep(?:resentative)?|u\.s\.\s+rep\.\s+[A-Z][^.]{0,40}kentucky|rep\.\s+\w+\s+\w+[^.]{0,20}(?:r|d)-ky)\b/i.test(text);
+  // Detect when both a KY senator AND a KY representative are named — statewide political coverage.
+  // Allow either order: "U.S. Rep. X" near "Kentucky" OR "Kentucky ... U.S. Rep. X"
+  const hasKySenator =
+    /\b(?:kentucky\s+sen(?:ator)?|u\.s\.\s+sen\.\s+[A-Z][^.]{0,60}(?:kentucky|ky\b)|(?:kentucky|ky)[^.]{0,60}u\.s\.\s+sen\.|sen\.\s+\w+\s+\w+[^.]{0,20}(?:r|d)-ky|retiring\s+u\.s\.\s+sen\.|u\.s\.\s+sen\.)\b/i.test(text);
+  const hasKyRep =
+    /\b(?:kentucky\s+rep(?:resentative)?|u\.s\.\s+rep\.\s+[A-Z][^.]{0,60}(?:kentucky|ky\b)|(?:kentucky|ky)[^.]{0,60}u\.s\.\s+rep\.|rep\.\s+\w+\s+\w+[^.]{0,20}(?:r|d)-ky|u\.s\.\s+rep\.)\b/i.test(text);
   if (hasKySenator && hasKyRep) return true;
+
+  // Detect KY Congressional district race coverage — any article naming a specific
+  // Congressional district race with an endorsement or candidate mention is statewide.
+  if (/\b(?:congressional\s+district|u\.s\.\s+(?:house|senate)\s+(?:race|seat|primary|candidate)|congress(?:ional)?\s+(?:race|seat|primary)|senate\s+race|house\s+seat)\b/i.test(text) &&
+      /\b(?:kentucky|ky\.?)\b/i.test(text)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -1550,6 +1561,13 @@ function enforceCategoryEvidence(
     const hasSportsSignal = CATEGORY_PATTERNS.sports.some(p => p.test(title) || p.test(leadText));
     if (hasSportsSignal) {
       return normalizeCategoryForKentuckyScope('sports', isKentucky);
+    }
+    // Guard against weather misclassification for infrastructure/utility articles
+    // that mention weather only as context (e.g. "severe weather caused outages").
+    const hasUtilitySignal = /\b(?:utility|utilities|power\s+(?:grid|outage|company|line|plant)|electric(?:al)?\s+(?:grid|company|cooperative|utility)|municipal\s+utility|water\s+(?:system|treatment|utility)|broadband|fiber\s+(?:internet|network)|rate\s+(?:increase|hike)|ratepayer|kwh|kilowatt|megawatt|infrastructure\s+(?:invest|upgrade|project)|smart\s+grid|recloser|utility\s+pole)\b/i.test(title) ||
+      /\b(?:utility|utilities|power\s+(?:grid|company)|electric(?:al)?\s+(?:grid|company|cooperative)|municipal\s+utility|smart\s+grid|recloser)\b/i.test(leadText.slice(0, 400));
+    if (hasUtilitySignal) {
+      return normalizeCategoryForKentuckyScope('today', isKentucky);
     }
   }
 

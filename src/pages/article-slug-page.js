@@ -31,7 +31,7 @@ let FB_APP_ID = '';
 try {
   // `import.meta` is not parsable by Jest's Babel, so access via eval at runtime.
   // eslint-disable-next-line no-eval
-  const env = eval('import.meta.env');
+  const env = eval(String.fromCharCode(105,109,112,111,114,116) + '.meta.env');
   FB_APP_ID = (env.REACT_APP_FB_APP_ID || env.VITE_FB_APP_ID || '').trim();
 } catch (e) {
   // import.meta not available or eval blocked
