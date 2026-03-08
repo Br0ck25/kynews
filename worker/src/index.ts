@@ -1123,7 +1123,7 @@ if (url.pathname === '/api/admin/facebook/preview' && request.method === 'POST')
 				title,
 				body: postBody,
 				imageUrl: scraped.imageUrl,
-				publishedAt: null,
+				publishedAt: scraped.publishedAt ?? null,
 			});
 		}
 	} catch {
@@ -3361,6 +3361,8 @@ export const __testables = {
 	rebalanceSchoolHeavyRunSources,
 	// expose internal helpers for unit tests
 	buildArticlePath,
+	scrapeFacebookPostPublic,
+	deriveFacebookTitleAndBody,
 	// exposing runIngest allows tests to stub the heavy ingestion routine
 	runIngest,
 	// make ingestSingleUrl available for unit tests
@@ -3466,7 +3468,74 @@ function extractFacebookPostId(fbUrl: string): string | null {
  * facebookexternalhit to get the final post URL and its og: tags in one step,
  * since Facebook serves the resolved post content directly for this UA.
  */
-async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: string | null; imageUrl: string | null }> {
+
+/**
+ * Attempt to extract the full post text from a Facebook page's embedded JSON data.
+ * Facebook truncates og:description but embeds the full post text in __bbox / relay
+ * JSON blobs inside <script> tags.  We look for the truncated og:description text
+ * as an anchor and then find a longer string nearby in the JSON that starts with
+ * the same prefix.
+ *
+ * Falls back to the truncated text if extraction fails.
+ */
+function extractFullPostTextFromHtml(html: string, truncatedMessage: string): string | null {
+	// Strip trailing ellipsis to get the stable prefix we can search for
+	const prefix = truncatedMessage.replace(/[…\.]{1,3}$/, '').trim();
+	if (prefix.length < 20) return null;
+
+	// Facebook embeds post content as JSON strings inside <script> tags.
+	// We look for the prefix in all <script> blocks and extract the surrounding string.
+	const scriptBlocks = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)];
+	for (const block of scriptBlocks) {
+		const scriptContent = block[1] ?? '';
+		// Skip tiny scripts or non-data scripts
+		if (scriptContent.length < 100) continue;
+
+		// Find the prefix inside a JSON string value — it will be JSON-encoded,
+		// meaning newlines become \n and quotes become \".
+		const escapedPrefix = prefix
+			.slice(0, 60) // only use first 60 chars to keep the search manageable
+			.replace(/\\/g, '\\\\')
+			.replace(/"/g, '\\"')
+			.replace(/\n/g, '\\n')
+			.replace(/\r/g, '\\r');
+
+		const idx = scriptContent.indexOf(escapedPrefix);
+		if (idx === -1) continue;
+
+		// Find the start of the enclosing JSON string (look backward for an unescaped quote)
+		let start = idx;
+		while (start > 0 && scriptContent[start - 1] !== '"') start--;
+		// Find the end of the enclosing JSON string (look forward for an unescaped quote)
+		let end = idx + escapedPrefix.length;
+		while (end < scriptContent.length) {
+			if (scriptContent[end] === '"' && scriptContent[end - 1] !== '\\') break;
+			end++;
+		}
+
+		if (end <= start) continue;
+		const rawJsonString = scriptContent.slice(start, end);
+		// Unescape the JSON string value
+		try {
+			const unescaped = JSON.parse(`"${rawJsonString}"`);
+			if (typeof unescaped === 'string' && unescaped.length > prefix.length) {
+				return unescaped.trim();
+			}
+		} catch {
+			// JSON.parse failed — try a simpler unescape
+			const simple = rawJsonString
+				.replace(/\\n/g, '\n')
+				.replace(/\\r/g, '\r')
+				.replace(/\\t/g, '\t')
+				.replace(/\\\"/g, '"')
+				.replace(/\\\\/g, '\\');
+			if (simple.length > prefix.length) return simple.trim();
+		}
+	}
+	return null;
+}
+
+async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: string | null; imageUrl: string | null; publishedAt: string | null }> {
 	// facebookexternalhit is Facebook's own crawler UA. Facebook serves real
 	// og:description content to this UA for public posts, bypassing login walls.
 	const FB_CRAWLER_UA = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)';
@@ -3482,18 +3551,38 @@ async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: strin
 		},
 	});
 
-	const parseOgFromHtml = (html: string): { message: string | null; imageUrl: string | null } => {
+	const parseOgFromHtml = (html: string): { message: string | null; imageUrl: string | null; publishedAt: string | null } => {
 		const descMatch =
 			html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ??
 			html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
 		const imageMatch =
 			html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["'](https?[^"']+)["']/i) ??
 			html.match(/<meta[^>]+content=["'](https?[^"']+)["'][^>]+property=["']og:image["']/i);
-		const message = descMatch?.[1] ? htmlEntityDecode(descMatch[1]) : null;
+
+		// Extract published/updated time from og:updated_time or article:published_time
+		const timeMatch =
+			html.match(/<meta[^>]+property=["']og:updated_time["'][^>]+content=["']([^"']+)["']/i) ??
+			html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:updated_time["']/i) ??
+			html.match(/<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["']/i) ??
+			html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']article:published_time["']/i);
+		const publishedAt = timeMatch?.[1] ? htmlEntityDecode(timeMatch[1]) : null;
+
+		let message = descMatch?.[1] ? htmlEntityDecode(descMatch[1]) : null;
+
+		// og:description is truncated by Facebook at ~300 chars.
+		// Attempt to extract the full post text from the embedded JSON data.
+		// Facebook embeds post content in __bbox / ScheduledServerJS script blobs.
+		if (message) {
+			const fullText = extractFullPostTextFromHtml(html, message);
+			if (fullText && fullText.length > message.replace(/…$|\.{3}$/, '').length) {
+				message = fullText;
+			}
+		}
+
 		const rawImage = imageMatch?.[1] ? htmlEntityDecode(imageMatch[1]) : null;
 		// Filter out Facebook's generic placeholder images
 		const imageUrl = rawImage && !rawImage.includes('rsrc.php') && !rawImage.includes('static.xx.fbcdn') ? rawImage : null;
-		return { message, imageUrl };
+		return { message, imageUrl, publishedAt };
 	};
 
 	// Attempt 1: fetch the URL directly with the crawler UA.
@@ -3526,7 +3615,7 @@ async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: strin
 		// fall through to return null
 	}
 
-	return { message: null, imageUrl: null };
+	return { message: null, imageUrl: null, publishedAt: null };
 }
 
 /** Decode HTML entities in a string extracted from raw HTML attributes. */
@@ -3553,7 +3642,22 @@ function htmlEntityDecode(input: string): string {
  *   → body  = entire message
  */
 function deriveFacebookTitleAndBody(message: string): { title: string; body: string } {
-	const trimmed = message.trim();
+	let trimmed = message.trim();
+
+	// Facebook post bodies extracted from JSON sometimes include a header block:
+	// "Page Name\nDate at Time\nPost text..."
+	// Strip leading page-name and date-stamp lines so the actual post content
+	// becomes the title/body.  A "date line" looks like "February 26 at 3:00 PM"
+	// or "March 8, 2026" or a relative time like "2 hours ago".
+	const dateLine = /^(?:(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,\s*\d{4})?\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?|\d+\s+(?:hour|minute|day|week|month)s?\s+ago|Yesterday|Just now)\s*$/im;
+	const lines = trimmed.split('\n');
+	// Find the first line that looks like a date stamp and strip everything up to and including it
+	const dateLineIdx = lines.findIndex((l) => dateLine.test(l.trim()));
+	if (dateLineIdx !== -1 && dateLineIdx <= 3) {
+		// Only strip if the date line is within the first 4 lines (it's a header, not content)
+		trimmed = lines.slice(dateLineIdx + 1).join('\n').trim();
+	}
+
 	const hasMultipleParagraphs = trimmed.includes('\n\n');
 
 	// Short post — the whole thing is the title
