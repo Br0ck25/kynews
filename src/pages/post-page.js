@@ -121,7 +121,7 @@ export default function PostPage() {
     setMeta("property", "og:description", cleanDesc);
     setMeta("property", "og:url", pageUrl);
     setMeta("property", "og:site_name", SITE_NAME);
-    const defaultImage = `${SITE_URL}/img/preview.PNG`;
+    const defaultImage = `${SITE_URL}/img/preview.png`;
     setMeta("property", "og:image", post.image || defaultImage);
 
     // Twitter card
@@ -198,8 +198,8 @@ export default function PostPage() {
       const genericDesc = "Kentucky News - local, state, and national updates for all 120 Kentucky counties.";
       setMeta("name", "description", genericDesc);
       setCanonical(SITE_URL);
-      setMeta("property", "og:image", `${SITE_URL}/img/preview.PNG`);
-      setMeta("name", "twitter:image", `${SITE_URL}/img/preview.PNG`);
+      setMeta("property", "og:image", `${SITE_URL}/img/preview.png`);
+      setMeta("name", "twitter:image", `${SITE_URL}/img/preview.png`);
       setMeta("property", "fb:app_id", FB_APP_ID || "0");
       const ldScript = document.getElementById("json-ld-article");
       if (ldScript) ldScript.remove();

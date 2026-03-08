@@ -36,7 +36,7 @@ describe('ArticleSlugPage metadata', () => {
     );
 
     await waitFor(() => {
-      expect(getMeta('og:image')).toBe('https://localkynews.com/img/preview.PNG');
+      expect(getMeta('og:image')).toBe('https://localkynews.com/img/preview.png');
       expect(getMeta('fb:app_id')).toBe('testid');
     });
   });

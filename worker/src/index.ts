@@ -611,15 +611,23 @@ return json({ ok: true, result });
 }
 
 if (url.pathname === '/api/admin/purge-and-reingest' && request.method === 'POST') {
-if (!isAdminAuthorized(request, env)) {
-return json({ error: 'Unauthorized' }, 401);
-}
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
 
-const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: number }>(request);
-const includeSchools = body?.includeSchools !== false;
-const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
+  // require explicit confirmation string to prevent accidental full purge
+  const body = await parseJsonBody<{ includeSchools?: boolean; limitPerSource?: number; confirm?: string }>(request);
+  // ADD: require explicit confirmation string
+  if (body?.confirm !== 'PURGE_AND_REINGEST') {
+    return json({
+      error: 'Missing confirmation. Pass { "confirm": "PURGE_AND_REINGEST" } to proceed.',
+    }, 400);
+  }
 
-await prepare(env, 'DELETE FROM articles').run();
+  const includeSchools = body?.includeSchools !== false;
+  const limitPerSource = normalizeLimitPerSource(body?.limitPerSource);
+
+  await prepare(env, 'DELETE FROM articles').run();
 
 const candidateSources = buildManualIngestSources(includeSchools);
 const sourceUrls = [...new Set(candidateSources.map((item) => item.trim()).filter(isHttpUrl))];
@@ -854,10 +862,17 @@ return json({ ok: true, id, publishedAt: new Date(parsedTs).toISOString() });
 // requires a bearer token (env.ADMIN_SECRET) rather than the usual
 // admin-panel password that the rest of the UI uses.
 if (url.pathname.match(/^\/api\/articles\/\d+\/county$/) && request.method === 'PATCH') {
+  // This endpoint historically relied on a static bearer token
+  // (env.ADMIN_SECRET).  To stay consistent with other admin routes we
+  // now also accept the standard session-based auth used throughout the
+  // admin UI.  Both modes are regarded as equivalent here.
   const auth = request.headers.get('Authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  const expected = ((env as any).ADMIN_SECRET || '');
-  if (!token || token !== expected) {
+  const bearerToken = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const expectedSecret = ((env as any).ADMIN_SECRET || '');
+  const bearerValid = bearerToken && bearerToken === expectedSecret;
+  const sessionValid = isAdminAuthorized(request, env);
+
+  if (!bearerValid && !sessionValid) {
     return json({ error: 'Unauthorized' }, 401);
   }
 
@@ -1413,7 +1428,9 @@ url.searchParams.get('counties') || url.searchParams.get('county'),
 );
 const counties = normalizeCountyList(rawCounties) as string[];
 
-const search = url.searchParams.get('search')?.trim() ?? null;
+// limit search string length to avoid expensive queries
+const rawSearch = url.searchParams.get('search')?.trim() ?? null;
+const search = rawSearch ? rawSearch.slice(0, 120) : null;
 // when searching across all categories we let the backend return a larger
 // default batch size (100) so that users don't feel artificially capped at
 // a tiny number.  callers can still provide `limit` to override.
@@ -1452,6 +1469,46 @@ return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 // this Worker.  The production Pages deployment must proxy `/news/*` and
 // `/post*` to the worker (see `worker/wrangler.jsonc`); otherwise crawlers
 // and browsers will receive the static shell with the generic logo image.
+// FIRST: social bot preview support for county hub pages
+const countyPageMatch = url.pathname.match(/^\/news\/kentucky\/([a-z0-9-]+-county)\/?$/i);
+if (countyPageMatch && request.method === 'GET') {
+  const ua = request.headers.get('user-agent') || '';
+  const isSocialBot = /facebookexternalhit|facebookbot|twitterbot|linkedinbot|slackbot|whatsapp|telegram|googlebot/i.test(ua);
+
+  if (isSocialBot) {
+    const countySlug = countyPageMatch[1]; // e.g. "pike-county"
+    const countyDisplay = countySlug
+      .replace(/-county$/, '')
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase()) + ' County';
+
+    const pageUrl = `${BASE_URL}/news/kentucky/${countySlug}`;
+    const title = `${countyDisplay}, KY News — Local KY News`;
+    const description = `The latest news from ${countyDisplay}, Kentucky — local government, schools, sports, weather, and community stories from Local KY News.`;
+    const image = `${BASE_URL}/img/preview.png`;
+
+    const html = `<!doctype html><html lang="en-US"><head>
+<title>${escapeHtml(title)}</title>
+<meta name="description" content="${escapeHtml(description)}"/>
+<meta property="og:type" content="website"/>
+<meta property="og:title" content="${escapeHtml(title)}"/>
+<meta property="og:description" content="${escapeHtml(description)}"/>
+<meta property="og:url" content="${escapeHtml(pageUrl)}"/>
+<meta property="og:image" content="${escapeHtml(image)}"/>
+<meta property="og:site_name" content="Local KY News"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="${escapeHtml(title)}"/>
+<meta name="twitter:description" content="${escapeHtml(description)}"/>
+<meta name="twitter:image" content="${escapeHtml(image)}"/>
+<link rel="canonical" href="${escapeHtml(pageUrl)}"/>
+</head><body><script>window.location.href='${pageUrl}';</script></body></html>`;
+
+    return new Response(html, {
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
+  }
+}
+
 // include HEAD so preliminary bot probes still see our OG tags
 if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.startsWith('/news/') || url.pathname === '/post')) {
   const userAgent = request.headers.get('User-Agent') || '';
@@ -1503,7 +1560,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 300);
-          const fallbackImage = 'https://localkynews.com/img/preview.PNG';
+          const fallbackImage = 'https://localkynews.com/img/preview.png';
           const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
 
           // Render the summary as paragraphs
@@ -1571,7 +1628,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         if (isBot) {
           const pageUrl = `https://localkynews.com${canonicalPath}`;
           const metas: string[] = [];
-          const fallbackImage = 'https://localkynews.com/img/preview.PNG';
+          const fallbackImage = 'https://localkynews.com/img/preview.png';
           metas.push('<meta property="og:type" content="article"/>');
           metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
           metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
@@ -1689,7 +1746,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           .replace(/\s+/g, ' ')
           .trim()
           .slice(0, 300);
-        const fallbackImage = 'https://localkynews.com/img/preview.PNG';
+        const fallbackImage = 'https://localkynews.com/img/preview.png';
         const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
         const summaryParagraphs = (article.summary || '')
           .split(/\n\n+/)
@@ -1766,7 +1823,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         // match the client‑side default so bots see the same preview image
         // that appears in the SPA shell.  Previously this URL was wrong and
         // caused Facebook to fall back to the site logo when scraping.
-        const fallbackImage = 'https://localkynews.com/img/preview.PNG';
+        const fallbackImage = 'https://localkynews.com/img/preview.png';
 
         // determine which image to use. priority:
         // 1. explicit article.imageUrl
@@ -2046,19 +2103,27 @@ async function generateSitemap(env: Env): Promise<string> {
 	const rows = await env.ky_news_db
 		.prepare(
             `SELECT id, slug, county, category, is_national, published_at, updated_at FROM articles
-       WHERE is_kentucky = 1 OR is_national = 1
+       WHERE (is_kentucky = 1 OR is_national = 1) AND slug IS NOT NULL AND slug != ''
        ORDER BY id DESC LIMIT 50000`,
         )
         .all<{ id: number; slug: string | null; county: string | null; category: string; is_national: number; published_at: string; updated_at: string }>();
-	const urls = (rows.results || []).map((row) => {
+	// filter out any rows missing a usable slug (legacy /post? urls are not canonical)
+	const validRows = (rows.results || []).filter((row) => row.slug && row.slug.trim() !== '');
+	const urls = validRows.map((row) => {
 		// normalize whatever timestamp we have and then take the UTC date portion
 		const iso = toIsoDateOrNull(row.updated_at || row.published_at || '');
 		const lastmod = iso ? iso.split('T')[0] : '';
 		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, Boolean(row.is_national), row.id);
+		// compute article age to decide changefreq/priority
+		const publishedDate = new Date(row.published_at || row.updated_at || Date.now());
+		const ageMs = Date.now() - publishedDate.getTime();
+		const ageDays = ageMs / (1000 * 60 * 60 * 24);
+		const changefreq = ageDays < 7 ? 'daily' : ageDays < 30 ? 'weekly' : 'monthly';
+		const priority = ageDays < 7 ? '0.8' : ageDays < 30 ? '0.7' : '0.5';
 		return `  <url>
     <loc>${loc}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
+    <changefreq>${changefreq}</changefreq>
+    <priority>${priority}</priority>
   </url>`;
 	});
 
@@ -2070,7 +2135,7 @@ async function generateSitemap(env: Env): Promise<string> {
 		{ path: '/sports', priority: '0.8', changefreq: 'hourly' },
 		{ path: '/weather', priority: '0.8', changefreq: 'hourly' },
 		{ path: '/schools', priority: '0.8', changefreq: 'hourly' },
-		{ path: '/local', priority: '0.9', changefreq: 'daily' },
+		{ path: '/local', priority: '1.0', changefreq: 'daily' },
 		{ path: '/about', priority: '0.6', changefreq: 'monthly' },
 		{ path: '/contact', priority: '0.5', changefreq: 'monthly' },
 		{ path: '/editorial-policy', priority: '0.6', changefreq: 'monthly' },
@@ -3361,20 +3426,37 @@ async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: strin
 	const isShareLink = /\/share\/[a-z]\//.test(fbUrl) || /\/share\/p\//.test(fbUrl);
 	if (isShareLink) {
 		try {
-			// Fetch the share link with redirect:manual so we can read the Location header
-			// without following it (Facebook redirects to the full post URL).
-			const headResp = await fetch(fbUrl, {
+			// In Cloudflare Workers, redirect:'manual' returns an opaque response
+			// with no readable headers. Use redirect:'follow' instead and read
+			// response.url to get the final destination after all redirects.
+			const followResp = await fetch(fbUrl, {
 				method: 'GET',
-				redirect: 'manual',
+				redirect: 'follow',
 				headers: {
 					'user-agent': 'Mozilla/5.0 (Linux; Android 11; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0',
 					accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+					'accept-language': 'en-US,en;q=0.5',
 				},
 			});
-			const location = headResp.headers.get('location');
-			if (location) {
-				// Location may be relative — resolve against the original URL
-				resolvedUrl = new URL(location, fbUrl).toString();
+			// response.url is the final URL after redirects and may not change
+			// if the share page uses a meta refresh or JS redirect instead of
+			// an HTTP Location header.  If we didn't get a new URL, try to parse
+			// the response body for a client‑side redirect.
+			let finalUrl = followResp.url;
+			if (finalUrl === fbUrl) {
+				const text = await followResp.text();
+				// look for <meta http-equiv="refresh" content="0;URL=...">
+				const metaMatch = text.match(/<meta[^>]+http-equiv=["']refresh["'][^>]+content=["'][^"']*url=(https?:\/\/[^"']+)["']/i);
+				// look for simple javascript redirects
+				const jsMatch = text.match(/window\.location(?:\.href)?\s*=\s*["'](https?:\/\/[^"']+)["']/i);
+				if (metaMatch) {
+					finalUrl = metaMatch[1];
+				} else if (jsMatch) {
+					finalUrl = jsMatch[1];
+				}
+			}
+			if (finalUrl && finalUrl !== fbUrl) {
+				resolvedUrl = finalUrl;
 			}
 		} catch {
 			// If redirect resolution fails, fall through with original URL

@@ -837,7 +837,7 @@ async function handleRequest(request, env, ctx) {
     // --- Server-side social preview for article URLs ------------------------------------------------
     // Facebook (and other scrapers) do not execute JavaScript. Since the
     // front-end is a SPA, sharing a `/news/...` path would normally return the
-    // bare index.html with the generic template OG tags (preview.PNG), which is
+    // bare index.html with the generic template OG tags (preview.png), which is
     // why the wrong image was showing up earlier.  To fix this we intercept those
     // requests here in the worker, look up the article by slug, and return a
     // minimal HTML page containing the appropriate meta tags.  The body includes
@@ -869,7 +869,7 @@ async function handleRequest(request, env, ctx) {
                     // always emit an og:image tag so crawlers never fall back to the
                     // generic preview graphic; use the article picture if present,
                     // otherwise point at the static site thumbnail.
-                    const defaultImage = `${new URL(pageUrl).origin}/img/preview.PNG`;
+                    const defaultImage = `${new URL(pageUrl).origin}/img/preview.png`;
                     let previewImage = article.imageUrl;
                     if (!previewImage && article.contentHtml) {
                         const mm = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);

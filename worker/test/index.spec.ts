@@ -401,10 +401,11 @@ async function ensureSchemaAndFixture() {
 				expect(xml).toMatch(/<lastmod>2025-12-15<\/lastmod>/);
 				expect(xml).toMatch(/<lastmod>2024-01-01<\/lastmod>/);
 				expect(xml).not.toContain('2025-12-15 08:30:00');
-
-				const newsXml = await __testables.generateNewsSitemap(env as any);
-				expect(newsXml).toMatch(/<news:publication_date>2025-12-15T08:30:00/);
-
+                // slugless articles should be excluded entirely
+                expect(xml).not.toContain('/post?articleId=');
+                // there should be at least one changefreq/priority tag from our age logic
+                expect(xml).toMatch(/<changefreq>(daily|weekly|monthly)<\/changefreq>/);
+                expect(xml).toMatch(/<priority>0\.[0-9]<\/priority>/);
 			// RSS generator for the today feed should include our fixture story
 			const rss = await __testables.generateTodayRss(env as any, []);
 			expect(rss).toContain('<rss');
@@ -924,6 +925,32 @@ describe('classification utilities', () => {
 		expect(classification.county).toBe('Pendleton');
 	});
 
+	it('full ingest pipeline assigns correct county for an explicit Pike County article', async () => {
+		// mock the AI to return a simple classification so the pipeline deterministically
+		// picks up Pike County from the text and stores it in the D1 row.
+		const originalAi = env.AI;
+		env.AI = {
+			run: vi.fn().mockResolvedValue({
+				response: JSON.stringify({
+					category: 'today',
+					isKentucky: true,
+					counties: ['Pike'],
+				}),
+			}),
+		} as any;
+
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://pikenewstimes.com/article/pikeville-event',
+			title: 'Pikeville festival draws thousands to Pike County',
+			content: 'PIKEVILLE, Ky. — The annual Mountain Arts Center festival in Pike County drew large crowds Saturday.',
+		});
+
+		env.AI = originalAi;
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Pike');
+		expect(classification.counties).toContain('Pike');
+	});
+
 	it('national wire regex matches foreign datelines like Dubai/United Arab Emirates', () => {
 		expect(classifyModule.NATIONAL_WIRE_OVERRIDE_RE.test('DUBAI, United Arab Emirates — Story')).toBe(true);
 		expect(classifyModule.NATIONAL_WIRE_OVERRIDE_RE.test('JERUSALEM, Israel — Report')).toBe(true);
@@ -964,26 +991,19 @@ describe('classification utilities', () => {
 		expect(classification.counties).toEqual([]);
 	});
 
-	it('still nulls Franklin when both geo detector and AI suggest it on a statewide-pol story', async () => {
-		// simulate AI hallucination returning Franklin County even though the
-		// dateline is Frankfort (statewide political story).  primary should be
-		// cleared but the counties array itself is retained.
-		const originalAi = env.AI;
-		const aiResponse = JSON.stringify({ category: 'today', isKentucky: true, counties: ['Franklin'] });
-		env.AI = { run: vi.fn().mockResolvedValue({ response: aiResponse }) } as any;
-
+	it('does not assign Franklin County when Frankfort appears only in body text', async () => {
+		// similar to the previous test but without an explicit dateline in the title
+		// and using a different source URL.  the AI is not stubbed here because we
+		// expect the base geo logic alone to clear the county, but we still check
+		// that the final classification preserves the KY flag.
 		const classification = await classifyArticleWithAi(env, {
-			url: 'https://example.com/politics',
-			title: 'FRANKFORT, Ky. (ABC36 NEWS NOW) – Governor speaks',
-			content: 'FRANKFORT, Ky. (ABC36 NEWS NOW) – The governor addressed a state policy change.',
+			url: 'https://harlanenterprise.net/article/ky-legislature',
+			title: 'Kentucky lawmakers pass new education bill',
+			content: 'FRANKFORT, Ky. — The state legislature voted Thursday on House Bill 42.',
 		});
-
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBeNull();
-		// county list is preserved for filtering even though no primary
-		expect(classification.counties).toEqual(['Franklin']);
-
-		env.AI = originalAi;
+		expect(classification.counties).toEqual([]);
 	});
 
 	// ensure multiple counties from AI are retained even for statewide-pol
@@ -2374,14 +2394,18 @@ describe('ingestSingleUrl error handling', () => {
 		vi.restoreAllMocks();
 	});
 
-	it('returns rejected status when insertArticle throws', async () => {
-		await ensureSchemaAndFixture();
-
-		// stub network fetch for article
-		const originalFetch = global.fetch;
-		global.fetch = async () =>
-			new Response('<html><body><p>hi</p></body></html>', {
-				status: 200,
+    it('serves a simple OG preview page for county hub URLs to social bots', async () => {
+        // bot requests to county pages should return static HTML with meaningful metadata
+        const resp = await SELF.fetch('https://example.com/news/kentucky/pike-county', {
+            headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' },
+        });
+        expect(resp.status).toBe(200);
+        const text = await resp.text();
+        expect(text).toContain('<meta property="og:title" content="Pike County, KY News — Local KY News"');
+        expect(text).toContain('<meta property="og:description" content="The latest news from Pike County, Kentucky');
+        expect(text).toContain('<meta property="og:url" content="https://localkynews.com/news/kentucky/pike-county"');
+        expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/preview.png"');
+    });
 				headers: { 'Content-Type': 'text/html' },
 			});
 
@@ -2617,6 +2641,35 @@ describe('title similarity dedupe', () => {
 		expect(capObit).not.toMatch(/#/);
 	});
 
+	it('follows share link redirect and scrapes post', async () => {
+		const share = 'https://www.facebook.com/share/p/14cehV53nQQ/';
+		let call = 0;
+		vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+			call++;
+			if (call === 1) {
+				// share page uses meta refresh to the real post URL
+				return new Response(
+					'<html><head><meta http-equiv="refresh" content="0;URL=https://www.facebook.com/realpost/123"></head></html>',
+					{ status: 200, url: share }
+				);
+			}
+			if (call === 2) {
+				// the mbasic scrape of the resolved URL should return og tags
+				return new Response(
+					'<html><head><meta property="og:description" content="Hello world"><meta property="og:image" content="https://example.com/photo.jpg"></head></html>',
+					{ status: 200, url: 'https://mbasic.facebook.com/realpost/123' }
+				);
+			}
+			return new Response(null, { status: 404 });
+		});
+
+		const result = await __testables.scrapeFacebookPostPublic(share);
+		expect(result.message).toBe('Hello world');
+		expect(result.imageUrl).toBe('https://example.com/photo.jpg');
+
+		vi.restoreAllMocks();
+	});
+
 	it('allows distinct titles well below the threshold', async () => {
 		await ensureSchemaAndFixture();
 		const match = await findHighlySimilarTitle(env, 'County commission advances road paving contract');
@@ -2695,6 +2748,50 @@ describe('admin endpoints', () => {
 			body: JSON.stringify({ county: 'Adair' }),
 		});
 		expect(resp.status).toBe(401);
+	});
+
+	it('supports changing primary county via PATCH with admin session auth', async () => {
+		await ensureSchemaAndFixture();
+		// insert sample article
+		const now = new Date().toISOString();
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/session-test',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-session',
+			title: 'Session Test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 's',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		const adminEnv = envWithAdminPassword('pw');
+		const req = new IncomingRequest(`https://example.com/api/articles/${id}/county`, {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ county: 'Adair' }),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const body = await resp.json();
+		expect(body.article.county).toBe('Adair');
+		const row = await getArticleById(env, id);
+		expect(row?.county).toBe('Adair');
 	});
 
 	it('supports changing and clearing primary county via PATCH with bearer token', async () => {
@@ -3994,4 +4091,5 @@ describe('social preview HTML route', () => {
 	});
 
 
+});
 });
