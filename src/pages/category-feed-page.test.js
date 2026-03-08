@@ -54,4 +54,23 @@ describe('CategoryFeedPage', () => {
     });
     expect(screen.getByText('Nat post')).toBeInTheDocument();
   });
+
+  it('sets noindex robots tag when cursor query parameter present', async () => {
+    store.dispatch(setSelectedCounties([]));
+    jest.spyOn(SiteService.prototype, 'fetchPage').mockResolvedValue({ posts: [], nextCursor: null });
+
+    // render page with cursor in window location
+    window.history.pushState({}, 'test', '/today?cursor=xyz');
+    render(
+      <Provider store={store}>
+        <CategoryFeedPage category="today" title="Kentucky Today" />
+      </Provider>
+    );
+
+    await waitFor(() => {
+      const robots = document.querySelector('meta[name="robots"]');
+      expect(robots).not.toBeNull();
+      expect(robots.getAttribute('content')).toBe('noindex, follow');
+    });
+  });
 });

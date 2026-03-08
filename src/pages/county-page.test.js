@@ -25,6 +25,45 @@ test('renders error state when slug is invalid', () => {
   expect(screen.getByText(/County not found/i)).toBeInTheDocument();
 });
 
+// verify that OG metadata is injected for a valid county
+test('county page updates OG and title metadata', async () => {
+  jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
+  render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={["/news/kentucky/pike-county"]}>
+        <Route path="/news/kentucky/:countySlug">
+          <CountyPage />
+        </Route>
+      </MemoryRouter>
+    </Provider>
+  );
+
+  await waitFor(() => {
+    expect(document.title).toContain('Pike County');
+    expect(document.querySelector('meta[property="og:title"]').getAttribute('content')).toContain('Pike County');
+  });
+});
+
+// robots meta test when cursor param present
+test('adds noindex robots meta when cursor query exists', async () => {
+  jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
+  render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={["/news/kentucky/pike-county?cursor=abc"]}>
+        <Route path="/news/kentucky/:countySlug">
+          <CountyPage />
+        </Route>
+      </MemoryRouter>
+    </Provider>
+  );
+
+  await waitFor(() => {
+    const robots = document.querySelector('meta[name="robots"]');
+    expect(robots).not.toBeNull();
+    expect(robots.getAttribute('content')).toBe('noindex, follow');
+  });
+});
+
 // ensure the component passes the parsed county name through to the service
 // layer when fetching posts; this is the only place the frontend forms the
 // API query so verifying it guards against regressions.

@@ -38,6 +38,10 @@ describe('PostPage metadata', () => {
     await waitFor(() => {
       expect(getMeta('og:image')).toBe('https://localkynews.com/img/preview.png');
       expect(getMeta('fb:app_id')).toBe('testid');
+      const json = document.getElementById('json-ld-article')?.textContent || '';
+      expect(json).toContain('"publisher":');
+      expect(json).toContain('Local KY News');
+      expect(json).toContain('"sourceOrganization"');
     });
   });
 });

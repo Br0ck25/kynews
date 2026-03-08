@@ -124,6 +124,22 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, countyKey]);
 
+  // add robots meta tag for cursor parameters (paginated pages)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hasCursor = params.has('cursor');
+    let robotsMeta = document.querySelector('meta[name="robots"]');
+    if (!robotsMeta) {
+      robotsMeta = document.createElement('meta');
+      robotsMeta.name = 'robots';
+      document.head.appendChild(robotsMeta);
+    }
+    robotsMeta.setAttribute('content', hasCursor ? 'noindex, follow' : 'index, follow');
+    return () => {
+      robotsMeta?.setAttribute('content', 'index, follow');
+    };
+  }, [window.location.search]);
+
   // Load next page when the sentinel scrolls into view.
   // Uses a ref-based guard (isLoadingMoreRef) so this callback reference stays
   // stable while a fetch is in-flight.  Keeping the same callback reference

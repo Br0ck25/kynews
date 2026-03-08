@@ -86,7 +86,8 @@ export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = n
 
     // canonical URL for the specific info page
     const SITE_URL = "https://localkynews.com";
-    const canonicalHref = `${SITE_URL}/news/kentucky/${countySlug}/${infoType}`;
+    const pageUrl = `${SITE_URL}/news/kentucky/${countySlug}/${infoType}`;
+    const canonicalHref = pageUrl;
     let canonical = document.querySelector('link[rel="canonical"]');
     if (!canonical) {
       canonical = document.createElement("link");
@@ -94,6 +95,46 @@ export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = n
       document.head.appendChild(canonical);
     }
     canonical.setAttribute("href", canonicalHref);
+
+    // inject WebPage JSON-LD with breadcrumb
+    const pageLabel = infoType === 'government-offices' ? 'Government Offices' : 'Utilities';
+    const schema = {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: `${countyName} County ${pageLabel} — Local KY News`,
+      url: pageUrl,
+      description: infoType === 'government-offices'
+        ? `Contact information for government offices in ${countyName} County, Kentucky.`
+        : `Utility providers and contact details serving ${countyName} County, Kentucky.`,
+      publisher: { '@type': 'Organization', name: 'Local KY News', url: SITE_URL },
+      breadcrumb: {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Home', item: SITE_URL },
+          { '@type': 'ListItem', position: 2, name: 'Kentucky Counties', item: `${SITE_URL}/local` },
+          {
+            '@type': 'ListItem',
+            position: 3,
+            name: `${countyName} County`,
+            item: `${SITE_URL}/news/kentucky/${countySlug}`,
+          },
+          { '@type': 'ListItem', position: 4, name: pageLabel, item: pageUrl },
+        ],
+      },
+    };
+
+    let el = document.getElementById('json-ld-county-info');
+    if (!el) {
+      el = document.createElement('script');
+      el.type = 'application/ld+json';
+      el.id = 'json-ld-county-info';
+      document.head.appendChild(el);
+    }
+    el.textContent = JSON.stringify(schema);
+
+    return () => {
+      document.getElementById('json-ld-county-info')?.remove();
+    };
   }, [countyName, infoType, countySlug]);
 
   if (!countyName) {

@@ -38,6 +38,11 @@ describe('ArticleSlugPage metadata', () => {
     await waitFor(() => {
       expect(getMeta('og:image')).toBe('https://localkynews.com/img/preview.png');
       expect(getMeta('fb:app_id')).toBe('testid');
+      // JSON-LD should include our site as publisher and retain original name
+      const json = document.getElementById('json-ld-article')?.textContent || '';
+      expect(json).toContain('"publisher":');
+      expect(json).toContain('Local KY News');
+      expect(json).toContain('"sourceOrganization"');
     });
   });
 });

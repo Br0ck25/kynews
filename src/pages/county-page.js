@@ -69,6 +69,29 @@ const service = new SiteService();
 
 const SITE_URL = "https://localkynews.com";
 
+// utility used by multiple pages to inject/update meta tags
+function setMeta(attr, value, content) {
+  let el = document.querySelector(`meta[${attr}="${value}"]`);
+  if (!el) {
+    el = document.createElement('meta');
+    el.setAttribute(attr, value);
+    document.head.appendChild(el);
+  }
+  el.setAttribute('content', content);
+}
+const SITE_NAME = "Local KY News";
+
+// helper for injecting/updating <meta> tags
+function setMeta(attr, value, content) {
+  let el = document.querySelector(`meta[${attr}="${value}"]`);
+  if (!el) {
+    el = document.createElement("meta");
+    el.setAttribute(attr, value);
+    document.head.appendChild(el);
+  }
+  el.setAttribute("content", content);
+}
+
 /** Inject JSON-LD structured data for a county page */
 function setCountyJsonLd(countyName) {
   const pageUrl = `${SITE_URL}/news/kentucky/${countyName.toLowerCase().replace(/\s+/g, "-")}-county`;
@@ -133,6 +156,21 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
 
   const location = useLocation();
 
+  // robots meta for paginated variants
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const hasCursor = params.has('cursor');
+    let robotsMeta = document.querySelector('meta[name="robots"]');
+    if (!robotsMeta) {
+      robotsMeta = document.createElement('meta');
+      robotsMeta.name = 'robots';
+      document.head.appendChild(robotsMeta);
+    }
+    robotsMeta.setAttribute('content', hasCursor ? 'noindex, follow' : 'index, follow');
+    return () => {
+      robotsMeta?.setAttribute('content', 'index, follow');
+    };
+  }, [location.search]);
   // dialog state for info pages
   const [infoDialogOpen, setInfoDialogOpen] = useState(false);
 
@@ -168,6 +206,52 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
 
     // JSON-LD schema (Section 5.5)
     setCountyJsonLd(countyName);
+
+    // Open Graph / Twitter cards
+    const ogTitle = `${countyName} County, KY News — Local KY News`;
+    const ogDesc = `The latest news from ${countyName} County, Kentucky — local government, schools, sports, weather, and community stories.`;
+    const defaultImage = 'https://localkynews.com/img/preview.png';
+
+    setMeta('property', 'og:type', 'website');
+    setMeta('property', 'og:title', ogTitle);
+    setMeta('property', 'og:description', ogDesc);
+    setMeta('property', 'og:url', pageUrl);
+    setMeta('property', 'og:image', defaultImage);
+    setMeta('property', 'og:site_name', 'Local KY News');
+    setMeta('name', 'twitter:card', 'summary_large_image');
+    setMeta('name', 'twitter:title', ogTitle);
+    setMeta('name', 'twitter:description', ogDesc);
+    setMeta('name', 'twitter:image', defaultImage);
+
+    // handle pagination robots tags when ?cursor is present
+    const params = new URLSearchParams(location.search);
+    const hasCursor = params.has('cursor');
+    let robotsMeta = document.querySelector('meta[name="robots"]');
+    if (!robotsMeta) {
+      robotsMeta = document.createElement('meta');
+      robotsMeta.name = 'robots';
+      document.head.appendChild(robotsMeta);
+    }
+    robotsMeta.setAttribute('content', hasCursor ? 'noindex, follow' : 'index, follow');
+
+    return () => {
+      // cleanup generic metadata
+      document.title = SITE_NAME;      const genericDesc =
+        "Kentucky News - local, state, and national updates for all 120 Kentucky counties.";
+      let meta = document.querySelector('meta[name="description"]');
+      if (meta) meta.setAttribute('content', genericDesc);
+      setCanonical(SITE_URL);
+      // clear OG/Twitter back to defaults
+      setMeta('property', 'og:image', `${SITE_URL}/img/preview.png`);
+      setMeta('name', 'twitter:image', `${SITE_URL}/img/preview.png`);
+      setMeta('property', 'og:title', SITE_URL);
+      setMeta('property', 'og:description', genericDesc);
+      setMeta('name', 'twitter:title', SITE_URL);
+      setMeta('name', 'twitter:description', genericDesc);
+      setMeta('property', 'og:url', SITE_URL);
+      setMeta('property', 'og:site_name', 'Local KY News');
+      robotsMeta?.setAttribute('content', 'index, follow');
+    };
   }, [countyName]);
 
   // Determine whether this county is in the dedicated saved-counties list.
