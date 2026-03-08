@@ -11,6 +11,8 @@ import Constants from "../constants/constants";
 const useStyles = makeStyles((theme) => ({
   root: {
     flexGrow: 1,
+    // when AppBar is fixed we need a spacer so the rest of the
+    // layout doesn't slide underneath it
     marginBottom: theme.spacing(2),
   },
   toolbar: {
@@ -26,7 +28,10 @@ const useStyles = makeStyles((theme) => ({
     backgroundColor: theme.palette.background.paper,
     borderBottom: `1px solid ${theme.palette.divider}`,
     boxShadow: "0 4px 14px rgba(0,0,0,.04)",
+    zIndex: theme.zIndex.appBar,
   },
+  // helper for the fixed toolbar offset
+  offset: theme.mixins.toolbar,
 }));
 
 export default function AppHeader() {
@@ -37,7 +42,10 @@ export default function AppHeader() {
 
   return (
     <div className={classes.root}>
-      <AppBar position="sticky" color="default" className={classes.appBar}>
+      {/* fixed position guarantees the header and hamburger stay on
+          screen.  We insert an "offset" div afterwards so the page
+          content doesn't slip underneath. */}
+      <AppBar position="fixed" color="default" className={classes.appBar}>
         <Toolbar className={classes.toolbar}>
           <IconButton
             edge="start"
@@ -53,6 +61,9 @@ export default function AppHeader() {
           </Typography>
         </Toolbar>
       </AppBar>
+
+      {/* spacer matches the AppBar height (theme.mixins.toolbar) */}
+      <div className={classes.offset} />
 
       <SideBarMenu open={open} handleOpen={() => setOpen(!open)}/>
     </div>

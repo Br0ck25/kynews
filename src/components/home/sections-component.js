@@ -17,6 +17,9 @@ const useStyles = makeStyles((theme) => ({
   toolbarSecondary: {
     justifyContent: "center",
     overflowX: "auto",
+    position: "sticky",
+    top: 56, // pushes this bar underneath the fixed AppHeader height
+    zIndex: 1100,
   },
   toolbarLink: {
     padding: theme.spacing(1),
