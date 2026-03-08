@@ -2992,6 +2992,35 @@ describe('admin endpoints', () => {
 	});
 });
 
+// admin update-check endpoint tests
+
+describe('admin update-check endpoint', () => {
+	it('rejects unauthorized requests', async () => {
+		const response = await SELF.fetch('https://example.com/api/admin/check-updates', {
+			method: 'POST',
+		});
+		expect(response.status).toBe(401);
+	});
+
+	it('invokes checkArticleUpdates with 48h window when authorized', async () => {
+		await ensureSchemaAndFixture();
+		const spy = vi.spyOn(__testables, 'checkArticleUpdates').mockResolvedValue();
+
+		const adminEnv = envWithAdminPassword('pw');
+		const req = new IncomingRequest('https://example.com/api/admin/check-updates', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw' },
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(resp.status).toBe(200);
+		expect(spy).toHaveBeenCalledWith(adminEnv, 48);
+		spy.mockRestore();
+	});
+});
+
 // backfill endpoint tests
 
 describe('admin backfill endpoint', () => {

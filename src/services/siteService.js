@@ -614,6 +614,12 @@ export default class SiteService {
     });
   }
 
+  async adminCheckUpdates() {
+    return this.request("/api/admin/check-updates", {
+      method: "POST",
+    });
+  }
+
   async deleteAdminArticle({ id, block = false, reason = "" }) {
     return this.request("/api/admin/article/delete", {
       method: "POST",

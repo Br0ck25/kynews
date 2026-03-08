@@ -134,10 +134,23 @@ describe('AdminPage manual body formatting', () => {
       nextCursor: null,
     });
 
+    // first verify dashboard-level update check button
+    const adminSpy = jest.spyOn(SiteService.prototype, 'adminCheckUpdates')
+      .mockResolvedValue({ ok: true });
+
+    render(<AdminPage />);
+    fireEvent.click(screen.getByRole('tab', { name: /Dashboard/i }));
+    const dashBtn = await screen.findByText(/Check recent updates/i);
+    fireEvent.click(dashBtn);
+    const dashMsg = await screen.findByText(/Update-check job enqueued/i);
+    expect(dashMsg).toBeInTheDocument();
+    expect(adminSpy).toHaveBeenCalled();
+    adminSpy.mockRestore();
+
+    // next ensure row-level button still works
     const checkSpy = jest.spyOn(SiteService.prototype, 'checkArticleUpdate')
       .mockResolvedValue({ ok: true, updated: true, updateParagraph: 'added update' });
 
-    render(<AdminPage />);
     fireEvent.click(screen.getByRole('tab', { name: /Articles/i }));
     const button = await screen.findByText(/Check update/i);
     fireEvent.click(button);

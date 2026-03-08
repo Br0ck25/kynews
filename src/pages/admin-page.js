@@ -150,6 +150,10 @@ export default function AdminPage() {
   const [manualFbLoading, setManualFbLoading] = useState(false);
   const [manualSuccess, setManualSuccess] = useState(null);
   const [manualError, setManualError] = useState("");
+  // dashboard update check state
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [checkUpdatesResult, setCheckUpdatesResult] = useState(null);
+  const [checkUpdatesError, setCheckUpdatesError] = useState("");
 
   // --- Manual URL ingest state ---
   const [manualUrlInput, setManualUrlInput] = useState('');
@@ -175,6 +179,24 @@ export default function AdminPage() {
   const [rowCheckResults, setRowCheckResults] = useState({});
   const [rowCheckErrors, setRowCheckErrors] = useState({});
   const [rowCheckLoadingId, setRowCheckLoadingId] = useState(null);
+
+  const handleCheckUpdates = async () => {
+    setCheckingUpdates(true);
+    setCheckUpdatesError("");
+    setCheckUpdatesResult(null);
+    try {
+      const res = await service.adminCheckUpdates();
+      if (res.ok) {
+        setCheckUpdatesResult(res);
+      } else {
+        setCheckUpdatesError(res.error || "unknown error");
+      }
+    } catch (err) {
+      setCheckUpdatesError(err?.errorMessage || String(err));
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
 
   const handleDiagCaption = async () => {
     setFbDiagError("");
@@ -980,14 +1002,26 @@ export default function AdminPage() {
             <Button variant="contained" color="primary" onClick={backfillCounties}>
               Backfill Counties
             </Button>
-            <Button variant="contained" color="default" onClick={runReclassify}>
+            <Button variant="contained" color="primary" onClick={runReclassify}>
               Reclassify Articles
+            </Button>
+            <Button variant="contained" color="default" onClick={handleCheckUpdates} disabled={checkingUpdates}>
+              {checkingUpdates ? "Checking…" : "Check recent updates"}
             </Button>
             <Button variant="outlined" onClick={loadData} disabled={loading}>
               {loading ? "Loading…" : "Refresh"}
             </Button>
           </Box>
-
+          {checkUpdatesError && (
+            <Typography color="error" variant="body2" style={{ marginBottom: 12 }}>
+              {checkUpdatesError}
+            </Typography>
+          )}
+          {checkUpdatesResult && (
+            <Typography variant="body2" style={{ marginBottom: 12 }}>
+              Update-check job enqueued for last 48 hours
+            </Typography>
+          )}
 
           {metrics && (
             <Paper style={{ padding: 12, marginBottom: 16 }}>

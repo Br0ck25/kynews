@@ -3337,8 +3337,8 @@ function extractWymtSearchArticleLinks(baseUrl: string, html: string, maxLinks: 
  * last left off by ordering newest-first (recent articles are most
  * likely to have updates).
  */
-async function checkArticleUpdates(env: Env): Promise<void> {
-  const articles = await getArticlesForUpdateCheck(env, 24);
+async function checkArticleUpdates(env: Env, maxAgeHours: number = 24): Promise<void> {
+  const articles = await getArticlesForUpdateCheck(env, maxAgeHours);
   // Limit to 20 per cron run to stay within CPU budget
   const batch = articles.slice(0, 20);
 

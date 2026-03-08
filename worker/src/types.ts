@@ -36,6 +36,8 @@ export interface ArticleRecord {
   contentHtml: string;
   imageUrl: string | null;
   rawR2Key: string | null;
+  /** SHA256 hash of scraped content used for update detection (nullable). */
+  contentHash: string | null;
   /** SEO-friendly URL slug derived from title + id. Added in migration 0004. */
   slug: string | null;
   createdAt: string;
