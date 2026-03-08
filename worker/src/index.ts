@@ -3354,9 +3354,36 @@ function extractFacebookPostId(fbUrl: string): string | null {
  * Extracts the post message and og:image from meta tags.
  */
 async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: string | null; imageUrl: string | null }> {
+	// For short share links (/share/p/{code}) we must first resolve the redirect
+	// to get the real post URL, then convert that to mbasic for scraping.
+	// For all other URLs we convert directly to mbasic.
+	let resolvedUrl = fbUrl;
+	const isShareLink = /\/share\/[a-z]\//.test(fbUrl) || /\/share\/p\//.test(fbUrl);
+	if (isShareLink) {
+		try {
+			// Fetch the share link with redirect:manual so we can read the Location header
+			// without following it (Facebook redirects to the full post URL).
+			const headResp = await fetch(fbUrl, {
+				method: 'GET',
+				redirect: 'manual',
+				headers: {
+					'user-agent': 'Mozilla/5.0 (Linux; Android 11; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0',
+					accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+				},
+			});
+			const location = headResp.headers.get('location');
+			if (location) {
+				// Location may be relative — resolve against the original URL
+				resolvedUrl = new URL(location, fbUrl).toString();
+			}
+		} catch {
+			// If redirect resolution fails, fall through with original URL
+		}
+	}
+
 	let mbasicUrl: string;
 	try {
-		const parsed = new URL(fbUrl);
+		const parsed = new URL(resolvedUrl);
 		parsed.hostname = 'mbasic.facebook.com';
 		mbasicUrl = parsed.toString();
 	} catch {
