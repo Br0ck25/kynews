@@ -171,6 +171,10 @@ export default function AdminPage() {
   const [rowPostLoadingId, setRowPostLoadingId] = useState(null);
   const [rowPostResults, setRowPostResults] = useState({});
   const [rowPostErrors, setRowPostErrors] = useState({});
+  // per-article manual update-check state
+  const [rowCheckResults, setRowCheckResults] = useState({});
+  const [rowCheckErrors, setRowCheckErrors] = useState({});
+  const [rowCheckLoadingId, setRowCheckLoadingId] = useState(null);
 
   const handleDiagCaption = async () => {
     setFbDiagError("");
