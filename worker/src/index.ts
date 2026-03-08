@@ -1570,6 +1570,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         }
         if (isBot) {
           const pageUrl = `https://localkynews.com${canonicalPath}`;
+          const metas: string[] = [];
+          const fallbackImage = 'https://localkynews.com/img/preview.PNG';
           metas.push('<meta property="og:type" content="article"/>');
           metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
           metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
@@ -1582,10 +1584,49 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           metas.push('<meta name="twitter:card" content="summary_large_image"/>');
           metas.push(`<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>`);
           metas.push(`<meta property="fb:app_id" content="${escapeHtml(env.FB_APP_ID || '0')}"/>`);
-          const html = `<!doctype html><html><head>${metas.join('')}</head><body></body></html>`;
-          return new Response(html, {
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-          });
+        // Build article body so Googlebot can index the actual text content
+        const botSummaryParagraphs = (article.summary || '')
+          .split(/\n\n+/)
+          .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
+          .filter((p: string) => p.length > 10)
+          .join('\n');
+        const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
+        const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
+        const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${escapeHtml(article.title)}</title>
+  ${metas.join('\n  ')}
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;margin:0 auto;padding:16px;color:#111;line-height:1.6;}
+    h1{font-size:1.35rem;line-height:1.3;margin-bottom:8px;}
+    .meta{font-size:0.82rem;color:#666;margin-bottom:16px;}
+    .meta span{margin-right:12px;}
+    p{margin:0 0 14px;}
+    a.source{display:block;margin:20px 0;padding:12px;background:#f0f4ff;border-radius:8px;text-decoration:none;color:#1a56db;font-weight:600;text-align:center;}
+    footer{border-top:1px solid #eee;margin-top:24px;padding-top:12px;font-size:0.78rem;color:#999;text-align:center;}
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(article.title)}</h1>
+  <div class="meta">
+    ${botCountyLabel ? `<span>📍 ${escapeHtml(botCountyLabel)}</span>` : ''}
+    ${botCategoryLabel ? `<span>${escapeHtml(botCategoryLabel)}</span>` : ''}
+    ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
+  </div>
+  ${botSummaryParagraphs || `<p>${escapeHtml(desc)}</p>`}
+  <a class="source" href="${escapeHtml(article.canonicalUrl)}" rel="noopener">Read full article at source →</a>
+  <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
+</body>
+</html>`;
+        return new Response(html, {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'public, max-age=300, s-maxage=300',
+          },
+        });
         }
         if (!isBot && canonicalPath !== url.pathname) {
           return new Response(null, {
@@ -1756,10 +1797,48 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           )}"/>`
         );
 
-        // include redirect parameter so second request bypasses this block
-        const html = `<!doctype html><html><head>${metas.join('')}</head><body></body></html>`;
+        // Build article body so Googlebot can index the actual text content
+        const botSummaryParagraphs = (article.summary || '')
+          .split(/\n\n+/)
+          .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
+          .filter((p: string) => p.length > 10)
+          .join('\n');
+        const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
+        const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
+        const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${escapeHtml(article.title)}</title>
+  ${metas.join('\n  ')}
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;margin:0 auto;padding:16px;color:#111;line-height:1.6;}
+    h1{font-size:1.35rem;line-height:1.3;margin-bottom:8px;}
+    .meta{font-size:0.82rem;color:#666;margin-bottom:16px;}
+    .meta span{margin-right:12px;}
+    p{margin:0 0 14px;}
+    a.source{display:block;margin:20px 0;padding:12px;background:#f0f4ff;border-radius:8px;text-decoration:none;color:#1a56db;font-weight:600;text-align:center;}
+    footer{border-top:1px solid #eee;margin-top:24px;padding-top:12px;font-size:0.78rem;color:#999;text-align:center;}
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(article.title)}</h1>
+  <div class="meta">
+    ${botCountyLabel ? `<span>📍 ${escapeHtml(botCountyLabel)}</span>` : ''}
+    ${botCategoryLabel ? `<span>${escapeHtml(botCategoryLabel)}</span>` : ''}
+    ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
+  </div>
+  ${botSummaryParagraphs || `<p>${escapeHtml(desc)}</p>`}
+  <a class="source" href="${escapeHtml(article.canonicalUrl)}" rel="noopener">Read full article at source →</a>
+  <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
+</body>
+</html>`;
         return new Response(html, {
-          headers: { 'content-type': 'text/html; charset=utf-8' },
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'public, max-age=300, s-maxage=300',
+          },
         });
       }
 
