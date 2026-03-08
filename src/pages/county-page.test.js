@@ -5,6 +5,7 @@ import { createMemoryHistory } from 'history';
 import CountyPage from './county-page';
 import CountyInfoPage from './county-info-page';
 import KentuckyNewsPage from './kentucky-news-page';
+import ArticleSlugPage from './article-slug-page';
 import SiteService from '../services/siteService';
 import { Provider } from 'react-redux';
 import store from '../redux/store/store';
@@ -41,6 +42,49 @@ test('county page updates OG and title metadata', async () => {
   await waitFor(() => {
     expect(document.title).toContain('Pike County');
     expect(document.querySelector('meta[property="og:title"]').getAttribute('content')).toContain('Pike County');
+  });
+});
+
+// ensure FAQs appear when county info provides data
+test('renders FAQ section for county', async () => {
+  jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([]);
+  render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={["/news/kentucky/pike-county"]}>
+        <Route path="/news/kentucky/:countySlug">
+          <CountyPage />
+        </Route>
+      </MemoryRouter>
+    </Provider>
+  );
+
+  // header should render; click to expand
+  const header = await screen.findByText(/About\s+Pike/i);
+  fireEvent.click(header);
+  // question text should then appear (county seat is in data)
+  expect(await screen.findByText(/What is the county seat of Pike County/i)).toBeInTheDocument();
+});
+
+// verify last-updated timestamp shows when posts are returned
+test('shows last updated time when posts are returned', async () => {
+  const samplePost = { publishedAt: '2026-03-01T12:00:00Z', date: '2026-03-01T12:00:00Z' };
+  jest.spyOn(SiteService.prototype, 'getPosts').mockResolvedValue([samplePost]);
+
+  render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={["/news/kentucky/pike-county"]}>
+        <Route path="/news/kentucky/:countySlug">
+          <CountyPage />
+        </Route>
+      </MemoryRouter>
+    </Provider>
+  );
+
+  // look for a <time> element with matching datetime
+  await waitFor(() => {
+    const timeEl = document.querySelector('time');
+    expect(timeEl).toBeTruthy();
+    expect(timeEl.getAttribute('dateTime')).toContain('2026-03-01');
   });
 });
 
@@ -403,6 +447,30 @@ test('info page has no outer card', async () => {
 
   // queryByTestId returns null if not found
   expect(screen.queryByTestId('county-card')).toBeNull();
+});
+
+// government info pages should emit machine-readable GovernmentService metadata
+
+test('government info page injects GovernmentService JSON-LD', async () => {
+  jest.spyOn(SiteService.prototype,'getPosts').mockResolvedValue([]);
+  const history = createMemoryHistory({initialEntries:['/news/kentucky/leslie-county/government-offices']});
+  render(
+    <Provider store={store}>
+      <Router history={history}>
+        <Route path="/news/kentucky/:countySlug/:infoType">
+          <CountyInfoPage />
+        </Route>
+      </Router>
+    </Provider>
+  );
+
+  await waitFor(() => {
+    const script = document.getElementById('json-ld-gov-service');
+    expect(script).toBeTruthy();
+    const data = JSON.parse(script.textContent);
+    expect(data['@type']).toBe('GovernmentService');
+    expect(data.provider.name).toContain('Leslie County');
+  });
 });
 // verify specific content changes requested by user
 

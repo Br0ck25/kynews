@@ -180,6 +180,11 @@ date: new Date().toISOString(),
 });
 }
 
+// serve llms.txt from public assets
+if (url.pathname === '/llms.txt' && request.method === 'GET') {
+  return fetch(`${BASE_URL}/llms.txt`);
+}
+
 if (url.pathname === '/api/ingest/url' && request.method === 'POST') {
 const body = await parseJsonBody<{ url?: string }>(request);
 const articleUrl = body?.url?.trim();
@@ -1395,6 +1400,39 @@ const slug = articleBySlugMatch[1];
 if (!slug) return badRequest('Invalid article slug');
 const article = await getArticleBySlug(env, slug);
 if (!article) return json({ error: 'Not found' }, 404);
+
+// plain-text format for AI crawlers
+const format = url.searchParams.get('format');
+if (format === 'text') {
+  const publishedDate = article.publishedAt
+    ? new Date(article.publishedAt).toLocaleDateString('en-US', { dateStyle: 'long' })
+    : 'Unknown date';
+  const county = article.county ? `${article.county} County, Kentucky` : 'Kentucky';
+  const source = article.sourceUrl
+    ? (() => { try { return new URL(article.sourceUrl).hostname.replace(/^www\./, ''); } catch { return ''; } })()
+    : '';
+  const plainText = [
+    article.title,
+    `Published: ${publishedDate}`,
+    article.county ? `Location: ${county}` : '',
+    source ? `Source: ${source}` : '',
+    article.author ? `Author: ${article.author}` : '',
+    '',
+    // Strip any HTML from summary
+    (article.summary || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    '',
+    article.canonicalUrl ? `Full story: ${article.canonicalUrl}` : '',
+    `Via: https://localkynews.com/news/${article.slug ? `kentucky/${article.slug}` : ''}`,
+  ].filter(Boolean).join('\n');
+
+  return new Response(plainText, {
+    headers: {
+      'content-type': 'text/plain; charset=utf-8',
+      'cache-control': 'public, max-age=3600',
+    },
+  });
+}
+
 return json({ item: article }, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 }
 

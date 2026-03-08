@@ -5,6 +5,24 @@
 // ingestion.
 import type { Category, ClassificationResult } from '../types';
 import { detectCounty, detectCity, detectKentuckyGeo, HIGH_AMBIGUITY_CITIES, escapeRegExp, textContainsCounty, AMBIGUOUS_COUNTY_NAMES } from './geo';
+
+// lightweight runtime schema guard for AI responses – avoids silent failures
+// when the model returns malformed JSON or unexpected field types.  We only
+// care about the fields our merging logic reads.
+function validateAiResponse(parsed: unknown): parsed is {
+  category: string;
+  isKentucky: boolean;
+  counties?: string[];
+  county?: string | null;
+} {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const p = parsed as Record<string, unknown>;
+  if (typeof p.category !== 'string') return false;
+  if (typeof p.isKentucky !== 'boolean') return false;
+  if (p.counties !== undefined && !Array.isArray(p.counties)) return false;
+  if (p.county !== undefined && p.county !== null && typeof p.county !== 'string') return false;
+  return true;
+}
 import { KY_COUNTIES } from '../data/ky-geo';
 
 type AiResultLike = {
@@ -185,32 +203,91 @@ const KY_BRANDED_SOURCES: Array<{ hosts: string[]; stripPattern: RegExp }> = [
  * set in Kentucky (e.g. county mentioned twice plus the word "Kentucky"/"KY").
  */
 const ALWAYS_NATIONAL_SOURCES = new Set<string>([
+  // foxnews.com — major national conservative news network; content is
+  // syndicated nationwide and rarely focused on local Kentucky issues.
   'foxnews.com',
+
+  // cnn.com — global news outlet; treat all articles as national.
   'cnn.com',
+
+  // nbcnews.com — national broadcaster's website, not a local KY source.
   'nbcnews.com',
+
+  // abcnews.go.com — ABC network news, national coverage.
   'abcnews.go.com',
+
+  // cbsnews.com — national news network site.
   'cbsnews.com',
+
+  // apnews.com — Associated Press wire service; stories are by definition
+  // national/international rather than local.
   'apnews.com',
+
+  // reuters.com — international wire service.
   'reuters.com',
+
+  // politico.com — national political news.
   'politico.com',
+
+  // thehill.com — national political news site.
   'thehill.com',
+
+  // washingtonpost.com — national newspaper based in DC.
   'washingtonpost.com',
+
+  // nytimes.com — national newspaper with global scope.
   'nytimes.com',
+
+  // wsj.com — Wall Street Journal, national business/newspaper.
   'wsj.com',
+
+  // usatoday.com — national news publication.
   'usatoday.com',
+
+  // newsfromthestates.com — aggregates state-level wire stories; always
+  // national in our context.
   'newsfromthestates.com',
+
+  // thoroughbreddailynews.com — horse racing trade publication with national
+  // readership; mentions of Kentucky are about the sport, not local news.
   'thoroughbreddailynews.com',
+
+  // cbssports.com — national sports website.
   'cbssports.com',
+
+  // espn.com — major sports network; national coverage.
   'espn.com',
+
+  // bleacherreport.com — national sports news/blog.
   'bleacherreport.com',
+
+  // si.com — Sports Illustrated; national sports coverage.
   'si.com',
+
+  // theathletic.com — subscription sports network covering national leagues.
   'theathletic.com',
+
+  // nbcsports.com — NBC's sports site; national scope.
   'nbcsports.com',
-  'wlky.com', // Louisville CBS affiliate syndicates national wire stories
-  'wlwt.com', // Cincinnati NBC affiliate — covers Ohio/NKY border; not a KY-primary source
-  'whas11.com', // Louisville ABC affiliate — syndicates AP wire and Indiana stories
-  'stateline.org',        // States Newsroom / Stateline — national policy wire, covers all 50 states
-  'wtvq.com',             // Lexington ABC affiliate — heavily syndicates national wire (AP/ABC); KY stories are rare
+
+  // wlky.com — Louisville CBS affiliate; syndicates heavy national wire content.
+  'wlky.com',
+
+  // wlwt.com — Cincinnati NBC affiliate.  Covers Ohio/NKY border but is not a
+  // Kentucky-focused homepage; content is largely Ohio/national.
+  'wlwt.com',
+
+  // whas11.com — Louisville ABC affiliate; syndicates AP wire and Indiana
+  // stories.  Treat as national since local content is rare.
+  'whas11.com',
+
+  // stateline.org — States Newsroom / Stateline; national policy wire covering
+  // all 50 states.
+  'stateline.org',
+
+  // wtvq.com — Lexington ABC affiliate; heavily syndicates national wire
+  // (AP/ABC); genuine KY stories are infrequent.
+  'wtvq.com',
 ]);
 
 
@@ -570,6 +647,18 @@ export async function classifyArticleWithAi(
   const effectiveGeoCounty = hasExplicitCountyMention ? baseGeo.county : null;
   const effectiveGeoCounties = hasExplicitCountyMention ? (baseGeo.counties || []) : [];
 
+  // determine how confident we are in the county assignment based on text
+  // signals.  This value travels through the AI merge step unchanged so
+  // downstream UI components can highlight low-confidence results.
+  const geoConfidence: ClassificationResult['geoConfidence'] =
+    hasExplicitCountyMention
+      ? 'high'
+      : baseGeo.city && !HIGH_AMBIGUITY_CITIES.has(baseGeo.city.toLowerCase())
+        ? 'medium'
+        : baseGeo.city && HIGH_AMBIGUITY_CITIES.has(baseGeo.city.toLowerCase())
+          ? 'low'
+          : null;
+
   // District-owned *.kyschools.us domains should generally be treated as
   // school-related stories unless the semantic classifier already identified a
   // more specific category (sports/weather/etc).  Previously we only forced
@@ -619,6 +708,7 @@ export async function classifyArticleWithAi(
     city: baseGeo.city,
     category: hasKhsaa ? 'sports' : category,
     isNational: false, // will populate after we know isKentucky
+    geoConfidence,
   };
   // if we had no counties but have a primary county fallback, ensure array
   if (fallback.county && fallback.counties.length === 0) {
@@ -742,20 +832,28 @@ export async function classifyArticleWithAi(
       ''
     ).trim().replace(/```json|```/gi, '').trim();
 
-    const parsed = JSON.parse(aiText) as {
-      category?: string;
-      isKentucky?: boolean;
-      county?: string | null;
-      counties?: string[];
-    };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(aiText);
+    } catch {
+      console.warn('[AI CLASSIFY] JSON parse failed, using fallback');
+      return fallback;
+    }
+    if (!validateAiResponse(parsed)) {
+      console.warn('[AI CLASSIFY] Response failed schema validation:', aiText.slice(0, 200));
+      return fallback;
+    }
 
-    const aiCategory = VALID_AI_CATEGORIES.has(parsed.category ?? '') ? (parsed.category as Category) : null;
-    const aiIsKentucky = typeof parsed.isKentucky === 'boolean' ? parsed.isKentucky : false;
+    // At this point `parsed` conforms to the expected shape
+    const safe = parsed;
+    const aiCategory = VALID_AI_CATEGORIES.has(safe.category ?? '') ? (safe.category as Category) : null;
+    const aiIsKentucky = safe.isKentucky;
 
-    // build normalized list of counties from the AI output
-    const aiCountiesRaw: string[] = Array.isArray(parsed.counties)
-      ? parsed.counties
-      : parsed.county ? [parsed.county] : [];
+    // build normalized list of counties from the AI output (respect either
+    // an array or a singular "county" field for backward compatibility)
+    const aiCountiesRaw: string[] = Array.isArray(safe.counties)
+      ? safe.counties
+      : safe.county ? [safe.county] : [];
     let aiCounties = aiCountiesRaw
       .map((c) => normalizeCountyName(c))
       .filter((c): c is string => !!c);
@@ -862,6 +960,7 @@ export async function classifyArticleWithAi(
         isKySchoolsSource,
       ),
       isNational: false, // recalc below
+      geoConfidence: fallback.geoConfidence,
     };
 
     // recompute national flag after merges/overrides
@@ -935,6 +1034,9 @@ export async function classifyArticleWithAi(
 }
 
 const CATEGORY_PATTERNS: Record<Exclude<Category, 'today' | 'national'>, RegExp[]> = {
+  // include empty string key to satisfy Record type narrowing; it is never
+  // actually used.
+  '': [],
   sports: [
     /\bfootball\b/i,
     /\bbasketball\b/i,

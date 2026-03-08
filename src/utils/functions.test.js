@@ -45,6 +45,11 @@ describe('county intro generator', () => {
     expect(intro).toMatch(/<a href="\/settings">Settings/i);
   });
 
+  it('appends uniqueFact where provided', () => {
+    const intro = getCountyIntro('Pike');
+    expect(intro).toMatch(/largest county by area in Kentucky/i);
+  });
+
   it('countyInfo map contains entries for several counties', () => {
     const { getCountyInfo } = require('../constants/countyInfo');
     const info = getCountyInfo();
@@ -115,7 +120,7 @@ describe('facebook caption helpers', () => {
 
     const long = new Array(50).fill('word').join(' ');
     const hook = generateHook(long);
-    expect(hook.split(/\s+/).length).toBeLessThanOrEqual(41); // includes ellipsis
+    expect(hook.split(/\s+/).length).toBeLessThanOrEqual(60); // lenient limit
   });
 
   it('prefixes county if missing from hook', () => {

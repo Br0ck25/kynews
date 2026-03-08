@@ -224,7 +224,13 @@ export default function FeaturedPost(props) {
         <Typography variant="h5" gutterBottom style={{ padding: 10 }}>
           {post.title}
         </Typography>
-        <Typography variant="body2" color="textSecondary" style={{ padding: "0 10px 4px" }}>
+        <Typography
+          component="time"
+          dateTime={post.publishedAt || post.date}
+          variant="body2"
+          color="textSecondary"
+          style={{ padding: "0 10px 4px" }}
+        >
           {ToDateTime(post.date)}
         </Typography>
 
@@ -299,7 +305,7 @@ export default function FeaturedPost(props) {
         )}
 
         {summaryParagraphs.length > 0 && (
-          <div className={"description"} style={{ padding: "0 10px 10px" }}>
+          <div className={"description article-summary"} style={{ padding: "0 10px 10px" }}>
             <Typography variant="subtitle2" color="textSecondary" gutterBottom>
               Summary
             </Typography>

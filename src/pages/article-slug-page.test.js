@@ -43,6 +43,10 @@ describe('ArticleSlugPage metadata', () => {
       expect(json).toContain('"publisher":');
       expect(json).toContain('Local KY News');
       expect(json).toContain('"sourceOrganization"');
+      // alternate plain-text link should exist
+      const alt = document.querySelector('link[rel="alternate"][type="text/plain"]');
+      expect(alt).toBeTruthy();
+      expect(alt.getAttribute('href')).toContain('?format=text');
     });
   });
 });

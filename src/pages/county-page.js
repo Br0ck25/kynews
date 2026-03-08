@@ -21,7 +21,7 @@ import FeaturedPost from "../components/featured-post-component";
 import Posts from "../components/home/posts-component";
 import Skeletons from "../components/skeletons-component";
 import SnackbarNotify from "../components/snackbar-notify-component";
-import { slugToCounty, getCountyIntro, countyToSlug } from "../utils/functions";
+import { slugToCounty, getCountyIntro, countyToSlug, getCountyFaqs } from "../utils/functions";
 import { useParams, useHistory } from "react-router-dom";
 import { __RouterContext } from "react-router";
 import { ToggleSavedCounty, GetSavedCounties } from "../services/storageService";
@@ -81,19 +81,9 @@ function setMeta(attr, value, content) {
 }
 const SITE_NAME = "Local KY News";
 
-// helper for injecting/updating <meta> tags
-function setMeta(attr, value, content) {
-  let el = document.querySelector(`meta[${attr}="${value}"]`);
-  if (!el) {
-    el = document.createElement("meta");
-    el.setAttribute(attr, value);
-    document.head.appendChild(el);
-  }
-  el.setAttribute("content", content);
-}
 
 /** Inject JSON-LD structured data for a county page */
-function setCountyJsonLd(countyName) {
+function setCountyJsonLd(countyName, lastUpdated = null) {
   const pageUrl = `${SITE_URL}/news/kentucky/${countyName.toLowerCase().replace(/\s+/g, "-")}-county`;
   const schema = {
     "@context": "https://schema.org",
@@ -110,6 +100,7 @@ function setCountyJsonLd(countyName) {
         { "@type": "ListItem", position: 3, name: `${countyName} County`, item: pageUrl },
       ],
     },
+    dateModified: lastUpdated || new Date().toISOString(),
   };
   let el = document.getElementById("json-ld-county");
   if (!el) {
@@ -119,6 +110,28 @@ function setCountyJsonLd(countyName) {
     document.head.appendChild(el);
   }
   el.textContent = JSON.stringify(schema);
+
+  // FAQPage schema injection
+  const faqs = getCountyFaqs(countyName);
+  if (faqs.length > 0) {
+    const faqSchema = {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": faqs.map(({ q, a }) => ({
+        "@type": "Question",
+        "name": q,
+        "acceptedAnswer": { "@type": "Answer", "text": a },
+      })),
+    };
+    let faqEl = document.getElementById("json-ld-county-faq");
+    if (!faqEl) {
+      faqEl = document.createElement("script");
+      faqEl.type = "application/ld+json";
+      faqEl.id = "json-ld-county-faq";
+      document.head.appendChild(faqEl);
+    }
+    faqEl.textContent = JSON.stringify(faqSchema);
+  }
 }
 
 /**
@@ -147,12 +160,14 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
 
   const [posts, setPosts] = useState([]);
   const [statePosts, setStatePosts] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errors, setErrors] = useState("");
   const [saved, setSaved] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
   // County intro: first paragraph always visible, rest collapsed by default
   const [introExpanded, setIntroExpanded] = useState(false);
+  const [faqExpanded, setFaqExpanded] = useState(false);
 
   const location = useLocation();
 
@@ -205,7 +220,7 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
     canonical.setAttribute("href", pageUrl);
 
     // JSON-LD schema (Section 5.5)
-    setCountyJsonLd(countyName);
+    setCountyJsonLd(countyName, lastUpdated);
 
     // Open Graph / Twitter cards
     const ogTitle = `${countyName} County, KY News — Local KY News`;
@@ -251,8 +266,9 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
       setMeta('property', 'og:url', SITE_URL);
       setMeta('property', 'og:site_name', 'Local KY News');
       robotsMeta?.setAttribute('content', 'index, follow');
+      document.getElementById("json-ld-county-faq")?.remove();
     };
-  }, [countyName]);
+  }, [countyName, lastUpdated]);
 
   // Determine whether this county is in the dedicated saved-counties list.
   useEffect(() => {
@@ -271,6 +287,11 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
       .getPosts({ category: "today", counties: [countyName], limit: 50 })
       .then((countyData) => {
         setPosts(countyData);
+        // compute last-updated based on newest post
+        const updated = countyData.length > 0
+          ? new Date(countyData[0].publishedAt || countyData[0].date).toISOString()
+          : null;
+        setLastUpdated(updated);
 
         if (countyData.length < 5) {
           // grab some extra statewide kentucky posts to pad the page
@@ -1093,6 +1114,14 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
               </IconButton>
             </span>
           </Typography>
+          {lastUpdated && (
+            <Typography variant="caption" color="textSecondary">
+              Updated{' '}
+              <time dateTime={lastUpdated}>
+                {new Date(lastUpdated).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              </time>
+            </Typography>
+          )}
 
           {/* County introductory content — 300–500 words (Section 5.4)
                First paragraph always visible; remaining paragraphs collapsible. */}
@@ -1127,6 +1156,28 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
               {introExpanded ? "Show less" : "Show more"}
             </Button>
           </Box>
+
+          {getCountyFaqs(countyName).length > 0 && (
+            <Box style={{ marginBottom: 16 }}>
+              <Typography
+                variant="subtitle2"
+                style={{ fontWeight: 700, marginBottom: 8, cursor: 'pointer' }}
+                onClick={() => setFaqExpanded((v) => !v)}
+              >
+                About {countyName} County {faqExpanded ? '▲' : '▼'}
+              </Typography>
+              {faqExpanded && (
+                <dl style={{ margin: 0 }}>
+                  {getCountyFaqs(countyName).map(({ q, a }) => (
+                    <Box key={q} style={{ marginBottom: 8 }}>
+                      <Typography component="dt" variant="body2" style={{ fontWeight: 600 }}>{q}</Typography>
+                      <Typography component="dd" variant="body2" color="textSecondary" style={{ marginLeft: 0 }}>{a}</Typography>
+                    </Box>
+                  ))}
+                </dl>
+              )}
+            </Box>
+          )}
 
           {/* navigation buttons for county info pages; always available unless already viewing an info subpage */}
           {!effectiveInfoType && (

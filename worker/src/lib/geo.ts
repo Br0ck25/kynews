@@ -26,6 +26,13 @@ const OUT_OF_STATE_NAMES = [
 const PERSON_SURNAME_BEFORE_RE =
   /\b(?:rep(?:resentative)?|sen(?:ator)?|mr|mrs|ms|dr|officer|chief|sgt|col|gen|capt|lt|judge|justice|rev|prof)\b\.?\s+\w+\s*$/i;
 
+// sports score contexts often include directional prepositions like "in",
+// which our location-signal heuristics normally treat as positive.  When a
+// city is one of the HIGH_AMBIGUITY_CITIES and the surrounding window contains
+// a sports-related word we should ignore the signal to avoid false positives
+// on sentences such as "Kentucky scored 82 points in Lexington on Saturday".
+const SPORTS_SCORE_RE = /\b(?:scored?|points?|won|beat|defeated|vs\.?|led|ranked|victory|loss|game)\b/i;
+
 /**
  * City names that, when appearing near a geo match, indicate the
  * match is on the Ohio side of the Cincinnati metro rather than
@@ -1049,6 +1056,20 @@ function hasLocationSignalNearby(normalizedInput, city) {
     const start = Math.max(0, i - 5);
     const end = Math.min(words.length, i + cityWords.length + 5);
     const windowText = ` ${words.slice(start, end).join(' ')} `;
+    // suppress matches in clear sports-score contexts for high-ambiguity cities
+    // (e.g. Lexington).  However, if the snippet already contains an explicit
+    // "KY" or "Kentucky" signal we should still honor that.
+    if (
+      HIGH_AMBIGUITY_CITIES.has(city) &&
+      SPORTS_SCORE_RE.test(windowText) &&
+      // only an explicit postal abbreviation should block suppression;
+      // the word "kentucky" itself is too common in sports copy (e.g.
+      // "Kentucky scored 82 points...") and should not prevent us from
+      // ignoring a nearby "in".
+      !windowText.includes(' ky ')
+    ) {
+      return false;
+    }
     if (signals.some((signal) => windowText.includes(signal))) return true;
   }
 

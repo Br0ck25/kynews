@@ -22,8 +22,14 @@ const useStyles = makeStyles({
 
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
-const FB_APP_ID =
-  (import.meta.env.REACT_APP_FB_APP_ID || import.meta.env.VITE_FB_APP_ID || "").trim();
+let FB_APP_ID = '';
+try {
+  // eslint-disable-next-line no-eval
+  const env = eval('import.meta.env');
+  FB_APP_ID = (env.REACT_APP_FB_APP_ID || env.VITE_FB_APP_ID || '').trim();
+} catch (e) {
+  FB_APP_ID = '';
+}
 
 /**
  * Injects/updates a <meta> tag in <head> by name or property.
@@ -131,6 +137,17 @@ export default function PostPage() {
     setMeta("name", "twitter:image", post.image || defaultImage);
     if (FB_APP_ID) setMeta("property", "fb:app_id", FB_APP_ID);
 
+    // alternate plain-text article endpoint
+    const textUrl = `${pageUrl}?format=text`;
+    let altLink = document.querySelector('link[rel="alternate"][type="text/plain"]');
+    if (!altLink) {
+      altLink = document.createElement('link');
+      altLink.setAttribute('rel', 'alternate');
+      altLink.setAttribute('type', 'text/plain');
+      document.head.appendChild(altLink);
+    }
+    altLink.setAttribute('href', textUrl);
+
     // JSON-LD: NewsArticle schema (section 5.5)
     const publisherName =
       post.sourceName ||
@@ -156,12 +173,39 @@ export default function PostPage() {
         : { "@type": "Organization", name: publisherName },
       publisher: {
         "@type": "Organization",
+        name: "Local KY News",
+        url: "https://localkynews.com",
+        logo: {
+          "@type": "ImageObject",
+          url: "https://localkynews.com/img/logo512.png",
+          width: 512,
+          height: 512,
+        },
+      },
+      sourceOrganization: {
+        "@type": "Organization",
         name: publisherName,
-        url: post.originalLink
-          ? (() => { try { const u = new URL(post.originalLink); return u.origin; } catch { return ""; } })()
-          : "",
       },
       ...(post.image ? { image: { "@type": "ImageObject", url: post.image } } : {}),
+      ...(post.county
+        ? {
+            contentLocation: {
+              "@type": "AdministrativeArea",
+              name: `${post.county} County, Kentucky`,
+            },
+          }
+        : post.isKentucky
+        ? {
+            contentLocation: {
+              "@type": "State",
+              name: "Kentucky",
+            },
+          }
+        : {}),
+      speakable: {
+        "@type": "SpeakableSpecification",
+        cssSelector: ["h1", ".article-summary"],
+      },
     };
 
     // JSON-LD: BreadcrumbList schema

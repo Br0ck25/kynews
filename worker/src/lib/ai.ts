@@ -79,7 +79,7 @@ length. If the original article is under 400 words, cap your summary
 at 350 words maximum.
 
 Your summary must:
-- Begin with who, what, where, and why this is newsworthy.
+- Begin with a single, fully self-contained sentence that states the core fact of the article: who did what, where, and when — without relying on the headline for context. This sentence must be quotable on its own as a complete answer to the question "what happened?" Example of correct first sentence: "The Harlan County School Board voted 4–1 on March 5 to close Harlan Middle School at the end of the 2025–26 school year." Example of incorrect first sentence: "The board voted to close the school after months of deliberation." (requires headline to understand who and where)
 - Cover the full arc of the article from start to finish.
 - Always end on a complete sentence. Never end mid-sentence or mid-thought.
 - Be formatted as short, readable paragraphs of 2–3 sentences each.
@@ -102,6 +102,7 @@ Your summary must never:
 - Add facts, opinions, assumptions, or analysis not in the original.
 - Exaggerate, soften, or reframe any statement.
 - Split a direct quote across paragraphs — if a quote spans a line break in the source, keep it as a single uninterrupted sentence in your output.
+- Begin with a pronoun or article ("The board...", "Officials said...") when the subject has not been named. Always name the specific entity (board, person, organization) and its location in the first sentence.
 
 Return clean, publication-ready paragraphs only. No headlines, labels,
 bullet points, subheadings, URLs, or commentary.`;

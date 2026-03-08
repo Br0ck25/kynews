@@ -132,8 +132,31 @@ export default function CountyInfoPage({ countySlugProp = null, infoTypeProp = n
     }
     el.textContent = JSON.stringify(schema);
 
+    // GovernmentService schema for contact directories
+    if (infoType === 'government-offices') {
+      const govSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'GovernmentService',
+        serviceType: 'County Government Offices',
+        provider: {
+          '@type': 'GovernmentOrganization',
+          name: `${countyName} County, Kentucky`,
+          url: pageUrl,
+        },
+      };
+      let govEl = document.getElementById('json-ld-gov-service');
+      if (!govEl) {
+        govEl = document.createElement('script');
+        govEl.type = 'application/ld+json';
+        govEl.id = 'json-ld-gov-service';
+        document.head.appendChild(govEl);
+      }
+      govEl.textContent = JSON.stringify(govSchema);
+    }
+
     return () => {
       document.getElementById('json-ld-county-info')?.remove();
+      document.getElementById('json-ld-gov-service')?.remove();
     };
   }, [countyName, infoType, countySlug]);
 

@@ -93,6 +93,51 @@ export function slugToCounty(slug) {
 // county intro generator moved out of county-page for reuse and testability
 import { getCountyInfo } from "../constants/countyInfo";
 
+export function getCountyFaqs(countyName) {
+  const infoMap = getCountyInfo();
+  const info = infoMap[`${countyName} County`] || {};
+  const faqs = [];
+
+  if (info['County Seat']) {
+    faqs.push({
+      q: `What is the county seat of ${countyName} County, Kentucky?`,
+      a: `The county seat of ${countyName} County is ${info['County Seat']}.`,
+    });
+  }
+  if (info['Population']) {
+    faqs.push({
+      q: `What is the population of ${countyName} County, Kentucky?`,
+      a: `${countyName} County, Kentucky has a population of approximately ${info['Population'].replace(/[^0-9,]/g, '')}.`,
+    });
+  }
+  if (info['School District(s)']) {
+    faqs.push({
+      q: `What school district serves ${countyName} County, Kentucky?`,
+      a: `${countyName} County is served by ${info['School District(s)']}.`,
+    });
+  }
+  if (info['Sheriff']) {
+    faqs.push({
+      q: `Who is the ${countyName} County Sheriff?`,
+      a: `The ${countyName} County Sheriff's Office is ${info['Sheriff']}.`,
+    });
+  }
+  if (info['Median Household Income']) {
+    faqs.push({
+      q: `What is the median household income in ${countyName} County, Kentucky?`,
+      a: `The median household income in ${countyName} County, Kentucky is approximately ${info['Median Household Income']}.`,
+    });
+  }
+
+  // Always include a general news question
+  faqs.push({
+    q: `Where can I find the latest news for ${countyName} County, Kentucky?`,
+    a: `Local KY News aggregates the latest ${countyName} County news from local newspapers, TV stations, and government sources at localkynews.com/news/kentucky/${countyName.toLowerCase().replace(/\s/g, '-')}-county.`,
+  });
+
+  return faqs;
+}
+
 export function getCountyIntro(countyName) {
   const infoMap = getCountyInfo();
   const key = `${countyName} County`;
@@ -110,6 +155,9 @@ export function getCountyIntro(countyName) {
   }
   if (info['Median Household Income']) {
     opening += ` Median household income is around ${info['Median Household Income']}.`;
+  }
+  if (info['Unique Fact']) {
+    opening += ` ${info['Unique Fact']}`;
   }
   opening += `\n\n`;
 

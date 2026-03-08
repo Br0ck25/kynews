@@ -21,6 +21,20 @@ const service = new SiteService();
 export default function SearchPage() {
   const classes = useStyles();
   const searchPosts = useSelector(state => state.searchPosts);
+
+  // ensure search result pages are not indexed by bots
+  React.useEffect(() => {
+    let robots = document.querySelector('meta[name="robots"]');
+    if (!robots) {
+      robots = document.createElement('meta');
+      robots.name = 'robots';
+      document.head.appendChild(robots);
+    }
+    robots.setAttribute('content', 'noindex');
+    return () => {
+      robots?.setAttribute('content', 'index, follow');
+    };
+  }, []);
   const dispatch = useDispatch();
 
   const [isLoading, setIsLoading] = useState(false);

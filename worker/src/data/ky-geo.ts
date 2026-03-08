@@ -1569,3 +1569,9 @@ KY_CITY_TO_COUNTIES['pleasureville'] = ['Henry', 'Shelby'];
 // The city of Shepherdsville is technically only in Bullitt but borders
 // Jefferson; leave it as single-county.
 
+// Add verified multi-county cities.  Only include those that actually span
+// county lines; single-county towns should stay in KY_CITY_TO_COUNTY only.
+// Middlesboro sits in Bell County and spills over the Tennessee border into
+// Claiborne County on the KY side, so list both.
+KY_CITY_TO_COUNTIES['middlesboro'] = ['Bell', 'Claiborne'];
+

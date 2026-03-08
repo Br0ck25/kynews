@@ -669,6 +669,7 @@ Sheriff: Harlan County Sheriff's Office
 School District(s): Harlan County Schools, Harlan Independent Schools
 
 Time Zone: Eastern
+Unique Fact: Harlan County gained national attention through the 1976 documentary "Harlan County USA," which documented the Brookside Mine Strike.
 
 Harrison County
 
@@ -781,6 +782,7 @@ Sheriff: Jefferson County Sheriff's Office
 School District(s): Jefferson County Public Schools, Anchorage Independent Schools
 
 Time Zone: Eastern
+Unique Fact: Jefferson County is home to Louisville, Kentucky's largest city, and the site of the annual Kentucky Derby at Churchill Downs.
 
 Jessamine County
 
@@ -1369,6 +1371,7 @@ Sheriff: Pike County Sheriff's Office
 School District(s): Pike County Schools, Pikeville Independent Schools
 
 Time Zone: Eastern
+Unique Fact: Pike County is the largest county by area in Kentucky and was historically the center of the Appalachian coal industry.
 
 Powell County
 

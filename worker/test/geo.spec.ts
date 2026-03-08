@@ -43,15 +43,13 @@ describe('geo city matching', () => {
     expect(detectCity(text)).toBe('louisville');
   });
 
-  it('rejects Lexington mentions in national sports without signal (currently treated as a location)', () => {
+  it('does not match Lexington in a sports score sentence', () => {
     const text = 'Kentucky scored 82 points in Lexington on Saturday';
-    // our heuristics currently treat the "in" clause as a location signal,
-    // so the city is detected.  Adjusted expectation accordingly.
-    expect(detectCity(text)).toBe('lexington');
+    expect(detectCity(text)).toBe(null);
   });
 
-  it('accepts Lexington when location signal present', () => {
-    const text = 'The game tips off at 7 p.m. at Rupp Arena in Lexington, Ky.';
+  it('still matches Lexington with an explicit KY location signal in sports context', () => {
+    const text = 'The game was played in Lexington, Ky. on Saturday';
     expect(detectCity(text)).toBe('lexington');
   });
 });
@@ -289,6 +287,11 @@ describe('county detection', () => {
     const geo = detectKentuckyGeo('Police in Corbin responded to a call');
     expect(geo.counties).toEqual(['Whitley','Knox','Laurel']);
     expect(geo.county).toBe('Whitley');
+  });
+
+  it('Middlesboro returns Bell as primary county', () => {
+    const geo = detectKentuckyGeo('Police in Middlesboro responded to a call');
+    expect(geo.county).toBe('Bell');
   });
 
   // regression tests for merged county/city detection

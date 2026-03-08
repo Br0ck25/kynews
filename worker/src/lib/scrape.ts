@@ -80,7 +80,9 @@ export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocum
         // take the first src from the set (comma separated list)
         const parts = setMatch[1].split(',').map((p) => p.trim());
         if (parts.length > 0) {
-          imgMatch = [null, parts[0].split(' ')[0]];
+          // RegExpMatchArray element types must be string.  We only care about
+          // the second element so insert an empty string and cast.
+          imgMatch = ["" as any, parts[0].split(' ')[0]] as RegExpMatchArray;
         }
       }
     }

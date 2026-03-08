@@ -137,6 +137,11 @@ export interface ClassificationResult {
   /** all counties including primary; primary is first element when present */
   counties: string[];
   city: string | null;
+  /** How confident the system is in the county assignment.
+   *  'low' = derived from a HIGH_AMBIGUITY_CITIES city with no explicit county mention.
+   *  'medium' = derived from city with explicit KY signal nearby.
+   *  'high' = explicit "X County" text found in article. */
+  geoConfidence: 'high' | 'medium' | 'low' | null;
 }
 
 export interface SummaryResult {

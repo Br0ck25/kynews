@@ -64,11 +64,29 @@
         "@id": "https://localkynews.com/#organization",
         "name": "Local KY News",
         "url": "https://localkynews.com/",
-        "logo": "https://localkynews.com/img/logo512.png",
-        "sameAs": [
-          "https://www.facebook.com/LocalKYNews",
-          "https://twitter.com/LocalKYNews"
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://localkynews.com/img/logo512.png",
+          "width": 512,
+          "height": 512
+        },
+        "foundingDate": "2025",
+        "description": "Local KY News is an AI-assisted news aggregation platform covering all 120 Kentucky counties, summarizing original reporting from credentialed local news organizations with full attribution.",
+        "areaServed": {
+          "@type": "State",
+          "name": "Kentucky",
+          "sameAs": "https://www.wikidata.org/wiki/Q1603"
+        },
+        "knowsAbout": [
+          "Kentucky local news",
+          "Kentucky county government",
+          "Kentucky schools",
+          "Kentucky public safety",
+          "Kentucky sports",
+          "Kentucky weather"
         ],
+        "publishingPrinciples": "https://localkynews.com/editorial-policy",
+        "sameAs": [],
         "contactPoint": {
           "@type": "ContactPoint",
           "contactType": "editorial",
