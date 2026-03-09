@@ -162,6 +162,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
       status: 'inserted',
       urlHash: canonicalHash,
       category: classification.category,
+      slug: generateArticleSlug(extracted.title, canonicalHash),
       title: extracted.title,
       summary: ai.summary,
       seoDescription: ai.seoDescription,
@@ -260,10 +261,35 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     id: articleId,
     urlHash: canonicalHash,
     category: classification.category,
+    slug: newArticle.slug,
   };
 }
 
 export async function fetchAndExtractArticle(env: Env, source: IngestSource): Promise<ExtractedArticle> {
+  // If the caller supplied a manual description text (e.g. user pasted
+  // article text into the admin form) we should skip all network fetch and
+  // HTML-scraping logic and just return the provided string as-is.  This
+  // preserves any double-newline paragraph breaks rather than letting the
+  // breadcrumb/nav stripping regexes collapse them.
+  if (source.allowShortContent === true && source.providedDescription) {
+    const description = source.providedDescription.trim();
+    const title = source.providedTitle?.trim() || source.url;
+    const resolvedPublishedAt = toIsoDateOrNull(source.feedPublishedAt) ?? new Date().toISOString();
+    const normalizedCanonical = normalizeCanonicalUrl(source.url);
+    const normalizedSource = normalizeCanonicalUrl(source.sourceUrl ?? source.url);
+    return {
+      canonicalUrl: normalizedCanonical,
+      sourceUrl: normalizedSource,
+      title,
+      author: null,
+      publishedAt: resolvedPublishedAt,
+      contentHtml: description,
+      contentText: description,
+      classificationText: [source.providedTitle, source.providedDescription].filter(Boolean).join(' ').slice(0, 4000),
+      imageUrl: null,
+    };
+  }
+
   // Manual admin ingests (preview: undefined with a direct URL call) use a
   // browser-like UA to bypass basic bot detection on sites like kentucky.com.
   // Scheduled RSS ingests continue to use the cached bot UA path.

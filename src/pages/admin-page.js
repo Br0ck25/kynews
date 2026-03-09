@@ -744,9 +744,16 @@ export default function AdminPage() {
       const publishedAtIso = manualPublishedAt
         ? fromDateTimeLocalValue(manualPublishedAt)
         : new Date().toISOString();
+      // normalize pasted/typed text: collapse 3+ newlines into two but otherwise
+      // preserve paragraph breaks so double‑newline spacing survives the round-trip
+      const bodyToSend = manualBody
+        .replace(/\r\n?/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim() || null;
+
       const result = await service.createManualArticle({
         title: manualTitle.trim(),
-        body: manualBody.trim() || null,
+        body: bodyToSend,
         imageUrl: manualImageUrl.trim() || null,
         sourceUrl: fbPostUrl.trim() || null,
         county: manualIsKentucky ? (manualCounty || null) : null,
@@ -828,12 +835,20 @@ export default function AdminPage() {
     try {
       const result = await service.adminIngestUrl(manualUrlResult.pendingUrl);
       if (result.status === 'inserted') {
+        const slug = result.slug || null;
+        const county = result.county || null;
+        const articlePath = slug
+          ? (county
+              ? `/news/kentucky/${county.toLowerCase().replace(/\s+/g, '-')}-county/${slug}`
+              : `/news/kentucky/${slug}`)
+          : `/post?articleId=${result.id}`;
         setManualUrlResult({
           status: 'inserted',
           message: `✅ Added to site — ID: ${result.id}, category: ${result.category || 'none'}, ${result.isKentucky ? 'KY' : 'national'}`,
           articleId: result.id,
           articleTitle: result.title,
           articleCounty: result.county,
+          articlePath,
         });
         setManualUrlInput('');
         await loadData();
@@ -1369,6 +1384,16 @@ export default function AdminPage() {
                   </span>
                 )}
               </div>
+              {manualUrlResult?.status === 'inserted' && manualUrlResult.articlePath && (
+                <div style={{ marginTop: 6 }}>
+                  <a href={manualUrlResult.articlePath} target="_blank" rel="noreferrer">
+                    View on site →
+                  </a>
+                  <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>
+                    (may take a moment to appear if your browser cached the feed)
+                  </span>
+                </div>
+              )}
             )}
             {manualUrlResult?.status === 'preview' && (
               <div style={{ marginTop: 8 }}>
@@ -1655,7 +1680,9 @@ export default function AdminPage() {
               </Select>
             </FormControl>
             <TextField variant="outlined" size="small" label="Search"
-              value={articleSearch} onChange={(e) => setArticleSearch(e.target.value)} />
+              value={articleSearch}
+              onChange={(e) => setArticleSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') applyFilter(); }} />
             <Button variant="contained" color="primary" onClick={applyFilter}>Filter</Button>
             <Button variant="outlined" onClick={loadData} disabled={loading}>Reload All</Button>
             <FormControlLabel

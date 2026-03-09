@@ -83,11 +83,11 @@ describe('AdminPage manual body formatting', () => {
     ingestSpy.mockRestore();
   });
 
-  it('performs preview then confirm flow and shows final success message', async () => {
+  it('performs preview then confirm flow and shows final success message (with site link)', async () => {
     const previewSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
       .mockResolvedValue({ status: 'inserted', id: 42, category: 'today', isKentucky: true, county: 'Floyd', title: 'Test title' });
     const adminSpy = jest.spyOn(SiteService.prototype, 'adminIngestUrl')
-      .mockResolvedValue({ status: 'inserted', id: 42, category: 'today', isKentucky: true, county: 'Floyd', title: 'Test title' });
+      .mockResolvedValue({ status: 'inserted', id: 42, category: 'today', isKentucky: true, county: null, title: 'Test title', slug: 'test-slug' });
 
     render(<AdminPage />);
     fireEvent.click(screen.getByText(/Create Article/i));
@@ -104,8 +104,53 @@ describe('AdminPage manual body formatting', () => {
     expect(finalMsg).toBeInTheDocument();
     expect(adminSpy).toHaveBeenCalledWith('https://example.com/test');
 
+    // link should render using slug-based path
+    const link = await screen.findByRole('link', { name: /View on site/i });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute('href', '/news/kentucky/test-slug');
+
     previewSpy.mockRestore();
     adminSpy.mockRestore();
+  });
+
+  it('normalizes manual body newlines before submission', async () => {
+    const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
+      .mockResolvedValue({ status: 'inserted', id: 1, category: 'today', isKentucky: true, county: null });
+
+    render(<AdminPage />);
+    fireEvent.click(screen.getByRole('tab', { name: /Create Article/i }));
+    const title = await screen.findByLabelText(/Title \*/i);
+    const body = screen.getByLabelText(/Body \(optional\)/i);
+    fireEvent.change(title, { target: { value: 'Norm test' } });
+    // include 4 consecutive newlines which should collapse to two
+    fireEvent.change(body, { target: { value: 'Para1\n\n\n\nPara2' } });
+    fireEvent.click(screen.getByText(/Publish Article/i));
+
+    await screen.findByText(/Article published/i);
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ body: 'Para1\n\nPara2' })
+    );
+    createSpy.mockRestore();
+  });
+
+  it('pressing Enter in search field triggers filtering', async () => {
+    const listSpy = jest.spyOn(SiteService.prototype, 'getAdminArticles')
+      .mockResolvedValue({ items: [], nextCursor: null });
+
+    render(<AdminPage />);
+    // go to Articles tab to render search box
+    fireEvent.click(screen.getByRole('tab', { name: /Articles/i }));
+    // initial load should call once
+    await screen.findByText(/Articles/i);
+    expect(listSpy).toHaveBeenCalledTimes(1);
+
+    const search = await screen.findByLabelText(/Search/i);
+    fireEvent.change(search, { target: { value: 'foo' } });
+    fireEvent.keyDown(search, { key: 'Enter', code: 'Enter', charCode: 13 });
+
+    // expect a second call from applyFilter
+    expect(listSpy).toHaveBeenCalledTimes(2);
+    listSpy.mockRestore();
   });
 
   it('shows rejection message when preview returns rejected', async () => {

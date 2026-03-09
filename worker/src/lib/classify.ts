@@ -616,7 +616,17 @@ export async function classifyArticleWithAi(
   // mentioned; without the guard the geo detector will accidentally tag the
   // story as Floyd County, KY because the dateline or other nearby text often
   // contains "Louisville, Ky.".
-  const isIndianaStory = /\b(?:southern\s+indiana|indiana\s+law\s+enforcement|indiana\s+state\s+police|greenville,?\s*(?:indiana|ind\.?)|new\s+albany,?\s*(?:indiana|ind\.?)|jeffersonville,?\s*(?:indiana|ind\.?)|clarksville,?\s*(?:indiana|ind\.?)|sellersburg,?\s*(?:indiana|ind\.?)|charlestown,?\s*(?:indiana|ind\.?)|\bInd\.?\s*\(WDRB\)|\bInd\.?\s*[-—–]|\bIND\.?\s*[-—–]|,\s*Ind\.?\s*[-—–])\b/i.test(semanticLeadText);
+  let isIndianaStory = /\b(?:southern\s+indiana|indiana\s+law\s+enforcement|indiana\s+state\s+police|greenville,?\s*(?:indiana|ind\.?)|new\s+albany,?\s*(?:indiana|ind\.?)|jeffersonville,?\s*(?:indiana|ind\.?)|clarksville,?\s*(?:indiana|ind\.?)|sellersburg,?\s*(?:indiana|ind\.?)|charlestown,?\s*(?:indiana|ind\.?)|\bInd\.?\s*\(WDRB\)|\bInd\.?\s*[-—–]|\bIND\.?\s*[-—–]|,\s*Ind\.?\s*[-—–])\b/i.test(semanticLeadText);
+  // additional heuristic checks not covered by the single regex above
+  if (!isIndianaStory && /\bfloyd\s+county\s+sheriff\b/i.test(semanticLeadText)) {
+    isIndianaStory = true;
+  }
+  if (!isIndianaStory && /\bgeorgetown[-\s]+greenville\s+road\b/i.test(semanticLeadText)) {
+    isIndianaStory = true;
+  }
+  if (!isIndianaStory && /\bgreenville,\s+indiana\b/i.test(semanticLeadText)) {
+    isIndianaStory = true;
+  }
   if (isIndianaStory && !isAlwaysNational) {
     if (baseGeo.county && !COUNTY_PATTERNS.some(p =>
       p.county === baseGeo.county &&

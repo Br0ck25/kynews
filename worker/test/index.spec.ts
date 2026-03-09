@@ -853,6 +853,36 @@ describe('AI cleanup utilities', () => {
 		expect(cleaned).toBe("Captain Dave aboard the ALOHA  set sail.");
 	});
 
+	it('removes editorial standards boilerplate', () => {
+		const raw = "Some preceding text\nEditorial Standards ⓘ\nMore story.";
+		const cleaned = (aiModule as any).cleanContentForSummarization(raw, '');
+		expect(cleaned).toBe("Some preceding text\nMore story.");
+	});
+
+	it('strips lazy-load attribute leakage', () => {
+		const raw = "Image data-src=https://foo loading=lazy src=https://foo rest";
+		const cleaned = (aiModule as any).cleanContentForSummarization(raw, '');
+		expect(cleaned).toBe("");
+	});
+
+	it('removes box score lines and scoring headers', () => {
+		const raw = "Wells 8-12 0-0 10-12 26, Robinson 8-17 5-10 1-2 22\n" +
+			"Totals: 33-67 14-28 16-21 — 96\n" +
+			"TEAM 36 60 — 96\n" +
+			"SCORING SUMMARY\nActual story text.";
+		const cleaned = (aiModule as any).cleanContentForSummarization(raw, '');
+		expect(cleaned).toBe("Actual story text.");
+	});
+
+	it('converts bullet and numbered lists into sentences', () => {
+		const raw = "• First item\n- Second item\n1. Third item\n4. Fourth";
+		const cleaned = (aiModule as any).cleanContentForSummarization(raw, '');
+		expect(cleaned).toContain("First item.");
+		expect(cleaned).toContain("Second item.");
+		expect(cleaned).toContain("Third item.");
+		expect(cleaned).toContain("Fourth.");
+	});
+
 	it('filters utility/infrastructure stories away from weather', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://example.com/story',
@@ -911,6 +941,14 @@ describe('classification utilities', () => {
 		const text =
 			'A jury in Christian County Missouri returned an indictment after a multi-state investigation.';
 
+		expect(detectCounty(text, text)).toBeNull();
+	});
+
+	it('treats Greenville as ambiguous county name', () => {
+		const text = 'Greenville police department announced new measures in Kentucky.';
+		// although "Greenville" appears alongside Kentucky, it should not
+		// auto-assign a county because Greenville is ambiguous and the term
+		// itself is not a Kentucky county.
 		expect(detectCounty(text, text)).toBeNull();
 	});
 
@@ -1166,6 +1204,25 @@ describe('classification utilities', () => {
 			});
 			expect(classification.county).toBeNull();
 		});
+
+		it('recognizes Floyd County Sheriff phrase as Indiana', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://example.com/indiana-sheriff',
+				title: 'LOUISVILLE, Ky. (AP) – Crime in Floyd County',
+				content: 'FLOYD COUNTY SHERIFF reports shooting near the Ohio River.',
+			});
+			expect(classification.county).toBeNull();
+		});
+
+		it('responds to Georgetown-Greenville road reference', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://example.com/road-incident',
+				title: 'Incident on Georgetown-Greenville Road',
+				content: 'A crash occurred along Georgetown-Greenville Road in southern Indiana.',
+			});
+			expect(classification.county).toBeNull();
+		});
+
 		it('applies Fayette default for wtvq.com and null county for statewide weather', async () => {
 			// generic non-weather story should fall back to Fayette via site default
 			let classification = await classifyArticleWithAi(env, {
@@ -2340,11 +2397,50 @@ describe('ingestSingleUrl error handling', () => {
 			summaryWordCount: 1,
 		});
 
+		// stub slug generator to predictable value so we can assert on it
+		const slugSpy = vi.spyOn(ingestModule, 'generateArticleSlug').mockReturnValue('preview-slug');
 		const res = await __testables.ingestSingleUrl(env, { url: 'https://example.com', preview: true });
 		expect(res.status).toBe('inserted');
+		expect(res.slug).toBe('preview-slug');
 		// no rows should have been written
 		const countRow = await env.ky_news_db.prepare('SELECT COUNT(*) as cnt FROM articles').first<{ cnt: number }>();
 		expect(countRow?.cnt).toBe(0);
+		slugSpy.mockRestore();
+
+		global.fetch = originalFetch;
+		vi.restoreAllMocks();
+	});
+
+	it('uses providedDescription directly when allowShortContent is true', async () => {
+		await ensureSchemaAndFixture();
+
+		// network fetch should not be invoked for manual text
+		const originalFetch = global.fetch;
+		global.fetch = async () => { throw new Error('network should not be called'); };
+
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+		});
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'foo',
+			seoDescription: 'bar',
+			summaryWordCount: 2,
+		});
+
+		const text = 'Line1\n\nLine2';
+		const res = await __testables.ingestSingleUrl(env, {
+			url: 'https://example.com/manual',
+			allowShortContent: true,
+			providedDescription: text,
+		});
+
+		expect(res.status).toBe('inserted');
+		expect(res.contentText).toBe(text);
 
 		global.fetch = originalFetch;
 		vi.restoreAllMocks();
@@ -2377,13 +2473,17 @@ describe('ingestSingleUrl error handling', () => {
 			summaryWordCount: 1,
 		});
 
+		// stub slug generator so result.slug is deterministic
+		const slugSpy2 = vi.spyOn(ingestModule, 'generateArticleSlug').mockReturnValue('insert-slug');
 		const result = await __testables.ingestSingleUrl(env, { url: 'https://example.com' });
 		expect(result.status).toBe('inserted');
+		expect(result.slug).toBe('insert-slug');
 		const row = await env.ky_news_db.prepare('SELECT county FROM articles WHERE id = ?')
 			.bind(result.id).first<{ county: string | null }>();
 		expect(row?.county).toBeNull();
 		const counties = await getArticleCounties(env, result.id);
 		expect(counties).toEqual(['Fayette', 'Jefferson']);
+		slugSpy2.mockRestore();
 
 		global.fetch = originalFetch;
 		vi.restoreAllMocks();

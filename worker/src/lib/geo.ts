@@ -188,6 +188,7 @@ export const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Grant',    // grant funding
   'Lee',      // very common surname
   'Todd',     // common first/last name
+  'Greenville', // city name in multiple states incl. IN/SC/TX; not a KY county
   'Lawrence', // person name
   'Fleming',  // person name
   'Boyd',     // person name

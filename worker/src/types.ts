@@ -98,6 +98,8 @@ export interface IngestResult {
   id?: number;
   urlHash?: string;
   category?: Category;
+  /** SEO-friendly slug generated for the article (preview/insert only) */
+  slug?: string | null;
 
   // preview-only fields.  These are populated on the new admin preview
   // endpoint so the UI can show the inferred title/summary/etc before the

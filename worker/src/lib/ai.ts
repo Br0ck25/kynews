@@ -798,6 +798,39 @@ export function cleanContentForSummarization(text: string, title: string): strin
   );
   t = t.replace(/^Published\b[^\n]*$/gim, '');
   t = t.replace(/^Updated\b[^\n]*$/gim, '');
+  // Strip "Editorial Standards ⓘ" lines (Hearst TV / WLKY / WHAS11 / WLWT)
+  t = t.replace(/^Editorial\s+Standards\s*[ⓘℹ️©®]?\s*$/gim, '');
+  t = t.replace(/\bEditorial\s+Standards\s*[ⓘℹ️©®]?\s*/gi, '');
+
+  // Strip lazy-load image attribute leakage: data-src=https://... loading=lazy src=https://...
+  // These appear in lex18/Scripps articles when the HTML img tag bleeds into scraped text
+  t = t.replace(/\bdata-src=https?:\/\/\S+\s+loading=\S+\s+src=https?:\/\/\S+/gi, '');
+  t = t.replace(/\bdata-src=https?:\/\/\S+/gi, '');
+  t = t.replace(/\bloading=(?:lazy|eager)\s*/gi, '');
+
+  // Strip box score / stat table lines: lines that look like player stat rows
+  // e.g. "Wells 8-12 0-0 10-12 26, Robinson 8-17 5-10 1-2 22"
+  // and lines that are pure shooting stats: "Totals: 33-67 14-28 16-21 — 96"
+  t = t.replace(/^(?:[A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+)?\s+\d+-\d+[^,\n]*,?\s*){3,}$/gm, '');
+  t = t.replace(/^(?:Totals?|TOTAL)[:\s]+[\d\s\-–—\/]+.*$/gim, '');
+  // Strip scoring summary headers: "NKU 36 60 — 96"
+  t = t.replace(/^[A-Z][A-Z\s]{2,20}\s+\d+\s+\d+\s+[—\-]\s+\d+\s*$/gm, '');
+  // Strip "SCORING SUMMARY" section headers
+  t = t.replace(/^SCORING\s+SUMMARY\s*$/gim, '');
+
+  // Convert bullet-style lists (lines starting with •, *, -, numbers) into
+  // paragraph-friendly text so the AI doesn't get a wall of items.
+  // Each bullet becomes its own sentence terminated with a period.
+  t = t.replace(/^[•·▪▸►\-\*]\s+(.+)$/gm, (_, item) => {
+    const trimmed = item.trim();
+    return trimmed.endsWith('.') || trimmed.endsWith('?') || trimmed.endsWith('!') ? trimmed : trimmed + '.';
+  });
+  // Numbered list items: "1. Item" → "Item."
+  t = t.replace(/^\d+\.\s+(.+)$/gm, (_, item) => {
+    const trimmed = item.trim();
+    return trimmed.endsWith('.') || trimmed.endsWith('?') || trimmed.endsWith('!') ? trimmed : trimmed + '.';
+  });
+
   // Strip inline photo credit suffixes appended to caption sentences.
   // Pattern: "...Lexington, Ky. Photo by Vincenzo Ciaramitaro | Kentucky Kernel"
   // These appear as "[sentence]. Photo by [Name] | [Publication]" on one line.
