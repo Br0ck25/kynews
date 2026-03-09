@@ -141,6 +141,10 @@ describe('AdminPage manual body formatting', () => {
 
     render(<AdminPage />);
     fireEvent.click(screen.getByRole('tab', { name: /Create Article/i }));
+
+    // label should be visible to user
+    expect(screen.getByText(/Image \(optional\)/i)).toBeInTheDocument();
+
     // choose file via hidden input (use test id)
     const fileInput = screen.getByTestId('manual-image-file');
     const file = new File(['hi'], 'test.png', { type: 'image/png' });

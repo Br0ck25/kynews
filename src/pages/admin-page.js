@@ -138,7 +138,6 @@ export default function AdminPage() {
     }
   };
   const [manualImageUrl, setManualImageUrl] = useState("");
-  const [manualImageFile, setManualImageFile] = useState(null);
   const [manualImageUploading, setManualImageUploading] = useState(false);
   const [manualCounty, setManualCounty] = useState("");
   // new fields for explicit categorization/scope
@@ -1481,6 +1480,9 @@ export default function AdminPage() {
               />
 
               {/* Image file upload (new) */}
+              <Typography variant="subtitle2" style={{ marginBottom: 4 }}>
+                Image (optional)
+              </Typography>
               <Box style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <label htmlFor="manual-image-file" style={{ cursor: 'pointer' }}>
                   <input
@@ -1534,7 +1536,7 @@ export default function AdminPage() {
                 <Box style={{ marginBottom: 12 }}>
                   <img src={manualImageUrl} alt="uploaded" style={{ maxWidth: '200px' }} />
                 </Box>
-              )
+              )}
 
               {/* Category (optional – leave blank for AI) */}
               <FormControl variant="outlined" size="small" style={{ minWidth: 200, marginBottom: 12 }}>
@@ -1800,7 +1802,7 @@ export default function AdminPage() {
                               : <Chip size="small" label="Live" color="primary" />}
                           </TableCell>
                           <TableCell style={{ maxWidth: 360, overflowWrap: "anywhere", padding: '4px 8px' }}>{row.title}</TableCell>
-                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
+                          <TableCell style={{ padding: '4px 8px' }}>
                             {draft ? (
                               <Typography variant="caption" color="textSecondary">Not published</Typography>
                             ) : (
@@ -1812,7 +1814,7 @@ export default function AdminPage() {
                               />
                             )}
                           </TableCell>
-                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
+                          <TableCell style={{ padding: '4px 8px' }}>
                             <FormControl variant="outlined" size="small" style={{ minWidth: 130 }}>
                               <Select value={currentCategory} onChange={(e) => setEdit(row.id, { category: e.target.value })}>
                                 <MenuItem value=""><em>none</em></MenuItem>
@@ -1820,7 +1822,7 @@ export default function AdminPage() {
                               </Select>
                             </FormControl>
                           </TableCell>
-                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
+                          <TableCell style={{ padding: '4px 8px' }}>
                             <Select value={currentKy ? "yes" : "no"} variant="outlined" size="small"
                               onChange={(e) => {
                                 const isKy = e.target.value === "yes";
@@ -1830,7 +1832,7 @@ export default function AdminPage() {
                               <MenuItem value="no">no</MenuItem>
                             </Select>
                           </TableCell>
-                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
+                          <TableCell style={{ padding: '4px 8px' }}>
                             {currentKy ? (
                               <TextField variant="outlined" size="small"
                                 value={currentCountiesString}
@@ -1841,7 +1843,7 @@ export default function AdminPage() {
                               <Typography variant="caption" color="textSecondary">—</Typography>
                             )}
                           </TableCell>
-                          <TableCell style={{ padding: '4px 8px' }} style={{ padding: '4px 8px' }}>
+                          <TableCell style={{ padding: '4px 8px' }}>
                             <Box style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               {!draft && (
                                 <Button size="small" variant="outlined" color="primary"
