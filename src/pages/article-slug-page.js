@@ -139,8 +139,10 @@ export default function ArticleSlugPage() {
     setMeta("property", "og:description", cleanDesc);
     setMeta("property", "og:url", pageUrl);
     setMeta("property", "og:site_name", SITE_NAME);
-    // ensure OG image is always absolute; fall back to generic preview graphic
-    const defaultImage = `${SITE_URL}/img/preview.png`;
+    // ensure OG image is always absolute; fall back to our site logo when the
+    // article itself doesnt provide an image.  Facebook will then display the
+    // logo instead of the generic preview thumbnail.
+    const defaultImage = `${SITE_URL}/logo512.png`;
     // post.image may be a relative path so coerce to a full URL like the
     // server-side preview logic does.  this only affects clients, but it
     // prevents the DOM-based tags from ending up with "/foo.jpg" which
@@ -258,10 +260,11 @@ export default function ArticleSlugPage() {
         "Kentucky News - local, state, and national updates for all 120 Kentucky counties.";
       setMeta("name", "description", genericDesc);
       setCanonical(SITE_URL);
-      // restore default image tags as well so the generic shell metadata is
-      // always present when leaving an article page.
-      setMeta("property", "og:image", `${SITE_URL}/img/preview.png`);
-      setMeta("name", "twitter:image", `${SITE_URL}/img/preview.png`);
+      // restore default image tags as well; use the logo fallback here too so
+      // we don't accidentally revert to the old preview graphic when leaving
+      // an article.
+      setMeta("property", "og:image", `${SITE_URL}/logo512.png`);
+      setMeta("name", "twitter:image", `${SITE_URL}/logo512.png`);
       setMeta("property", "fb:app_id", FB_APP_ID || "0");
       document.getElementById("json-ld-article")?.remove();
       document.getElementById("json-ld-breadcrumb-post")?.remove();

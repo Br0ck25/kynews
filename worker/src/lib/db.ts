@@ -343,10 +343,36 @@ export async function updateArticleLinks(
 }
 
 export async function deleteArticleById(env: Env, id: number): Promise<void> {
-  await prepare(env, 'DELETE FROM articles WHERE id = ?')
-    .bind(id)
-    .run();
+  // Fetch the article before deleting so we can clear its KV caches.
+  // Without this, re-ingesting a deleted article hits the content fingerprint
+  // dedup cache and returns "already in database" even though D1 has no row.
+  const article = await prepare(env,
+    'SELECT url_hash, content_text FROM articles WHERE id = ? LIMIT 1'
+  ).bind(id).first<{ url_hash: string; content_text: string }>();
+
+  await prepare(env, 'DELETE FROM articles WHERE id = ?').bind(id).run();
   await bumpRssVersion(env);
+
+  if (article && env.CACHE) {
+    const { sha256Hex } = await import('./http');
+
+    // Clear content fingerprint (first 150 words hash) so the article can be re-ingested
+    if (article.content_text) {
+      const fingerprint = await sha256Hex(
+        article.content_text.split(/\s+/).slice(0, 150).join(' ').toLowerCase()
+      ).catch(() => null);
+      if (fingerprint) {
+        await env.CACHE.delete(`cfp:${fingerprint}`).catch(() => {});
+      }
+    }
+
+    // Clear summary cache keyed by url_hash
+    if (article.url_hash) {
+      await env.CACHE.delete(`summary:${article.url_hash}`).catch(() => {});
+      await env.CACHE.delete(`summary-ttl:${article.url_hash}`).catch(() => {});
+      await env.CACHE.delete(`feedback:${article.url_hash}`).catch(() => {});
+    }
+  }
 }
 
 export async function blockArticleByIdAndDelete(

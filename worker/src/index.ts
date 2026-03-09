@@ -1125,6 +1125,58 @@ await deleteArticleById(env, id);
 return json({ ok: true, blocked: false, deleted: true, id });
 }
 
+// Clear the KV content-fingerprint dedup cache for a given article URL.
+// Use this when an article was deleted from D1 but its KV fingerprint still
+// blocks re-ingest with "already in database".
+if (url.pathname === '/api/admin/article/clear-cache' && request.method === 'POST') {
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+  const body = await parseJsonBody<{ url?: string; urlHash?: string }>(request);
+  const articleUrl = body?.url?.trim();
+  const urlHashOverride = body?.urlHash?.trim();
+
+  if (!articleUrl && !urlHashOverride) {
+    return badRequest('Provide either url or urlHash');
+  }
+
+  const cleared: string[] = [];
+
+  if (env.CACHE) {
+    // If we have the URL, re-fetch its text to compute the content fingerprint
+    if (articleUrl) {
+      try {
+        const { browserFetch } = await import('./lib/http');
+        const fetched = await browserFetch(articleUrl);
+        if (fetched.body) {
+          const { scrapeArticleHtml } = await import('./lib/scrape');
+          const scraped = scrapeArticleHtml(articleUrl, fetched.body);
+          const fingerprint = await sha256Hex(
+            scraped.contentText.split(/\s+/).slice(0, 150).join(' ').toLowerCase()
+          );
+          await env.CACHE.delete(`cfp:${fingerprint}`).catch(() => {});
+          cleared.push(`cfp:${fingerprint.slice(0, 8)}...`);
+        }
+      } catch {
+        // best effort
+      }
+    }
+
+    // Clear summary caches by urlHash
+    const { normalizeCanonicalUrl } = await import('./lib/http');
+    const canonical = articleUrl ? normalizeCanonicalUrl(articleUrl) : null;
+    const hashKey = urlHashOverride ?? (canonical ? await sha256Hex(canonical) : null);
+    if (hashKey) {
+      for (const prefix of ['summary:', 'summary-ttl:', 'feedback:']) {
+        await env.CACHE.delete(`${prefix}${hashKey}`).catch(() => {});
+        cleared.push(`${prefix}${hashKey.slice(0, 8)}...`);
+      }
+    }
+  }
+
+  return json({ ok: true, cleared });
+}
+
 if (url.pathname === '/api/admin/blocked' && request.method === 'GET') {
 if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);

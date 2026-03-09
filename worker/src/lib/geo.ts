@@ -1038,7 +1038,7 @@ function isUsedAsStateAdjective(
 }
 
 function hasLocationSignalNearby(normalizedInput, city) {
-  const signals = [' in ', ' at ', ' from ', ' near ', ' city of ', ' county ', ' ky ', ' kentucky '];
+  const signals = [' in ', ' at ', ' from ', ' near ', ' city of ', ' county ', ' ky ', ' ky. ', ', ky', ' kentucky '];
   const words = normalizedInput.trim().split(/\s+/);
   const cityWords = city.split(' ');
 
@@ -1054,7 +1054,8 @@ function hasLocationSignalNearby(normalizedInput, city) {
 
     const start = Math.max(0, i - 5);
     const end = Math.min(words.length, i + cityWords.length + 5);
-    const windowText = ` ${words.slice(start, end).join(' ')} `;
+    // strip commas so that tokens like "louisville," and "ky." don't block the signal match
+    const windowText = ` ${words.slice(start, end).join(' ').replace(/,/g, '')} `;
     // suppress matches in clear sports-score contexts for high-ambiguity cities
     // (e.g. Lexington).  However, if the snippet already contains an explicit
     // "KY" or "Kentucky" signal we should still honor that.

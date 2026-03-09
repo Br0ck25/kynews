@@ -287,8 +287,9 @@ export async function summarizeArticle(
         }
       }
     }
-  } catch {
+  } catch (err) {
     // best effort AI, fallback stays in place
+    console.warn('[SUMMARIZE FALLBACK]', err instanceof Error ? err.message : String(err));
   }
 
   summary = stripBoilerplateFromOutput(summary, title);
