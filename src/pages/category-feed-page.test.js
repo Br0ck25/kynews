@@ -80,6 +80,8 @@ describe('CategoryFeedPage', () => {
     store.dispatch({ type: 'SET_NOTIFICATIONS', notifications: { today: true } });
 
     const newPost = createPost({ title: 'New Article', originalLink: 'https://example.com/1' });
+    // seed a previous lastSeen (storage prefix applied) so notification logic will fire
+    localStorage.setItem('kentucky_news_app_lastSeen_today', JSON.stringify('some-old-id'));
     jest.spyOn(SiteService.prototype, 'fetchPage').mockResolvedValue({ posts: [newPost], nextCursor: null });
 
     // mock Notification API

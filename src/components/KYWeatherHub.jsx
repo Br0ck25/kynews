@@ -116,10 +116,10 @@ export default function KYWeatherHub() {
   const activeWarnings = alerts.filter(a => a.properties?.event?.match(/Warning|Watch/));
 
   return (
-    <div style={{ fontFamily: "Georgia, serif", background: bgDefault, color: textColor, zoom: 1.05 }}>
+    <div style={{ fontFamily: "Georgia, serif", background: bgDefault, color: textColor }}>
 
       {/* page title above banner */}
-      <Typography variant="h5" align="left" style={{ margin: theme.spacing(0,0) }}>
+      <Typography variant="h5" align="left" style={{ margin: theme.spacing(0,0), fontSize: theme.typography.pxToRem(24) }}>
         Kentucky Weather
       </Typography>
 
@@ -215,7 +215,7 @@ export default function KYWeatherHub() {
             loading
               ? <div style={{ textAlign: "center", color: primary, padding: 40 }}>{"⏳ Fetching forecast from National Weather Service..."}</div>
               : forecast?.length
-                ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 10 }}>
+                ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(360px,1fr))", gap: 10 }}>
                     {forecast.filter((_, i) => i % 2 === 0).slice(0, 7).map((period, i) => (
                       <div key={i} style={{ background: i === 0 ? primaryAlpha15 : "rgba(255,255,255,0.03)", border: `1px solid ${i === 0 ? primary : "#1e3a5f"}`, borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
                         <div style={{ fontSize: 10, color: theme.palette.text.secondary, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{i === 0 ? "TODAY" : period.name}</div>
