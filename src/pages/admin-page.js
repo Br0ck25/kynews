@@ -1383,17 +1383,17 @@ export default function AdminPage() {
                     {manualUrlResult.articleCounty && ` (${manualUrlResult.articleCounty} County)`}
                   </span>
                 )}
+                {manualUrlResult?.status === 'inserted' && manualUrlResult.articlePath && (
+                  <div style={{ marginTop: 6 }}>
+                    <a href={manualUrlResult.articlePath} target="_blank" rel="noreferrer">
+                      View on site →
+                    </a>
+                    <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>
+                      (may take a moment to appear if your browser cached the feed)
+                    </span>
+                  </div>
+                )}
               </div>
-              {manualUrlResult?.status === 'inserted' && manualUrlResult.articlePath && (
-                <div style={{ marginTop: 6 }}>
-                  <a href={manualUrlResult.articlePath} target="_blank" rel="noreferrer">
-                    View on site →
-                  </a>
-                  <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>
-                    (may take a moment to appear if your browser cached the feed)
-                  </span>
-                </div>
-              )}
             )}
             {manualUrlResult?.status === 'preview' && (
               <div style={{ marginTop: 8 }}>
