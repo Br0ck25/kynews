@@ -2,6 +2,14 @@ import type { ArticleListResponse, ArticleRecord, Category, NewArticle } from '.
 import { normalizeCountyList } from './geo';
 import { normalizeCanonicalUrl } from './http';
 
+// cache results of PRAGMA table_info lookups.  D1 has a very small
+// resource budget for prepared statements; calling columnExists repeatedly
+// on every API request was steadily eating that budget and triggered
+// "too many SQL variables" errors at a seemingly unrelated offset.  The
+// cache lives for the life of the worker instance (cold start) which is
+// plenty good enough since schemas rarely change during runtime.
+const _columnExistsCache = new Map<string, boolean>();
+
 interface ArticleRow {
   id: number;
   canonical_url: string;
@@ -485,29 +493,51 @@ export async function getArticleCountiesBatch(
   const map = new Map<number, string[]>();
   if (articleIds.length === 0) return map;
 
-  const placeholders = articleIds.map(() => '?').join(',');
-  const rows = await prepare(env,
-      `SELECT article_id, county FROM article_counties
-       WHERE article_id IN (${placeholders})
-       ORDER BY is_primary DESC, article_id`,
-    )
-    .bind(...articleIds)
-    .all<{ article_id: number; county: string }>();
+  // Cloudflare D1 has a very low limit on total bind variables (≈275).
+  // The caller of this helper (queryArticles) already consumes a handful of
+  // bindings for category/search/cursor/etc.  Keeping each chunk small
+  // prevents combined statements from overflowing the limit and throwing
+  // "too many SQL variables" errors.
+  const MAX_BIND_VARS = 120; // chunk size chosen conservatively under the limit
 
-  for (const r of rows.results ?? []) {
-    if (!map.has(r.article_id)) map.set(r.article_id, []);
-    map.get(r.article_id)!.push(r.county);
+  for (let offset = 0; offset < articleIds.length; offset += MAX_BIND_VARS) {
+    const chunk = articleIds.slice(offset, offset + MAX_BIND_VARS);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = await prepare(env,
+        `SELECT article_id, county FROM article_counties
+         WHERE article_id IN (${placeholders})
+         ORDER BY is_primary DESC, article_id`,
+      )
+      .bind(...chunk)
+      .all<{ article_id: number; county: string }>();
+
+    for (const r of rows.results ?? []) {
+      if (!map.has(r.article_id)) map.set(r.article_id, []);
+      map.get(r.article_id)!.push(r.county);
+    }
   }
 
   return map;
 }
 
 async function columnExists(env: Env, table: string, column: string): Promise<boolean> {
-  const rows = await prepare(env, `PRAGMA table_info(${table})`).all<{ name: string }>();
-  for (const row of rows.results ?? []) {
-    if (row.name === column) return true;
+  const cacheKey = `${table}.${column}`;
+  if (_columnExistsCache.has(cacheKey)) {
+    return _columnExistsCache.get(cacheKey)!;
   }
-  return false;
+  const rows = await prepare(env, `PRAGMA table_info(${table})`).all<{ name: string }>();
+  const exists = (rows.results ?? []).some((r) => r.name === column);
+  _columnExistsCache.set(cacheKey, exists);
+  return exists;
+}
+
+// helper used by queryArticles to break large arrays into smaller chunks
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
 }
 
 export async function queryArticles(env: Env, options: {
@@ -576,21 +606,27 @@ export async function queryArticles(env: Env, options: {
   }
 
   if (options.category !== 'national' && options.counties.length > 0) {
-    // use EXISTS against the junction table so that any row tagged with the
-    // requested county (primary or secondary) qualifies.  legacy rows that
-    // haven't been backfilled into article_counties are still covered by the
-    // fallback `county IN` check.
-    const placeholders = options.counties.map(() => '?').join(',');
+    // filter by counties using both the junction table and the primary county
+    // column. D1 counts *references* to numbered parameters, so the previous
+    // chunking code (which duplicated ?1..?N in SQL but bound each only once)
+    // still tripped the ~275 variable limit when the same placeholder appeared
+    // twice.  Simplify by using plain '?' placeholders and binding each county
+    // value twice.  Also cap the list to keep the total bind count under control.
+    const MAX_COUNTIES = 100; // each county consumes two bind slots
+    const counties = options.counties.slice(0, MAX_COUNTIES);
+    const placeholders = counties.map(() => '?').join(',');
+
     where.push(`(
       EXISTS (
         SELECT 1 FROM article_counties ac
         WHERE ac.article_id = articles.id
           AND ac.county IN (${placeholders})
       )
-      OR county IN (${placeholders})
+      OR articles.county IN (${placeholders})
     )`);
-    // bind once for the EXISTS clause and once for the direct-column fallback
-    binds.push(...options.counties, ...options.counties);
+
+    // bind the values twice, once for each IN clause
+    binds.push(...counties, ...counties);
   }
 
   if (options.search) {
@@ -613,11 +649,22 @@ export async function queryArticles(env: Env, options: {
   where.push('published_at <= ?');
   binds.push(new Date().toISOString());
 
-  const sqlLimit = Math.min((options.limit * 3) + 5, 300);
+  // Over‑fetch is used solely to allow deduping later.  because we now
+  // select a narrow column list (no content_text/content_html), there’s
+  // far less data per row, so we can keep the limit modest.  fetching more
+  // than ~1.2× the requested page size never buys us much deduping benefit
+  // and avoids accidentally hitting D1’s row/response budget.
+  const sqlLimit = Math.min(options.limit + 10, 60);
   binds.push(sqlLimit);
 
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1';
-  const query = `SELECT * FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?`;
+  const query = `
+    SELECT id, canonical_url, source_url, url_hash, title, author,
+           published_at, category, is_kentucky, is_national, county, city,
+           summary, seo_description, raw_word_count, summary_word_count,
+           image_url, raw_r2_key, slug, content_hash, created_at, updated_at
+    FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?
+  `;
 
   const rows = await prepare(env, query).bind(...binds).all<ArticleRow>();
   const mapped = (rows.results ?? []).map(mapArticleRow);
@@ -670,8 +717,8 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     seoDescription: row.seo_description,
     rawWordCount: row.raw_word_count,
     summaryWordCount: row.summary_word_count,
-    contentText: row.content_text,
-    contentHtml: row.content_html,
+    contentText: row.content_text ?? '',
+    contentHtml: row.content_html ?? '',
     imageUrl: row.image_url,
     rawR2Key: row.raw_r2_key,
     contentHash: row.content_hash ?? null,

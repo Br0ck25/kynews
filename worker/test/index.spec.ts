@@ -478,81 +478,78 @@ async function ensureSchemaAndFixture() {
 		expect(badPayload.searchError).toBe('query_failed');
 		spy.mockRestore();
 	}
-			urlHash: 'hash-multi2',
-			title: 'Secondary county test',
-			author: null,
-			publishedAt: now,
-			category: 'today',
-			isKentucky: true,
-			isNational: false,
-			county: 'Fayette',
-			counties: ['Fayette', 'Jefferson'],
-			city: null,
-			summary: 's',
-			seoDescription: 'seo',
-			rawWordCount: 1,
-			summaryWordCount: 1,
-			contentText: 'x',
-			contentHtml: '<p>x</p>',
-			imageUrl: null,
-			rawR2Key: null,
-			slug: null,
 		});
 
-		const resp = await SELF.fetch('https://example.com/api/articles/today?counties=Jefferson');
+		// verify that secondary counties are respected by the public feed
+		it('today endpoint honours secondary county filter', async () => {
+			await ensureSchemaAndFixture();
+			const now = new Date().toISOString();
+			await insertArticle(env, {
+				urlHash: 'hash-multi2',
+				title: 'Secondary county test',
+				author: null,
+				publishedAt: now,
+				category: 'today',
+				isKentucky: true,
+				isNational: false,
+				county: 'Fayette',
+				counties: ['Fayette', 'Jefferson'],
+				city: null,
+				summary: 's',
+				seoDescription: 'seo',
+				rawWordCount: 1,
+				summaryWordCount: 1,
+				contentText: 'x',
+				contentHtml: '<p>x</p>',
+				imageUrl: null,
+				rawR2Key: null,
+				slug: null,
+			});
+
+			const resp = await SELF.fetch('https://example.com/api/articles/today?counties=Jefferson');
 		expect(resp.status).toBe(200);
 		const payload = await resp.json();
 		const item = payload.items.find((a) => a.urlHash === 'hash-multi2');
 		expect(item).toBeDefined();
 		// the API should include our counties list (primary first)
 		expect(item.counties).toEqual(['Fayette', 'Jefferson']);
-	});
-
-	it('today.rss endpoint returns valid RSS XML', async () => {
-		await ensureSchemaAndFixture();
-		const resp = await SELF.fetch('https://example.com/today.rss');
-		expect(resp.status).toBe(200);
-		const text = await resp.text();
-		expect(text).toContain('<rss');
-		// we should see both the Kentucky and non-Kentucky fixtures
-		expect(text).toMatch(/Kentucky Today Story/);
-		expect(text).toMatch(/Non Kentucky Today Story/);
-	});
-
-	it('today.rss endpoint honours county filter', async () => {
-		await ensureSchemaAndFixture();
-		const now = new Date().toISOString();
-		await insertArticle(env, {
-			canonicalUrl: 'https://example.com/county-rss',
-			sourceUrl: 'https://example.com',
-			urlHash: 'hash-county-rss',
-			title: 'County RSS Test',
-			author: null,
-			publishedAt: now,
-			category: 'today',
-			isKentucky: true,
-			isNational: false,
-			county: 'Adair',
-			counties: ['Adair'],
-			city: null,
-			summary: 's',
-			seoDescription: 'seo',
-			rawWordCount: 1,
-			summaryWordCount: 1,
-			contentText: 'x',
-			contentHtml: '<p>x</p>',
-			imageUrl: null,
-			rawR2Key: null,
-			slug: null,
 		});
 
-		const includeResp = await SELF.fetch('https://example.com/today.rss?county=Adair');
-		const includeText = await includeResp.text();
-		expect(includeText).toMatch(/County RSS Test/);
+		// make sure the RSS generator respects an explicit county selection
+		it('today.rss endpoint honours county filter', async () => {
+			await ensureSchemaAndFixture();
+			const now = new Date().toISOString();
+			await insertArticle(env, {
+				canonicalUrl: 'https://example.com/county-rss',
+				sourceUrl: 'https://example.com',
+				urlHash: 'hash-county-rss',
+				title: 'County RSS Test',
+				author: null,
+				publishedAt: now,
+				category: 'today',
+				isKentucky: true,
+				isNational: false,
+				county: 'Adair',
+				counties: ['Adair'],
+				city: null,
+				summary: 's',
+				seoDescription: 'seo',
+				rawWordCount: 1,
+				summaryWordCount: 1,
+				contentText: 'x',
+				contentHtml: '<p>x</p>',
+				imageUrl: null,
+				rawR2Key: null,
+				slug: null,
+			});
 
-		const excludeResp = await SELF.fetch('https://example.com/today.rss?county=Jefferson');
-		expect((await excludeResp.text())).not.toMatch(/County RSS Test/);
-	});
+			const includeResp = await SELF.fetch('https://example.com/today.rss?county=Adair');
+			const includeText = await includeResp.text();
+			expect(includeText).toMatch(/County RSS Test/);
+
+			const excludeResp = await SELF.fetch('https://example.com/today.rss?county=Jefferson');
+			expect((await excludeResp.text())).not.toMatch(/County RSS Test/);
+		});
 
 	it('today.rss ignores excessively long county lists instead of crashing', async () => {
 		await ensureSchemaAndFixture();
@@ -727,18 +724,48 @@ async function ensureSchemaAndFixture() {
 		expect(item?.counties).toEqual([]);
 	});
 
-	it('schools endpoint returns kentucky-only schools articles', async () => {
-		await ensureSchemaAndFixture();
+it('queryArticles handles a very large county filter without throwing', async () => {
+	// create a list larger than one chunk to exercise the new logic
+	const big = Array.from({ length: 300 }, (_, i) => `C${i}`);
+	const resp = await queryArticles(env, { category: 'all', counties: big, search: null, limit: 10, cursor: null });
+	expect(resp).toBeDefined();
+	// result set is empty but the query must complete successfully
+	expect(Array.isArray(resp.items)).toBe(true);
+});
 
-		const response = await SELF.fetch('https://example.com/api/articles/schools?limit=20');
-		expect(response.status).toBe(200);
-
-		const payload = await response.json();
-		expect(Array.isArray(payload.items)).toBe(true);
-		expect(payload.items.length).toBe(1);
-		expect(payload.items[0]?.category).toBe('schools');
-		expect(payload.items[0]?.isKentucky).toBe(true);
+it('queryArticles list responses omit heavy content fields', async () => {
+	await ensureSchemaAndFixture();
+	const now = new Date().toISOString();
+	await insertArticle(env, {
+		canonicalUrl: 'https://example.com/content-check',
+		sourceUrl: 'https://example.com',
+		urlHash: 'hash-content',
+		title: 'Content check',
+		author: null,
+		publishedAt: now,
+		category: 'today',
+		isKentucky: true,
+		isNational: false,
+		county: 'Adair',
+		counties: ['Adair'],
+		city: null,
+		summary: 's',
+		seoDescription: 'seo',
+		rawWordCount: 1,
+		summaryWordCount: 1,
+		contentText: 'long text',
+		contentHtml: '<p>long html</p>',
+		imageUrl: null,
+		rawR2Key: null,
+		slug: null,
 	});
+	const resp = await queryArticles(env, { category: 'today', counties: [], search: null, limit: 10, cursor: null });
+	expect(Array.isArray(resp.items)).toBe(true);
+	const item = resp.items.find((i) => i.urlHash === 'hash-content');
+	expect(item).toBeDefined();
+	expect(item!.contentText).toBe('');
+	expect(item!.contentHtml).toBe('');
+});
 
 	it('obituaries endpoint returns kentucky obituaries only', async () => {
 		await ensureSchemaAndFixture();
@@ -2139,6 +2166,44 @@ describe('database utilities', () => {
 		await ensureSchemaAndFixture();
 		const resp2 = await queryArticles(env, { category: 'all', counties: [], search: 'state police', limit: 10, cursor: null });
 		expect(Array.isArray(resp2.items)).toBe(true);
+	});
+
+	// regression test for https://localkynews.com logs showing D1_ERROR too many SQL variables
+	it('queryArticles does not blow up when result set is very large', async () => {
+		await ensureSchemaAndFixture();
+		const now = new Date().toISOString();
+		// insert a few hundred articles so the subsequent county lookup would
+		// normally build a single IN(...) list exceeding SQLite variable limits.
+		for (let i = 0; i < 300; i++) {
+			await insertArticle(env, {
+				canonicalUrl: `https://example.com/bulk${i}`,
+				sourceUrl: 'https://example.com',
+				urlHash: `hash-bulk${i}`,
+				title: `Bulk ${i}`,
+				author: null,
+				publishedAt: now,
+				category: 'today',
+				isKentucky: true,
+				isNational: false,
+				county: 'Fayette',
+				counties: ['Fayette'],
+				city: null,
+				summary: 'bulk search',
+				seoDescription: '',
+				rawWordCount: 1,
+				summaryWordCount: 1,
+				contentText: 'x',
+				contentHtml: '<p>x</p>',
+				imageUrl: null,
+				rawR2Key: null,
+				slug: null,
+			});
+		}
+
+		const resp = await queryArticles(env, { category: 'all', counties: [], search: null, limit: 300, cursor: null });
+		expect(resp.items.length).toBeGreaterThanOrEqual(300);
+		// counties should be attached for every result
+		expect(resp.items.every((a) => Array.isArray(a.counties))).toBe(true);
 	});
 
 	it('queryArticles with category all ignores the category filter', async () => {

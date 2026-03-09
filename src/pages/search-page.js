@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { makeStyles } from "@material-ui/core/styles";
-import { TextField, Grid, Divider, Snackbar, IconButton } from "@material-ui/core";
+import { TextField, Grid, Divider, Snackbar, IconButton, CircularProgress } from "@material-ui/core";
 import CloseIcon from "@material-ui/icons/Close";
 import Skeletons from "../components/skeletons-component";
 import Posts from "../components/home/posts-component";
@@ -8,13 +8,18 @@ import SiteService from "../services/siteService";
 import { useDispatch, useSelector } from "react-redux";
 import { setSearchPosts } from "../redux/actions/actions";
 
-const useStyles = makeStyles({
+const useStyles = makeStyles((theme) => ({
   root: {},
   gridContainer: {
     display: "flex",
     alignItems: "center",
   },
-});
+  loaderWrap: {
+    display: "flex",
+    justifyContent: "center",
+    padding: theme.spacing(3),
+  },
+}));
 
 const service = new SiteService();
 
@@ -37,46 +42,118 @@ export default function SearchPage() {
   }, []);
   const dispatch = useDispatch();
 
+  // local pagination state (Redux still used to persist the visible posts array)
+  const [posts, setPosts] = useState(searchPosts.posts || []);
+  const [cursor, setCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [errors, setErrors] = useState("");
   const [searchVal, setSearchVal] = useState(searchPosts.searchValue);
 
+  const sentinelRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const isLoadingMoreRef = useRef(false);
+
+  // helper that actually calls the paged API; reset=true clears previous results
+  const fetchResults = useCallback(
+    async (reset = true) => {
+      if (reset) {
+        setPosts([]);
+        setCursor(null);
+        setHasMore(false);
+      }
+
+      const params = {
+        search: searchVal,
+        category: 'all',
+        limit: 20,
+        cursor: reset ? null : cursor,
+      };
+
+      try {
+        const { posts: newPosts, nextCursor } = await service.fetchPage(params);
+        if (!isMountedRef.current) return;
+
+        const combined = reset ? newPosts : [...posts, ...newPosts];
+        setPosts(combined);
+        dispatch(setSearchPosts({ searchValue: searchVal, posts: combined }));
+        setCursor(nextCursor);
+        setHasMore(nextCursor !== null);
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        setErrors(err.errorMessage || 'Search failed. Please try again.');
+      } finally {
+        if (reset) setIsLoading(false);
+        else setIsLoadingMore(false);
+      }
+    },
+    [searchVal, cursor, posts, dispatch]
+  );
+
   useEffect(() => {
     const delaySearch = setTimeout(() => {
-      //wait 1 sec until user stop typing
       if (searchVal.length > 2) {
         setIsLoading(true);
-        // previously we restricted searches to the "today" feed which meant
-        // national, sports, weather, etc. articles would never surface even if
-        // the user pasted the exact headline.  Make the request against the
-        // virtual "all" category so the backend returns matches from anywhere
-        // on the site.
-        service
-          // do not send a hard limit when performing a search; the backend will
-          // return as many matching posts as it deems reasonable (currently up
-          // to its configured cap).  earlier versions always requested 15
-          // items which triggered a 400 because the worker refused tiny limits
-          // and also didn't recognise the pseudo-category `all`.
-          .getPosts({ search: searchVal, category: 'all' })
-          .then((data) => {
-            dispatch(setSearchPosts({ searchValue: searchVal, posts: data }));
-            setIsLoading(false);
-          })
-          .catch((error) => {
-            setErrors(error.errorMessage || 'Search failed. Please try again.');
-            setIsLoading(false);
-          });
+        setErrors('');
+        fetchResults(true);
       } else {
-            dispatch(setSearchPosts({ searchValue: "", posts: [] }));
+        dispatch(setSearchPosts({ searchValue: "", posts: [] }));
+        setPosts([]);
+        setCursor(null);
+        setHasMore(false);
       }
     }, 1000);
 
     return () => clearTimeout(delaySearch);
-  }, [searchVal]);
+  }, [searchVal, fetchResults, dispatch]);
 
   const handleChange = (ev) => {
     setSearchVal(ev.target.value);
   };
+
+  // load more helper
+  const loadMore = useCallback(() => {
+    if (isLoadingMoreRef.current || !hasMore || isLoading) return;
+    isLoadingMoreRef.current = true;
+    setIsLoadingMore(true);
+    fetchResults(false).finally(() => {
+      isLoadingMoreRef.current = false;
+    });
+  }, [hasMore, isLoading, fetchResults]);
+
+  // intersection observer on sentinel
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    let observer;
+    if (typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            loadMore();
+          }
+        },
+        { rootMargin: "200px" }
+      );
+      observer.observe(el);
+    }
+
+    const onScroll = () => {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.top <= window.innerHeight + 200) {
+        loadMore();
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+
+    return () => {
+      if (observer) observer.disconnect();
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [loadMore, isLoading]);
 
   return (
     <div className={classes.root}>
@@ -113,11 +190,11 @@ export default function SearchPage() {
         {!isLoading && (
           (() => {
             const hasQuery = searchVal.length > 2;
-            const posts = searchPosts.posts || [];
+            const postsToShow = posts || [];
 
             if (hasQuery) {
-              if (posts.length > 0) {
-                return <Posts posts={posts} />;
+              if (postsToShow.length > 0) {
+                return <Posts posts={postsToShow} />;
               }
               return (
                 <Grid item xs={12} style={{ textAlign: 'center', padding: 16 }}>
@@ -141,6 +218,15 @@ export default function SearchPage() {
             return null;
           })()
         )}
+
+        {isLoadingMore && (
+          <Grid item xs={12} className={classes.loaderWrap}>
+            <CircularProgress />
+          </Grid>
+        )}
+
+        {/* sentinel for infinite scroll */}
+        <div ref={sentinelRef}></div>
       </Grid>
 
       <Snackbar
