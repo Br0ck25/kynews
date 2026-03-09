@@ -47,7 +47,7 @@ function getPageLimit(_category) {
   return PAGE_LIMIT;
 }
 
-export default function CategoryFeedPage({ category, title, countyFilterEnabled = false, filterPosts }) {
+export default function CategoryFeedPage({ category, title, countyFilterEnabled = false, filterPosts, hidePageMessages = false }) {
   const classes = useStyles();
   const selectedCounties = useSelector((state) => state.selectedCounties);
   const notifications = useSelector((state) => state.notifications || {});
@@ -340,13 +340,15 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
       {isLoading ? (
         <Skeletons showFeaturedSkeleton />
       ) : allPosts.length === 0 ? (
-        <Typography variant="body1">
-          {category === "national"
-            ? "No articles found for this section."
-            : hasSelectedCounties
-            ? "No articles found for the selected counties."
-            : "No articles found for this section yet."}
-        </Typography>
+        !hidePageMessages && (
+          <Typography variant="body1">
+            {category === "national"
+              ? "No articles found for this section."
+              : hasSelectedCounties
+              ? "No articles found for the selected counties."
+              : "No articles found for this section yet."}
+          </Typography>
+        )
       ) : (
         <>
           {/* Apply optional client-side filter (e.g. weather-page uses this to
@@ -355,9 +357,11 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
             const displayPosts = filterPosts ? allPosts.filter(filterPosts) : allPosts;
             if (displayPosts.length === 0) {
               return (
-                <Typography variant="body1">
-                  No articles found for this section yet.
-                </Typography>
+                !hidePageMessages && (
+                  <Typography variant="body1">
+                    No articles found for this section yet.
+                  </Typography>
+                )
               );
             }
             return (
@@ -377,7 +381,7 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
             </Box>
           )}
 
-          {!hasMore && allPosts.length > 0 && (
+          {!hasMore && allPosts.length > 0 && !hidePageMessages && (
             <Typography
               variant="body2"
               color="textSecondary"

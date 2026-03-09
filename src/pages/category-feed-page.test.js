@@ -102,4 +102,19 @@ describe('CategoryFeedPage', () => {
     // restore
     global.Notification = originalNotification;
   });
+
+  it('suppresses empty/loaded messages when hidePageMessages is true', async () => {
+    jest.spyOn(SiteService.prototype, 'fetchPage').mockResolvedValue({ posts: [], nextCursor: null });
+
+    render(
+      <Provider store={store}>
+        <CategoryFeedPage category="weather" title="Weather" hidePageMessages />
+      </Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/No articles found/i)).toBeNull();
+      expect(screen.queryByText(/All articles loaded/i)).toBeNull();
+    });
+  });
 });
