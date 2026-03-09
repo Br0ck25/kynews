@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useTheme, fade } from "@material-ui/core/styles";
-import { Typography } from "@material-ui/core";
+import { Typography, Grid } from "@material-ui/core";
 import CategoryFeedPage from "../pages/category-feed-page";
 
 const KY_COUNTIES = [
@@ -118,8 +118,9 @@ export default function KYWeatherHub() {
   return (
     <div style={{ fontFamily: "Georgia, serif", background: bgDefault, color: textColor }}>
 
+
       {/* page title above banner */}
-      <Typography variant="h5" align="left" style={{ margin: theme.spacing(0,0), fontSize: theme.typography.pxToRem(24) }}>
+      <Typography variant="h5" component="h1" gutterBottom align="left">
         Kentucky Weather
       </Typography>
 
@@ -147,7 +148,7 @@ export default function KYWeatherHub() {
         </div>
       )}
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "18px 14px" }}>
+      <div style={{ maxWidth: 1200, width: "100%", margin: "0 auto", padding: "18px 1px" }}>
 
         {/* County Selector */}
         <div style={{ background: paperBg, border: `1px solid ${divider}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
@@ -166,7 +167,7 @@ export default function KYWeatherHub() {
         </div>
 
         {/* Current Conditions */}
-        <div style={{ background: paperBg, border: `1px solid ${divider}`, borderRadius: 16, padding: "20px 24px", marginBottom: 16, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
+        <div className="current-conditions" style={{ background: paperBg, border: `1px solid ${divider}`, borderRadius: 16, padding: "20px 24px", marginBottom: 16, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
           {loading ? (
             <div style={{ color: primary, fontSize: 15 }}>{"⏳ Loading conditions for "}{selectedCounty.name}...</div>
           ) : (
@@ -195,7 +196,7 @@ export default function KYWeatherHub() {
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 4, marginBottom: 0 }}>
+        <div className="weather-tabs" style={{ display: "flex", gap: 4, marginBottom: 0 }}>
           {[{ id: "forecast", label: "📅 7-Day Forecast" }, { id: "alerts", label: `🚨 Alerts (${alerts.length})` }, { id: "radar", label: "🗺️ Live Radar" }].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               padding: "9px 16px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: 12,
@@ -208,23 +209,27 @@ export default function KYWeatherHub() {
           ))}
         </div>
 
-        <div style={{ background: paperBg, border: `1px solid ${divider}`, borderRadius: "0 12px 12px 12px", padding: 18, marginBottom: 16 }}>
+        <div style={{ background: paperBg, border: `1px solid ${divider}`, borderRadius: 12, padding: 18, marginBottom: 16 }}>
 
           {/* Forecast Tab */}
           {activeTab === "forecast" && (
             loading
               ? <div style={{ textAlign: "center", color: primary, padding: 40 }}>{"⏳ Fetching forecast from National Weather Service..."}</div>
               : forecast?.length
-                ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(360px,1fr))", gap: 10 }}>
-                    {forecast.filter((_, i) => i % 2 === 0).slice(0, 7).map((period, i) => (
-                      <div key={i} style={{ background: i === 0 ? primaryAlpha15 : "rgba(255,255,255,0.03)", border: `1px solid ${i === 0 ? primary : "#1e3a5f"}`, borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
-                        <div style={{ fontSize: 10, color: theme.palette.text.secondary, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{i === 0 ? "TODAY" : period.name}</div>
-                        <div style={{ fontSize: 30, marginBottom: 6 }}>{getWeatherIcon(period.shortForecast)}</div>
-                        <div style={{ fontSize: 20, fontWeight: "bold", color: textColor }}>{period.temperature}°{period.temperatureUnit}</div>
-                        <div style={{ fontSize: 10, color: theme.palette.text.secondary, marginTop: 6, lineHeight: 1.3 }}>{period.shortForecast}</div>
-                      </div>
-                    ))}
-                  </div>
+                ? (
+                    <Grid container spacing={2}>
+                      {forecast.filter((_, i) => i % 2 === 0).slice(0, 7).map((period, i) => (
+                        <Grid item xs={12} sm={6} md={4} key={i}>
+                          <div style={{ background: i === 0 ? primaryAlpha15 : "rgba(255,255,255,0.03)", border: `1px solid ${i === 0 ? primary : "#1e3a5f"}`, borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
+                            <div style={{ fontSize: 10, color: theme.palette.text.secondary, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{i === 0 ? "TODAY" : period.name}</div>
+                            <div style={{ fontSize: 30, marginBottom: 6 }}>{getWeatherIcon(period.shortForecast)}</div>
+                            <div style={{ fontSize: 20, fontWeight: "bold", color: textColor }}>{period.temperature}°{period.temperatureUnit}</div>
+                            <div style={{ fontSize: 10, color: theme.palette.text.secondary, marginTop: 6, lineHeight: 1.3 }}>{period.shortForecast}</div>
+                          </div>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  )
                 : <div style={{ textAlign: "center", color: "#ef5350", padding: 40 }}>Unable to load forecast. NWS API may be temporarily unavailable.</div>
           )}
 
@@ -287,7 +292,14 @@ export default function KYWeatherHub() {
         filterPosts={(post) => post.category === "weather" || (post.tags && post.tags.includes("weather"))}
       />
 
-      <style>{`button:hover { opacity: 0.8; } * { box-sizing: border-box; }`}</style>
+      <style>{`
+button:hover { opacity: 0.8; }
+* { box-sizing: border-box; }
+@media (max-width:600px) {
+  .weather-tabs { justify-content: center; }
+  .current-conditions { flex-direction: column; align-items: center; text-align: center; }
+}
+`}</style>
     </div>
   );
 }
