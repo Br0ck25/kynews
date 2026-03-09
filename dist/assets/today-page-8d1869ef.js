@@ -1,1 +1,0 @@
-import{R as t}from"./index-b20814b2.js";import{C as e}from"./category-feed-page-041bb13e.js";import"./Select-cb861495.js";import"./useFormControl-ee745405.js";import"./MenuItem-3dc5cfbc.js";import"./SwitchBase-1236b190.js";function y(){return t.createElement(e,{category:"today",title:"Kentucky Today"})}export{y as default};

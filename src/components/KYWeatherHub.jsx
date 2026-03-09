@@ -112,9 +112,14 @@ export default function KYWeatherHub() {
   return (
     <div style={{ fontFamily: "Georgia, serif", background: bgDefault, color: textColor }}>
 
+      {/* page title above banner */}
+      <Typography variant="h5" align="center" style={{ margin: theme.spacing(1,0) }}>
+        Kentucky Weather
+      </Typography>
+
       {/* Alert Banner */}
       {!alertsLoading && activeWarnings.length > 0 && (
-        <div style={{ background: "linear-gradient(90deg,#7b0000,#c62828,#7b0000)", padding: "10px 20px", display: "flex", alignItems: "center", gap: 10, borderBottom: "2px solid #ef9a9a" }}>
+        <div style={{ background: "linear-gradient(90deg,#7b0000,#c62828,#7b0000)", padding: "10px 20px", display: "flex", alignItems: "center", gap: 10, borderBottom: "2px solid #ef9a9a", borderRadius: 8 }}>
           <span style={{ fontSize: 18 }}>{"🚨"}</span>
           <div style={{ flex: 1 }}>
             <span style={{ fontWeight: "bold", fontSize: 12, color: textColor, letterSpacing: 1, textTransform: "uppercase" }}>
@@ -147,7 +152,7 @@ export default function KYWeatherHub() {
                 padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12,
                 border: selectedCounty.name === c.name ? "2px solid #64b5f6" : "1px solid #2a4a6f",
                 background: selectedCounty.name === c.name ? "rgba(100,181,246,0.2)" : "rgba(255,255,255,0.04)",
-                color: selectedCounty.name === c.name ? "#64b5f6" : "#90a4ae",
+                color: selectedCounty.name === c.name ? "#64b5f6" : theme.palette.text.secondary,
                 fontWeight: selectedCounty.name === c.name ? "bold" : "normal",
               }}>{c.name.split(" ")[0]}</button>
             ))}
@@ -164,7 +169,7 @@ export default function KYWeatherHub() {
               <div style={{ flex: "1 1 180px" }}>
                 <div style={{ fontSize: 11, color: "#64b5f6", textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Current — {selectedCounty.name}</div>
                 <div style={{ fontSize: 48, fontWeight: "bold", color: textColor, lineHeight: 1 }}>{tempF != null ? `${tempF}°F` : "—"}</div>
-                <div style={{ fontSize: 14, color: "#90caf9", marginTop: 4 }}>{currentObs?.textDescription || forecast?.[0]?.shortForecast || "—"}</div>
+                <div style={{ fontSize: 14, color: theme.palette.text.secondary, marginTop: 4 }}>{currentObs?.textDescription || forecast?.[0]?.shortForecast || "—"}</div>
               </div>
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                 {[
@@ -207,10 +212,10 @@ export default function KYWeatherHub() {
                 ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 10 }}>
                     {forecast.filter((_, i) => i % 2 === 0).slice(0, 7).map((period, i) => (
                       <div key={i} style={{ background: i === 0 ? "rgba(100,181,246,0.15)" : "rgba(255,255,255,0.03)", border: `1px solid ${i === 0 ? "#64b5f6" : "#1e3a5f"}`, borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
-                        <div style={{ fontSize: 10, color: "#90caf9", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{i === 0 ? "TODAY" : period.name}</div>
+                        <div style={{ fontSize: 10, color: theme.palette.text.secondary, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{i === 0 ? "TODAY" : period.name}</div>
                         <div style={{ fontSize: 30, marginBottom: 6 }}>{getWeatherIcon(period.shortForecast)}</div>
                         <div style={{ fontSize: 20, fontWeight: "bold", color: textColor }}>{period.temperature}°{period.temperatureUnit}</div>
-                        <div style={{ fontSize: 10, color: "#90a4ae", marginTop: 6, lineHeight: 1.3 }}>{period.shortForecast}</div>
+                        <div style={{ fontSize: 10, color: theme.palette.text.secondary, marginTop: 6, lineHeight: 1.3 }}>{period.shortForecast}</div>
                       </div>
                     ))}
                   </div>
@@ -224,7 +229,7 @@ export default function KYWeatherHub() {
               : alerts.length === 0
                 ? <div style={{ textAlign: "center", padding: 40 }}>
                     <div style={{ fontSize: 44, marginBottom: 10 }}>{"✅"}</div>
-                    <div style={{ color: "#a5d6a7", fontSize: 16 }}>No active weather alerts for Kentucky</div>
+                    <div style={{ color: theme.palette.text.secondary, fontSize: 16 }}>No active weather alerts for Kentucky</div>
                   </div>
                 : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {alerts.map((alert, i) => {
@@ -237,7 +242,7 @@ export default function KYWeatherHub() {
                             <div style={{ flex: 1 }}>
                               <div style={{ fontWeight: "bold", color: textColor, fontSize: 13 }}>{props.event}</div>
                               <div style={{ fontSize: 11, color: "#b0bec5", margin: "4px 0" }}>{props.areaDesc?.split(";").slice(0, 4).join(" • ")}</div>
-                              <div style={{ fontSize: 11, color: "#90a4ae" }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
+                              <div style={{ fontSize: 11, color: theme.palette.text.secondary }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
                             </div>
                             <span style={{ background: s.bg, color: s.text, padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: "bold", textTransform: "uppercase", whiteSpace: "nowrap" }}>{props.severity}</span>
                           </div>
@@ -251,7 +256,7 @@ export default function KYWeatherHub() {
           {/* Radar Tab */}
           {activeTab === "radar" && (
             <div>
-              <div style={{ fontSize: 12, color: "#90a4ae", marginBottom: 10 }}>Live Kentucky radar via Windy.com — centered on the Commonwealth</div>
+              <div style={{ fontSize: 12, color: theme.palette.text.secondary, marginBottom: 10 }}>Live Kentucky radar via Windy.com — centered on the Commonwealth</div>
               <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid #1e3a5f" }}>
                 <iframe
                   title="KY Radar"
@@ -272,10 +277,7 @@ export default function KYWeatherHub() {
       <CategoryFeedPage
         category="weather"
         title="Kentucky Weather"
-        filterPosts={(post) => {
-          const text = `${post.title || ""} ${post.shortDesc || ""}`.toLowerCase();
-          return /weather|storm|tornado|flood|snow|rain|ice\s|wind|temperature|forecast|freez|cold snap|heat wave|thunder|lightning|blizzard|hail|drought|hurricane|tropical storm|winter advisory|winter watch|severe|nws\b|national weather/i.test(text);
-        }}
+        filterPosts={(post) => post.category === "weather" || (post.tags && post.tags.includes("weather"))}
       />
 
       <style>{`button:hover { opacity: 0.8; } * { box-sizing: border-box; }`}</style>
