@@ -63,7 +63,8 @@ export default function SearchPage() {
             setIsLoading(false);
           })
           .catch((error) => {
-            setErrors(error.errorMessage);
+            setErrors(error.errorMessage || 'Search failed. Please try again.');
+            setIsLoading(false);
           });
       } else {
             dispatch(setSearchPosts({ searchValue: "", posts: [] }));

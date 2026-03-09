@@ -474,6 +474,8 @@ async function ensureSchemaAndFixture() {
 		const badPayload = await badResp.json();
 		expect(Array.isArray(badPayload.items)).toBe(true);
 		expect(badPayload.items.length).toBe(0);
+		// should include non-breaking flag for diagnostics
+		expect(badPayload.searchError).toBe('query_failed');
 		spy.mockRestore();
 	}
 			urlHash: 'hash-multi2',

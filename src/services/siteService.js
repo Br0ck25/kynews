@@ -364,6 +364,12 @@ export default class SiteService {
       const route = `/api/articles/${category}${queryString ? `?${queryString}` : ""}`;
       let payload = await this.request(route);
 
+      if (payload?.searchError) {
+        console.warn('[Search] Backend reported query error:', payload.searchError);
+        // treat as empty result but surface a gentle error in the UI
+        throw { errorMessage: 'Search is temporarily unavailable. Please try again.' };
+      }
+
       if (
         (!payload?.items || payload.items.length === 0) &&
         this.isLocalDev() &&

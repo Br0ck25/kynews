@@ -146,6 +146,14 @@ describe('SiteService.request', () => {
     expect(url).not.toContain('limit=');
   });
 
+  it('throws a user-friendly error when backend indicates a query problem', async () => {
+    const service = new SiteService();
+    global.fetch.mockResolvedValue(makeResponse({ items: [], searchError: 'query_failed' }));
+    await expect(service.getPosts({ search: 'foo' })).rejects.toMatchObject({
+      errorMessage: 'Search is temporarily unavailable. Please try again.',
+    });
+  });
+
   it('explicit category all is not overwritten by allowed-category check', async () => {
     const service = new SiteService('https://api.example');
     // avoid seeding retry path

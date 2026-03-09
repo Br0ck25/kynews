@@ -1645,7 +1645,7 @@ try {
   // Search results must not be cached at the edge — a stale empty result
   // would make a freshly-ingested article appear missing until TTL expires.
   return json(
-    { items: [], nextCursor: null },
+    { items: [], nextCursor: null, searchError: 'query_failed' },
     200,
     search ? { 'cache-control': 'no-store' } : PUBLIC_ARTICLE_CACHE_HEADERS,
   );

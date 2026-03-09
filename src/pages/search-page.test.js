@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route } from 'react-router-dom';
 import SearchPage from './search-page';
 import EditorialPolicyPage from './editorial-policy-page';
@@ -25,6 +25,34 @@ test('search page sets robots noindex meta', async () => {
   const robots = document.querySelector('meta[name="robots"]');
   expect(robots).toBeTruthy();
   expect(robots.getAttribute('content')).toBe('noindex');
+});
+
+// ensure error handling from the catch block works and loading state is reset
+test('search page shows an error snackbar and stops loading when the search fails', async () => {
+  jest.useFakeTimers();
+  jest.spyOn(SiteService.prototype, 'getPosts').mockRejectedValue({ errorMessage: 'Search failed. Please try again.' });
+  render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={["/search"]}>
+        <Route path="/search">
+          <SearchPage />
+        </Route>
+      </MemoryRouter>
+    </Provider>
+  );
+
+  const input = screen.getByLabelText(/Search articles/i);
+  input.focus();
+  fireEvent.change(input, { target: { value: 'abc' } });
+
+  // advance past debounce delay
+  jest.advanceTimersByTime(1000);
+
+  const snack = await screen.findByText(/Search failed/i);
+  expect(snack).toBeTruthy();
+
+  // after error is shown we should no longer be in loading state; skeletons are removed
+  expect(screen.queryByRole('progressbar')).toBeNull();
 });
 
 // editorial policy page must expose an AI disclosure anchor and JSON-LD

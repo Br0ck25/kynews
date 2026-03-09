@@ -594,13 +594,14 @@ export async function queryArticles(env: Env, options: {
   }
 
   if (options.search) {
-    // allow searching title, summary or full article text; previously only
-    // summary was indexed which meant matches buried in the body would never
-    // surface.  including content_text makes searches more intuitive at the
-    // cost of a slightly wider table scan.
-    where.push('(title LIKE ? OR summary LIKE ? OR content_text LIKE ?)');
+    // Search title and summary only.  content_text holds the full article body
+    // (potentially 30KB+ per row) and including it in a LIKE scan causes D1
+    // CPU timeouts on any reasonably-sized table, silently returning [].
+    // Title + summary covers all meaningful search terms since the AI summary
+    // captures the key facts, names, and locations from the full article.
+    where.push('(title LIKE ? OR summary LIKE ?)');
     const token = `%${escapeLike(options.search)}%`;
-    binds.push(token, token, token);
+    binds.push(token, token);
   }
 
   if (options.cursor) {

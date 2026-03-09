@@ -159,4 +159,6 @@ export interface SummaryResult {
 export interface ArticleListResponse {
   items: ArticleRecord[];
   nextCursor: string | null;
+  /** non-breaking error indicator sent when the backend query failed */
+  searchError?: string;
 }
