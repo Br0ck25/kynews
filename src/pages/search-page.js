@@ -101,12 +101,44 @@ export default function SearchPage() {
       <Divider />
       <br />
       <Grid container>
-        {!isLoading && searchPosts.posts ? (
-          <>
-            <Posts posts={searchPosts.posts} />
-          </>
-        ) : (
-          isLoading && <Skeletons />
+        {isLoading && <Skeletons />}
+
+        {/*
+          When not loading we show one of three states:
+            1. user has typed at least three characters and we have results
+            2. user has typed at least three characters but there are no results
+            3. user has typed something shorter than the minimum threshold
+        */}
+        {!isLoading && (
+          (() => {
+            const hasQuery = searchVal.length > 2;
+            const posts = searchPosts.posts || [];
+
+            if (hasQuery) {
+              if (posts.length > 0) {
+                return <Posts posts={posts} />;
+              }
+              return (
+                <Grid item xs={12} style={{ textAlign: 'center', padding: 16 }}>
+                  <span style={{ color: '#666' }}>
+                    No articles found{searchVal ? ` for "${searchVal}"` : ''}.
+                  </span>
+                </Grid>
+              );
+            }
+
+            if (searchVal.length > 0) {
+              return (
+                <Grid item xs={12} style={{ textAlign: 'center', padding: 16 }}>
+                  <span style={{ color: '#666' }}>
+                    Enter at least 3 characters to search.
+                  </span>
+                </Grid>
+              );
+            }
+
+            return null;
+          })()
         )}
       </Grid>
 

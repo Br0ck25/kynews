@@ -594,9 +594,13 @@ export async function queryArticles(env: Env, options: {
   }
 
   if (options.search) {
-    where.push('(title LIKE ? OR summary LIKE ?)');
+    // allow searching title, summary or full article text; previously only
+    // summary was indexed which meant matches buried in the body would never
+    // surface.  including content_text makes searches more intuitive at the
+    // cost of a slightly wider table scan.
+    where.push('(title LIKE ? OR summary LIKE ? OR content_text LIKE ?)');
     const token = `%${escapeLike(options.search)}%`;
-    binds.push(token, token);
+    binds.push(token, token, token);
   }
 
   if (options.cursor) {
