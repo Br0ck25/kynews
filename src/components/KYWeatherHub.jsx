@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useTheme } from "@material-ui/core/styles";
+import { Typography } from "@material-ui/core";
 import CategoryFeedPage from "../pages/category-feed-page";
 
 const KY_COUNTIES = [
