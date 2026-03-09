@@ -25,6 +25,7 @@ const createPost = (overrides) => ({
 describe('CategoryFeedPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -72,5 +73,33 @@ describe('CategoryFeedPage', () => {
       expect(robots).not.toBeNull();
       expect(robots.getAttribute('content')).toBe('noindex, follow');
     });
+  });
+
+  it('requests permission and shows a browser notification when new post appears', async () => {
+    // simulate notifications enabled in Redux
+    store.dispatch({ type: 'SET_NOTIFICATIONS', notifications: { today: true } });
+
+    const newPost = createPost({ title: 'New Article', originalLink: 'https://example.com/1' });
+    jest.spyOn(SiteService.prototype, 'fetchPage').mockResolvedValue({ posts: [newPost], nextCursor: null });
+
+    // mock Notification API
+    const originalNotification = global.Notification;
+    const notifSpy = jest.fn();
+    global.Notification = jest.fn().mockImplementation((title, opts) => {
+      notifSpy(title, opts);
+    });
+    Notification.requestPermission = jest.fn().mockResolvedValue('granted');
+    Object.defineProperty(global.Notification, 'permission', { value: 'granted', writable: true });
+
+    render(
+      <Provider store={store}>
+        <CategoryFeedPage category="today" title="Kentucky Today" />
+      </Provider>
+    );
+
+    await waitFor(() => expect(notifSpy).toHaveBeenCalled());
+
+    // restore
+    global.Notification = originalNotification;
   });
 });

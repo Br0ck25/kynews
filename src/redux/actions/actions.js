@@ -1,5 +1,6 @@
 export const SET_TITLE = "SET_TITLE";
 export const SET_DARK_THEME = "SET_DARK_THEME";
+export const SET_NOTIFICATIONS = "SET_NOTIFICATIONS";
 export const SET_POSTS = "SET_POSTS";
 export const SET_POST = "SET_POST";
 export const SET_CATEGORIES = "SET_CATEGORIES";
@@ -15,6 +16,10 @@ export function setTitle(title) {
 
 export function setDarkTheme(darkTheme) {
   return { type: SET_DARK_THEME, darkTheme };
+}
+
+export function setNotifications(notifications) {
+  return { type: SET_NOTIFICATIONS, notifications };
 }
 
 export function setPosts(posts) {

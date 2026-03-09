@@ -1,6 +1,7 @@
 import {
   SET_TITLE,
   SET_DARK_THEME,
+  SET_NOTIFICATIONS,
   SET_POST,
   SET_POSTS,
   SET_CATEGORIES,
@@ -16,6 +17,13 @@ import { GetValue, SaveValue } from "../../services/storageService";
 const initialState = {
   title: Constants.appName,
   darkTheme: GetValue("darkTheme"),
+  notifications: GetValue("notifications") || {
+    today: false,
+    national: false,
+    sports: false,
+    weather: false,
+    schools: false,
+  },
   posts: null,
   categories: null,
   tags: null,
@@ -41,6 +49,12 @@ function rootReducer(state = initialState, action) {
       return {
         ...state,
         darkTheme: action.darkTheme,
+      };
+    case SET_NOTIFICATIONS:
+      SaveValue("notifications", action.notifications);
+      return {
+        ...state,
+        notifications: action.notifications,
       };
     case SET_POST:
       return {

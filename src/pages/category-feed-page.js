@@ -23,6 +23,7 @@ import SnackbarNoInternet from "../components/snackbar-no-internet-component";
 import { useDispatch, useSelector } from "react-redux";
 import { setPosts, setTitle, setSelectedCounties } from "../redux/actions/actions";
 import { KENTUCKY_COUNTIES } from "../constants/counties";
+import { GetValue, SaveValue } from "../services/storageService";
 
 const useStyles = makeStyles((theme) => ({
   root: {},
@@ -49,6 +50,7 @@ function getPageLimit(_category) {
 export default function CategoryFeedPage({ category, title, countyFilterEnabled = false, filterPosts }) {
   const classes = useStyles();
   const selectedCounties = useSelector((state) => state.selectedCounties);
+  const notifications = useSelector((state) => state.notifications || {});
   const dispatch = useDispatch();
 
   // Use local state for the full accumulated list (supports infinite pagination)
@@ -96,6 +98,32 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
       .fetchPage({ category, counties: effectiveCounties, cursor: null, limit: getPageLimit(category) })
       .then(({ posts, nextCursor }) => {
         if (!active || !isMountedRef.current) return;
+
+        // notification logic: compare first post to last seen
+        if (posts && posts.length > 0) {
+          const firstPost = posts[0];
+          const key = `lastSeen_${category}`;
+          const lastSeen = GetValue(key);
+          const firstId = firstPost.id || firstPost.originalLink || null;
+          if (firstId) {
+            if (notifications[category] && lastSeen && firstId !== lastSeen) {
+              if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                try {
+                  new Notification(`New ${title} article`, {
+                    body: firstPost.title || "",
+                    tag: category,
+                    data: { url: firstPost.originalLink || "" },
+                  });
+                } catch (err) {
+                  console.warn("Failed to show notification", err);
+                }
+              }
+            }
+            // always store most recent first for future comparisons
+            SaveValue(key, firstId);
+          }
+        }
+
         // Batch all state updates into one React re-render.
         // React 17 does NOT batch async state updates; without batchedUpdates
         // cursor changes BEFORE isLoading=false so the sentinel effect fires
@@ -123,6 +151,49 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, countyKey]);
+
+  // Poll for new articles every 5 minutes when notifications enabled for this
+  // category and the component is mounted.
+  useEffect(() => {
+    if (!notifications[category]) return;
+    let intervalId = null;
+    const checkForNew = async () => {
+      try {
+        const { posts } = await service.fetchPage({
+          category,
+          counties: effectiveCounties,
+          cursor: null,
+          limit: 1,
+        });
+        if (posts && posts.length > 0) {
+          const first = posts[0];
+          const key = `lastSeen_${category}`;
+          const lastSeen = GetValue(key);
+          const firstId = first.id || first.originalLink || null;
+          if (firstId) {
+            if (lastSeen && firstId !== lastSeen) {
+              if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                try {
+                  new Notification(`New ${title} article`, {
+                    body: first.title || "",
+                    tag: category,
+                    data: { url: first.originalLink || "" },
+                  });
+                } catch {}
+              }
+            }
+            SaveValue(key, firstId);
+          }
+        }
+      } catch (_) {
+        // ignore errors on polling
+      }
+    };
+    // run once immediately so toggling on has an instant check
+    checkForNew();
+    intervalId = setInterval(checkForNew, 5 * 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, [category, effectiveCounties, notifications]);
 
   // add robots meta tag for cursor parameters (paginated pages)
   useEffect(() => {
