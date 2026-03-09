@@ -12,13 +12,15 @@ export default defineConfig({
   },
   esbuild: {
     loader: "jsx",
-    include: /src\/.*\.js$/,
+    // also include .jsx files so import analysis doesn't choke on JSX syntax
+    include: /src\/.*\.(js|jsx)$/,
     exclude: [],
   },
   optimizeDeps: {
     esbuildOptions: {
       loader: {
         ".js": "jsx",
+        ".jsx": "jsx",
       },
     },
   },
