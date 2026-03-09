@@ -69,7 +69,9 @@ describe('search pagination', () => {
 
     render(
       <Provider store={store}>
-        <SearchPage />
+        <MemoryRouter>
+          <SearchPage />
+        </MemoryRouter>
       </Provider>
     );
 
@@ -106,6 +108,7 @@ describe('search pagination', () => {
 
 // ensure error handling from the catch block works and loading state is reset
 test('search page shows an error snackbar and stops loading when the search fails', async () => {
+  store.dispatch(setSearchPosts({ searchValue: '', posts: [] }));
   jest.useFakeTimers();
   jest.spyOn(SiteService.prototype, 'fetchPage').mockRejectedValue({ errorMessage: 'Search failed. Please try again.' });
   render(

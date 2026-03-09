@@ -464,10 +464,13 @@ export default class SiteService {
    * Returns { posts: [], nextCursor: string|null }.
    * Pass cursor=null for the first page, then pass the returned nextCursor for subsequent pages.
    */
-  async fetchPage({ category = "today", counties = [], cursor = null, limit = 20 } = {}) {
-    const validCategory = ALLOWED_CATEGORIES.includes(category) ? category : "today";
+  async fetchPage({ category = "today", search = '', counties = [], cursor = null, limit = 20 } = {}) {
+    const validCategory = (ALLOWED_CATEGORIES.includes(category) || category === 'all') ? category : "today";
     const params = new URLSearchParams();
     params.set("limit", String(limit));
+    if (search) {
+      params.set("search", search);
+    }
     if (validCategory !== "national" && counties && counties.length > 0) {
       params.set("counties", counties.join(","));
     }

@@ -175,7 +175,7 @@ export default function SinglePost(props) {
                 component="p"
                 dangerouslySetInnerHTML={{
                   __html:
-                    post.shortDesc.split(" ").splice(0, 20).join(" ") + "...",
+                    (post.shortDesc || '').split(" ").splice(0, 20).join(" ") + "...",
                 }}
               ></Typography>
             </CardContent>
