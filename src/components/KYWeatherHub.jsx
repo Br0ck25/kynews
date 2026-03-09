@@ -22,7 +22,7 @@ const ALERT_COLORS = {
   "Winter Storm Warning": { bg: "#FF69B4", text: "#fff", icon: "❄️" },
   "Winter Storm Watch": { bg: "#4169E1", text: "#fff", icon: "❄️" },
   "Severe Thunderstorm Warning": { bg: "#FFA500", text: "#000", icon: "⛈️" },
-  "Flood Warning": { bg: "#00FF00", text: "#000", icon: "💧" },
+  "Flood Warning": { bg: "#006400", text: "#fff", icon: "💧" },
   default: { bg: "#FFD700", text: "#000", icon: "⚠️" },
 };
 
@@ -246,12 +246,14 @@ export default function KYWeatherHub() {
                     {alerts.map((alert, i) => {
                       const props = alert.properties;
                       const s = getAlertStyle(props.event);
+                      // increase font size for flood warnings
+                      const eventFontSize = props.event === "Flood Warning" ? 15 : 13;
                       return (
                         <div key={i} style={{ background: `${s.bg}18`, border: `1px solid ${s.bg}`, borderLeft: `4px solid ${s.bg}`, borderRadius: 8, padding: "12px 14px" }}>
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                             <span style={{ fontSize: 18 }}>{s.icon}</span>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: "bold", color: textColor, fontSize: 13 }}>{props.event}</div>
+                              <div style={{ fontWeight: "bold", color: s.text, fontSize: eventFontSize }}>{props.event}</div>
                               <div style={{ fontSize: 11, color: "#b0bec5", margin: "4px 0" }}>{props.areaDesc?.split(";").slice(0, 4).join(" • ")}</div>
                               <div style={{ fontSize: 11, color: theme.palette.text.secondary }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
                             </div>
