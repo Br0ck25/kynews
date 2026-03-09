@@ -138,6 +138,8 @@ export default function AdminPage() {
     }
   };
   const [manualImageUrl, setManualImageUrl] = useState("");
+  const [manualImageFile, setManualImageFile] = useState(null);
+  const [manualImageUploading, setManualImageUploading] = useState(false);
   const [manualCounty, setManualCounty] = useState("");
   // new fields for explicit categorization/scope
   const [manualCategory, setManualCategory] = useState("");
@@ -737,6 +739,7 @@ export default function AdminPage() {
   /** Submit the manual article form to the worker for storage. */
   const submitManualArticle = async () => {
     if (!manualTitle.trim()) { setManualError("Title is required."); return; }
+    if (manualImageUploading) { setManualError("Please wait for image upload to finish."); return; }
     setManualLoading(true);
     setManualError("");
     setManualSuccess(null);
@@ -1477,6 +1480,47 @@ export default function AdminPage() {
                 style={{ marginBottom: 12 }}
               />
 
+              {/* Image file upload (new) */}
+              <Box style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <label htmlFor="manual-image-file" style={{ cursor: 'pointer' }}>
+                  <input
+                    id="manual-image-file"
+                    data-testid="manual-image-file"
+                    type="file"
+                    accept="image/*"
+                    disabled={manualImageUploading}
+                    style={{ display: 'none' }}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setManualImageFile(file);
+                      setManualImageUploading(true);
+                      setManualError("");
+                      try {
+                        const res = await service.uploadAdminImage(file);
+                        if (res.url) {
+                          setManualImageUrl(res.url);
+                        } else {
+                          setManualError(res.error || 'Image upload failed');
+                        }
+                      } catch (err) {
+                        setManualError(err?.errorMessage || 'Image upload failed');
+                      } finally {
+                        setManualImageUploading(false);
+                      }
+                    }}
+                  />
+                  <Button variant="outlined" size="small" component="span" disabled={manualImageUploading}>
+                    {manualImageUploading ? 'Uploading…' : 'Choose image file'}
+                  </Button>
+                </label>
+                {manualImageUrl && (
+                  <Typography variant="body2" style={{ fontSize: 12 }}>
+                    URL: {manualImageUrl}
+                  </Typography>
+                )}
+              </Box>
+
               {/* Image URL */}
               <TextField fullWidth variant="outlined" size="small"
                 label="Image URL (optional)"
@@ -1484,6 +1528,13 @@ export default function AdminPage() {
                 onChange={(e) => setManualImageUrl(e.target.value)}
                 style={{ marginBottom: 12 }}
               />
+
+              {/* preview uploaded image */}
+              {manualImageUrl && (
+                <Box style={{ marginBottom: 12 }}>
+                  <img src={manualImageUrl} alt="uploaded" style={{ maxWidth: '200px' }} />
+                </Box>
+              )
 
               {/* Category (optional – leave blank for AI) */}
               <FormControl variant="outlined" size="small" style={{ minWidth: 200, marginBottom: 12 }}>

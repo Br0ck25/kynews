@@ -1437,6 +1437,58 @@ if (url.pathname === '/api/admin/spc/run' && request.method === 'POST') {
 	}
 }
 
+// serve files from the R2 media bucket; this is intentionally *not* an admin
+// route so that uploaded images can be embedded in public article pages.
+if (url.pathname.startsWith('/api/media/') && request.method === 'GET') {
+	// strip the prefix to obtain the object key
+	const key = url.pathname.slice('/api/media/'.length);
+	if (!key) {
+		return new Response('Not found', { status: 404 });
+	}
+	const obj = await env.ky_news_media.get(key);
+	if (!obj) {
+		return new Response('Not found', { status: 404 });
+	}
+	const headers = new Headers();
+	if (obj.httpMetadata?.contentType) {
+		headers.set('Content-Type', obj.httpMetadata.contentType);
+	}
+	return new Response(obj.body, { headers });
+}
+
+// allow admins to upload a single image file; the client will later pass the
+// returned URL (which proxies through /api/media/) when creating or editing
+// an article.  the uploaded file is stored in R2 under an auto-generated key.
+if (url.pathname === '/api/admin/upload-image' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+	// rely on the standard FormData parsing provided by the runtime
+	const form = await request.formData();
+	const file = form.get('file');
+	if (!(file instanceof Blob)) {
+		return badRequest('No file uploaded');
+	}
+	if (!file.type.startsWith('image/')) {
+		return badRequest('Uploaded file is not an image');
+	}
+	// derive a reasonable extension from the original filename when possible
+	const name = (file as any).name || '';
+	const ext = name.split('.').pop().toLowerCase();
+	// generate a short unique identifier; randomUUID might not be available in
+	// the test harness, so fall back to a simple base‑36 random string.
+	const uniq = typeof crypto.randomUUID === 'function'
+		? crypto.randomUUID()
+		: Math.random().toString(36).substring(2, 10);
+	const key = `uploads/${Date.now()}-${uniq}${ext ? '.' + ext : ''}`;
+	
+	const data = await file.arrayBuffer();
+	await env.ky_news_media.put(key, data, {
+		httpMetadata: { contentType: file.type },
+	});
+	return json({ url: `/api/media/${key}`, key });
+}
+
 // Manually create an article (from a Facebook post or any other source) without going through
 // the normal URL-scraping pipeline. Body is optional. Classification runs through AI as normal.
 if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {

@@ -3366,6 +3366,41 @@ describe('admin backfill endpoint', () => {
 });
 
 // ---------------------------------------------------------------------------
+// admin upload-image endpoint tests
+// ---------------------------------------------------------------------------
+describe('admin upload-image endpoint', () => {
+	it('rejects unauthorized requests', async () => {
+		const response = await SELF.fetch('https://example.com/api/admin/upload-image', {
+			method: 'POST',
+		});
+		expect(response.status).toBe(401);
+	});
+
+	it('stores uploaded image and returns proxy URL', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		// spy on the R2 bucket's put method so we can verify it is called
+		const putSpy = vi.spyOn(adminEnv.ky_news_media, 'put');
+
+		const form = new FormData();
+		form.append('file', new Blob(['abc'], { type: 'image/png' }), 'foo.png');
+		const req = new IncomingRequest('https://example.com/api/admin/upload-image', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw' },
+			body: form,
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const json = await resp.json();
+		expect(json.url).toMatch(/^\/api\/media\//);
+		expect(json.key).toBeDefined();
+		expect(putSpy).toHaveBeenCalled();
+	});
+});
+
+// ---------------------------------------------------------------------------
 // manual-article endpoint tests
 // ---------------------------------------------------------------------------
 describe('admin manual-article endpoint', () => {

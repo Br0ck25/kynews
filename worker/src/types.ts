@@ -166,3 +166,11 @@ export interface ArticleListResponse {
   /** non-breaking error indicator sent when the backend query failed */
   searchError?: string;
 }
+
+/** response from the admin image upload endpoint */
+export interface ImageUploadResult {
+  /** public path that will proxy the object from R2 */
+  url: string;
+  /** raw key stored in the R2 bucket (useful for debugging) */
+  key: string;
+}

@@ -701,6 +701,27 @@ export default class SiteService {
   }
 
   /**
+   * Upload a single image file for use in an article.  The returned object
+   * contains a proxy URL (under /api/media/) that is safe to pass as the
+   * `imageUrl` property on article creation or editing.  This method bypasses
+   * the normal `request` helper because it must send `FormData` instead of
+   * JSON and the helper always sets a JSON content type header.
+   */
+  async uploadAdminImage(file) {
+    const form = new FormData();
+    form.append('file', file);
+    const headers = {};
+    const panelKey = this.getAdminPanelKey();
+    if (panelKey) headers['x-admin-key'] = panelKey;
+    const resp = await fetch(`${this.adminBaseUrl}/api/admin/upload-image`, {
+      method: 'POST',
+      body: form,
+      headers,
+    });
+    return resp.json();
+  }
+
+  /**
    * Request a preview of what would happen if the given URL were ingested.
    * The result mirrors the normal ingest response but includes extra fields
    * (title, summary, category, etc) and no database row is created.

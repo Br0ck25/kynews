@@ -31,6 +31,22 @@ describe('SiteService.request', () => {
     expect(opts.headers).not.toHaveProperty('Content-Type');
   });
 
+  it('uploadAdminImage sends a FormData body and returns parsed JSON', async () => {
+    const service = new SiteService('https://api.host');
+    const fakeJson = { url: '/api/media/foo', key: 'foo' };
+    global.fetch.mockResolvedValue(makeResponse(fakeJson));
+
+    const blob = new Blob(['x'], { type: 'image/png' });
+    const file = new File([blob], 'foo.png', { type: 'image/png' });
+    const result = await service.uploadAdminImage(file);
+    expect(result).toEqual(fakeJson);
+    const [[url, opts]] = global.fetch.mock.calls;
+    expect(opts.method).toBe('POST');
+    expect(url).toBe('https://api.host/api/admin/upload-image');
+    // body should be FormData instance
+    expect(opts.body).toBeInstanceOf(FormData);
+  });
+
   it('adds Content-Type header for POST requests', async () => {
     const service = new SiteService('https://api.host');
     global.fetch.mockResolvedValue(makeResponse({ ok: true }));

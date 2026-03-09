@@ -154,6 +154,27 @@ Database: updateArticleContent(env, id, { title, summary, imageUrl })
 
 --------------------------------------------------
 
+POST /api/admin/upload-image
+
+Upload a single image file; the request must be sent as `multipart/form-data` with
+field name `file`.  Only image MIME types are permitted.  Returns JSON
+`{ url, key }` where `url` is a proxy path under `/api/media/` that can be used
+in place of an ordinary `imageUrl` when creating or editing an article.
+
+Handler: worker/src/index.ts (~line 1465)
+Storage: env.ky_news_media.put(key, <buffer>)
+
+--------------------------------------------------
+
+GET /api/media/:key
+
+Public endpoint used to retrieve objects previously stored in the R2 bucket
+via the upload-image endpoint.  The key is the path portion after `/api/media/`.
+
+Handler: worker/src/index.ts (~line 1450)
+
+--------------------------------------------------
+
 POST /api/admin/article/update-links
 
 Updates the canonical URL and/or source URL for an article.

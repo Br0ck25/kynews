@@ -133,6 +133,34 @@ describe('AdminPage manual body formatting', () => {
     createSpy.mockRestore();
   });
 
+  it('uploads a selected image file before submitting manual article', async () => {
+    const uploadSpy = jest.spyOn(SiteService.prototype, 'uploadAdminImage')
+      .mockResolvedValue({ url: 'https://example.com/foo.jpg', key: 'abc' });
+    const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
+      .mockResolvedValue({ status: 'inserted', id: 2, category: 'today', isKentucky: true, county: null });
+
+    render(<AdminPage />);
+    fireEvent.click(screen.getByRole('tab', { name: /Create Article/i }));
+    // choose file via hidden input (use test id)
+    const fileInput = screen.getByTestId('manual-image-file');
+    const file = new File(['hi'], 'test.png', { type: 'image/png' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    // wait for upload to complete (uploadSpy called)
+    await screen.findByText(/URL:/i);
+    expect(uploadSpy).toHaveBeenCalledWith(file);
+
+    // fill required title and submit
+    const title = screen.getByLabelText(/Title \*/i);
+    fireEvent.change(title, { target: { value: 'With image' } });
+    fireEvent.click(screen.getByText(/Publish Article/i));
+    await screen.findByText(/Article published/i);
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: 'https://example.com/foo.jpg' }));
+
+    uploadSpy.mockRestore();
+    createSpy.mockRestore();
+  });
+
   it('pressing Enter in search field triggers filtering', async () => {
     const listSpy = jest.spyOn(SiteService.prototype, 'getAdminArticles')
       .mockResolvedValue({ items: [], nextCursor: null });
