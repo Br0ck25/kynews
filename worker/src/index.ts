@@ -660,7 +660,10 @@ return json({ error: 'Unauthorized' }, 401);
 }
 const limit = parsePositiveInt(url.searchParams.get('limit'), 25, 100);
 const cursor = url.searchParams.get('cursor');
-const search = url.searchParams.get('search')?.trim() ?? null;
+let search = url.searchParams.get('search') ?? null;
+if (search !== null) {
+  search = search.replace(/\+/g, ' ').trim();
+}
 const categoryQuery = (url.searchParams.get('category') || 'all').toLowerCase();
 const category = categoryQuery === 'all' ? 'all' : (isAllowedCategory(categoryQuery) ? categoryQuery : 'all');
 
@@ -1463,6 +1466,15 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		classification.isNational = !body.isKentucky;
 	}
 
+	// If the admin forced the article to be Kentucky but did not supply an
+	// explicit category, make sure we don't accidentally leave it in the
+	// "national" bucket.  Editors expect manually created KY stories to show
+	// on the home page (today feed) even when the AI model failed to pick up a
+	// Kentucky signal in the text.
+	if (classification.isKentucky && !body?.category && classification.category === 'national') {
+		classification.category = 'today';
+	}
+
 	// prefer admin-supplied county when available; clear if not kentucky
 	if (providedCounty && classification.isKentucky) {
 		classification.county = providedCounty;
@@ -1596,7 +1608,14 @@ url.searchParams.get('counties') || url.searchParams.get('county'),
 const counties = normalizeCountyList(rawCounties) as string[];
 
 // limit search string length to avoid expensive queries
-const rawSearch = url.searchParams.get('search')?.trim() ?? null;
+let rawSearch = url.searchParams.get('search') ?? null;
+// some clients (or older environments) may leave plus signs instead of
+// spaces when encoding the query string; normalize them here so that the
+// database query sees a more natural term.  trimming also ensures we never
+// pass a purely-whitespace string.
+if (rawSearch !== null) {
+  rawSearch = rawSearch.replace(/\+/g, ' ').trim();
+}
 const search = rawSearch ? rawSearch.slice(0, 120) : null;
 // when searching across all categories we let the backend return a larger
 // default batch size (100) so that users don't feel artificially capped at
@@ -1604,13 +1623,31 @@ const search = rawSearch ? rawSearch.slice(0, 120) : null;
 const defaultLimit = category === 'all' ? 100 : 20;
 const limit = parsePositiveInt(url.searchParams.get('limit'), defaultLimit, 100);
 const cursor = url.searchParams.get('cursor');
-const result = await queryArticles(env, {
-  category,
-  counties,
-  search,
-  limit,
-  cursor,
-});
+let result;
+try {
+  result = await queryArticles(env, {
+    category,
+    counties,
+    search,
+    limit,
+    cursor,
+  });
+} catch (err) {
+  // log the error so it can be investigated in production
+  console.error('queryArticles failed', err);
+  // The `/all` search endpoint is hit frequently from the client’s
+  // search page and a transient database hiccup (often triggered by
+  // a broad multi‑word query like “state police”) should not surface a
+  // hard 500 back to the UI.  Instead return an empty result set so the
+  // front end can render its normal “no results” message while allowing
+  // the user to continue using the site.  The error is still logged for
+  // later analysis.
+  return json(
+    { items: [], nextCursor: null },
+    200,
+    PUBLIC_ARTICLE_CACHE_HEADERS,
+  );
+}
 
 return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
 }

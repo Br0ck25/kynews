@@ -451,15 +451,31 @@ async function ensureSchemaAndFixture() {
 		expect(response.status).toBe(200);
 		const payload = await response.json();
 		expect(Array.isArray(payload.items)).toBe(true);
-	});
 
-	it('feeds return articles when a secondary county matches', async () => {
-		await ensureSchemaAndFixture();
-		// insert a multi-county article where primary is Fayette but also Jefferson
-		const now = new Date().toISOString();
-		await insertArticle(env, {
-			canonicalUrl: 'https://example.com/multi2',
-			sourceUrl: 'https://example.com',
+	// also ensure multi-word terms (spaces or + encoding) don't crash the
+	// server; prior bugs surfaced only when the query contained a space.
+	const multiSpace = await SELF.fetch('https://example.com/api/articles/all?search=state%20police');
+	expect(multiSpace.status).toBe(200);
+	const payload2 = await multiSpace.json();
+	expect(Array.isArray(payload2.items)).toBe(true);
+
+	const plusEncoded = await SELF.fetch('https://example.com/api/articles/all?search=state+police');
+	expect(plusEncoded.status).toBe(200);
+	const payload3 = await plusEncoded.json();
+	expect(Array.isArray(payload3.items)).toBe(true);
+
+	// simulate a database failure and make sure we still return 200/empty
+	// instead of propagating the 500.  this covers the case observed in
+	// production when a heavy search term caused D1 to abort.
+	{
+		const spy = vi.spyOn(dbModule, 'queryArticles').mockRejectedValue(new Error('boom'));
+		const badResp = await SELF.fetch('https://example.com/api/articles/all?search=foo');
+		expect(badResp.status).toBe(200);
+		const badPayload = await badResp.json();
+		expect(Array.isArray(badPayload.items)).toBe(true);
+		expect(badPayload.items.length).toBe(0);
+		spy.mockRestore();
+	}
 			urlHash: 'hash-multi2',
 			title: 'Secondary county test',
 			author: null,
@@ -2034,6 +2050,12 @@ describe('database utilities', () => {
 		expect(resp.items.some((i) => i.id === id)).toBe(true);
 	});
 
+	it('queryArticles handles multi-word search terms without error', async () => {
+		await ensureSchemaAndFixture();
+		const resp2 = await queryArticles(env, { category: 'all', counties: [], search: 'state police', limit: 10, cursor: null });
+		expect(Array.isArray(resp2.items)).toBe(true);
+	});
+
 	it('queryArticles with category all ignores the category filter', async () => {
 		await ensureSchemaAndFixture();
 		const now = new Date().toISOString();
@@ -2608,10 +2630,10 @@ describe('title similarity dedupe', () => {
 		// hook should not treat city names as counties
 		expect(generateFacebookHook('A story about a city', undefined)).not.toMatch(/City County/i);
 
-		// very long summary should be truncated at the new 120-word limit
-		const extraLong = new Array(140).fill('word').join(' ');
+		// very long summary should be truncated at the new 150-word limit
+		const extraLong = new Array(160).fill('word').join(' ');
 		const longHook = generateFacebookHook(extraLong);
-		expect(longHook.split(/\s+/).length).toBeLessThanOrEqual(121);
+		expect(longHook.split(/\s+/).length).toBeLessThanOrEqual(151);
 
 		// caption returns blank for non-KY
 		expect(generateFacebookCaption({ title: 'a', summary: 'b', is_kentucky: 0 })).toBe('');
@@ -3326,6 +3348,49 @@ describe('admin manual-article endpoint', () => {
 		expect(json.status).toBe('inserted');
 		const row = await getArticleById(adminEnv, json.id);
 		expect(row.published_at).toBe(futureIso);
+	});
+
+	// manually inserted articles should always surface in the "today" feed when
+	// the admin has not specified a category.  a common complaint was that posts
+	// created via the manual form would "never appear" because the AI classifier
+	// assigned them to the national bucket.  we enforce a KY override here.
+	it('forces a kentucky manual article into today when AI classifies national and no category override provided', async () => {
+		await ensureSchemaAndFixture();
+		const adminEnv = envWithAdminPassword('pw');
+		// stub classifier to pretend it returned national
+		const original = __testables.classifyArticleWithAi;
+		__testables.classifyArticleWithAi = async () => ({
+			category: 'national',
+			isKentucky: false,
+			counties: [],
+			city: null,
+			geoConfidence: null,
+			isNational: true,
+		});
+
+		const req = new IncomingRequest('https://example.com/api/admin/manual-article', {
+			method: 'POST',
+			headers: { 'x-admin-key': 'pw', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				title: 'Local story',
+				body: 'Nothing special',
+				// omit explicit isKentucky to rely on default override logic
+			}),
+		});
+		const ctx = createExecutionContext();
+		const resp = await worker.fetch(req, adminEnv, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(resp.status).toBe(200);
+		const json = await resp.json();
+		expect(json.status).toBe('inserted');
+		expect(json.category).toBe('today');
+		const row2 = await getArticleById(adminEnv, json.id);
+		expect(row2.category).toBe('today');
+		// make sure the public query endpoint can see the new article
+		const list = await queryArticles(adminEnv, { category: 'today', counties: [], search: null, limit: 10, cursor: null });
+		expect(list.items.some((a) => a.id === json.id)).toBe(true);
+
+		__testables.classifyArticleWithAi = original;
 	});
 
 	it('formats contentHtml correctly for numbered list paragraphs', async () => {

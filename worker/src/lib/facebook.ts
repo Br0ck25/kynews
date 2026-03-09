@@ -14,7 +14,7 @@ export function cleanFacebookHeadline(title: string): string {
 
 /**
  * Choose a short hook from an article summary. Returns the first sentence and
- * truncates to 120 words (previously 60).
+ * truncates to 150 words (previously 120).
  */
 export function generateFacebookHook(summary: string = '', county?: string): string {
   const text = (summary || '').trim();
@@ -34,8 +34,8 @@ export function generateFacebookHook(summary: string = '', county?: string): str
 
   if (hook) {
     const words = hook.split(/\s+/);
-    if (words.length > 120) {
-      hook = words.slice(0, 120).join(' ') + '…';
+    if (words.length > 150) {
+      hook = words.slice(0, 150).join(' ') + '…';
     }
     if (county && !new RegExp(county, 'i').test(hook)) {
       hook = `In ${county} County, ${hook}`;
