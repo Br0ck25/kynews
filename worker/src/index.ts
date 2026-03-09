@@ -49,6 +49,7 @@ import { classifyArticleWithAi } from './lib/classify';
 import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption } from './lib/facebook';
+import { processNwsAlerts } from './lib/nws';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -1413,6 +1414,17 @@ if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 	}
 }
 
+// POST /api/admin/nws-alerts/run — manually trigger NWS alert ingestion
+if (url.pathname === '/api/admin/nws-alerts/run' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	try {
+		const result = await processNwsAlerts(env);
+		return json({ ok: true, ...result });
+	} catch (err: any) {
+		return json({ error: String(err) }, 500);
+	}
+}
+
 // Manually create an article (from a Facebook post or any other source) without going through
 // the normal URL-scraping pipeline. Body is optional. Classification runs through AI as normal.
 if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
@@ -2656,6 +2668,15 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
 
   // Check recent articles for content updates (self-limits to 20 per run).
   ctx.waitUntil(checkArticleUpdates(env));
+
+  // Check NWS for Kentucky weather alerts on every tick
+  ctx.waitUntil(
+    processNwsAlerts(env).then(({ published, skipped }) => {
+      if (published > 0) {
+        console.log(`[NWS] Alert run complete: ${published} published, ${skipped} skipped`);
+      }
+    }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
+  );
 },
 
 // forward queue events to our exported handler
