@@ -100,6 +100,7 @@ export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
 	'https://mountain-topmedia.com/feed/',
 	'https://www.weather.gov/rss',
 	'https://kyweathercenter.com/',
+	'https://api.weather.gov/alerts/active?area=KY',
 ];
 
 export const NORMAL_PRIORITY_SOURCE_SEEDS: string[] = [

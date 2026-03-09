@@ -129,13 +129,101 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
       })}`
     : '';
 
-  // ── Plain-text body (fed to AI summarizer) — plan §6 template ────────────
-  const descParts = alert.description
-    .split(/\n{2,}/).map((s) => s.replace(/\n/g, ' ').trim()).filter(Boolean);
+  // ── Parse the raw NWS description into structured sections ──────────────
+  //
+  // NWS descriptions use three formatting conventions that need special handling:
+  //
+  //   1. "* LABEL..." header lines — e.g. "* WHAT...Minor flooding is occurring"
+  //      These are structured fields; render as bold label + value.
+  //
+  //   2. "- bullet" lines — e.g. "- At 10:00 AM the stage was 39.7 feet."
+  //      These appear inside the ADDITIONAL DETAILS block; render as <li>.
+  //
+  //   3. Leading/trailing "..." dots — NWS product formatting artifact; remove them.
+  //
+  // The description uses BOTH double-newline (paragraph break) and single-newline
+  // (line break within a section).  We split on double-newline first, then process
+  // each block's internal lines.
+
+  function cleanDots(s: string): string {
+    return s.replace(/^\.+/, '').replace(/\.+$/, '').replace(/\.\.\./g, '').trim();
+  }
+
+  // Build the HTML representation of the description
+  function renderDescHtml(raw: string): string {
+    const blocks = raw.split(/\n{2,}/);
+    const parts: string[] = [];
+
+    for (const block of blocks) {
+      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (lines.length === 0) continue;
+
+      // Check if the block is a "* LABEL...value" structured field
+      const starMatch = lines[0].match(/^\*\s+([A-Z][A-Z \t]+?)\.\.\.(.*)/);
+      if (starMatch) {
+        const label = starMatch[1].trim();
+        const rest = [starMatch[2], ...lines.slice(1)].join(' ').trim();
+        // Collect any "- bullet" sub-lines that follow
+        const bulletLines: string[] = [];
+        const textParts: string[] = [];
+        for (const item of rest.split(/\s*-\s+/).filter(Boolean)) {
+          if (item.trim()) bulletLines.push(item.trim());
+        }
+        if (bulletLines.length > 1) {
+          parts.push(`<p><strong>${label}:</strong></p>`);
+          parts.push(`<ul>${bulletLines.map((b) => `<li>${cleanDots(b)}</li>`).join('')}</ul>`);
+        } else {
+          parts.push(`<p><strong>${label}:</strong> ${cleanDots(rest)}</p>`);
+        }
+        continue;
+      }
+
+      // Check if the block is entirely "- bullet" lines
+      if (lines.every((l) => l.startsWith('-'))) {
+        parts.push(`<ul>${lines.map((l) => `<li>${cleanDots(l.replace(/^-\s*/, ''))}</li>`).join('')}</ul>`);
+        continue;
+      }
+
+      // Plain paragraph — join lines, clean dots, render
+      const text = cleanDots(lines.join(' ').replace(/\s{2,}/g, ' '));
+      if (text) parts.push(`<p>${text}</p>`);
+    }
+
+    return parts.join('\n');
+  }
+
+  // Build a clean plain-text version of the description (for AI summarizer)
+  function renderDescText(raw: string): string {
+    const blocks = raw.split(/\n{2,}/);
+    const parts: string[] = [];
+
+    for (const block of blocks) {
+      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (lines.length === 0) continue;
+
+      const starMatch = lines[0].match(/^\*\s+([A-Z][A-Z \t]+?)\.\.\.(.*)/);
+      if (starMatch) {
+        const label = starMatch[1].trim();
+        const rest = [starMatch[2], ...lines.slice(1)].join(' ').trim();
+        parts.push(`${label}: ${cleanDots(rest)}`);
+        continue;
+      }
+
+      const text = cleanDots(lines.join(' ').replace(/\s{2,}/g, ' '));
+      if (text) parts.push(text);
+    }
+
+    return parts.join('\n\n');
+  }
+
+  const descHtml = renderDescHtml(alert.description);
+  const descText = renderDescText(alert.description);
+
   const instrParts = alert.instruction
-    ? alert.instruction.split(/\n{2,}/).map((s) => s.replace(/\n/g, ' ').trim()).filter(Boolean)
+    ? alert.instruction.split(/\n{2,}/).map((s) => cleanDots(s.replace(/\n/g, ' ')).trim()).filter(Boolean)
     : [];
 
+  // ── Plain-text body (fed to AI summarizer) — plan §6 template ────────────
   const textLines: string[] = [
     `The National Weather Service has issued a ${alert.event} for the following areas:`,
     '',
@@ -144,7 +232,7 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
     `Issued at: ${issuedAt}${expiryPhrase ? ' — expires' + expiryPhrase : ''}`,
     '',
     'Details:',
-    ...descParts,
+    descText,
   ];
   if (instrParts.length > 0) {
     textLines.push('', 'Instructions:', ...instrParts);
@@ -161,9 +249,8 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   // ── HTML — plan §6 template with labeled sections + radar ────────────────
   const radarHtml = getRadarImageHtml(alert.counties);
 
-  const descHtml = descParts.map((p) => `<p>${p}</p>`).join('\n');
   const instrHtml = instrParts.length > 0
-    ? `<p><strong>Instructions:</strong></p>\n${instrParts.map((p) => `<p>${p}</p>`).join('\n')}`
+    ? `<p><strong>Instructions:</strong></p>\n<ul>${instrParts.map((p) => `<li>${p}</li>`).join('\n')}</ul>`
     : '';
 
   const contentHtml = [
