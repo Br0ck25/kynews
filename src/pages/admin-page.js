@@ -835,19 +835,22 @@ export default function AdminPage() {
     try {
       const result = await service.adminIngestUrl(manualUrlResult.pendingUrl);
       if (result.status === 'inserted') {
-        const slug = result.slug || null;
+        // Build the public article path so the user can verify immediately
         const county = result.county || null;
-        const articlePath = slug
-          ? (county
-              ? `/news/kentucky/${county.toLowerCase().replace(/\s+/g, '-')}-county/${slug}`
-              : `/news/kentucky/${slug}`)
-          : `/post?articleId=${result.id}`;
+        const slug = result.slug || null;
+        let articlePath = null;
+        if (slug && county) {
+          const countySlug = (county + ' County').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+          articlePath = `/news/kentucky/${countySlug}/${slug}`;
+        } else if (slug) {
+          articlePath = result.isKentucky ? `/news/kentucky/${slug}` : `/news/national/${slug}`;
+        } else if (result.id) {
+          articlePath = `/post?articleId=${result.id}`;
+        }
         setManualUrlResult({
           status: 'inserted',
           message: `✅ Added to site — ID: ${result.id}, category: ${result.category || 'none'}, ${result.isKentucky ? 'KY' : 'national'}`,
           articleId: result.id,
-          articleTitle: result.title,
-          articleCounty: result.county,
           articlePath,
         });
         setManualUrlInput('');
@@ -1384,15 +1387,15 @@ export default function AdminPage() {
                   </span>
                 )}
                 {manualUrlResult?.status === 'inserted' && manualUrlResult.articlePath && (
-                  <div style={{ marginTop: 6 }}>
-                    <a href={manualUrlResult.articlePath} target="_blank" rel="noreferrer">
-                      View on site →
-                    </a>
-                    <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>
-                      (may take a moment to appear if your browser cached the feed)
-                    </span>
-                  </div>
-                )}
+  <div style={{ marginTop: 6, fontSize: 13 }}>
+    <a href={manualUrlResult.articlePath} target="_blank" rel="noreferrer">
+      View on site →
+    </a>
+    <span style={{ color: '#888', marginLeft: 8 }}>
+      (reload the public site tab if it still shows cached results)
+    </span>
+  </div>
+)}
               </div>
             )}
             {manualUrlResult?.status === 'preview' && (

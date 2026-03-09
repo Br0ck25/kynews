@@ -559,7 +559,7 @@ export async function classifyArticleWithAi(
   // geographic subject (Frankfort/seat of government).  effectiveSourceDefaultCounty
   // already becomes null in that case, but downstream merge logic also used
   // this value directly.  Use a separate variable to make intent explicit.
-  const allowedSourceDefaultCounty = isStatewideKyPolitics ? null : effectiveSourceDefaultCounty;
+  let allowedSourceDefaultCounty = isStatewideKyPolitics ? null : effectiveSourceDefaultCounty;
 
   // treat articles from a known local source as KY, even if the text lacks an
   // explicit Kentucky mention. This flag influences both the initial fallback
@@ -641,6 +641,10 @@ export async function classifyArticleWithAi(
     // on an Indiana story can't assign Jefferson County via city evidence.
     // The story is happening in Indiana; the reporter's base is irrelevant.
     sourceDefaultCounty = null;
+    // Must also null out allowedSourceDefaultCounty: it was derived before this
+    // Indiana check ran, so its value (e.g. 'Jefferson' for wdrb.com) would
+    // otherwise leak through to every downstream county-assignment expression.
+    allowedSourceDefaultCounty = null;
   }
 
   let category: Category = semanticCategory ?? (baseIsKentucky ? 'today' : 'national');

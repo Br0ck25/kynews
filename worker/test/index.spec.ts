@@ -2016,10 +2016,36 @@ describe('database utilities', () => {
 		expect(found?.counties).toEqual(['Fayette', 'Jefferson']);
 	});
 
-	it('retries classification update if a stale prepared statement error occurs', async () => {
+	it('listAdminArticles search matches summary text', async () => {
 		await ensureSchemaAndFixture();
 		const now = new Date().toISOString();
-		const id3 = await insertArticle(env, {
+		const id = await insertArticle(env, {
+			canonicalUrl: 'https://example.com/searchsumadmin',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-search-admin',
+			title: 'Search admin test',
+			author: null,
+			publishedAt: now,
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+			summary: 'findme-admin-summary',
+			seoDescription: 'seo',
+			rawWordCount: 1,
+			summaryWordCount: 1,
+			contentText: 'x',
+			contentHtml: '<p>x</p>',
+			imageUrl: null,
+			rawR2Key: null,
+			slug: null,
+		});
+
+		const resp2 = await listAdminArticles(env, { limit: 10, cursor: null, search: 'findme-admin-summary', category: 'all' });
+		expect(resp2.items.some((i) => i.id === id)).toBe(true);
+	});
 			canonicalUrl: 'https://example.com/retry',
 			sourceUrl: 'https://example.com',
 			urlHash: 'hash-retry',

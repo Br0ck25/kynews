@@ -1642,14 +1642,20 @@ try {
   // front end can render its normal “no results” message while allowing
   // the user to continue using the site.  The error is still logged for
   // later analysis.
+  // Search results must not be cached at the edge — a stale empty result
+  // would make a freshly-ingested article appear missing until TTL expires.
   return json(
     { items: [], nextCursor: null },
     200,
-    PUBLIC_ARTICLE_CACHE_HEADERS,
+    search ? { 'cache-control': 'no-store' } : PUBLIC_ARTICLE_CACHE_HEADERS,
   );
 }
 
-return json(result, 200, PUBLIC_ARTICLE_CACHE_HEADERS);
+return json(
+  result,
+  200,
+  search ? { 'cache-control': 'no-store' } : PUBLIC_ARTICLE_CACHE_HEADERS,
+);
 }
 
 // --- Server-side social preview & canonical redirect for article URLs --------

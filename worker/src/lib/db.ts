@@ -837,9 +837,9 @@ export async function listAdminArticles(env: Env, options: {
   }
 
   if (options.search) {
-    where.push('(title LIKE ? OR source_url LIKE ? OR county LIKE ?)');
+    where.push('(title LIKE ? OR summary LIKE ? OR source_url LIKE ? OR county LIKE ?)');
     const token = `%${escapeLike(options.search)}%`;
-    binds.push(token, token, token);
+    binds.push(token, token, token, token);
   }
 
   if (options.cursor) {
