@@ -358,6 +358,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
 
   // State-level sources (no default county — they cover all of KY)
   'kentuckylantern.com': null,
+  'kyweathercenter.com': null, // weather site with no county default
   'kentuckytoday.com': null,
   'kentuckysportsradio.com': null,
   'kentuckystatepolice.ky.gov': null, // KSP covers all of KY — no single county default
