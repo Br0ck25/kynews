@@ -2823,10 +2823,10 @@ describe('title similarity dedupe', () => {
 		// hook should not treat city names as counties
 		expect(generateFacebookHook('A story about a city', undefined)).not.toMatch(/City County/i);
 
-		// very long summary should be truncated at the new 150-word limit
-		const extraLong = new Array(160).fill('word').join(' ');
+		// very long summary should be truncated at the new 300-word limit
+		const extraLong = new Array(310).fill('word').join(' ');
 		const longHook = generateFacebookHook(extraLong);
-		expect(longHook.split(/\s+/).length).toBeLessThanOrEqual(151);
+		expect(longHook.split(/\s+/).length).toBeLessThanOrEqual(301);
 
 		// caption returns blank for non-KY
 		expect(generateFacebookCaption({ title: 'a', summary: 'b', is_kentucky: 0 })).toBe('');

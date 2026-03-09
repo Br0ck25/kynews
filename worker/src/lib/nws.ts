@@ -99,8 +99,15 @@ export async function markAlertIfNew(env: Env, alertId: string): Promise<boolean
 /** Convert an NwsAlert into a NewArticle ready for insertArticle(). */
 export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const primaryCounty = alert.counties[0] ?? null;
-  const canonicalUrl = `https://api.weather.gov/alerts/${encodeURIComponent(alert.id)}`;
-  const urlHash = await sha256Hex(normalizeCanonicalUrl(canonicalUrl));
+
+  // Use the NWS API URL only for dedup hashing — it's a stable unique identifier.
+  // The canonical URL is set to a localkynews.com/manual/ path so the article is
+  // treated as original content and the "Read Full Story" link stays on our site.
+  // sourceUrl points to the NWS website (user-readable) for attribution.
+  const nwsApiUrl = `https://api.weather.gov/alerts/${encodeURIComponent(alert.id)}`;
+  const alertSlug = alert.id.replace(/[^a-z0-9]/gi, '-').replace(/-+/g, '-').toLowerCase().slice(0, 80);
+  const canonicalUrl = `https://localkynews.com/manual/nws-${alertSlug}`;
+  const urlHash = await sha256Hex(normalizeCanonicalUrl(nwsApiUrl));
 
   // ── Title — plan §6: "{EVENT} Issued for {COUNTIES}" ────────────────────
   const countyList = alert.counties.length > 0
@@ -178,7 +185,7 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
 
   return {
     canonicalUrl,
-    sourceUrl: canonicalUrl,
+    sourceUrl: 'https://www.weather.gov/',
     urlHash,
     title,
     author: 'National Weather Service',

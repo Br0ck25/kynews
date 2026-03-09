@@ -84,6 +84,8 @@ Your summary must:
 - Always end on a complete sentence. Never end mid-sentence or mid-thought.
 - Be formatted as short, readable paragraphs of 2–3 sentences each.
   Never output a wall of unbroken text or a single long paragraph.
+  Every paragraph must be separated from the next by a blank line.
+  A summary of more than 6 sentences MUST contain at least 2 paragraph breaks (\n\n).
 - Preserve important facts, names, locations, dates, and figures exactly.
 - Include no more than one direct quote, only if it meaningfully adds
   to the story.
@@ -93,7 +95,7 @@ Your summary must never:
 - End mid-sentence under any circumstances. If you are approaching the
   word limit, finish the current sentence and stop cleanly.
 - Output section headers, subheadings, or bolded titles of any kind.
-- Output text as one unbroken paragraph.
+- Output text as one unbroken paragraph. Use blank lines (\n\n) between every 2–3 sentences.
 - Include copyright notices, bylines, legal text, or publication footers.
 - Include any "click here" text, "read more" links, or URLs of any kind.
 - Include navigation text such as "Click below to jump to" or anchor links.
@@ -853,6 +855,11 @@ export function cleanContentForSummarization(text: string, title: string): strin
   t = t.replace(/^\d{1,2}:\d{2}\s*(?:AM|PM)\s*$/gim, '');
   t = t.replace(/^(?:FS1|ESPN[U2]?|CBS|NBC|ABC|TNT|TBS|BALLY|PEACOCK|PCOCK|MSG|NESN|RSN)\s*$/gm, '');
   t = t.replace(/^(?:Recommended Videos?|Recommended Articles?|More from|Related Stories?|Related Articles?|Watch more|You may also like)\s*$[\s\S]*/gim, '');
+  // Strip embedded inline "related article" title lines that appear mid-article in Scripps/LEX18 pages.
+  // These are short 2–5 word Title Case lines immediately followed by a longer sentence, e.g.:
+  //   "Lottery Winner Arrest\nBodycam footage shows KY Lottery winner arrested in Florida\n"
+  // Pattern: 1–6 Title Case words on a line, followed by a longer line that reads like a sentence.
+  t = t.replace(/^([A-Z][a-zA-Z]{1,20}(?:\s+[A-Z][a-zA-Z]{1,20}){0,5})\n(?=[A-Z][a-z])/gm, '');
   t = t.replace(/^(.+)\n\1$/gm, '$1');
   t = t.replace(/\n{3,}/g, '\n\n');
 
@@ -1187,15 +1194,53 @@ function enforceparagraphBreaks(text: string): string {
   // Already has paragraph structure — don't touch it
   if (/\n\n/.test(t)) return t.trim();
 
-  // Split on sentence boundaries, then group into 2–3 sentence paragraphs
-  const sentenceRe = /(?<=[.!?]["')\u201d\u2019]*)\s+(?=[A-Z"'\u201c])/g;
-  const sentences = t.split(sentenceRe).map(s => s.trim()).filter(Boolean);
+  // Split on sentence boundaries then group into 2–3 sentence paragraphs.
+  // The previous regex required the next char to be uppercase, which missed
+  // sentences starting with digits ("51-year-old…"), lowercase continuations, or
+  // sentences following stripped datelines/broadcaster attributions.
+  // New approach: split on ". " / "! " / "? " preceded by terminal punctuation
+  // (optionally followed by a closing quote/paren), then look ahead for any
+  // non-whitespace so we don't split on trailing ellipsis spaces.
+  // Abbreviation guard: don't split when the period follows a single capital
+  // letter (initialism) or a known title abbreviation.
+  const sentences: string[] = [];
+  const abbrevRe = /\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Col|Gen|Rep|Sen|Prof|St|Sr|Jr|No|vs|etc|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/i;
+  const singleCapRe = /\b[A-Z]$/;
+  let buf = '';
+  // Walk character by character to handle abbreviation guard properly
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    buf += ch;
+    if (!/[.!?]/.test(ch)) continue;
+    // Consume optional closing quote/paren
+    let j = i + 1;
+    while (j < t.length && /["')\u201d\u2019]/.test(t[j])) { buf += t[j]; j++; }
+    // Must be followed by whitespace then a non-whitespace char
+    if (j >= t.length || !/\s/.test(t[j])) continue;
+    let k = j;
+    while (k < t.length && /\s/.test(t[k])) k++;
+    if (k >= t.length) continue;
+    // Abbreviation guard
+    const beforePeriod = buf.trimEnd().replace(/[.!?]["')*\u201d\u2019]*$/, '').trimEnd();
+    if (ch === '.'  && (singleCapRe.test(beforePeriod) || abbrevRe.test(beforePeriod))) continue;
+    // Commit sentence
+    sentences.push(buf.trim());
+    buf = '';
+    i = k - 1; // will be incremented by loop
+  }
+  if (buf.trim()) sentences.push(buf.trim());
 
   if (sentences.length <= 3) return t;
 
+  // Group into paragraphs of 2–3 sentences.  Prefer 3 per paragraph but use
+  // 2 for the last group when 4 sentences remain (avoids a single orphan).
   const paragraphs: string[] = [];
-  for (let i = 0; i < sentences.length; i += 3) {
-    paragraphs.push(sentences.slice(i, i + 3).join(' '));
+  let i = 0;
+  while (i < sentences.length) {
+    const remaining = sentences.length - i;
+    const take = remaining === 4 ? 2 : Math.min(3, remaining);
+    paragraphs.push(sentences.slice(i, i + take).join(' '));
+    i += take;
   }
   return paragraphs.join('\n\n');
 }

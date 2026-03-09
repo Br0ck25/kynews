@@ -321,6 +321,19 @@ export default function FeaturedPost(props) {
           </div>
         )}
 
+        {/* Full structured content for NWS/SPC weather alerts — rendered from the
+            HTML template; only shown when the author is a known trusted source so
+            we never dangerouslySetInnerHTML arbitrary scraped third-party content. */}
+        {post.description &&
+          (post.author === 'National Weather Service' ||
+            post.author === 'Storm Prediction Center') && (
+          <div
+            className="article-full-body"
+            style={{ padding: "0 10px 16px", lineHeight: 1.7 }}
+            dangerouslySetInnerHTML={{ __html: post.description }}
+          />
+        )}
+
         <Box style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "0 10px 12px" }}>
           <Button
             size="small"

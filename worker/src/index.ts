@@ -1481,7 +1481,7 @@ if (url.pathname === '/api/admin/upload-image' && request.method === 'POST') {
 		? crypto.randomUUID()
 		: Math.random().toString(36).substring(2, 10);
 	const key = `uploads/${Date.now()}-${uniq}${ext ? '.' + ext : ''}`;
-	
+
 	const data = await file.arrayBuffer();
 	await env.ky_news_media.put(key, data, {
 		httpMetadata: { contentType: file.type },
