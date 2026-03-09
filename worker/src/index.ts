@@ -1128,6 +1128,44 @@ await deleteArticleById(env, id);
 return json({ ok: true, blocked: false, deleted: true, id });
 }
 
+// --- Debug: inspect raw search results from D1 (admin only) -----------------
+// GET /api/debug/search?q=term
+// Returns: { query, hits, items: [{id, title, county, publishedAt}] }
+// Use this to verify the D1 query is working correctly.
+// Run `wrangler tail` to see the console.log output for each search.
+if (url.pathname === '/api/debug/search' && request.method === 'GET') {
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+  const q = (url.searchParams.get('q') || '').trim().slice(0, 120);
+  if (!q) return badRequest('Provide ?q=searchterm');
+
+  let dbResult;
+  try {
+    dbResult = await queryArticles(env, {
+      category: 'all',
+      counties: [],
+      search: q,
+      limit: 20,
+      cursor: null,
+    });
+  } catch (err) {
+    return json({ error: 'D1 query threw', detail: String(err) }, 500);
+  }
+
+  return json({
+    query: q,
+    hits: dbResult.items.length,
+    items: dbResult.items.map((a) => ({
+      id: a.id,
+      title: a.title,
+      county: a.county,
+      category: a.category,
+      publishedAt: a.publishedAt,
+    })),
+  });
+}
+
 // Clear the KV content-fingerprint dedup cache for a given article URL.
 // Use this when an article was deleted from D1 but its KV fingerprint still
 // blocks re-ingest with "already in database".
@@ -1632,9 +1670,13 @@ try {
     limit,
     cursor,
   });
+  // Diagnostic log: visible in `wrangler tail`.  Remove once search is confirmed working.
+  if (search) {
+    console.log(`[search] query="${search}" category="${category}" hits=${result.items.length}`);
+  }
 } catch (err) {
   // log the error so it can be investigated in production
-  console.error('queryArticles failed', err);
+  console.error('[search] queryArticles threw', { search, category, err: String(err) });
   // The `/all` search endpoint is hit frequently from the client’s
   // search page and a transient database hiccup (often triggered by
   // a broad multi‑word query like “state police”) should not surface a

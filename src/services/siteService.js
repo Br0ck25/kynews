@@ -259,6 +259,7 @@ export default class SiteService {
       ((parsed == null || isHtmlLike) || (!response.ok && response.status >= 400 && response.status < 500));
 
     if (shouldFallback) {
+      console.warn('[siteService] primary request returned non-JSON/HTML, falling back to worker.dev:', path);
       try {
         response = await fetch(`${WORKER_FALLBACK_BASE_URL}${path}`, requestOptions);
         ({ parsed, rawText, isHtmlLike } = await parseResponse(response));
