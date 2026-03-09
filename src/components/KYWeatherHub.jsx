@@ -4,14 +4,16 @@ import { Typography, Grid } from "@material-ui/core";
 import CategoryFeedPage from "../pages/category-feed-page";
 
 const KY_COUNTIES = [
+  { name: "McCracken (Paducah)", lat: 37.0834, lon: -88.6001 },
+  { name: "Graves (Mayfield)", lat: 36.7418, lon: -88.6215 },
+  { name: "Warren (Bowling Green)", lat: 36.9685, lon: -86.4808 },
   { name: "Jefferson (Louisville)", lat: 38.2527, lon: -85.7585 },
   { name: "Fayette (Lexington)", lat: 38.0406, lon: -84.5037 },
-  { name: "Warren (Bowling Green)", lat: 36.9685, lon: -86.4808 },
-  { name: "McCracken (Paducah)", lat: 37.0834, lon: -88.6001 },
+  { name: "Franklin (Frankfort)", lat: 38.2009, lon: -84.8733 },
+  { name: "Kenton (Covington)", lat: 39.0837, lon: -84.5086 },
+  { name: "Pulaski (Somerset)", lat: 37.0912, lon: -84.6041 },
   { name: "Perry (Hazard)", lat: 37.2498, lon: -83.1932 },
   { name: "Pike (Pikeville)", lat: 37.4793, lon: -82.5185 },
-  { name: "Boone (Florence)", lat: 38.9979, lon: -84.6266 },
-  { name: "Madison (Richmond)", lat: 37.7479, lon: -84.2947 },
 ];
 
 const ALERT_COLORS = {
