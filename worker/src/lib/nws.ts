@@ -92,26 +92,79 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const canonicalUrl = `https://api.weather.gov/alerts/${encodeURIComponent(alert.id)}`;
   const urlHash = await sha256Hex(normalizeCanonicalUrl(canonicalUrl));
 
-  const contentLines: string[] = [
-    `${alert.event} issued for ${alert.areaDesc}.`,
-    '',
-    alert.headline,
-    '',
-    alert.description,
-  ];
-  if (alert.instruction) {
-    contentLines.push('', 'Instructions:', alert.instruction);
-  }
-  if (alert.expires) {
-    contentLines.push('', `This alert expires: ${new Date(alert.expires).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-  }
-  contentLines.push('', 'Stay tuned to Local KY News for updates.');
+  // ── Title — plan §6: "{EVENT} Issued for {COUNTIES}" ────────────────────
+  const countyList = alert.counties.length > 0
+    ? alert.counties.join(' and ') + (alert.counties.length === 1 ? ' County' : ' Counties')
+    : alert.areaDesc;
+  const title = `${alert.event} Issued for ${countyList}`.slice(0, 200);
 
-  const contentText = contentLines.join('\n').trim();
-  const title = cleanAlertHeadline(alert.headline || alert.event);
-  const seoDescription = `${alert.event} has been issued for ${alert.areaDesc}. Check Local KY News for details and safety instructions.`.slice(0, 300);
-  const now = new Date().toISOString();
+  // ── Issued-at time string ─────────────────────────────────────────────────
+  const issuedAt = new Date(alert.sent || Date.now()).toLocaleString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+    timeZone: 'America/New_York', timeZoneName: 'short',
+  });
+
+  const expiryPhrase = alert.expires
+    ? ` until ${new Date(alert.expires).toLocaleString('en-US', {
+        month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+        timeZone: 'America/New_York', timeZoneName: 'short',
+      })}`
+    : '';
+
+  // ── Plain-text body (fed to AI summarizer) — plan §6 template ────────────
+  const descParts = alert.description
+    .split(/\n{2,}/).map((s) => s.replace(/\n/g, ' ').trim()).filter(Boolean);
+  const instrParts = alert.instruction
+    ? alert.instruction.split(/\n{2,}/).map((s) => s.replace(/\n/g, ' ').trim()).filter(Boolean)
+    : [];
+
+  const textLines: string[] = [
+    `The National Weather Service has issued a ${alert.event} for the following areas:`,
+    '',
+    countyList,
+    '',
+    `Issued at: ${issuedAt}${expiryPhrase ? ' — expires' + expiryPhrase : ''}`,
+    '',
+    'Details:',
+    ...descParts,
+  ];
+  if (instrParts.length > 0) {
+    textLines.push('', 'Instructions:', ...instrParts);
+  }
+  textLines.push(
+    '',
+    'Residents in the warned area should monitor local conditions and follow guidance from emergency officials.',
+    '',
+    'Stay tuned to Local KY News for additional updates.',
+  );
+
+  const contentText = textLines.join('\n').trim();
+
+  // ── HTML — plan §6 template with labeled sections + radar ────────────────
   const radarHtml = getRadarImageHtml(alert.counties);
+
+  const descHtml = descParts.map((p) => `<p>${p}</p>`).join('\n');
+  const instrHtml = instrParts.length > 0
+    ? `<p><strong>Instructions:</strong></p>\n${instrParts.map((p) => `<p>${p}</p>`).join('\n')}`
+    : '';
+
+  const contentHtml = [
+    `<p>The National Weather Service has issued a <strong>${alert.event}</strong> for the following areas:</p>`,
+    `<p><strong>${countyList}</strong></p>`,
+    `<p><em>Issued at: ${issuedAt}${expiryPhrase ? ' — expires' + expiryPhrase : ''}</em></p>`,
+    `<p><strong>Details:</strong></p>`,
+    descHtml,
+    instrHtml,
+    `<p>Residents in the warned area should monitor local conditions and follow guidance from emergency officials.</p>`,
+    `<p><strong>Radar:</strong></p>`,
+    radarHtml,
+    `<p>Stay tuned to Local KY News for additional updates.</p>`,
+  ].filter(Boolean).join('\n');
+
+  // ── Metadata ─────────────────────────────────────────────────────────────
+  const seoDescription = `${alert.event} issued for ${countyList}. Check Local KY News for details and safety instructions.`.slice(0, 300);
+  const now = new Date().toISOString();
 
   return {
     canonicalUrl,
@@ -126,13 +179,13 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
     county: primaryCounty,
     counties: alert.counties,
     city: null,
-    // Fallback summary — will be overwritten by summarizeArticle() in the caller
+    // Fallback summary — overwritten by summarizeArticle() in processNwsAlerts()
     summary: contentText.slice(0, 800),
     seoDescription,
     rawWordCount: contentText.split(/\s+/).filter(Boolean).length,
     summaryWordCount: 0,
     contentText,
-    contentHtml: `<p>${contentText.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>')}</p>${radarHtml}`,
+    contentHtml,
     imageUrl: null,
     rawR2Key: null,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
@@ -203,14 +256,6 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
-
-function cleanAlertHeadline(headline: string): string {
-  return headline
-    .replace(/\s+issued\s+[A-Z][a-z]+\s+\d+.*$/i, '')
-    .replace(/\s+until\s+\d.*$/i, '')
-    .trim()
-    .slice(0, 200);
-}
 
 function extractKyCountiesFromAreaDesc(areaDesc: string): string[] {
   const countySet = new Set(KY_COUNTIES);

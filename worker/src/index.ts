@@ -50,6 +50,7 @@ import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption } from './lib/facebook';
 import { processNwsAlerts } from './lib/nws';
+import { processSpcFeed } from './lib/spc';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -1425,6 +1426,17 @@ if (url.pathname === '/api/admin/nws-alerts/run' && request.method === 'POST') {
 	}
 }
 
+// POST /api/admin/spc/run — manually trigger SPC RSS ingestion
+if (url.pathname === '/api/admin/spc/run' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	try {
+		const result = await processSpcFeed(env);
+		return json({ ok: true, ...result });
+	} catch (err: any) {
+		return json({ error: String(err) }, 500);
+	}
+}
+
 // Manually create an article (from a Facebook post or any other source) without going through
 // the normal URL-scraping pipeline. Body is optional. Classification runs through AI as normal.
 if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
@@ -2676,6 +2688,15 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
         console.log(`[NWS] Alert run complete: ${published} published, ${skipped} skipped`);
       }
     }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
+  );
+
+  // Check SPC RSS feed for new convective outlooks, watches, and discussions
+  ctx.waitUntil(
+    processSpcFeed(env).then(({ published, skipped }) => {
+      if (published > 0) {
+        console.log(`[SPC] Feed run complete: ${published} published, ${skipped} skipped`);
+      }
+    }).catch((err) => console.error('[SPC] processSpcFeed threw', err))
   );
 },
 
