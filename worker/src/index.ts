@@ -51,6 +51,7 @@ import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption } from './lib/facebook';
 import { processNwsAlerts } from './lib/nws';
 import { processSpcFeed } from './lib/spc';
+import { maybeRunWeatherSummary } from './lib/weatherSummary';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -2740,6 +2741,12 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
         console.log(`[NWS] Alert run complete: ${published} published, ${skipped} skipped`);
       }
     }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
+  );
+
+  // run the twice-daily weather summary if the clock has just reached the
+  // designated hour (6 a.m. or 6 p.m. Eastern).
+  ctx.waitUntil(
+    maybeRunWeatherSummary(env).catch((err) => console.error('[WEATHER_SUMMARY] error', err))
   );
 
   // Check SPC RSS feed for new convective outlooks, watches, and discussions

@@ -1820,6 +1820,67 @@ describe('structured search source extraction', () => {
 
 // new helper tests
 
+describe('weather summary builder', () => {
+	it('constructs a sensible article payload', async () => {
+		const originalFetch = global.fetch;
+		// stub the NWS endpoints used by buildDailyWeatherArticle
+		global.fetch = async (url: any) => {
+			const s = String(url);
+			if (s.includes('/alerts/active')) {
+				return {
+					ok: true,
+					json: async () => ({
+						features: [{
+							id: 'test',
+							properties: {
+								event: 'Tornado Warning',
+								areaDesc: 'Jefferson',
+								sent: '2026-03-09T10:00:00Z',
+								description: 'desc',
+								instruction: 'instr',
+							},
+						}],
+					}),
+				};
+			}
+			if (s.includes('/points/')) {
+				return {
+					ok: true,
+					json: async () => ({
+						properties: {
+							forecast: 'https://example.com/forecast',
+							observationStations: 'https://example.com/stations',
+						},
+					}),
+				};
+			}
+			if (s.includes('forecast')) {
+				return {
+					ok: true,
+					json: async () => ({
+						properties: { periods: [{ shortForecast: 'Sunny', temperature: 70 }] },
+					}),
+				};
+			}
+			if (s.includes('stations/')) {
+				return { ok: true, json: async () => ({ features: [{ properties: { stationIdentifier: 'ABC' } }] }) };
+			}
+			if (s.includes('/observations/latest')) {
+				return { ok: true, json: async () => ({ properties: { temperature: { value: 20 }, textDescription: 'Clear' } }) };
+			}
+			return { ok: false, json: async () => ({}) };
+		};
+
+		const { buildDailyWeatherArticle } = await import('../lib/weatherSummary');
+		const article = await buildDailyWeatherArticle(undefined as any, 'morning');
+		expect(article.title).toBe('Kentucky Weather Update – Morning Summary');
+		expect(article.contentText).toMatch(/Tornado Warning/);
+		expect(article.contentText).toMatch(/McCracken/);
+
+		global.fetch = originalFetch;
+	});
+});
+
 describe('database utilities', () => {
 	it('getCountyCounts retrieves correct map', async () => {
 		await ensureSchemaAndFixture();

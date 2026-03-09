@@ -20,11 +20,20 @@ Components:
 4.  Website publishing API integration\
 5.  Radar and map embedding\
 6.  Duplicate prevention\
-7.  Scheduler / cron worker
+7.  Scheduler / cron worker (runs two summary jobs daily)
 
 All services can run inside a **single Node.js worker**.
 
 Polling interval: **60 seconds**
+
+The scheduler triggers two article‑generation jobs each day:
+
+- Morning summary at **6 a.m. Eastern Time**
+- Evening summary at **6 p.m. Eastern Time**
+
+These correspond to 5 a.m. and 5 p.m. Central when Kentucky observes daylight saving,
+so be sure the job runner respects the America/New_York timezone or adjusts
+via `TZ` environment variable.
 
 ------------------------------------------------------------------------
 
