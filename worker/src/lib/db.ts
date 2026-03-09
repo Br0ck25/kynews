@@ -33,6 +33,7 @@ interface ArticleRow {
   raw_r2_key: string | null;
   slug: string | null;
   content_hash: string | null;
+  alert_geojson: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -156,8 +157,9 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           image_url,
           raw_r2_key,
           slug,
-          content_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          content_hash,
+          alert_geojson
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         article.canonicalUrl,
@@ -181,6 +183,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
         article.rawR2Key,
         article.slug ?? null,
         article.contentHash ?? null,
+        article.alertGeojson ?? null,
       )
       .run();
 
@@ -723,6 +726,7 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     rawR2Key: row.raw_r2_key,
     contentHash: row.content_hash ?? null,
     slug: row.slug ?? null,
+    alertGeojson: row.alert_geojson ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -10,11 +10,14 @@ const SPC_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)'
 const SPC_DAY1_RISK_MAP = 'https://www.spc.noaa.gov/products/outlook/day1otlk.gif';
 const SPC_WATCH_MAP = 'https://www.spc.noaa.gov/products/watch/ww.png';
 
-// Kentucky-relevant keywords — filter SPC items to those that mention KY context
-// or are broad national products worth carrying (outlooks, watches affect KY planning).
+// Kentucky-relevant keywords used as a first-pass pre-filter on the RSS feed.
+// Items that pass only because of a broad product type (e.g. 'tornado watch')
+// are still subject to the full-text KY relevance check in processSpcFeed before
+// they can be published.  Non-KY products caught by the broad terms will be
+// dropped at that second stage.
 const KY_FILTER_TERMS = [
   'kentucky', ' ky ', ' ky,', ',ky', 'kentucky.', 'kentucky ',
-  // broad national products always shown
+  // broad national products that *may* affect KY — full-text verified before publish
   'tornado watch', 'severe thunderstorm watch', 'convective outlook',
   'mesoscale discussion',
 ];
@@ -276,6 +279,18 @@ export async function buildSpcArticle(item: SpcItem): Promise<NewArticle> {
   };
 }
 
+// ─── Kentucky relevance check ────────────────────────────────────────────────
+
+/**
+ * Returns true if the text clearly mentions Kentucky by name or by the
+ * common two-letter abbreviation as a standalone word.  Used as a final gate
+ * before publishing SPC products that passed the broad RSS pre-filter.
+ */
+function isKentuckyContent(text: string): boolean {
+  const lower = text.toLowerCase();
+  return lower.includes('kentucky') || /\bky\b/.test(lower);
+}
+
 // ─── Orchestrator ────────────────────────────────────────────────────────────
 
 /**
@@ -303,8 +318,17 @@ export async function processSpcFeed(env: Env): Promise<{ published: number; ski
         continue;
       }
 
-      // 2. Build the base article record
+      // 2. Build the base article record (also fetches full product text)
       const article = await buildSpcArticle(item);
+
+      // 2a. Hard KY gate — the full text must mention Kentucky or ", KY".
+      //     This blocks non-KY products (e.g. a Texas tornado watch) that
+      //     slipped through the broad RSS pre-filter terms.
+      if (!isKentuckyContent(article.contentText)) {
+        console.log(`[SPC] Skipped non-KY product: "${item.title}"`);
+        skipped++;
+        continue;
+      }
 
       // 3. DB dedup — check url_hash in case KV was cleared
       const existing = await findArticleByHash(env, article.urlHash);

@@ -114,6 +114,7 @@ function mapWorkerArticleToPost(article) {
     isNational: article?.is_national === 1 || article?.isNational === true,
     // if extra counties were stored, expose them as tags so UI components can work with them
     tags: Array.isArray(article?.counties) ? article.counties : [],
+    alertGeojson: article?.alert_geojson ?? article?.alertGeojson ?? null,
   };
 }
 

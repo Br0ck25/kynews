@@ -21,6 +21,8 @@ export interface NwsAlert {
   expires: string;
   status: string;
   counties: string[];
+  /** Raw GeoJSON geometry from the NWS feature (Polygon or MultiPolygon). Null when absent. */
+  geometry: any | null;
 }
 
 /** Fetch active Kentucky alerts from the NWS API. */
@@ -64,9 +66,17 @@ export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
         expires: String(p.expires ?? ''),
         status: String(p.status ?? 'Actual'),
         counties: extractKyCountiesFromAreaDesc(String(p.areaDesc ?? '')),
+        geometry: f.geometry ?? null,
       };
     })
-    .filter((a): a is NwsAlert => a !== null);
+    .filter((a): a is NwsAlert => a !== null)
+    // Hard KY gate: require at least one recognized KY county, or the area
+    // description must explicitly mention Kentucky or ", KY".  This prevents
+    // border-area alerts with no KY county names from being published.
+    .filter((a) =>
+      a.counties.length > 0 ||
+      /\bkentucky\b|,\s*ky\b/i.test(a.areaDesc)
+    );
 }
 
 /** Derive a stable KV deduplication key for an alert. */
@@ -189,6 +199,7 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
     imageUrl: null,
     rawR2Key: null,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
+    alertGeojson: alert.geometry ? JSON.stringify(alert.geometry) : null,
   };
 }
 

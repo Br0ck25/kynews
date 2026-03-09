@@ -1,6 +1,7 @@
 import React from "react";
 import { makeStyles } from "@material-ui/core/styles";
 import Post from "../components/post/post-component";
+import AlertPolygonMap from "../components/weather/alert-polygon-map";
 import { Button, Typography, Card, CardContent } from "@material-ui/core";
 import { useParams, useLocation, Link as RouterLink } from "react-router-dom";
 import SiteService from "../services/siteService";
@@ -276,7 +277,12 @@ export default function ArticleSlugPage() {
       <Card data-testid="page-card" className={classes.card}>
         <CardContent>
           {resolvedPost ? (
-            <Post post={resolvedPost} />
+            <>
+              <Post post={resolvedPost} />
+              {resolvedPost.alertGeojson && (
+                <AlertPolygonMap geojson={resolvedPost.alertGeojson} />
+              )}
+            </>
           ) : loading ? (
             <div className={classes.emptyState}>
           <Typography variant="h6" gutterBottom>

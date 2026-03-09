@@ -40,6 +40,8 @@ export interface ArticleRecord {
   contentHash: string | null;
   /** SEO-friendly URL slug derived from title + id. Added in migration 0004. */
   slug: string | null;
+  /** GeoJSON string of the NWS alert polygon geometry. Null for non-alert articles. */
+  alertGeojson: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -73,6 +75,8 @@ export interface NewArticle {
   slug?: string | null;
   /** SHA-256 hex of the article's content text (first 3k words) used for change detection */
   contentHash?: string;
+  /** GeoJSON string of the NWS alert polygon geometry. Null or omitted for non-alert articles. */
+  alertGeojson?: string | null;
 }
 
 export interface IngestSource {
