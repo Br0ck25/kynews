@@ -702,6 +702,18 @@ export default class SiteService {
   }
 
   /**
+   * Actually perform an admin ingest of the given URL.  This is the same
+   * operation that the preview endpoint simulates, but it creates the
+   * database row and returns the normal ingest response object.
+   */
+  async adminIngestUrl(url) {
+    return this.request("/api/admin/ingest-url", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+  }
+
+  /**
    * Update the title and/or summary of an existing article.
    * Returns { ok: true, id }
    */

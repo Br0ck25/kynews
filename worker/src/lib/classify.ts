@@ -270,8 +270,6 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   // nbcsports.com — NBC's sports site; national scope.
   'nbcsports.com',
 
-  // wlky.com — Louisville CBS affiliate; syndicates heavy national wire content.
-  'wlky.com',
 
   // wlwt.com — Cincinnati NBC affiliate.  Covers Ohio/NKY border but is not a
   // Kentucky-focused homepage; content is largely Ohio/national.
@@ -354,7 +352,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'nky.com': 'Kenton',
   // Cincinnati/NKY broadcaster – no single KY county (see FIX 5)
   'wlwt.com': null,  // Cincinnati/NKY broadcaster – no single KY county (see FIX 5)
-  'wlky.com': null,   // Louisville CBS affiliate – treat as national by default
+  'wlky.com': null,   // Louisville CBS affiliate – no single county (covers full Louisville metro)
   'themountaineagle.com': 'Letcher', // Whitesburg newspaper
   'mountain-topmedia.com': 'Perry',   // Mountain Top Media — Hazard/Perry County area
 

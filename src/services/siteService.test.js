@@ -292,5 +292,20 @@ describe('SiteService.ingestUrl', () => {
       expect(result.status).toBe('error');
       expect(result.error).toBe('oops');
     });
+
+    it('posts to the correct admin ingest endpoint when confirming ingestion', async () => {
+      const service = new SiteService('https://api.host');
+      global.fetch = jest.fn().mockResolvedValue(
+        makeResponse({ status: 'inserted', title: 'abc' })
+      );
+
+      const result = await service.adminIngestUrl('https://example.com/foo');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      const [[url, opts]] = global.fetch.mock.calls;
+      expect(url).toContain('/api/admin/ingest-url');
+      expect(opts.method).toBe('POST');
+      expect(JSON.parse(opts.body)).toEqual({ url: 'https://example.com/foo' });
+      expect(result.status).toBe('inserted');
+    });
   });
 });

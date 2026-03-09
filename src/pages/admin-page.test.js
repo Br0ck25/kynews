@@ -83,9 +83,11 @@ describe('AdminPage manual body formatting', () => {
     ingestSpy.mockRestore();
   });
 
-  it('calls ingestUrl and displays success message', async () => {
-    const ingestSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
-      .mockResolvedValue({ status: 'inserted', id: 42, category: 'today', isKentucky: true, county: 'Floyd' });
+  it('performs preview then confirm flow and shows final success message', async () => {
+    const previewSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
+      .mockResolvedValue({ status: 'inserted', id: 42, category: 'today', isKentucky: true, county: 'Floyd', title: 'Test title' });
+    const adminSpy = jest.spyOn(SiteService.prototype, 'adminIngestUrl')
+      .mockResolvedValue({ status: 'inserted', id: 42, category: 'today', isKentucky: true, county: 'Floyd', title: 'Test title' });
 
     render(<AdminPage />);
     fireEvent.click(screen.getByText(/Create Article/i));
@@ -93,10 +95,17 @@ describe('AdminPage manual body formatting', () => {
     fireEvent.change(urlInput, { target: { value: 'https://example.com/test' } });
     fireEvent.click(screen.getByText(/Ingest Article/i));
 
-    const msg = await screen.findByText(/Ingested – ID: 42, category: today, KY/);
-    expect(msg).toBeInTheDocument();
+    // preview step shown
+    const previewMsg = await screen.findByText(/Preview — category:/i);
+    expect(previewMsg).toBeInTheDocument();
 
-    ingestSpy.mockRestore();
+    fireEvent.click(screen.getByText(/Confirm — Add to Site/i));
+    const finalMsg = await screen.findByText(/✅ Added to site/i);
+    expect(finalMsg).toBeInTheDocument();
+    expect(adminSpy).toHaveBeenCalledWith('https://example.com/test');
+
+    previewSpy.mockRestore();
+    adminSpy.mockRestore();
   });
 
   it('shows rejection message when preview returns rejected', async () => {

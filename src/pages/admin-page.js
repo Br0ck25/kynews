@@ -800,12 +800,12 @@ export default function AdminPage() {
     try {
       const result = await service.previewIngestUrl(trimmed);
       if (result.status === 'inserted') {
+        // Preview succeeded — show a confirmation card, don't write yet
         setManualUrlResult({
-          status: 'inserted',
-          message: `Ingested – ID: ${result.id}, category: ${result.category || 'none'}, ${result.isKentucky ? 'KY' : 'national'}`,
-          articleId: result.id,
-          articleTitle: result.title,
-          articleCounty: result.county,
+          status: 'preview',
+          message: `Preview — category: ${result.category || 'none'}, ${result.isKentucky ? 'KY' : 'national'} — click Confirm to add to site`,
+          preview: result,
+          pendingUrl: trimmed,
         });
       } else if (result.status === 'duplicate') {
         setManualUrlResult({ status: 'duplicate', message: 'This article is already in the database.' });
@@ -816,6 +816,36 @@ export default function AdminPage() {
       }
     } catch (err) {
       const msg = err?.errorMessage || err?.message || 'Network error — could not reach server.';
+      setManualUrlResult({ status: 'error', message: msg });
+    } finally {
+      setManualUrlLoading(false);
+    }
+  };
+
+  const handleConfirmIngest = async () => {
+    if (!manualUrlResult?.pendingUrl) return;
+    setManualUrlLoading(true);
+    try {
+      const result = await service.adminIngestUrl(manualUrlResult.pendingUrl);
+      if (result.status === 'inserted') {
+        setManualUrlResult({
+          status: 'inserted',
+          message: `✅ Added to site — ID: ${result.id}, category: ${result.category || 'none'}, ${result.isKentucky ? 'KY' : 'national'}`,
+          articleId: result.id,
+          articleTitle: result.title,
+          articleCounty: result.county,
+        });
+        setManualUrlInput('');
+        await loadData();
+      } else if (result.status === 'duplicate') {
+        setManualUrlResult({ status: 'duplicate', message: 'Already in the database.' });
+      } else if (result.status === 'rejected') {
+        setManualUrlResult({ status: 'rejected', message: `Rejected: ${result.reason || 'unknown reason'}` });
+      } else {
+        setManualUrlResult({ status: 'error', message: result.error || 'Unknown error from server.' });
+      }
+    } catch (err) {
+      const msg = err?.errorMessage || err?.message || 'Network error.';
       setManualUrlResult({ status: 'error', message: msg });
     } finally {
       setManualUrlLoading(false);
@@ -1324,7 +1354,7 @@ export default function AdminPage() {
               </button>
             </div>
 
-            {manualUrlResult && (
+            {manualUrlResult && manualUrlResult.status !== 'preview' && (
               <div style={{
                 marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '0.875rem',
                 background: manualUrlResult.status === 'inserted' ? '#f0fff4' : manualUrlResult.status === 'duplicate' ? '#fffbeb' : '#fff5f5',
@@ -1338,6 +1368,18 @@ export default function AdminPage() {
                     {manualUrlResult.articleCounty && ` (${manualUrlResult.articleCounty} County)`}
                   </span>
                 )}
+              </div>
+            )}
+            {manualUrlResult?.status === 'preview' && (
+              <div style={{ marginTop: 8 }}>
+                <div><strong>{manualUrlResult.preview?.title}</strong></div>
+                <div style={{ fontSize: 13, color: '#555', marginBottom: 8 }}>{manualUrlResult.message}</div>
+                <button onClick={handleConfirmIngest} disabled={manualUrlLoading}>
+                  {manualUrlLoading ? 'Adding...' : 'Confirm — Add to Site'}
+                </button>
+                <button onClick={() => { setManualUrlResult(null); setManualUrlInput(''); }} style={{ marginLeft: 8 }}>
+                  Cancel
+                </button>
               </div>
             )}
 
