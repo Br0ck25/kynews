@@ -1,0 +1,1 @@
+import{R as t}from"./index-35320bde.js";import{C as a}from"./category-feed-page-e710522e.js";import"./Select-1b5bb89a.js";import"./useFormControl-0ff5f180.js";import"./MenuItem-ca10e100.js";import"./SwitchBase-5f636edf.js";function p(){return t.createElement(a,{category:"national",title:"National News"})}export{p as default};

@@ -114,7 +114,7 @@ export default function KYWeatherHub() {
     <div style={{ fontFamily: "Georgia, serif", background: bgDefault, color: textColor }}>
 
       {/* page title above banner */}
-      <Typography variant="h5" align="center" style={{ margin: theme.spacing(1,0) }}>
+      <Typography variant="h5" align="left" style={{ margin: theme.spacing(1,0) }}>
         Kentucky Weather
       </Typography>
 
@@ -126,7 +126,7 @@ export default function KYWeatherHub() {
             <span style={{ fontWeight: "bold", fontSize: 12, color: textColor, letterSpacing: 1, textTransform: "uppercase" }}>
               {activeWarnings.length} ACTIVE ALERT{activeWarnings.length > 1 ? "S" : ""} FOR KENTUCKY: &nbsp;
             </span>
-            <span style={{ fontSize: 12, color: "#ffcdd2" }}>
+            <span style={{ fontSize: 12, color: theme.palette.text.secondary }}>
               {activeWarnings.slice(0, 3).map(a => a.properties?.event).join(" • ")}
               {activeWarnings.length > 3 && ` • +${activeWarnings.length - 3} more`}
             </span>
@@ -151,9 +151,9 @@ export default function KYWeatherHub() {
             {KY_COUNTIES.map(c => (
               <button key={c.name} onClick={() => setSelectedCounty(c)} style={{
                 padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12,
-                border: selectedCounty.name === c.name ? "2px solid #64b5f6" : "1px solid #2a4a6f",
-                background: selectedCounty.name === c.name ? "rgba(100,181,246,0.2)" : "rgba(255,255,255,0.04)",
-                color: selectedCounty.name === c.name ? "#64b5f6" : theme.palette.text.secondary,
+                border: selectedCounty.name === c.name ? `2px solid ${theme.palette.primary.main}` : "1px solid #2a4a6f",
+                background: selectedCounty.name === c.name ? theme.palette.action.hover : "rgba(255,255,255,0.04)",
+                color: selectedCounty.name === c.name ? theme.palette.primary.main : theme.palette.text.secondary,
                 fontWeight: selectedCounty.name === c.name ? "bold" : "normal",
               }}>{c.name.split(" ")[0]}</button>
             ))}
