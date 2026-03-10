@@ -194,15 +194,25 @@ export default function FeaturedPost(props) {
   return (
     <main>
       {isRadarHeader ? (
-        // display radar loops as a normal image so the full graphic is
-        // visible on narrow screens.  the onError handler still applies so we
-        // can fall back to the logo if the radar service is unavailable.
-        <img
-          src={headerImage}
-          alt=""
-          style={{ width: "100%", display: "block" }}
-          onError={() => setHeaderImgFailed(true)}
-        />
+        // radar loops are square, but our normal hero area is rectangular.
+        // wrapping the image in a 16:9 container keeps desktop headers from
+        // becoming huge squares while still allowing mobile users to see the
+        // entire loop.  object-fit:contain ensures the full GIF is visible.
+        <div style={{ position: "relative", width: "100%", paddingTop: "56.25%" }}>
+          <img
+            src={headerImage}
+            alt=""
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+            }}
+            onError={() => setHeaderImgFailed(true)}
+          />
+        </div>
       ) : (
         <Paper
           className={classes.mainFeaturedPost}

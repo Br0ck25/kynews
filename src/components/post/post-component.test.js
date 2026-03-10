@@ -37,9 +37,14 @@ test('shows full-width <img> for radar.loop.gif headers', () => {
       <Post post={post} />
     </Provider>
   );
-  const img = container.querySelector(`img[src="${radarUrl}"]`);
+  const wrapper = container.querySelector('div[style*="paddingTop: 56.25%"]');
+  expect(wrapper).toBeTruthy();
+  const img = wrapper.querySelector(`img[src="${radarUrl}"]`);
   expect(img).toBeTruthy();
-  expect(img.getAttribute('style')).toMatch(/width:\s*100%/);
+  // check the inner img has object-fit:contain and fills the wrapper
+  expect(img.getAttribute('style')).toMatch(/objectFit:\s*"?contain"?/);
+  expect(img.getAttribute('style')).toMatch(/width:\s*"?100%"?/);
+  expect(img.getAttribute('style')).toMatch(/height:\s*"?100%"?/);
 });
 
 test('does not render visible <img> when header is not radar', () => {

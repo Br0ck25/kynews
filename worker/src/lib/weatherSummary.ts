@@ -90,17 +90,105 @@ async function fetchAllHwoData(): Promise<HwoData[]> {
  * Strip WMO/AWIPS headers and end-of-product markers from raw NWS product text,
  * leaving only the readable forecast content.
  */
+/**
+ * Parse raw NWS HWO product text into clean forecast prose.
+ *
+ * A single HWO product can contain multiple zone sub-sections separated by $$,
+ * each with identical or near-identical .DAY ONE / .DAYS TWO THROUGH SEVEN text.
+ * This function:
+ *   1. Splits on $$ to get each sub-section
+ *   2. Extracts only named forecast sections (.DAY ONE, .DAYS TWO THROUGH SEVEN)
+ *   3. Deduplicates section bodies that are identical across sub-sections
+ *   4. Returns clean labeled prose the AI can read directly
+ */
 function cleanHwoText(raw: string): string {
-  const lines = raw.replace(/\r\n/g, '\n').split('\n');
-  const startIdx = lines.findIndex((l) => /HAZARDOUS WEATHER OUTLOOK/i.test(l));
-  const body = startIdx >= 0 ? lines.slice(startIdx + 1) : lines;
-  const endIdx = body.findIndex((l) => l.trim() === '$$');
-  const trimmed = endIdx >= 0 ? body.slice(0, endIdx) : body;
-  return trimmed
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .join('\n')
-    .trim();
+  const normalized = raw.replace(/\r\n/g, '\n');
+  const subSections = normalized.split(/\$\$/).map((s) => s.trim()).filter(Boolean);
+
+  // Map of section label -> unique body texts (deduplication across zone sub-sections)
+  const sectionMap = new Map<string, Set<string>>();
+  const sectionOrder: string[] = [];
+
+  for (const sub of subSections) {
+    const lines = sub.split('\n');
+    let currentLabel: string | null = null;
+    let currentLines: string[] = [];
+
+    const flushSection = () => {
+      if (!currentLabel) return;
+      const body = currentLines
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .join(' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      if (!body) return;
+      if (!sectionMap.has(currentLabel)) {
+        sectionMap.set(currentLabel, new Set());
+        sectionOrder.push(currentLabel);
+      }
+      sectionMap.get(currentLabel)!.add(body);
+    };
+
+    for (const line of lines) {
+      const t = line.trim();
+
+      // Named section header: ".DAY ONE...Tonight." or ".DAYS TWO THROUGH SEVEN...Tuesday through Sunday."
+      const sectionMatch = t.match(/^\.([A-Z][A-Z0-9 ]+?)\.{3}(.*)/);
+      if (sectionMatch) {
+        flushSection();
+        currentLabel = sectionMatch[1].trim();
+        const inline = sectionMatch[2].trim();
+        currentLines = inline ? [inline] : [];
+        continue;
+      }
+
+      // Skip zone code lines (e.g. "KYZ052-104-106-107-")
+      if (/^[A-Z]{2,3}Z\d/.test(t)) { currentLabel = null; currentLines = []; continue; }
+      // Skip county abbreviation list lines joined by dashes (e.g. "Rowan-Elliott-Morgan-")
+      if (/^[A-Z][a-zA-Z]+(-[A-Z][a-zA-Z]+){2,}-?$/.test(t)) continue;
+      // Skip WMO/AWIPS header lines
+      if (/^[A-Z]{4,}\s+[A-Z]{4}\s+\d{6}/.test(t)) continue;
+      // Skip office header line
+      if (/^National Weather Service/i.test(t)) continue;
+      // Skip timestamp lines like "355 PM EDT Mon Mar 9 2026"
+      if (/^\d{3,4} [AP]M [A-Z]{2,4} \w+ \w+ \d+ \d{4}/.test(t)) continue;
+      // Skip "This Hazardous Weather Outlook is for..." boilerplate
+      if (/^This Hazardous Weather Outlook is for/i.test(t)) continue;
+      // Skip forecaster initials (e.g. "HAL/MARCUS" or "DW")
+      if (/^[A-Z]{2,}(\/[A-Z]{2,})?$/.test(t) && t.length < 20) continue;
+      // Skip "More information" footer lines
+      if (/^More information|^weather\.gov/i.test(t)) continue;
+
+      if (currentLabel) {
+        currentLines.push(t);
+      }
+    }
+    flushSection();
+  }
+
+  // Build output prose — skip spotter statements, they add no value to a news article
+  const parts: string[] = [];
+  for (const label of sectionOrder) {
+    if (/SPOTTER/i.test(label)) continue;
+    const bodies = [...(sectionMap.get(label) ?? [])];
+    if (bodies.length === 0) continue;
+
+    // If multiple zones had different text for the same section, join them
+    const combined = bodies.length === 1
+      ? bodies[0]
+      : bodies[0] + ' Additionally: ' + bodies.slice(1).join(' Additionally: ');
+
+    // Pretty-print label: "DAYS TWO THROUGH SEVEN" → "Days Two Through Seven"
+    const niceLabel = label
+      .split(' ')
+      .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
+      .join(' ');
+
+    parts.push(`${niceLabel}: ${combined}`);
+  }
+
+  return parts.join('\n\n');
 }
 
 // ─── Context assembly ─────────────────────────────────────────────────────────
@@ -123,9 +211,24 @@ function formatAlerts(alerts: NwsAlert[]): string {
             timeZoneName: 'short',
           })
         : '';
-      return `* ${a.event} — ${countyList}${expires ? ` through ${expires}` : ''}`;
+
+      // Include the first 300 chars of the description so the AI has
+      // river names, gauge readings, and specific details to write about
+      const descSnippet = a.description
+        ? a.description
+            .replace(/\r?\n/g, ' ')
+            .replace(/\s{2,}/g, ' ')
+            .replace(/\.\.\./g, '. ')
+            .replace(/\*\s+[A-Z]+\.\.\./g, '')
+            .trim()
+            .slice(0, 400)
+        : '';
+
+      let entry = `${a.event} — ${countyList}${expires ? ` (through ${expires})` : ''}`;
+      if (descSnippet) entry += `\n  Details: ${descSnippet}`;
+      return entry;
     })
-    .join('\n');
+    .join('\n\n');
 }
 
 function buildContext(
@@ -177,25 +280,6 @@ ${formatAlerts(alerts)}`;
 
 // ─── AI article generation ────────────────────────────────────────────────────
 
-const WEATHER_SYSTEM_PROMPT = `You are a professional weather journalist writing for Local KY News, a Kentucky local news website.
-
-You will be given live National Weather Service data: Hazardous Weather Outlooks from three NWS offices covering Kentucky (Eastern, Central, and Western), plus any active NWS alerts.
-
-Write a complete, publication-ready Kentucky weather summary article from this data. The article must:
-
-- Begin with a strong, specific headline on the first line that reflects what the data actually says — no generic titles
-- Follow with a blank line, then the article body
-- Open with a lede paragraph summarizing the statewide weather picture and naming all three NWS offices as the source
-- Include a separate section for Eastern Kentucky (NWS Jackson), Central Kentucky (NWS Louisville), and Western Kentucky (NWS Paducah), drawing directly from each office's HWO text
-- If active alerts exist, include an "Active Alerts" section listing each alert with county names and expiry times, formatted as bullet points using * prefix
-- Close with a "What to Expect" section using * bullet points summarizing key takeaways for Kentucky residents
-- Be 350-600 words, AP-style, factual, specific — grounded entirely in the source data provided
-- Use plain text only — no HTML, no markdown, no bylines, no datelines
-
-Only report what the source data says. Do not invent forecasts or add generic filler sentences. If an office's HWO says no hazards are expected, state that briefly for that region.
-
-Output format: First line is the headline. Then a blank line. Then the article body.`;
-
 type AiResultLike = {
   response?: string;
   result?: { response?: string };
@@ -213,25 +297,76 @@ function extractAiText(raw: AiResultLike): string {
   return '';
 }
 
+/**
+ * Build the prompt sent to the AI model as the user message.
+ * Kept concise to avoid hitting token limits on the model.
+ */
+function buildArticlePrompt(context: string): string {
+  // Cap context to ~6000 chars to stay well within model token limits
+  const cappedContext = context.slice(0, 6000);
+
+  return `Write a Kentucky weather news article for Local KY News using ONLY the NWS data below.
+
+OUTPUT FORMAT — follow exactly:
+Line 1: Headline (specific to today's conditions)
+Line 2: (blank)
+Line 3+: Article body with these sections in order:
+  - Opening paragraph citing all three NWS offices
+  - "Eastern Kentucky" heading, then 1-2 paragraphs from NWS Jackson data
+  - "Central Kentucky" heading, then 1-2 paragraphs from NWS Louisville data
+  - "Western Kentucky" heading, then 1-2 paragraphs from NWS Paducah data
+  - If alerts exist: "Current Alerts" heading, then bullet list as: * [Event] — [Counties] through [Expiry]
+  - Closing paragraph summarizing what Kentucky residents should expect
+
+Plain text only. AP news style. 350-500 words. Only facts from the data below.
+
+NWS DATA:
+${cappedContext}`;
+}
+
 async function generateWeatherArticle(
   env: Env,
   context: string,
 ): Promise<{ headline: string; body: string; contentText: string; contentHtml: string } | null> {
   try {
+    if (!env.AI) {
+      console.error('[WeatherSummary] env.AI is not available');
+      return null;
+    }
+
+    const prompt = buildArticlePrompt(context);
+    console.log('[WeatherSummary] Calling AI model:', MODEL);
+
     const aiRaw = (await env.AI.run(MODEL, {
       messages: [
-        { role: 'system', content: WEATHER_SYSTEM_PROMPT },
-        { role: 'user', content: context },
+        { role: 'system', content: `You are a professional weather journalist for Local KY News, a Kentucky local news website. Write clear, specific, AP-style weather news articles based only on the data provided. Never refuse. Always write the full article.` },
+        { role: 'user', content: prompt },
       ],
-      max_completion_tokens: 1500,
+      temperature: 0,
+      seed: 42,
+      max_completion_tokens: 4000,
     })) as AiResultLike;
 
+    // Log raw response shape to diagnose empty returns
+    const rawKeys = aiRaw ? Object.keys(aiRaw) : [];
+    console.log('[WeatherSummary] AI raw response keys:', rawKeys.join(', '));
+    if (rawKeys.length > 0) {
+      const firstKey = rawKeys[0] as keyof AiResultLike;
+      const firstVal = aiRaw[firstKey];
+      console.log('[WeatherSummary] AI first key value (truncated):', String(firstVal).slice(0, 200));
+    }
+
     const text = extractAiText(aiRaw).trim();
-    if (!text) return null;
+    console.log('[WeatherSummary] AI response length:', text.length, 'chars');
+
+    if (!text || text.length < 100) {
+      console.error('[WeatherSummary] AI returned empty or very short response:', text);
+      return null;
+    }
 
     return parseArticleText(text);
   } catch (err) {
-    console.error('[WeatherSummary] AI generation failed:', err);
+    console.error('[WeatherSummary] AI generation failed:', err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -373,14 +508,20 @@ export async function buildDailyWeatherArticle(
 
   // Build context string from live source data, then let AI write the article
   let generated: ReturnType<typeof buildFallbackArticle> | null = null;
+  console.log(`[WeatherSummary] Building ${when} article. HWO offices: ${hwoData.map(h => h.office).join(', ')}. Alerts: ${alerts.length}`);
 
   if (env) {
     const context = buildContext(when, hwoData, alerts);
     generated = await generateWeatherArticle(env, context);
+  } else {
+    console.warn('[WeatherSummary] No env — skipping AI, using fallback');
   }
 
   if (!generated) {
+    console.warn('[WeatherSummary] Using fallback article builder (AI did not produce output)');
     generated = buildFallbackArticle(when, hwoData, alerts);
+  } else {
+    console.log('[WeatherSummary] AI article generated successfully, headline:', generated.headline.slice(0, 80));
   }
 
   const { headline, contentText, contentHtml } = generated;
