@@ -7,48 +7,14 @@ import Typography from "@material-ui/core/Typography";
 import { useSelector, useDispatch } from "react-redux";
 import { setDarkTheme, setNotifications } from "../../redux/actions/actions";
 
-// helpers for push subscriptions ------------------------------------------------
-// utility copied from the MDN examples to convert the VAPID public key
-function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
+// Request browser notification permission. Returns true if granted.
+async function requestNotificationPermission() {
+  if (typeof Notification === "undefined") return false;
+  if (Notification.permission === "granted") return true;
+  if (Notification.permission === "denied") return false;
+  const result = await Notification.requestPermission();
+  return result === "granted";
 }
-
-async function subscribeUserToPush() {
-  // avoid doing anything during unit tests
-  if (process.env.NODE_ENV === "test") {
-    return;
-  }
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-    console.warn("Push messaging not supported");
-    return;
-  }
-  try {
-    const registration = await navigator.serviceWorker.register("/service-worker.js");
-    let subscription = await registration.pushManager.getSubscription();
-    if (!subscription) {
-      const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
-    }
-    await fetch("/api/subscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(subscription),
-    });
-  } catch (err) {
-    console.error("Failed to subscribe to push", err);
-  }
-}
-// -------------------------------------------------------------------------------
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -72,27 +38,19 @@ export default function SettingsForm() {
     if (name === "darkTheme") {
       dispatch(setDarkTheme(checked));
     } else if (name.startsWith("notif_")) {
-      // feed name follows after prefix
       const feed = name.replace("notif_", "");
       const updated = { ...notifications, [feed]: checked };
       dispatch(setNotifications(updated));
-      // if enabling, request browser permission for notifications
-      if (checked && typeof Notification !== "undefined") {
-        if (Notification.permission === "default") {
-          Notification.requestPermission().then((perm) => {
-            if (perm === "granted") {
-              subscribeUserToPush().catch(console.error);
-            } else {
-              console.warn("Notification permission not granted");
-            }
-          });
-        } else if (Notification.permission === "granted") {
-          // already have permission - make sure we're subscribed
-          subscribeUserToPush().catch(console.error);
-        }
+      // Request browser permission when the user enables any notification toggle
+      if (checked) {
+        requestNotificationPermission().then((granted) => {
+          if (!granted) {
+            // Permission denied — revert the toggle so the UI stays honest
+            dispatch(setNotifications({ ...notifications, [feed]: false }));
+          }
+        });
       }
     }
-    // setState({ ...state, [event.target.name]: event.target.checked });
   };
 
   return (

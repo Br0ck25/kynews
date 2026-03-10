@@ -11,11 +11,12 @@ import SectionsHeader from "./components/home/sections-component";
 import { Container, Box, CircularProgress, Hidden } from "@material-ui/core";
 import CssBaseline from "@material-ui/core/CssBaseline";
 import { isMobile } from "./utils/functions"; // kept for potential future use
-import { Provider, useDispatch } from "react-redux";
+import { Provider, useDispatch, useSelector } from "react-redux";
 import store from "./redux/store/store";
 import Theme from "./components/theme";
 import SiteService from "./services/siteService";
 import { setSelectedCounties } from "./redux/actions/actions";
+import { useNotificationPoller } from "./utils/custom-hooks";
 
 const TodayPage = lazy(() => import("./pages/today-page"));
 const NationalPage = lazy(() => import("./pages/national-page"));
@@ -67,6 +68,14 @@ function AppTagSync() {
   return null;
 }
 
+// Runs the notification poller based on the user's notification preferences.
+function AppNotifications() {
+  const notifications = useSelector((state) => state.notifications || {});
+  const service = new SiteService();
+  useNotificationPoller(notifications, service.baseUrl);
+  return null;
+}
+
 const SECTIONS = [
   { title: "Today", url: "/today" },
   { title: "National", url: "/national" },
@@ -86,6 +95,7 @@ function App() {
             <AppHeader />
 
             <AppTagSync />
+            <AppNotifications />
 
             <SectionsHeader sections={SECTIONS} />
 

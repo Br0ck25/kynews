@@ -71,34 +71,3 @@ self.addEventListener('message', (event) => {
 
 // Any other custom service worker logic can go here.
 
-// handle push events sent from a server via the Push API
-self.addEventListener('push', (event) => {
-  let data = { title: 'New notification', body: '', url: '/' };
-  if (event.data) {
-    try {
-      data = event.data.json();
-    } catch (e) {
-      data.body = event.data.text();
-    }
-  }
-  const options = {
-    body: data.body,
-    icon: process.env.PUBLIC_URL + '/logo192.png',
-    data: data.url,
-  };
-  event.waitUntil(self.registration.showNotification(data.title, options));
-});
-
-// bring the user to the payload URL when they click the notification
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const url = event.notification.data;
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      for (const client of clientList) {
-        if (client.url === url && 'focus' in client) return client.focus();
-      }
-      if (clients.openWindow) return clients.openWindow(url);
-    })
-  );
-});
