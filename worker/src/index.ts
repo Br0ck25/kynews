@@ -54,6 +54,7 @@ import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption } from './lib/facebook';
 import { processNwsAlerts, processNwsProducts } from './lib/nws';
 import { processSpcFeed } from './lib/spc';
+import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -1464,6 +1465,26 @@ if (url.pathname === '/api/admin/nws-products/run' && request.method === 'POST')
 	try {
 		const result = await processNwsProducts(env);
 		return json({ ok: true, ...result });
+	} catch (err: any) {
+		return json({ error: String(err) }, 500);
+	}
+}
+
+// POST /api/admin/weather-summary/run — manually publish a weather summary article
+// Body: { "when": "morning" | "evening" }  (defaults to current time of day)
+if (url.pathname === '/api/admin/weather-summary/run' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	try {
+		const body = await parseJsonBody<{ when?: 'morning' | 'evening' }>(request);
+		const { hour } = (() => {
+			const parts = new Intl.DateTimeFormat('en-US', {
+				timeZone: 'America/New_York', hour12: false, hour: 'numeric',
+			}).formatToParts(new Date());
+			return { hour: parseInt(parts.find(p => p.type === 'hour')?.value ?? '12', 10) };
+		})();
+		const when: 'morning' | 'evening' = body?.when ?? (hour < 12 ? 'morning' : 'evening');
+		await publishWeatherSummary(env, when);
+		return json({ ok: true, when });
 	} catch (err: any) {
 		return json({ error: String(err) }, 500);
 	}

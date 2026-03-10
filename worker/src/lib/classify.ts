@@ -609,18 +609,15 @@ export async function classifyArticleWithAi(
     );
     if (normalizedDatelineCounty) {
       // Dateline county is authoritative — it is the story's explicit location.
-      // Always promote it to primary county, even if the geo detector already
-      // found other county names (e.g. from navigation/related-article text that
-      // Readability didn't fully strip).  Keep any additional counties the geo
-      // detector found as secondary, but only if they also have explicit support
-      // in the text so nav-bleed counties are dropped by the AI evidence check.
-      const otherGeoCounties = (baseGeo.counties || []).filter(
-        (c) => c !== normalizedDatelineCounty,
-      );
+      // Reset baseGeo counties to ONLY the dateline county so that nav/sidebar
+      // bleed counties (picked up from Readability-extracted related-article links)
+      // do not survive into effectiveGeoCounties or the AI high-confidence guard.
+      // Any genuinely mentioned secondary counties will be re-added by the AI
+      // classifier if they pass isCountyEvidenced with explicit "County" evidence.
       baseGeo = {
         ...baseGeo,
         county: normalizedDatelineCounty,
-        counties: [normalizedDatelineCounty, ...otherGeoCounties],
+        counties: [normalizedDatelineCounty],
       };
     }
   }
@@ -680,6 +677,19 @@ export async function classifyArticleWithAi(
     // does not make it a Kentucky local story.
     // Do NOT set baseIsKentucky = false here; let the fallback handle it
     // after the AI pass, so the geo detector result is not discarded.
+  }
+
+  // For wire/national sources (pbs.org, wkms.org, etc.) where Readability bleed
+  // can inject county names from sidebar links into the classification text, filter
+  // baseGeo counties to only those with an explicit "X County" mention in the text.
+  // This prevents sidebar-sourced counties from becoming the primary geo assignment
+  // via the fallback (effectiveGeoCounty) path rather than just the AI path.
+  if (COUNTY_REQUIRES_EXPLICIT_EVIDENCE.has(hostname)) {
+    const filteredCounties = (baseGeo.counties || []).filter((c) =>
+      new RegExp(`\\b${escapeRegExp(c)}\\s+County\\b`, 'i').test(semanticText)
+    );
+    const filteredPrimary = filteredCounties[0] ?? null;
+    baseGeo = { ...baseGeo, county: filteredPrimary, counties: filteredCounties };
   }
 
   // FIX 5 (continued): evaluate whether the detected county is supported by

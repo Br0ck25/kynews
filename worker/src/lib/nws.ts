@@ -113,9 +113,22 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const slug = `nws-${alertSlug}`;
 
   // ── Title — plan §6: "{EVENT} Issued for {COUNTIES}" ────────────────────
-  const countyList = alert.counties.length > 0
-    ? alert.counties.join(' and ') + (alert.counties.length === 1 ? ' County' : ' Counties')
-    : alert.areaDesc;
+  // Build a readable county list: "Perry County", "Perry and Floyd Counties",
+  // "Perry, Floyd, and Knott Counties", or "Perry, Floyd, Knott, and 7 more" for large alerts.
+  function buildCountyList(counties: string[]): string {
+    if (counties.length === 0) return alert.areaDesc;
+    if (counties.length === 1) return `${counties[0]} County`;
+    if (counties.length === 2) return `${counties[0]} and ${counties[1]} Counties`;
+    if (counties.length <= 4) {
+      const last = counties[counties.length - 1];
+      const rest = counties.slice(0, -1).join(', ');
+      return `${rest}, and ${last} Counties`;
+    }
+    // More than 4: name the first 3, then "and N more"
+    const first3 = counties.slice(0, 3).join(', ');
+    return `${first3}, and ${counties.length - 3} more Counties`;
+  }
+  const countyList = buildCountyList(alert.counties);
   const title = `${alert.event} Issued for ${countyList}`.slice(0, 200);
 
   // ── Issued-at time string ─────────────────────────────────────────────────
