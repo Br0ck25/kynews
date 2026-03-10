@@ -781,7 +781,7 @@ export default function AdminPage() {
             }`
         );
         setFbPostUrl(""); setManualTitle(""); setManualBody("");
-        setManualImageUrl(""); setManualCounty(""); setManualCategory(""); setManualIsKentucky(true);
+        setManualImageUrl(""); setManualImageFile(null); setManualCounty(""); setManualCategory(""); setManualIsKentucky(true);
         setManualIsDraft(false); setManualPublishedAt("");
         applyFilter();
       } else if (result?.status === "duplicate") {

@@ -360,6 +360,19 @@ if (url.pathname === '/api/admin/ingest' && request.method === 'POST') {
 	return json({ ok: true, message: 'Admin ingest queued', sourcesTried: sourceUrls.length, limitPerSource }, 202);
 }
 
+// one-off helper endpoint for manually triggering the weather summary job
+if (url.pathname === '/api/admin/run-weather-summary' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+	// allow caller to specify which summary; default to morning
+	const body = await parseJsonBody<{ when?: 'morning' | 'evening' }>(request);
+	const when = body?.when === 'evening' ? 'evening' : 'morning';
+	await publishWeatherSummary(env, when);
+	return json({ ok: true, when });
+}
+
+
 // Manual single-URL ingest from the admin console.
 // Identical to /api/ingest/url but protected by the admin key so it can be
 // safely called from the admin UI without exposing the ingest pipeline publicly.
