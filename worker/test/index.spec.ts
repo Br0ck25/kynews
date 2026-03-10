@@ -15,6 +15,7 @@ import * as dbModule from '../src/lib/db';
 import { insertArticle, getArticleCounties, updateArticleClassification, getArticleById, getCountyCounts, listAdminArticles, queryArticles, getArticlesForUpdateCheck, prependUpdateToSummary } from '../src/lib/db';
 import type { NewArticle } from '../src/types';
 import * as aiModule from '../src/lib/ai';
+import { SPC_DAY1_RISK_MAP, SPC_WATCH_MAP } from '../src/lib/spc';
 import {
 	cleanFacebookHeadline,
 	generateFacebookHook,
@@ -1876,9 +1877,62 @@ describe('weather summary builder', () => {
 		expect(article.title).toBe('Kentucky Weather Update – Morning Summary');
 		expect(article.contentText).toMatch(/Tornado Warning/);
 		expect(article.contentText).toMatch(/McCracken/);
+		// slug should follow the same pattern used in the main code
+		const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+		expect(article.slug).toBe(`kentucky-weather-update-morning-summary-${today}`);
+		// there is no embedded image in the summary, so imageUrl stays null
+		expect(article.imageUrl).toBeNull();
 
-		global.fetch = originalFetch;
+			// now publish using the helper and verify it is stored
+			await ensureSchemaAndFixture();
+			const { publishWeatherSummary } = await import('../lib/weatherSummary');
+			await publishWeatherSummary(env, 'morning');
+			// confirm a record exists
+			const rows = await env.ky_news_db.prepare('SELECT title FROM articles').all();
+			expect(rows.results.length).toBe(1);
+			expect(rows.results[0].title).toBe(article.title);
+
+
+	// ensure SPC articles also get a slug so they aren't routed via /post?id
+	it('buildSpcArticle generates a readable, unique slug', async () => {
+		const { buildSpcArticle } = await import('../lib/spc');
+		const item = {
+			title: 'SPC MD 0182 – strange storms',
+			link: 'https://www.spc.noaa.gov/products/md/md0182.html',
+			description: 'Brief summary',
+			publishedAt: '2025-01-01T12:00:00Z',
+			productType: 'mesoscale_discussion',
+		};
+		const article = await buildSpcArticle(item as any);
+		expect(article.slug).toMatch(/^spc-md-0182-strange-storms-[0-9a-f]{8}$/);
+		// map image should be assigned as the preview image
+		expect(article.imageUrl).toBe(SPC_DAY1_RISK_MAP);
 	});
+
+	// NWS alerts should also include a slug so they can be linked normally
+	it('buildAlertArticle assigns a slug based on the alert ID', async () => {
+		const { buildAlertArticle } = await import('../lib/nws');
+		const alert = {
+			id: 'test-123',
+			event: 'Test Warning',
+			headline: 'Test event',
+			description: 'desc',
+			instruction: null,
+			areaDesc: 'Adair County',
+			severity: 'Severe',
+			urgency: 'Immediate',
+			sent: '2025-02-02T00:00:00Z',
+			effective: '2025-02-02T00:00:00Z',
+			expires: '2025-02-02T01:00:00Z',
+			status: 'Actual',
+			counties: ['Adair'],
+			geometry: null,
+		};
+		const article = await buildAlertArticle(alert as any);
+		expect(article.slug).toBe('nws-test-123');
+		expect(article.imageUrl).toBe(`https://radar.weather.gov/ridge/standard/KLVX_loop.gif`);
+	});
+
 });
 
 describe('database utilities', () => {

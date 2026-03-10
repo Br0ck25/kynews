@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import AdminPage from './admin-page';
 import SiteService from '../services/siteService';
 
@@ -134,8 +134,9 @@ describe('AdminPage manual body formatting', () => {
   });
 
   it('uploads a selected image file before submitting manual article', async () => {
+    // use a relative proxy URL to mimic real upload response
     const uploadSpy = jest.spyOn(SiteService.prototype, 'uploadAdminImage')
-      .mockResolvedValue({ url: 'https://example.com/foo.jpg', key: 'abc' });
+      .mockResolvedValue({ url: '/api/media/foo.jpg', key: 'abc' });
     const createSpy = jest.spyOn(SiteService.prototype, 'createManualArticle')
       .mockResolvedValue({ status: 'inserted', id: 2, category: 'today', isKentucky: true, county: null });
 
@@ -159,7 +160,7 @@ describe('AdminPage manual body formatting', () => {
     fireEvent.change(title, { target: { value: 'With image' } });
     fireEvent.click(screen.getByText(/Publish Article/i));
     await screen.findByText(/Article published/i);
-    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: 'https://example.com/foo.jpg' }));
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: '/api/media/foo.jpg' }));
 
     uploadSpy.mockRestore();
     createSpy.mockRestore();
@@ -183,6 +184,47 @@ describe('AdminPage manual body formatting', () => {
     // expect a second call from applyFilter
     expect(listSpy).toHaveBeenCalledTimes(2);
     listSpy.mockRestore();
+  });
+
+  it('allows editing an article image field with a relative media URL', async () => {
+    // return a single article row for the Articles tab
+    jest.spyOn(SiteService.prototype, 'getAdminArticles').mockResolvedValue({
+      items: [{
+        id: 1,
+        title: 'Test',
+        publishedAt: new Date().toISOString(),
+        category: 'today',
+        isKentucky: 1,
+        counties: [],
+        county: null,
+        canonicalUrl: 'https://example.com',
+        sourceUrl: 'https://example.com',
+        slug: null,
+        status: 'Live',
+        imageUrl: '',
+      }],
+      nextCursor: null,
+    });
+
+    const updateSpy = jest.spyOn(SiteService.prototype, 'updateAdminArticleContent')
+      .mockResolvedValue({});
+
+    render(<AdminPage />);
+    fireEvent.click(screen.getByRole('tab', { name: /Articles/i }));
+    // wait for row to render
+    await screen.findByText(/Test/i);
+
+    // click the edit button (tooltip title used as query)
+    const editBtn = screen.getByTitle(/Edit title \/ summary \/ links/i);
+    fireEvent.click(editBtn);
+
+    const imageField = await screen.findByLabelText(/Image URL/i);
+    fireEvent.change(imageField, { target: { value: '/api/media/foo.jpg' } });
+    fireEvent.click(screen.getByText(/Save Content/i));
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: '/api/media/foo.jpg' })));
+
+    updateSpy.mockRestore();
   });
 
   it('shows rejection message when preview returns rejected', async () => {

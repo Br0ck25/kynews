@@ -202,6 +202,9 @@ export async function buildDailyWeatherArticle(
     county: null,
     counties: [],
     city: null,
+    // ensure a slug so the front end can build a normal `/news/kentucky/...`
+    // URL instead of falling back to the broken `/post?articleId=` route.
+    slug: slugBase,
     summary: contentText.slice(0, 800),
     seoDescription: contentText.slice(0, 160),
     rawWordCount: contentText.split(/\s+/).filter(Boolean).length,

@@ -7,8 +7,8 @@ const SPC_RSS_URL = 'https://www.spc.noaa.gov/products/spcrss.xml';
 const SPC_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
 
 // Image assets embedded in SPC articles
-const SPC_DAY1_RISK_MAP = 'https://www.spc.noaa.gov/products/outlook/day1otlk.gif';
-const SPC_WATCH_MAP = 'https://www.spc.noaa.gov/products/watch/ww.png';
+export const SPC_DAY1_RISK_MAP = 'https://www.spc.noaa.gov/products/outlook/day1otlk.gif';
+export const SPC_WATCH_MAP = 'https://www.spc.noaa.gov/products/watch/ww.png';
 
 // Kentucky-relevant keywords used as a first-pass pre-filter on the RSS feed.
 // Items that pass only because of a broad product type (e.g. 'tornado watch')
@@ -202,7 +202,14 @@ function buildBody(item: SpcItem, fullText: string): { contentText: string; cont
   // Full discussion text (if successfully fetched) — first ~1000 chars to keep it readable
   if (fullText) {
     const shortened = fullText.slice(0, 1500).trim();
-    const parts = shortened.split(/\n{2,}/).map((p) => p.replace(/\n/g, ' ').trim()).filter(Boolean);
+    // keep existing line breaks inside each paragraph rather than collapsing
+    // everything into one long sentence; the RSS / MD text typically has
+    // single-line breaks between sentences, so preserving them improves
+    // readability and gives the AI summarizer more structure to work with.
+    const parts = shortened
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean);
     // Plan §7: "Full meteorologist discussion:"
     textParagraphs.push('Full meteorologist discussion:', ...parts);
   }
@@ -218,7 +225,9 @@ function buildBody(item: SpcItem, fullText: string): { contentText: string; cont
   const mapHtml = getSpcMapHtml(item.productType);
   const bodyHtml = textParagraphs
     .slice(0, -1) // all but closing "Stay tuned" line
-    .map((p) => `<p>${p}</p>`)
+    // convert any remaining line breaks in a paragraph to <br> so that
+    // multi-line paragraphs are rendered sensibly in HTML
+    .map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`)
     .join('\n');
 
   const contentHtml = [
@@ -241,6 +250,14 @@ function humanProductType(t: SpcProductType): string {
   }
 }
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 200);
+}
+
 export async function buildSpcArticle(item: SpcItem): Promise<NewArticle> {
   const canonicalUrl = item.link;
   const urlHash = await sha256Hex(normalizeCanonicalUrl(canonicalUrl));
@@ -252,6 +269,16 @@ export async function buildSpcArticle(item: SpcItem): Promise<NewArticle> {
   const seoDescription =
     `${title}. ${item.description}`.replace(/\s+/g, ' ').slice(0, 300);
   const now = new Date().toISOString();
+
+  // generate a mostly-readable slug from the title plus a short hash
+  const baseSlug = slugify(title) || urlHash.slice(0, 8);
+  const slug = `${baseSlug}-${urlHash.slice(0, 8)}`;
+
+  // choose a representative image — the same map we embed in the body
+  const imageUrl =
+    item.productType === 'tornado_watch' || item.productType === 'tstorm_watch'
+      ? SPC_WATCH_MAP
+      : SPC_DAY1_RISK_MAP;
 
   return {
     canonicalUrl,
@@ -273,8 +300,9 @@ export async function buildSpcArticle(item: SpcItem): Promise<NewArticle> {
     summaryWordCount: 0,
     contentText,
     contentHtml,
-    imageUrl: null,
+    imageUrl,
     rawR2Key: null,
+    slug,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
   };
 }

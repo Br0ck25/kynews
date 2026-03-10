@@ -2134,8 +2134,20 @@ function toDateTimeLocalValue(isoValue) {
 }
 
 function isValidHttpUrl(value) {
+  // the admin interface accepts either an absolute http(s) URL or a local
+  // media proxy path (which always begins with `/api/media/`).  the latter is
+  // what the client receives after uploading a file, so validation must allow
+  // it or editing an article that already has an uploaded image will fail.
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (trimmed === "") return false;
+
+  if (trimmed.startsWith('/api/media/')) {
+    return true;
+  }
+
   try {
-    const parsed = new URL(value);
+    const parsed = new URL(trimmed);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;

@@ -108,6 +108,8 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const alertSlug = alert.id.replace(/[^a-z0-9]/gi, '-').replace(/-+/g, '-').toLowerCase().slice(0, 80);
   const canonicalUrl = `https://localkynews.com/manual/nws-${alertSlug}`;
   const urlHash = await sha256Hex(normalizeCanonicalUrl(nwsApiUrl));
+  // slug for routing; use the same base as the canonical path for simplicity
+  const slug = `nws-${alertSlug}`;
 
   // ── Title — plan §6: "{EVENT} Issued for {COUNTIES}" ────────────────────
   const countyList = alert.counties.length > 0
@@ -247,6 +249,20 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const contentText = textLines.join('\n').trim();
 
   // ── HTML — plan §6 template with labeled sections + radar ────────────────
+  // derive radar image URL so we can also expose it as the article
+  // preview image (front‐end uses `imageUrl` for open graph, etc).
+  const radarUrl = (() => {
+    const easternKyCounties = new Set([
+      'Perry','Leslie','Breathitt','Knott','Letcher','Floyd','Pike','Martin',
+      'Johnson','Lawrence','Magoffin','Owsley','Lee','Wolfe','Morgan','Elliott',
+      'Harlan','Bell','Knox','Whitley','McCreary','Laurel','Clay','Jackson',
+      'Rockcastle','Estill','Powell','Menifee','Bath','Rowan','Carter','Lewis',
+    ]);
+    const isEasternKy = alert.counties.some((c) => easternKyCounties.has(c));
+    const radarStation = isEasternKy ? 'KJKL' : 'KLVX';
+    return `https://radar.weather.gov/ridge/standard/${radarStation}_loop.gif`;
+  })();
+
   const radarHtml = getRadarImageHtml(alert.counties);
 
   const instrHtml = instrParts.length > 0
@@ -283,6 +299,7 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
     county: primaryCounty,
     counties: alert.counties,
     city: null,
+    slug,
     // Fallback summary — overwritten by summarizeArticle() in processNwsAlerts()
     summary: contentText.slice(0, 800),
     seoDescription,
@@ -290,7 +307,7 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
     summaryWordCount: 0,
     contentText,
     contentHtml,
-    imageUrl: null,
+    imageUrl: radarUrl,
     rawR2Key: null,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
     alertGeojson: alert.geometry ? JSON.stringify(alert.geometry) : null,
