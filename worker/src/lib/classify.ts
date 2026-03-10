@@ -288,6 +288,16 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   'wtvq.com',
 ]);
 
+// Wire/national sources where county should only be assigned when
+// explicitly evidenced in the article — never from sidebar/nav bleed.
+const COUNTY_REQUIRES_EXPLICIT_EVIDENCE = new Set<string>([
+  'pbs.org',
+  'publicnewsservice.org',
+  'wkms.org',
+  'weku.org',
+  'wfpl.org',
+]);
+
 
 /**
  * Source domain → default Kentucky county.
@@ -597,8 +607,21 @@ export async function classifyArticleWithAi(
     const normalizedDatelineCounty = KY_COUNTIES.find(
       (c) => c.toLowerCase() === datelineCounty.toLowerCase()
     );
-    if (normalizedDatelineCounty && !baseGeo.county) {
-      baseGeo = { ...baseGeo, county: normalizedDatelineCounty, counties: [normalizedDatelineCounty] };
+    if (normalizedDatelineCounty) {
+      // Dateline county is authoritative — it is the story's explicit location.
+      // Always promote it to primary county, even if the geo detector already
+      // found other county names (e.g. from navigation/related-article text that
+      // Readability didn't fully strip).  Keep any additional counties the geo
+      // detector found as secondary, but only if they also have explicit support
+      // in the text so nav-bleed counties are dropped by the AI evidence check.
+      const otherGeoCounties = (baseGeo.counties || []).filter(
+        (c) => c !== normalizedDatelineCounty,
+      );
+      baseGeo = {
+        ...baseGeo,
+        county: normalizedDatelineCounty,
+        counties: [normalizedDatelineCounty, ...otherGeoCounties],
+      };
     }
   }
 
@@ -836,7 +859,9 @@ export async function classifyArticleWithAi(
       '',
       `Title: ${cleanTitle}`,
       '',
-      `Content: ${cleanContent.slice(0, 1200)}`,
+      // Use only the first 800 chars for county classification — nav/sidebar bleed
+      // (related-article links with county names) typically starts after the article lede.
+      `Content: ${cleanContent.slice(0, 800)}`,
     ].join('\n');
 
     const aiRaw = (await env.AI.run('@cf/zai-org/glm-4.7-flash' as keyof AiModels, {
@@ -895,6 +920,40 @@ export async function classifyArticleWithAi(
     aiCounties = aiCounties.filter((c) =>
       isCountyEvidenced(c, semanticText, baseGeo.counties, allowedSourceDefaultCounty),
     );
+
+    // Extra guard: when the geo detector found a county with high confidence
+    // (explicit "X County, Ky." dateline or unambiguous county mention), only
+    // retain AI-suggested counties that the geo detector ALSO found, OR that
+    // have an explicit "County" suffix in the text.  This prevents AI counties
+    // sourced from Readability-bleed nav/sidebar links from surviving the filter
+    // (e.g. a WYMT article about Perry County that has "Christian County" and
+    // "Lewis County" in its sidebar navigation).
+    if (geoConfidence === 'high' && baseGeo.counties.length > 0) {
+      aiCounties = aiCounties.filter((c) => {
+        if (baseGeo.counties.some((g) => g.toLowerCase() === c.toLowerCase())) return true;
+        // require explicit "County" suffix in the text for any county not found by geo
+        return new RegExp(`\\b${escapeRegExp(c)}\\s+County\\b`, 'i').test(semanticText);
+      });
+      // ensure the geo-detected primary county is always represented
+      if (aiCounties.length === 0 && baseGeo.counties.length > 0) {
+        aiCounties = [...baseGeo.counties];
+      }
+    }
+
+    // For wire/national sources (PBS, WKMS, etc.) where Readability may not fully
+    // strip sidebars: require every AI-suggested county to have an explicit
+    // "County" mention in the text OR be found by the geo detector.  This stops
+    // sidebar-bleed counties (e.g. "Fayette County" from a PBS related-article link)
+    // from being assigned to articles whose only KY connection is the story subject.
+    if (COUNTY_REQUIRES_EXPLICIT_EVIDENCE.has(hostname)) {
+      aiCounties = aiCounties.filter((c) => {
+        if (baseGeo.counties.some((g) => g.toLowerCase() === c.toLowerCase())) return true;
+        return new RegExp(`\\b${escapeRegExp(c)}\\s+County\\b`, 'i').test(semanticText);
+      });
+      if (aiCounties.length === 0 && baseGeo.counties.length > 0) {
+        aiCounties = [...baseGeo.counties];
+      }
+    }
 
     const aiCounty = aiCounties[0] ?? null;
 

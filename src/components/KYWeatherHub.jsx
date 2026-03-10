@@ -259,7 +259,7 @@ export default function KYWeatherHub() {
                             </div>
                             <span style={{ background: s.bg, color: s.text, padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: "bold", textTransform: "uppercase", whiteSpace: "nowrap" }}>{props.severity}</span>
                           </div>
-                          {props.headline && <div style={{ fontSize: 11, color: "#cfd8dc", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.1)" }}>{props.headline}</div>}
+                          {props.headline && <div style={{ fontSize: 11, color: s.text, marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.1)" }}>{props.headline}</div>}
                         </div>
                       );
                     })}

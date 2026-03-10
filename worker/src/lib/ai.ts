@@ -1191,8 +1191,51 @@ function enforceparagraphBreaks(text: string): string {
     '\n\n'
   );
 
-  // Already has paragraph structure — don't touch it
-  if (/\n\n/.test(t)) return t.trim();
+  // If there are already paragraph breaks, only re-split paragraphs that are
+  // too long (more than 4 sentences in a single block).  This handles the case
+  // where the AI returns 2 huge blocks separated by \n\n instead of 6–8 short
+  // paragraphs.  Paragraphs that are already short are left untouched.
+  if (/\n\n/.test(t)) {
+    const blocks = t.split(/\n{2,}/);
+    const rebroken = blocks.flatMap((block) => {
+      // Quick sentence count heuristic: count terminal punctuation followed by space+word
+      const approxSentences = (block.match(/[.!?]["'\u201d\u2019]*\s+\S/g) ?? []).length + 1;
+      if (approxSentences <= 3) return [block]; // already fine
+      // Re-run the char-walker splitter on this block alone
+      const subSentences: string[] = [];
+      const abbrevReSub = /\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Col|Gen|Rep|Sen|Prof|St|Sr|Jr|No|vs|etc|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/i;
+      const singleCapReSub = /\b[A-Z]$/;
+      let buf2 = '';
+      for (let si = 0; si < block.length; si++) {
+        const ch2 = block[si];
+        buf2 += ch2;
+        if (!/[.!?]/.test(ch2)) continue;
+        let sj = si + 1;
+        while (sj < block.length && /["')\u201d\u2019]/.test(block[sj])) { buf2 += block[sj]; sj++; }
+        if (sj >= block.length || !/\s/.test(block[sj])) continue;
+        let sk = sj;
+        while (sk < block.length && /\s/.test(block[sk])) sk++;
+        if (sk >= block.length) continue;
+        const bp = buf2.trimEnd().replace(/[.!?]["')*\u201d\u2019]*$/, '').trimEnd();
+        if (ch2 === '.' && (singleCapReSub.test(bp) || abbrevReSub.test(bp))) continue;
+        subSentences.push(buf2.trim());
+        buf2 = '';
+        si = sk - 1;
+      }
+      if (buf2.trim()) subSentences.push(buf2.trim());
+      if (subSentences.length <= 3) return [block];
+      const subParas: string[] = [];
+      let idx2 = 0;
+      while (idx2 < subSentences.length) {
+        const rem = subSentences.length - idx2;
+        const take = rem === 4 ? 2 : Math.min(3, rem);
+        subParas.push(subSentences.slice(idx2, idx2 + take).join(' '));
+        idx2 += take;
+      }
+      return subParas;
+    });
+    return rebroken.join('\n\n').trim();
+  }
 
   // Split on sentence boundaries then group into 2–3 sentence paragraphs.
   // The previous regex required the next char to be uppercase, which missed
