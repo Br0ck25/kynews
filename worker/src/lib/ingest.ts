@@ -383,15 +383,18 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
     // If the readability/scraped title looks like a generic site name
     // (short, no punctuation, matches the domain brand) prefer the RSS title.
     const isSiteName = (t: string) =>
-      t.length < 60 &&
-      !/[,.:!?\'"()\d]/.test(t) &&
       rssTitle &&
       t !== rssTitle &&
       (
         /^kentucky\s+state\s+police$/i.test(t) ||
         /^(?:home|news|press releases?|latest news)$/i.test(t) ||
+        // TV/radio station name pattern: "WLEX News - City, KY (CALL)" or "LEX 18 News - Lexington, KY (WLEX)"
+        // Distinguishing feature: ends with call letters in parens, or is "STATION - City, ST" format
+        /\b[A-Z]{2,5}\s*\d*\s*(?:News|TV|Radio)?\s*[-–]\s*[A-Za-z\s]+,\s*[A-Z]{2}\s*(?:\([A-Z]{3,5}\))?\s*$/.test(t) ||
+        // Station name without a city: "WLEX-TV", "WKYT News", "LEX 18 News"
+        /^(?:[A-Z]{1,2}\s*)?[A-Z]{2,4}\s*\d*\s*(?:News|TV|Radio|Mountain\s+News)?\s*$/.test(t) ||
         // Generic: title is 1-4 words and RSS title is clearly longer/more specific
-        (t.split(/\s+/).length <= 4 && rssTitle.split(/\s+/).length > 4)
+        (t.length < 60 && !/[,.:!?\'"()\d]/.test(t) && t.split(/\s+/).length <= 4 && rssTitle.split(/\s+/).length > 4)
       );
 
     if (isSiteName(readabilityTitle) || isSiteName(scrapedTitle)) {

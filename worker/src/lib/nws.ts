@@ -113,22 +113,9 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const slug = `nws-${alertSlug}`;
 
   // ── Title — plan §6: "{EVENT} Issued for {COUNTIES}" ────────────────────
-  // Build a readable county list: "Perry County", "Perry and Floyd Counties",
-  // "Perry, Floyd, and Knott Counties", or "Perry, Floyd, Knott, and 7 more" for large alerts.
-  function buildCountyList(counties: string[]): string {
-    if (counties.length === 0) return alert.areaDesc;
-    if (counties.length === 1) return `${counties[0]} County`;
-    if (counties.length === 2) return `${counties[0]} and ${counties[1]} Counties`;
-    if (counties.length <= 4) {
-      const last = counties[counties.length - 1];
-      const rest = counties.slice(0, -1).join(', ');
-      return `${rest}, and ${last} Counties`;
-    }
-    // More than 4: name the first 3, then "and N more"
-    const first3 = counties.slice(0, 3).join(', ');
-    return `${first3}, and ${counties.length - 3} more Counties`;
-  }
-  const countyList = buildCountyList(alert.counties);
+  const countyList = alert.counties.length > 0
+    ? alert.counties.join(' and ') + (alert.counties.length === 1 ? ' County' : ' Counties')
+    : alert.areaDesc;
   const title = `${alert.event} Issued for ${countyList}`.slice(0, 200);
 
   // ── Issued-at time string ─────────────────────────────────────────────────
@@ -200,9 +187,18 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
         continue;
       }
 
-      // Plain paragraph — join lines, clean dots, render
+      // Plain paragraph — join lines, clean dots, render.
+      // For long prose blocks (3+ sentences), split into individual <p> tags.
       const text = cleanDots(lines.join(' ').replace(/\s{2,}/g, ' '));
-      if (text) parts.push(`<p>${text}</p>`);
+      if (text) {
+        const sentenceRe = /[^.!?]*[.!?]+(?=\s+[A-Z]|$)/g;
+        const sentences = text.match(sentenceRe) ?? [text];
+        if (sentences.length >= 3) {
+          sentences.forEach((s) => { if (s.trim()) parts.push(`<p>${s.trim()}</p>`); });
+        } else {
+          parts.push(`<p>${text}</p>`);
+        }
+      }
     }
 
     return parts.join('\n');
@@ -315,7 +311,8 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
     city: null,
     slug,
     // Fallback summary — overwritten by summarizeArticle() in processNwsAlerts()
-    summary: contentText.slice(0, 800),
+    // Strip internal newlines so the fallback renders correctly in HTML contexts.
+    summary: contentText.replace(/\n+/g, ' ').slice(0, 800).trim(),
     seoDescription,
     rawWordCount: contentText.split(/\s+/).filter(Boolean).length,
     summaryWordCount: 0,
@@ -644,10 +641,21 @@ export async function buildHwoArticle(product: NwsProduct): Promise<NewArticle> 
   const contentText = textLines.join('\n').trim();
 
   // ── HTML body ─────────────────────────────────────────────────────────────
+  // Render each HWO section heading + body. Long bodies (multi-sentence outlooks)
+  // are split into individual <p> tags so they don't render as a wall of text.
+  function renderHwoSectionHtml(heading: string, body: string): string {
+    const sentenceRe = /[^.!?]*[.!?]+(?=\s+[A-Z]|$)/g;
+    const sentences = body.match(sentenceRe) ?? [body];
+    if (sentences.length <= 1) {
+      return `<p><strong>${heading}:</strong> ${body}</p>`;
+    }
+    return `<p><strong>${heading}:</strong></p>\n${sentences.map((s) => `<p>${s.trim()}</p>`).join('\n')}`;
+  }
+
   const sectionHtml = hasSubstantiveContent
     ? sections
         .filter((s) => s.body)
-        .map((s) => `<p><strong>${s.heading}:</strong> ${s.body}</p>`)
+        .map((s) => renderHwoSectionHtml(s.heading, s.body))
         .join('\n')
     : `<p>No hazardous weather is expected at this time for this area.</p>`;
 
@@ -685,7 +693,7 @@ export async function buildHwoArticle(product: NwsProduct): Promise<NewArticle> 
     counties: [],
     city: null,
     slug,
-    summary: contentText.slice(0, 800),
+    summary: contentText.replace(/\n+/g, ' ').slice(0, 800).trim(),
     seoDescription,
     rawWordCount: contentText.split(/\s+/).filter(Boolean).length,
     summaryWordCount: 0,

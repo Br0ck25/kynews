@@ -184,57 +184,161 @@ function buildTitle(item: SpcItem): string {
   return `${base} — Storm Prediction Center Update`.slice(0, 200);
 }
 
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * Parse a raw SPC product full-text into named sections.
+ * Returns a map of section name → clean paragraph text.
+ * Recognised sections: SUMMARY, DISCUSSION, and key metadata lines
+ * (Areas affected, Concerning, Valid, Probability of Watch Issuance,
+ * MOST PROBABLE PEAK TORNADO INTENSITY, etc.).
+ */
+function parseSpcFullText(raw: string): {
+  areasAffected: string;
+  concerning: string;
+  watchProbability: string;
+  valid: string;
+  summary: string;
+  discussion: string;
+  peakTornadoIntensity: string;
+  peakHailSize: string;
+  peakWindGust: string;
+} {
+  const normalized = raw.replace(/\r\n/g, '\n');
+
+  // ── Single-line metadata fields ───────────────────────────────────────────
+  const extract = (pattern: RegExp): string => {
+    const m = normalized.match(pattern);
+    return m ? m[1].trim() : '';
+  };
+
+  const areasAffected = extract(/Areas affected\.{3}([\s\S]*?)(?=\n\n|\nConcerning|\nValid)/i)
+    .replace(/\n\s+/g, ' ').trim();
+  const concerning = extract(/Concerning\.{3}([\s\S]*?)(?=\n\n|\nValid|\nProbability)/i)
+    .replace(/\n\s+/g, ' ').trim();
+  const valid = extract(/Valid\s+([\d]+Z\s*-\s*[\d]+Z)/i);
+  const watchProbability = extract(/Probability of Watch Issuance\.{3}([^\n]+)/i);
+  const peakTornadoIntensity = extract(/MOST PROBABLE PEAK TORNADO INTENSITY\.{3}([^\n]+)/i);
+  const peakHailSize = extract(/MOST PROBABLE PEAK HAIL SIZE\.{3}([^\n]+)/i);
+  const peakWindGust = extract(/MOST PROBABLE PEAK WIND GUST\.{3}([^\n]+)/i);
+
+  // ── Multi-line SUMMARY block ───────────────────────────────────────────────
+  const summaryMatch = normalized.match(/SUMMARY\.{3}([\s\S]*?)(?=\n\s*\n\s*(?:DISCUSSION|\.\.[\w]))/i);
+  const summary = summaryMatch
+    ? summaryMatch[1].replace(/\n\s+/g, ' ').replace(/\s{2,}/g, ' ').trim()
+    : '';
+
+  // ── Multi-line DISCUSSION block ────────────────────────────────────────────
+  // Stop before the forecaster initials line (e.g. "..Chalmers/Gleason.. 03/10/2026")
+  const discussionMatch = normalized.match(/DISCUSSION\.{3}([\s\S]*?)(?=\n\s*\.\.[A-Za-z\/]+\.\.\s+\d{2}\/\d{2}\/\d{4}|\nATTN\.\.\.|\nLAT\.\.\.)/i);
+  const discussion = discussionMatch
+    ? discussionMatch[1]
+        .split(/\n\n+/)
+        .map((p) => p.replace(/\n\s+/g, ' ').replace(/\s{2,}/g, ' ').trim())
+        .filter(Boolean)
+        .join('\n\n')
+    : '';
+
+  return { areasAffected, concerning, watchProbability, valid, summary, discussion, peakTornadoIntensity, peakHailSize, peakWindGust };
+}
+
 /** Compose the article body from item RSS description + optional full text. */
 function buildBody(item: SpcItem, fullText: string): { contentText: string; contentHtml: string } {
-  const textParagraphs: string[] = [];
 
-  // Opening sentence — plan §7 template
-  textParagraphs.push(
-    `The Storm Prediction Center has issued a new weather update affecting portions of the region.`,
+  // ── Parse structured sections from full text if available ─────────────────
+  const parsed = fullText ? parseSpcFullText(fullText) : null;
+
+  // ── Plain-text version ────────────────────────────────────────────────────
+  const textLines: string[] = [];
+
+  const productLabel = humanProductType(item.productType);
+  textLines.push(
+    `The Storm Prediction Center has issued a ${productLabel} update` +
+    (parsed?.areasAffected ? ` affecting ${parsed.areasAffected}.` : ' affecting portions of the region.'),
   );
 
-  // Brief summary from RSS description
-  if (item.description) {
-    const cleanDesc = item.description.replace(/\s{2,}/g, ' ').trim();
-    textParagraphs.push(`Summary: ${cleanDesc}`);
+  if (parsed?.concerning) {
+    textLines.push(`Concern: ${parsed.concerning}`);
+  }
+  if (parsed?.watchProbability) {
+    textLines.push(`Watch issuance probability: ${parsed.watchProbability}`);
   }
 
-  // Full discussion text (if successfully fetched) — first ~1000 chars to keep it readable
-  if (fullText) {
-    const shortened = fullText.slice(0, 1500).trim();
-    // keep existing line breaks inside each paragraph rather than collapsing
-    // everything into one long sentence; the RSS / MD text typically has
-    // single-line breaks between sentences, so preserving them improves
-    // readability and gives the AI summarizer more structure to work with.
-    const parts = shortened
-      .split(/\n{2,}/)
-      .map((p) => p.trim())
-      .filter(Boolean);
-    // Plan §7: "Full meteorologist discussion:"
-    textParagraphs.push('Full meteorologist discussion:', ...parts);
+  if (parsed?.summary) {
+    textLines.push(parsed.summary);
+  } else if (item.description) {
+    // Fall back to a cleaned RSS description — strip the raw product header line (e.g. "MD 0187 CONCERNING...")
+    const cleanDesc = item.description
+      .replace(/^MD\s+\d+\s+[A-Z .]+\n?/i, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (cleanDesc) textLines.push(cleanDesc);
   }
 
-  textParagraphs.push(
+  // Probable peak hazard stats (when present)
+  const hazards: string[] = [];
+  if (parsed?.peakTornadoIntensity) hazards.push(`Peak tornado intensity: ${parsed.peakTornadoIntensity}`);
+  if (parsed?.peakHailSize) hazards.push(`Peak hail size: ${parsed.peakHailSize}`);
+  if (parsed?.peakWindGust) hazards.push(`Peak wind gust: ${parsed.peakWindGust}`);
+  if (hazards.length > 0) textLines.push(hazards.join('\n'));
+
+  if (parsed?.discussion) {
+    textLines.push('Meteorologist Discussion\n\n' + parsed.discussion);
+  }
+
+  textLines.push(
     'More updates will be provided as additional information becomes available.',
     'Stay tuned to Local KY News for additional weather updates.',
   );
 
-  const contentText = textParagraphs.join('\n\n');
+  const contentText = textLines.join('\n\n');
 
-  // HTML — structured paragraphs with SPC map image
+  // ── HTML version ──────────────────────────────────────────────────────────
   const mapHtml = getSpcMapHtml(item.productType);
-  const bodyHtml = textParagraphs
-    .slice(0, -1) // all but closing "Stay tuned" line
-    // convert any remaining line breaks in a paragraph to <br> so that
-    // multi-line paragraphs are rendered sensibly in HTML
-    .map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`)
-    .join('\n');
+  const htmlParts: string[] = [];
 
-  const contentHtml = [
-    bodyHtml,
-    mapHtml,
-    `<p>Stay tuned to Local KY News for additional weather updates.</p>`,
-  ].join('\n');
+  // Lead paragraph
+  htmlParts.push(`<p>${esc(textLines[0])}</p>`);
+
+  // Metadata pills / quick-facts block
+  const metaItems: string[] = [];
+  if (parsed?.concerning) metaItems.push(`<strong>Concern:</strong> ${esc(parsed.concerning)}`);
+  if (parsed?.watchProbability) metaItems.push(`<strong>Watch probability:</strong> ${esc(parsed.watchProbability)}`);
+  if (parsed?.valid) metaItems.push(`<strong>Valid:</strong> ${esc(parsed.valid)}`);
+  if (metaItems.length > 0) {
+    htmlParts.push(`<ul>${metaItems.map((m) => `<li>${m}</li>`).join('\n')}</ul>`);
+  }
+
+  // Summary section
+  const summaryText = parsed?.summary || (item.description ? item.description.replace(/^MD\s+\d+\s+[A-Z .]+\n?/i, '').replace(/\s{2,}/g, ' ').trim() : '');
+  if (summaryText) {
+    htmlParts.push(`<h3>Summary</h3>\n<p>${esc(summaryText)}</p>`);
+  }
+
+  // Probable peak hazards
+  if (hazards.length > 0) {
+    htmlParts.push(
+      `<h3>Probable Peak Hazards</h3>\n<ul>${hazards.map((h) => `<li>${esc(h)}</li>`).join('\n')}</ul>`,
+    );
+  }
+
+  // Map image
+  htmlParts.push(mapHtml);
+
+  // Full discussion
+  if (parsed?.discussion) {
+    const discussionHtml = parsed.discussion
+      .split(/\n\n+/)
+      .map((p) => `<p>${esc(p.trim())}</p>`)
+      .join('\n');
+    htmlParts.push(`<h3>Meteorologist Discussion</h3>\n${discussionHtml}`);
+  }
+
+  htmlParts.push(`<p>Stay tuned to Local KY News for additional weather updates.</p>`);
+
+  const contentHtml = htmlParts.join('\n');
 
   return { contentText, contentHtml };
 }

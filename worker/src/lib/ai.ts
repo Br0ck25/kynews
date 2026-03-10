@@ -739,7 +739,7 @@ export function cleanContentForSummarization(text: string, title: string): strin
   // Strip image attribution caption lines e.g. "Traffic alert(B137 / Wikipedia / CC BY-SA 4.0)"
   t = t.replace(/^[^\n]{3,80}\([A-Z][^)]{3,60}\/\s*(?:Wikipedia|CC\s+BY|Wikimedia|AP|Getty|Reuters)[^)]*\)\s*$/gm, '');
   // Strip "Source: ORG." image credit prefix lines e.g. "Source: SKYCTC."
-  t = t.replace(/^Source:\s*[A-Za-z0-9_.\-]{1,40}\.\s*/gim, '');
+  t = t.replace(/^Source:\s*[^\n.]{1,80}(?:\.|(?=\n))\s*/gim, '');
 
   if (title) {
     const escaped = title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -914,7 +914,7 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   t = t.replace(/^\s*Summary\s*$/gim, '');
   t = t.replace(/^Skip\s+to\s+content\b[^\n]*/gim, '');
   t = t.replace(/^[^\n]{3,80}\([A-Z][^)]{3,60}\/\s*(?:Wikipedia|CC\s+BY|Wikimedia|AP|Getty|Reuters)[^)]*\)\s*$/gm, '');
-  t = t.replace(/^Source:\s*[A-Za-z0-9_.\-]{1,40}\.\s*/gim, '');
+  t = t.replace(/^Source:\s*[^\n.]{1,80}(?:\.|(?=\n))\s*/gim, '');
   // Strip broadcaster attribution that the AI may echo: "(LEX 18) —", "(WKYT) —", etc.
   t = t.replace(/^\s*\((?:LEX\s*18|WKYT|WKYT-TV|WLWT|WHAS11?|WDRB|WBKO|WNKY|WYMT|WTVQ|ABC\s*36|FOX\s*56|WAVE\s*3|NBC)\)\s*[-—–]?\s*/im, '');
   // Strip inline broadcaster attribution mid-summary too (e.g. after dateline)
