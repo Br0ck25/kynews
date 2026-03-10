@@ -138,6 +138,8 @@ export default function AdminPage() {
     }
   };
   const [manualImageUrl, setManualImageUrl] = useState("");
+  // hold the selected file for potential upload/inspection
+  const [manualImageFile, setManualImageFile] = useState(null);
   const [manualImageUploading, setManualImageUploading] = useState(false);
   const [manualCounty, setManualCounty] = useState("");
   // new fields for explicit categorization/scope
