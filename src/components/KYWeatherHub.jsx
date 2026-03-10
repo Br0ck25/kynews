@@ -253,9 +253,9 @@ export default function KYWeatherHub() {
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                             <span style={{ fontSize: 18 }}>{s.icon}</span>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: "bold", color: textColor, fontSize: 13 }}>{props.event}</div>
-                              <div style={{ fontSize: 11, color: textColor, margin: "4px 0" }}>{props.areaDesc?.split(";").slice(0, 4).join(" • ")}</div>
-                              <div style={{ fontSize: 11, color: textColor }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
+                              <div style={{ fontWeight: "bold", color: s.text, fontSize: 13 }}>{props.event}</div>
+                              <div style={{ fontSize: 11, color: s.text, margin: "4px 0" }}>{props.areaDesc?.split(";").slice(0, 4).join(" • ")}</div>
+                              <div style={{ fontSize: 11, color: s.text }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
                             </div>
                             <span style={{ background: s.bg, color: s.text, padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: "bold", textTransform: "uppercase", whiteSpace: "nowrap" }}>{props.severity}</span>
                           </div>

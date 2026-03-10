@@ -302,23 +302,55 @@ function extractAiText(raw: AiResultLike): string {
  * Kept concise to avoid hitting token limits on the model.
  */
 function buildArticlePrompt(context: string): string {
-  // Cap context to ~6000 chars to stay well within model token limits
   const cappedContext = context.slice(0, 6000);
 
-  return `Write a Kentucky weather news article for Local KY News using ONLY the NWS data below.
+  return `You are writing a weather news article for Local KY News. Study the EXAMPLE ARTICLE below — match its tone, structure, and writing style exactly. Then write a new article using the NWS DATA provided.
 
-OUTPUT FORMAT — follow exactly:
-Line 1: Headline (specific to today's conditions)
-Line 2: (blank)
-Line 3+: Article body with these sections in order:
-  - Opening paragraph citing all three NWS offices
-  - "Eastern Kentucky" heading, then 1-2 paragraphs from NWS Jackson data
-  - "Central Kentucky" heading, then 1-2 paragraphs from NWS Louisville data
-  - "Western Kentucky" heading, then 1-2 paragraphs from NWS Paducah data
-  - If alerts exist: "Current Alerts" heading, then bullet list as: * [Event] — [Counties] through [Expiry]
-  - Closing paragraph summarizing what Kentucky residents should expect
+EXAMPLE ARTICLE (study this style carefully):
+---
+Storms Possible Across Kentucky Through Midweek; Flood Warnings Continue in Western Kentucky
 
-Plain text only. AP news style. 350-500 words. Only facts from the data below.
+Thunderstorms could develop across parts of Kentucky through midweek as a weather system moves through the Ohio Valley, according to the latest Hazardous Weather Outlooks issued by the National Weather Service offices in National Weather Service Jackson KY, National Weather Service Louisville KY, and National Weather Service Paducah KY.
+
+Forecasters say periods of showers and thunderstorms may occur through Wednesday evening as warmer air moves into the region ahead of an approaching cold front.
+
+Eastern Kentucky
+
+The outlook issued by the National Weather Service Jackson KY indicates that thunderstorms are possible beginning late Monday night and continuing at times through Wednesday evening. Forecasters say gusty winds could develop Wednesday, particularly as a stronger system approaches the region.
+
+Spotter activation is not expected immediately, but the weather service says conditions will be monitored closely as the midweek system approaches.
+
+Central Kentucky
+
+Across central Kentucky, including the Bluegrass region and the Louisville metro area, similar conditions are expected as warm, moist air returns ahead of a cold front. Periods of showers and thunderstorms may develop as the system moves east across the Ohio Valley.
+
+While widespread severe weather is not currently expected, stronger storms could produce brief heavy rain and gusty winds, especially during the middle of the week.
+
+Western Kentucky
+
+Western parts of the state, including areas near the Mississippi and Ohio Rivers, could also see thunderstorms as the same storm system pushes through the region. Gusty winds and brief heavy rainfall will be possible with stronger storms.
+
+In addition to the storm chances, flood warnings remain in effect for parts of western Kentucky as rivers continue running high.
+
+Current Flood Warnings
+
+- Daviess County, Kentucky — Flood Warning through March 13 at 9:24 PM EDT
+- Henderson County and Union County, Kentucky — Flood Warning through March 14 at 1:00 AM EDT
+- Union County, Kentucky — Flood Warning through March 14 at 9:00 PM EDT
+- Crittenden County and Union County, Kentucky — Flood Warning through March 16 at 10:00 AM EDT
+
+These warnings are associated with high water along portions of the Ohio River and nearby waterways, and flooding of low-lying areas near rivers is possible.
+
+Forecasters say additional updates are likely as the midweek weather system approaches and forecast confidence increases.
+---
+
+FORMATTING RULES — do not violate these:
+- No markdown, no asterisks, no bold (**text**), no underscores
+- Section headings are plain text alone on their own line, nothing else on that line
+- Alert/warning bullets use a hyphen: "- County — Event through Date"
+- Plain text only throughout
+
+Now write a NEW article in the same style using ONLY the facts in the NWS data below. Do not copy the example — write fresh sentences reflecting today's actual conditions. Use the same structure: headline, opening paragraphs, three regional sections, alerts section if applicable, closing paragraph.
 
 NWS DATA:
 ${cappedContext}`;
@@ -373,13 +405,28 @@ async function generateWeatherArticle(
 
 // ─── Text → structured article ────────────────────────────────────────────────
 
+function stripMarkdown(text: string): string {
+  return text
+    // Remove **bold** and __bold__
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    // Remove *italic* and _italic_
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    // Remove ### headings markers, keep the text
+    .replace(/^#{1,6}\s+/gm, '')
+    // Remove leading - or * list markers that aren't our intentional bullets
+    // (we use "- text" for alerts so preserve those)
+    .trim();
+}
+
 function parseArticleText(raw: string): {
   headline: string;
   body: string;
   contentText: string;
   contentHtml: string;
 } {
-  const trimmed = raw.trim();
+  const trimmed = stripMarkdown(raw.trim());
   const newlineIdx = trimmed.indexOf('\n');
 
   let headline: string;
@@ -392,6 +439,9 @@ function parseArticleText(raw: string): {
     headline = trimmed.slice(0, 120);
     body = trimmed;
   }
+
+  // Strip any remaining markdown from headline
+  headline = stripMarkdown(headline);
 
   const contentText = `${headline}\n\n${body}`;
   const contentHtml = buildHtml(headline, body);
@@ -409,13 +459,15 @@ function buildHtml(headline: string, body: string): string {
       if (inList) { parts.push('</ul>'); inList = false; }
       continue;
     }
-    if (t.startsWith('* ')) {
+    // Bullet lines: "- text" or "* text"
+    if (/^[-*] /.test(t)) {
       if (!inList) { parts.push('<ul>'); inList = true; }
       parts.push(`<li>${esc(t.slice(2).trim())}</li>`);
     } else {
       if (inList) { parts.push('</ul>'); inList = false; }
-      // Short lines without terminal punctuation are treated as section headings
-      if (t.length < 60 && !/[.!?,]$/.test(t) && /^[A-Z]/.test(t)) {
+      // Section headings: short lines, no terminal punctuation, starts with capital
+      // Must be one of our known headings or similarly short plain label
+      if (t.length < 60 && !/[.!?,;]$/.test(t) && /^[A-Z][a-zA-Z ]+$/.test(t)) {
         parts.push(`<h3>${esc(t)}</h3>`);
       } else {
         parts.push(`<p>${esc(t)}</p>`);
@@ -567,7 +619,16 @@ export async function buildDailyWeatherArticle(
     counties: [],
     city: null,
     slug: slugBase,
-    summary: contentText.slice(0, 800),
+    // Use the first two paragraphs of the body as the summary rather than
+    // a raw character slice that may cut mid-sentence
+    summary: (() => {
+      const bodyParagraphs = generated.body
+        .split(/\n\n+/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 30 && !/^[-*]/.test(p) && !/^(Eastern|Central|Western|Current)/i.test(p));
+      const twoParas = bodyParagraphs.slice(0, 2).join('\n\n');
+      return (twoParas || contentText).slice(0, 800);
+    })(),
     seoDescription,
     rawWordCount: contentText.split(/\s+/).filter(Boolean).length,
     summaryWordCount: 0,
