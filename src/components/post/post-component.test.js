@@ -26,6 +26,37 @@ test('renders title and plain body text on full post component', () => {
   expect(screen.getByText(/Paragraph two/i)).toBeInTheDocument();
 });
 
+
+// header image behaviour tests
+
+test('shows full-width <img> for radar.loop.gif headers', () => {
+  const radarUrl = 'https://radar.weather.gov/ridge/standard/KJKL_loop.gif';
+  const post = { title: 'Radar', image: radarUrl, originalLink: '', date: '2020-01-01', contentText: '', shortDesc: '', isKentucky: true, tags: [] };
+  const { container } = render(
+    <Provider store={store}>
+      <Post post={post} />
+    </Provider>
+  );
+  const img = container.querySelector(`img[src="${radarUrl}"]`);
+  expect(img).toBeTruthy();
+  expect(img.getAttribute('style')).toMatch(/width:\s*100%/);
+});
+
+test('does not render visible <img> when header is not radar', () => {
+  const url = 'https://example.com/foo.jpg';
+  const post = { title: 'Foo', image: url, originalLink: '', date: '2020-01-01', contentText: '', shortDesc: '', isKentucky: true, tags: [] };
+  const { container } = render(
+    <Provider store={store}>
+      <Post post={post} />
+    </Provider>
+  );
+  const img = container.querySelector(`img[src="${url}"]`);
+  expect(img).toBeNull();
+  const paper = container.querySelector('[class*=mainFeaturedPost]');
+  expect(paper).toBeTruthy();
+  expect(paper.getAttribute('style')).toMatch(/background-image:\s*url\(/);
+});
+
 // list-handling regression test
 test('does not merge numbered-heading with following paragraph', () => {
   const post = {

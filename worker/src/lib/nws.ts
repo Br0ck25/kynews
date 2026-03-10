@@ -3,6 +3,7 @@ import { KY_COUNTIES } from '../data/ky-geo';
 import type { NewArticle } from '../types';
 import { sha256Hex, normalizeCanonicalUrl } from './http';
 import { findArticleByHash, insertArticle } from './db';
+// ingestSingleUrl intentionally not imported — HWO products are built directly
 
 const NWS_ALERTS_URL = 'https://api.weather.gov/alerts/active?area=KY';
 const NWS_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
@@ -377,6 +378,390 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
   return { published, skipped };
 }
 
+// ─── NWS product (HWO) ingestion ──────────────────────────────────────────
+
+// Offices we care about for hazardous weather outlooks
+// KJKL = Jackson KY (Eastern KY), KLMK = Louisville (Central/Western KY), KPAH = Paducah (Western KY)
+const NWS_HWO_OFFICES = ['KJKL', 'KLMK', 'KPAH'];
+
+/** Human-friendly office names used in article titles */
+const OFFICE_NAMES: Record<string, string> = {
+  KJKL: 'Jackson, KY',
+  KLMK: 'Louisville, KY',
+  KPAH: 'Paducah, KY',
+};
+
+/** Radar image to embed for each office's coverage area */
+const OFFICE_RADAR: Record<string, { station: string; label: string }> = {
+  KJKL: { station: 'KJKL', label: 'Eastern Kentucky' },
+  KLMK: { station: 'KLVX', label: 'Central Kentucky (Louisville)' },
+  KPAH: { station: 'KPAH', label: 'Western Kentucky (Paducah)' },
+};
+
+export interface NwsProduct {
+  /** Full API URL, e.g. https://api.weather.gov/products/XXXXXXXX-XXXX-... */
+  id: string;
+  office: string;
+  issuanceTime: string;
+  productText: string;
+}
+
+/**
+ * Fetch the HWO product list for an office, then fetch the full text of
+ * each product.  The list endpoint returns lightweight stubs; full text
+ * lives at the individual product URL (e.g. /products/{id}).
+ */
+export async function fetchHwoProducts(office: string): Promise<NwsProduct[]> {
+  const listUrl = `https://api.weather.gov/products?office=${office}&type=HWO`;
+  let listData: any;
+  try {
+    const res = await fetch(listUrl, {
+      headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' },
+    });
+    if (!res.ok) return [];
+    listData = await res.json();
+  } catch (err) {
+    console.error(`[NWS] fetchHwoProducts list(${office}) failed`, err);
+    return [];
+  }
+
+  // The API returns { '@graph': [...] } with product stubs
+  const stubs: any[] = Array.isArray(listData?.['@graph'])
+    ? listData['@graph']
+    : Array.isArray(listData?.products)
+    ? listData.products
+    : [];
+
+  // Only fetch the latest (most recent) product per office to avoid flooding
+  // the feed — HWOs are reissued multiple times a day.
+  const latest = stubs
+    .filter((s) => s?.['@id'] || s?.id)
+    .sort((a, b) => {
+      const ta = new Date(a.issuanceTime || a.issued || 0).getTime();
+      const tb = new Date(b.issuanceTime || b.issued || 0).getTime();
+      return tb - ta; // newest first
+    })
+    .slice(0, 3); // at most 3 recent HWOs per office
+
+  const results: NwsProduct[] = [];
+  for (const stub of latest) {
+    const productUrl: string = String(stub['@id'] || stub.id || '');
+    if (!productUrl) continue;
+
+    let productText = '';
+    let issuanceTime = String(stub.issuanceTime || stub.issued || new Date().toISOString());
+
+    // Fetch full product text if not already embedded in the stub
+    if (stub.productText) {
+      productText = String(stub.productText);
+    } else {
+      try {
+        const pRes = await fetch(productUrl, {
+          headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' },
+        });
+        if (pRes.ok) {
+          const pData: any = await pRes.json();
+          productText = String(pData.productText || pData.body || pData.text || '');
+          if (!issuanceTime || issuanceTime === 'undefined') {
+            issuanceTime = String(pData.issuanceTime || pData.issued || new Date().toISOString());
+          }
+        }
+      } catch {
+        // product fetch failed — skip
+        continue;
+      }
+    }
+
+    if (!productText.trim()) continue;
+
+    results.push({ id: productUrl, office, issuanceTime, productText });
+  }
+
+  return results;
+}
+
+/** KV dedup key for a product (keyed by product ID URL). */
+export async function productDedupeKey(productId: string): Promise<string> {
+  return `nws:product:${await sha256Hex(productId)}`;
+}
+
+/** Returns true if the product is new (and marks it seen in KV). */
+export async function markProductIfNew(env: Env, productId: string): Promise<boolean> {
+  if (!env.CACHE) return true;
+  const key = await productDedupeKey(productId);
+  if (await env.CACHE.get(key)) return false;
+  // 24h TTL — HWOs reissued every few hours; we only want the first publish
+  await env.CACHE.put(key, '1', { expirationTtl: 86400 });
+  return true;
+}
+
+/** Simple Kentucky keyword gate. */
+function isKentuckyProduct(text: string): boolean {
+  const lower = text.toLowerCase();
+  return lower.includes('kentucky') || /\bky\b/.test(lower);
+}
+
+/**
+ * Parse the raw NWS product text (pre-formatted plain text with VTEC headers,
+ * dot-separated sections, etc.) into readable paragraphs.
+ *
+ * NWS product text looks like:
+ *   000
+ *   FXUS63 KLMK 101140
+ *   HWOLMK
+ *
+ *   HAZARDOUS WEATHER OUTLOOK
+ *   ...
+ *   .DAY ONE...Today and Tonight.
+ *   No hazardous weather expected.
+ *   .DAYS TWO THROUGH SEVEN...
+ *   ...
+ *   $$
+ */
+function parseHwoText(raw: string): { sections: Array<{ heading: string; body: string }>; plain: string } {
+  // Strip the WMO/AWIPS header lines (first 3–4 lines before the product name)
+  const lines = raw
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.trim());
+
+  // Find the line that says "HAZARDOUS WEATHER OUTLOOK" (product name)
+  const titleIdx = lines.findIndex((l) => /HAZARDOUS WEATHER OUTLOOK/i.test(l));
+  const body = titleIdx >= 0 ? lines.slice(titleIdx + 1) : lines;
+
+  // Split on section headers that begin with a dot e.g. ".DAY ONE..."
+  const sectionRegex = /^\.([A-Z][^.]+?)\.{3}/;
+  const sections: Array<{ heading: string; body: string }> = [];
+  let current: { heading: string; lines: string[] } | null = null;
+
+  for (const line of body) {
+    if (line === '$$') break; // end-of-product marker
+
+    const m = sectionRegex.exec(line);
+    if (m) {
+      if (current) sections.push({ heading: current.heading, body: current.lines.join(' ').replace(/\s{2,}/g, ' ').trim() });
+      // The rest of the line after the heading may include inline text
+      const rest = line.slice(m[0].length).trim();
+      current = { heading: m[1].trim(), lines: rest ? [rest] : [] };
+    } else if (current) {
+      if (line) current.lines.push(line);
+    }
+  }
+  if (current) sections.push({ heading: current.heading, body: current.lines.join(' ').replace(/\s{2,}/g, ' ').trim() });
+
+  // Build a plain-text version for the AI summarizer
+  const plain = sections
+    .filter((s) => s.body && !/^no hazardous weather/i.test(s.body))
+    .map((s) => `${s.heading}:\n${s.body}`)
+    .join('\n\n');
+
+  return { sections, plain };
+}
+
+/**
+ * Derive a human-readable title from the HWO product and office.
+ * e.g. "Hazardous Weather Outlook – NWS Louisville, KY"
+ */
+function buildHwoTitle(office: string, issuanceTime: string): string {
+  const officeLabel = OFFICE_NAMES[office] ?? office;
+  const dateStr = new Date(issuanceTime).toLocaleDateString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  return `Hazardous Weather Outlook – NWS ${officeLabel} – ${dateStr}`;
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 200);
+}
+
+/**
+ * Build a full NewArticle from a fetched HWO product.
+ */
+export async function buildHwoArticle(product: NwsProduct): Promise<NewArticle> {
+  const { sections, plain } = parseHwoText(product.productText);
+
+  const title = buildHwoTitle(product.office, product.issuanceTime);
+  const issuedAt = new Date(product.issuanceTime).toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'long', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+  });
+
+  const officeLabel = OFFICE_NAMES[product.office] ?? product.office;
+  const radar = OFFICE_RADAR[product.office] ?? { station: 'KLVX', label: 'Kentucky' };
+  const radarUrl = `https://radar.weather.gov/ridge/standard/${radar.station}_loop.gif`;
+
+  // ── Plain-text body (for AI summarizer) ───────────────────────────────────
+  const hasSubstantiveContent = sections.some(
+    (s) => s.body && !/^no hazardous weather/i.test(s.body),
+  );
+
+  const introText = `The National Weather Service office in ${officeLabel} has issued a Hazardous Weather Outlook for ${product.office === 'KJKL' ? 'Eastern Kentucky' : product.office === 'KPAH' ? 'Western Kentucky and the Purchase Area' : 'Central and Southern Kentucky'}.`;
+
+  const textLines: string[] = [
+    introText,
+    '',
+    `Issued: ${issuedAt}`,
+    '',
+  ];
+
+  if (hasSubstantiveContent) {
+    for (const s of sections) {
+      if (!s.body) continue;
+      textLines.push(`${s.heading}:`);
+      textLines.push(s.body);
+      textLines.push('');
+    }
+  } else {
+    textLines.push('No hazardous weather is expected at this time for this area.');
+    textLines.push('');
+  }
+
+  textLines.push('Residents should continue to monitor local conditions and check back for updates.');
+  textLines.push('');
+  textLines.push('Stay tuned to Local KY News for the latest weather information.');
+
+  const contentText = textLines.join('\n').trim();
+
+  // ── HTML body ─────────────────────────────────────────────────────────────
+  const sectionHtml = hasSubstantiveContent
+    ? sections
+        .filter((s) => s.body)
+        .map((s) => `<p><strong>${s.heading}:</strong> ${s.body}</p>`)
+        .join('\n')
+    : `<p>No hazardous weather is expected at this time for this area.</p>`;
+
+  const contentHtml = [
+    `<p>${introText}</p>`,
+    `<p><em>Issued: ${issuedAt}</em></p>`,
+    sectionHtml,
+    `<p>Residents should continue to monitor local conditions and check back for updates.</p>`,
+    `<p><strong>Current Radar (${radar.label}):</strong><br><img src="${radarUrl}" alt="NWS Radar for Kentucky" style="max-width:100%;height:auto;border:1px solid #ccc;border-radius:4px;"></p>`,
+    `<p>Stay tuned to Local KY News for the latest weather information.</p>`,
+    `<p><small>Source: <a href="${product.id}" target="_blank" rel="noopener">National Weather Service – ${officeLabel}</a></small></p>`,
+  ].join('\n');
+
+  // ── Metadata ───────────────────────────────────────────────────────────────
+  const canonicalUrl = `https://localkynews.com/manual/hwo-${product.office.toLowerCase()}-${new Date(product.issuanceTime).toISOString().slice(0, 10)}`;
+  const urlHash = await sha256Hex(normalizeCanonicalUrl(product.id));
+  const baseSlug = slugify(title);
+  const slug = `${baseSlug}-${urlHash.slice(0, 8)}`;
+
+  const seoDescription = `${title}. Issued ${issuedAt}. ${plain.slice(0, 200).replace(/\n/g, ' ')}`.slice(0, 300);
+
+  const now = new Date().toISOString();
+
+  return {
+    canonicalUrl,
+    sourceUrl: 'https://www.weather.gov/',
+    urlHash,
+    title,
+    author: `NWS ${officeLabel}`,
+    publishedAt: product.issuanceTime || now,
+    category: 'weather',
+    isKentucky: true,
+    isNational: false,
+    county: null,
+    counties: [],
+    city: null,
+    slug,
+    summary: contentText.slice(0, 800),
+    seoDescription,
+    rawWordCount: contentText.split(/\s+/).filter(Boolean).length,
+    summaryWordCount: 0,
+    contentText,
+    contentHtml,
+    imageUrl: radarUrl,
+    rawR2Key: null,
+    contentHash: await sha256Hex(contentText.slice(0, 3000)),
+    alertGeojson: null,
+  };
+}
+
+/**
+ * Poll each office's HWO feed and insert any new products as articles.
+ * Uses the same pattern as processNwsAlerts and processSpcFeed —
+ * direct DB insert with AI summarization rather than the generic ingestSingleUrl
+ * scraper which cannot parse NWS JSON API responses.
+ */
+export async function processNwsProducts(env: Env): Promise<{ published: number; skipped: number }> {
+  let published = 0;
+  let skipped = 0;
+
+  for (const office of NWS_HWO_OFFICES) {
+    let products: NwsProduct[];
+    try {
+      products = await fetchHwoProducts(office);
+    } catch (err) {
+      console.error(`[NWS HWO] fetchHwoProducts(${office}) failed`, err);
+      continue;
+    }
+
+    for (const prod of products) {
+      if (!prod.id) continue;
+
+      try {
+        // 1. KV dedup — skip if we've already published this product URL
+        const isNew = await markProductIfNew(env, prod.id);
+        if (!isNew) {
+          skipped++;
+          continue;
+        }
+
+        // 2. Kentucky gate — product text must mention KY
+        if (!isKentuckyProduct(prod.productText)) {
+          console.log(`[NWS HWO] Skipped non-KY product: ${prod.id}`);
+          skipped++;
+          continue;
+        }
+
+        // 3. Build the article record
+        const article = await buildHwoArticle(prod);
+
+        // 4. DB dedup — check url_hash in case KV was cleared
+        const existing = await findArticleByHash(env, article.urlHash);
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        // 5. AI summarization
+        const { summarizeArticle } = await import('./ai');
+        const aiResult = await summarizeArticle(
+          env,
+          article.urlHash,
+          article.title,
+          article.contentText,
+          article.publishedAt,
+        ).catch(() => null);
+
+        if (aiResult) {
+          article.summary = aiResult.summary;
+          article.seoDescription = aiResult.seoDescription || article.seoDescription;
+          article.summaryWordCount = aiResult.summaryWordCount;
+        }
+
+        // 6. Insert into D1
+        const id = await insertArticle(env, article);
+        published++;
+        console.log(`[NWS HWO] Published: "${article.title}" → id=${id} office=${office}`);
+      } catch (err) {
+        console.error(`[NWS HWO] Failed to publish product ${prod.id}:`, err);
+      }
+    }
+  }
+
+  return { published, skipped };
+}
+
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function extractKyCountiesFromAreaDesc(areaDesc: string): string[] {
@@ -452,5 +837,5 @@ function getRadarImageHtml(counties: string[]): string {
   const isEasternKy = counties.some((c) => easternKyCounties.has(c));
   const radarStation = isEasternKy ? 'KJKL' : 'KLVX';
   const radarLabel = isEasternKy ? 'Jackson, KY' : 'Louisville, KY';
-  return `<p><strong>Current Radar (${radarLabel}):</strong><br><img src="https://radar.weather.gov/ridge/standard/${radarStation}_loop.gif" alt="NWS Radar for Kentucky" style="max-width:100%;border:1px solid #ccc;border-radius:4px;"></p>`;
+  return `<p><strong>Current Radar (${radarLabel}):</strong><br><img src="https://radar.weather.gov/ridge/standard/${radarStation}_loop.gif" alt="NWS Radar for Kentucky" style="max-width:100%;height:auto;border:1px solid #ccc;border-radius:4px;"></p>`;
 }

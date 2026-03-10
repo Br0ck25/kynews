@@ -51,7 +51,7 @@ import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption } from './lib/facebook';
 import { processNwsAlerts, processNwsProducts } from './lib/nws';
 import { processSpcFeed } from './lib/spc';
-import { maybeRunWeatherSummary, publishWeatherSummary, buildDailyWeatherArticle } from './lib/weatherSummary';
+import { maybeRunWeatherSummary } from './lib/weatherSummary';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -365,21 +365,11 @@ if (url.pathname === '/api/admin/run-weather-summary' && request.method === 'POS
 	if (!isAdminAuthorized(request, env)) {
 		return json({ error: 'Unauthorized' }, 401);
 	}
-	const body = await parseJsonBody<{ when?: 'morning' | 'evening'; force?: boolean }>(request);
+	// allow caller to specify which summary; default to morning
+	const body = await parseJsonBody<{ when?: 'morning' | 'evening' }>(request);
 	const when = body?.when === 'evening' ? 'evening' : 'morning';
-	const force = body?.force === true;
-
-	if (force) {
-		// force=true: always build and insert, bypassing url-hash dedup.
-		// Useful for testing — generates a fresh article from live NWS data right now.
-		const article = await buildDailyWeatherArticle(env, when);
-		const id = await insertArticle(env, article);
-		return json({ ok: true, when, forced: true, id, title: article.title, slug: article.slug });
-	}
-
-	// Normal path: skip if an article for today's slot already exists.
 	await publishWeatherSummary(env, when);
-	return json({ ok: true, when, forced: false });
+	return json({ ok: true, when });
 }
 
 

@@ -66,6 +66,12 @@ export default function FeaturedPost(props) {
   // Track whether the header image URL returned a 404/error so we can fall back to logo
   const [headerImgFailed, setHeaderImgFailed] = React.useState(false);
   const headerImage = headerImgFailed ? "/logo.png" : (post.image || "/logo.png");
+  // radar GIFs from NWS are wide and important to show in their entirety on
+  // mobile.  Using the default background-image with `cover` crops the loop,
+  // which makes it difficult to see the full radar map.  Detect the domain and
+  // render those images as a normal <img> so they scale naturally instead of
+  // being cropped by the container.
+  const isRadarHeader = !headerImgFailed && /radar\.weather\.gov/.test(headerImage);
   const service = React.useMemo(() => new SiteService(), []);
 
   const summaryParagraphs = React.useMemo(() => {
@@ -187,18 +193,30 @@ export default function FeaturedPost(props) {
 
   return (
     <main>
-      <Paper
-        className={classes.mainFeaturedPost}
-        style={{ backgroundImage: `url(${headerImage})` }}
-      >
-        {/* Hidden img to detect and handle broken image URLs — falls back to logo */}
+      {isRadarHeader ? (
+        // display radar loops as a normal image so the full graphic is
+        // visible on narrow screens.  the onError handler still applies so we
+        // can fall back to the logo if the radar service is unavailable.
         <img
-          style={{ display: "none" }}
           src={headerImage}
           alt=""
+          style={{ width: "100%", display: "block" }}
           onError={() => setHeaderImgFailed(true)}
         />
-      </Paper>
+      ) : (
+        <Paper
+          className={classes.mainFeaturedPost}
+          style={{ backgroundImage: `url(${headerImage})` }}
+        >
+          {/* Hidden img to detect and handle broken image URLs — falls back to logo */}
+          <img
+            style={{ display: "none" }}
+            src={headerImage}
+            alt=""
+            onError={() => setHeaderImgFailed(true)}
+          />
+        </Paper>
+      )}
       <Divider />
       {/* Breadcrumb navigation (Section 8 — Internal Linking) */}
       {hasRouter && (

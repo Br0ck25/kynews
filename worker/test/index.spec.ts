@@ -1933,6 +1933,20 @@ describe('weather summary builder', () => {
 		expect(article.imageUrl).toBe(`https://radar.weather.gov/ridge/standard/KLVX_loop.gif`);
 	});
 
+	// HWO products should include an inline radar image with responsive styles
+	it('buildHwoArticle generates contentHtml with max-width and height:auto on the radar image', async () => {
+		const { buildHwoArticle } = await import('../lib/nws');
+		const dummy = {
+			id: 'hwo-1',
+			office: 'KJKL',
+			issuanceTime: '2025-01-01T00:00:00Z',
+			productText: 'HAZARDOUS WEATHER OUTLOOK\n\n.DAY ONE...No hazardous weather\n\n$$',
+		};
+		const article = await buildHwoArticle(dummy as any);
+		expect(article.imageUrl).toBe('https://radar.weather.gov/ridge/standard/KJKL_loop.gif');
+		expect(article.contentHtml).toMatch(/<img[^>]+style="[^"]*max-width:100%;[^"]*height:auto/);
+	});
+
 });
 
 describe('database utilities', () => {
