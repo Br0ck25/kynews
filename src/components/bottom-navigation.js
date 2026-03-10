@@ -19,9 +19,6 @@ const useStyles = makeStyles({
     left: "0px",
     right: "0px",
     bottom: 0,
-    // ensure the bar sinks into the device safe area and appears taller
-    paddingBottom: "env(safe-area-inset-bottom)",
-    minHeight: 64,
   },
 });
 
