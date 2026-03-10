@@ -58,6 +58,73 @@ interface RecentTitleRow {
   title: string;
 }
 
+// ----- push subscription helpers ------------------------------------------------
+
+/** store a push subscription object in KV so it can be used later */
+export async function savePushSubscription(env: Env, subscription: any): Promise<void> {
+  if (!env.CACHE) return;
+  const key = `push:${subscription.endpoint}`;
+  try {
+    await env.CACHE.put(key, JSON.stringify(subscription));
+  } catch (e) {
+    console.error('savePushSubscription failure', e);
+  }
+}
+
+/** list all subscriptions currently stored */
+export async function getPushSubscriptions(env: Env): Promise<any[]> {
+  if (!env.CACHE) return [];
+  const subs: any[] = [];
+  try {
+    const list = await env.CACHE.list({ prefix: 'push:' });
+    for (const key of list.keys) {
+      const raw = await env.CACHE.get(key.name);
+      if (raw) {
+        try {
+          subs.push(JSON.parse(raw));
+        } catch {}
+      }
+    }
+  } catch (e) {
+    console.error('getPushSubscriptions failed', e);
+  }
+  return subs;
+}
+
+/** send a notification payload to all stored subscribers */
+export async function sendPushNotification(
+  env: Env,
+  payload: { title: string; body: string; url: string }
+): Promise<void> {
+  // web-push is a relatively large library; import lazily so tests that
+  // don't touch push code don't incur the cost.
+  const webpush = await import('web-push');
+  const publicKey = process.env.VAPID_PUBLIC_KEY || '';
+  const privateKey = process.env.VAPID_PRIVATE_KEY || '';
+  try {
+    webpush.setVapidDetails('mailto:admin@localkynews.com', publicKey, privateKey);
+  } catch (e) {
+    console.warn('webpush.setVapidDetails failed', e);
+  }
+
+  const subs = await getPushSubscriptions(env);
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(sub, JSON.stringify(payload));
+    } catch (err: any) {
+      console.error('push send error', err);
+      // remove stale subscriptions
+      if (err.statusCode === 410 || err.statusCode === 404) {
+        try {
+          await env.CACHE.delete(`push:${sub.endpoint}`);
+        } catch {}
+      }
+    }
+  }
+}
+
+// -------------------------------------------------------------------------------
+
 // Utility for forcing D1 to recompile prepared statements by appending a
 // unique comment. Using Math.random() ensures that even retries within the
 // same millisecond produce a unique SQL string, bypassing the D1 cache bug
@@ -210,6 +277,17 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
 
     // Invalidate the RSS cache so the new article appears immediately
     await bumpRssVersion(env);
+
+    // notify push subscribers about the new story
+    try {
+      await sendPushNotification(env, {
+        title: `New article: ${article.title}`,
+        body: article.summary || '',
+        url: article.canonicalUrl,
+      });
+    } catch (pushErr) {
+      console.warn('push notification failure', pushErr);
+    }
 
     return articleId;
   } catch (error) {

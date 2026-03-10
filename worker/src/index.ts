@@ -20,6 +20,9 @@ import {
 	prependUpdateToSummary,
 	updateArticlePrimaryCounty,
 	prepare,
+	// push helpers
+	savePushSubscription,
+	sendPushNotification,
 } from './lib/db';
 import {
 	HIGH_PRIORITY_SOURCE_SEEDS,
@@ -87,6 +90,8 @@ type QueueJob =
 declare global {
 	interface Env extends Cloudflare.Env {
 		INGEST_QUEUE?: Queue<QueueJob>;
+		// KV namespace used for various caches (and now push subscriptions)
+		CACHE?: KVNamespace;
 		// asset binding provided by wrangler to serve static files
 		ASSETS?: { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
 		// optional Facebook application ID used for OG tags in preview pages
@@ -185,6 +190,21 @@ date: new Date().toISOString(),
 // serve llms.txt from public assets
 if (url.pathname === '/llms.txt' && request.method === 'GET') {
   return fetch(`${BASE_URL}/llms.txt`);
+}
+
+// push subscription endpoint used by the SPA settings page
+if (url.pathname === '/api/subscribe' && request.method === 'POST') {
+  const sub = await parseJsonBody<any>(request);
+  if (!sub || !sub.endpoint) return badRequest('missing subscription');
+  await savePushSubscription(env, sub);
+  return json({ success: true }, 201);
+}
+
+// internal API for broadcasting a notification (used by tests or admin UI)
+if (url.pathname === '/api/sendNotification' && request.method === 'POST') {
+  const payload = await parseJsonBody<{ title: string; body: string; url: string }>(request);
+  await sendPushNotification(env, payload);
+  return json({ success: true });
 }
 
 if (url.pathname === '/api/ingest/url' && request.method === 'POST') {

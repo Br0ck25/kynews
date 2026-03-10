@@ -1,5 +1,12 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// avoid touching real push service during unit tests
+vi.mock('web-push', () => ({
+	setVapidDetails: vi.fn(),
+	sendNotification: vi.fn().mockResolvedValue(undefined),
+}));
+
 import worker from '../src/index';
 import { __testables } from '../src/index';
 import * as classifyModule from '../src/lib/classify';
@@ -329,6 +336,42 @@ async function ensureSchemaAndFixture() {
 			expect(res.status).toBe(204);
 			expect(res.headers.get('access-control-allow-origin')).toBe('*');
 			expect(res.headers.get('access-control-allow-methods')).toBeDefined();
+		});
+
+		// new push-related endpoint tests
+		describe('push subscription API', () => {
+			it('stores a subscription when posted', async () => {
+				if (env.CACHE) await env.CACHE.delete('push:https://example.com/endpoint');
+				const sub = { endpoint: 'https://example.com/endpoint', keys: { p256dh: 'abc', auth: '123' } };
+				const req = new IncomingRequest('https://example.com/api/subscribe', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(sub),
+				});
+				const ctx = createExecutionContext();
+				const res = await worker.fetch(req, env, ctx);
+				await waitOnExecutionContext(ctx);
+				expect(res.status).toBe(201);
+				if (env.CACHE) {
+					const stored = await env.CACHE.get('push:' + sub.endpoint);
+					expect(stored).toBe(JSON.stringify(sub));
+				}
+			});
+
+			it('broadcast endpoint returns success', async () => {
+				const payload = { title: 'X', body: 'Y', url: '/' };
+				const req = new IncomingRequest('https://example.com/api/sendNotification', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload),
+				});
+				const ctx = createExecutionContext();
+				const res = await worker.fetch(req, env, ctx);
+				await waitOnExecutionContext(ctx);
+				expect(res.status).toBe(200);
+				const body = await res.json();
+				expect(body.success).toBe(true);
+			});
 		});
 
 		describe('sitemap generation', () => {
