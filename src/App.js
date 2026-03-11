@@ -10,7 +10,7 @@ import AppHeader from "./components/app-header";
 import SectionsHeader from "./components/home/sections-component";
 import { Container, Box, CircularProgress, Hidden } from "@material-ui/core";
 import CssBaseline from "@material-ui/core/CssBaseline";
-import { isMobile } from "./utils/functions"; // kept for potential future use
+import { isMobile } from "./functions"; // kept for potential future use
 import { Provider, useDispatch, useSelector } from "react-redux";
 import store from "./redux/store/store";
 import Theme from "./components/theme";
