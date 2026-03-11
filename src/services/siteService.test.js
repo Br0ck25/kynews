@@ -265,9 +265,24 @@ describe('SiteService.ingestUrl', () => {
 
   it('throws if the fetch returns an error status', async () => {
     const service = new SiteService();
-    global.fetch = jest.fn().mockResolvedValue(makeResponse({ error: 'oops' }, { status: 500 }));
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(makeResponse({ error: 'oops' }, { status: 500 }));
 
     await expect(service.ingestUrl('https://x')).rejects.toBeDefined();
+  });
+
+  it('does not throw when the server responds with 422 and JSON body', async () => {
+    const service = new SiteService();
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(
+        makeResponse({ status: 'rejected', reason: 'nope' }, { status: 422 })
+      );
+
+    const result = await service.ingestUrl('https://x');
+    expect(result.status).toBe('rejected');
+    expect(result.reason).toBe('nope');
   });
 
   it('returns whatever JSON the server sent even if it has status:error', async () => {
@@ -303,9 +318,24 @@ describe('SiteService.ingestUrl', () => {
 
     it('throws if the fetch returns an error status', async () => {
       const service = new SiteService();
-      global.fetch = jest.fn().mockResolvedValue(makeResponse({ error: 'oops' }, { status: 500 }));
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue(makeResponse({ error: 'oops' }, { status: 500 }));
 
       await expect(service.previewIngestUrl('https://x')).rejects.toBeDefined();
+    });
+
+    it('does not throw when preview endpoint returns 422 with JSON body', async () => {
+      const service = new SiteService();
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue(
+          makeResponse({ status: 'rejected', reason: 'too short' }, { status: 422 })
+        );
+
+      const result = await service.previewIngestUrl('https://x');
+      expect(result.status).toBe('rejected');
+      expect(result.reason).toBe('too short');
     });
 
     it('returns whatever JSON the server sent even if it has status:error', async () => {

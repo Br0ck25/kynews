@@ -83,6 +83,22 @@ describe('AdminPage manual body formatting', () => {
     ingestSpy.mockRestore();
   });
 
+  it('displays rejection reason when preview returns rejected status', async () => {
+    const ingestSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
+      .mockResolvedValue({ status: 'rejected', reason: 'short content' });
+
+    render(<AdminPage />);
+    fireEvent.click(screen.getByText(/Create Article/i));
+    const urlInput = await screen.findByPlaceholderText('https://example.com/article-url');
+    fireEvent.change(urlInput, { target: { value: 'https://example.com/bad' } });
+    fireEvent.click(screen.getByText(/Ingest Article/i));
+
+    const msg = await screen.findByText(/Rejected: short content/i);
+    expect(msg).toBeInTheDocument();
+
+    ingestSpy.mockRestore();
+  });
+
   it('performs preview then confirm flow and shows final success message (with site link)', async () => {
     const previewSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
       .mockResolvedValue({ status: 'inserted', id: 42, category: 'today', isKentucky: true, county: 'Floyd', title: 'Test title' });
@@ -108,6 +124,28 @@ describe('AdminPage manual body formatting', () => {
     const link = await screen.findByRole('link', { name: /View on site/i });
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute('href', '/news/kentucky/test-slug');
+
+    previewSpy.mockRestore();
+    adminSpy.mockRestore();
+  });
+
+  it('shows rejection message when confirm ingest returns rejected', async () => {
+    const previewSpy = jest.spyOn(SiteService.prototype, 'previewIngestUrl')
+      .mockResolvedValue({ status: 'inserted', id: 13, category: 'today', isKentucky: false, title: 'X' });
+    const adminSpy = jest.spyOn(SiteService.prototype, 'adminIngestUrl')
+      .mockResolvedValue({ status: 'rejected', reason: 'duplicate' });
+
+    render(<AdminPage />);
+    fireEvent.click(screen.getByText(/Create Article/i));
+    const urlInput = await screen.findByPlaceholderText('https://example.com/article-url');
+    fireEvent.change(urlInput, { target: { value: 'https://example.com/dup' } });
+    fireEvent.click(screen.getByText(/Ingest Article/i));
+
+    await screen.findByText(/Preview — category:/i);
+    fireEvent.click(screen.getByText(/Confirm — Add to Site/i));
+
+    const rejMsg = await screen.findByText(/Rejected: duplicate/i);
+    expect(rejMsg).toBeInTheDocument();
 
     previewSpy.mockRestore();
     adminSpy.mockRestore();

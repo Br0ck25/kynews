@@ -271,6 +271,18 @@ export default class SiteService {
 
     const data = parsed;
 
+    // Treat 422 responses specially.  The admin ingest endpoints use 422 to
+    // indicate that the pipeline processed the request but decided to reject
+    // the URL (e.g. duplicate, short content, etc).  Those responses contain a
+    // JSON body with `status`/`reason` fields that the caller needs to inspect
+    // rather than being forced into the catch block.  Previously every
+    // non-OK status caused `request()` to throw, which meant the admin UI
+    // could not distinguish a rejection from a network error.  We now return
+    // the parsed body for 422 if available.
+    if (response.status === 422 && parsed != null) {
+      return parsed;
+    }
+
     if (!response.ok) {
       throw toError(data, `Request failed with status ${response.status}`);
     }
