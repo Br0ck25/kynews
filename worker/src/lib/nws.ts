@@ -97,6 +97,37 @@ export async function markAlertIfNew(env: Env, alertId: string): Promise<boolean
   return true;
 }
 
+/**
+ * Build a short, readable plain-text summary for an NWS alert.
+ * Produces one or two clean sentences rather than a raw text dump.
+ */
+function buildAlertSummary(
+  alert: NwsAlert,
+  countyList: string,
+  issuedAt: string,
+  expiryPhrase: string,
+): string {
+  // Opening sentence: what, where, when
+  let summary = `The National Weather Service has issued a ${alert.event} for ${countyList}, effective ${issuedAt}${expiryPhrase ? ' and expiring' + expiryPhrase : ''}.`;
+
+  // Append the first plain-text sentence from the description if it's useful
+  if (alert.description) {
+    const cleaned = alert.description
+      .replace(/^\*[^\n]+\n?/m, '')   // strip leading "* LABEL..." header line
+      .replace(/\n+/g, ' ')           // collapse newlines
+      .replace(/\.{2,}/g, '')         // remove NWS "..." artifacts
+      .trim();
+    // Grab the first sentence (ends at . ! or ?)
+    const firstSentenceMatch = cleaned.match(/[^.!?]+[.!?]/);
+    const firstSentence = firstSentenceMatch ? firstSentenceMatch[0].trim() : '';
+    if (firstSentence && firstSentence.length > 20) {
+      summary += ' ' + firstSentence;
+    }
+  }
+
+  return summary.slice(0, 500).trim();
+}
+
 /** Convert an NwsAlert into a NewArticle ready for insertArticle(). */
 export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const primaryCounty = alert.counties[0] ?? null;
@@ -310,15 +341,16 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
     counties: alert.counties,
     city: null,
     slug,
-    // Fallback summary — overwritten by summarizeArticle() in processNwsAlerts()
-    // Strip internal newlines so the fallback renders correctly in HTML contexts.
-    summary: contentText.replace(/\n+/g, ' ').slice(0, 800).trim(),
+    // Fallback summary — overwritten by summarizeArticle() in processNwsAlerts().
+    // Build a concise human-readable sentence rather than collapsing the entire
+    // content blob into one run-on string.
+    summary: buildAlertSummary(alert, countyList, issuedAt, expiryPhrase),
     seoDescription,
     rawWordCount: contentText.split(/\s+/).filter(Boolean).length,
     summaryWordCount: 0,
     contentText,
     contentHtml,
-    imageUrl: radarUrl,
+    imageUrl: 'https://www.spc.noaa.gov/products/watch/ww.png',
     rawR2Key: null,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
     alertGeojson: alert.geometry ? JSON.stringify(alert.geometry) : null,

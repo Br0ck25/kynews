@@ -184,161 +184,57 @@ function buildTitle(item: SpcItem): string {
   return `${base} — Storm Prediction Center Update`.slice(0, 200);
 }
 
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-/**
- * Parse a raw SPC product full-text into named sections.
- * Returns a map of section name → clean paragraph text.
- * Recognised sections: SUMMARY, DISCUSSION, and key metadata lines
- * (Areas affected, Concerning, Valid, Probability of Watch Issuance,
- * MOST PROBABLE PEAK TORNADO INTENSITY, etc.).
- */
-function parseSpcFullText(raw: string): {
-  areasAffected: string;
-  concerning: string;
-  watchProbability: string;
-  valid: string;
-  summary: string;
-  discussion: string;
-  peakTornadoIntensity: string;
-  peakHailSize: string;
-  peakWindGust: string;
-} {
-  const normalized = raw.replace(/\r\n/g, '\n');
-
-  // ── Single-line metadata fields ───────────────────────────────────────────
-  const extract = (pattern: RegExp): string => {
-    const m = normalized.match(pattern);
-    return m ? m[1].trim() : '';
-  };
-
-  const areasAffected = extract(/Areas affected\.{3}([\s\S]*?)(?=\n\n|\nConcerning|\nValid)/i)
-    .replace(/\n\s+/g, ' ').trim();
-  const concerning = extract(/Concerning\.{3}([\s\S]*?)(?=\n\n|\nValid|\nProbability)/i)
-    .replace(/\n\s+/g, ' ').trim();
-  const valid = extract(/Valid\s+([\d]+Z\s*-\s*[\d]+Z)/i);
-  const watchProbability = extract(/Probability of Watch Issuance\.{3}([^\n]+)/i);
-  const peakTornadoIntensity = extract(/MOST PROBABLE PEAK TORNADO INTENSITY\.{3}([^\n]+)/i);
-  const peakHailSize = extract(/MOST PROBABLE PEAK HAIL SIZE\.{3}([^\n]+)/i);
-  const peakWindGust = extract(/MOST PROBABLE PEAK WIND GUST\.{3}([^\n]+)/i);
-
-  // ── Multi-line SUMMARY block ───────────────────────────────────────────────
-  const summaryMatch = normalized.match(/SUMMARY\.{3}([\s\S]*?)(?=\n\s*\n\s*(?:DISCUSSION|\.\.[\w]))/i);
-  const summary = summaryMatch
-    ? summaryMatch[1].replace(/\n\s+/g, ' ').replace(/\s{2,}/g, ' ').trim()
-    : '';
-
-  // ── Multi-line DISCUSSION block ────────────────────────────────────────────
-  // Stop before the forecaster initials line (e.g. "..Chalmers/Gleason.. 03/10/2026")
-  const discussionMatch = normalized.match(/DISCUSSION\.{3}([\s\S]*?)(?=\n\s*\.\.[A-Za-z\/]+\.\.\s+\d{2}\/\d{2}\/\d{4}|\nATTN\.\.\.|\nLAT\.\.\.)/i);
-  const discussion = discussionMatch
-    ? discussionMatch[1]
-        .split(/\n\n+/)
-        .map((p) => p.replace(/\n\s+/g, ' ').replace(/\s{2,}/g, ' ').trim())
-        .filter(Boolean)
-        .join('\n\n')
-    : '';
-
-  return { areasAffected, concerning, watchProbability, valid, summary, discussion, peakTornadoIntensity, peakHailSize, peakWindGust };
-}
-
 /** Compose the article body from item RSS description + optional full text. */
 function buildBody(item: SpcItem, fullText: string): { contentText: string; contentHtml: string } {
+  const textParagraphs: string[] = [];
 
-  // ── Parse structured sections from full text if available ─────────────────
-  const parsed = fullText ? parseSpcFullText(fullText) : null;
-
-  // ── Plain-text version ────────────────────────────────────────────────────
-  const textLines: string[] = [];
-
-  const productLabel = humanProductType(item.productType);
-  textLines.push(
-    `The Storm Prediction Center has issued a ${productLabel} update` +
-    (parsed?.areasAffected ? ` affecting ${parsed.areasAffected}.` : ' affecting portions of the region.'),
+  // Opening sentence — plan §7 template
+  textParagraphs.push(
+    `The Storm Prediction Center has issued a new weather update affecting portions of the region.`,
   );
 
-  if (parsed?.concerning) {
-    textLines.push(`Concern: ${parsed.concerning}`);
-  }
-  if (parsed?.watchProbability) {
-    textLines.push(`Watch issuance probability: ${parsed.watchProbability}`);
-  }
-
-  if (parsed?.summary) {
-    textLines.push(parsed.summary);
-  } else if (item.description) {
-    // Fall back to a cleaned RSS description — strip the raw product header line (e.g. "MD 0187 CONCERNING...")
-    const cleanDesc = item.description
-      .replace(/^MD\s+\d+\s+[A-Z .]+\n?/i, '')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-    if (cleanDesc) textLines.push(cleanDesc);
+  // Brief summary from RSS description
+  if (item.description) {
+    const cleanDesc = item.description.replace(/\s{2,}/g, ' ').trim();
+    textParagraphs.push(`Summary: ${cleanDesc}`);
   }
 
-  // Probable peak hazard stats (when present)
-  const hazards: string[] = [];
-  if (parsed?.peakTornadoIntensity) hazards.push(`Peak tornado intensity: ${parsed.peakTornadoIntensity}`);
-  if (parsed?.peakHailSize) hazards.push(`Peak hail size: ${parsed.peakHailSize}`);
-  if (parsed?.peakWindGust) hazards.push(`Peak wind gust: ${parsed.peakWindGust}`);
-  if (hazards.length > 0) textLines.push(hazards.join('\n'));
-
-  if (parsed?.discussion) {
-    textLines.push('Meteorologist Discussion\n\n' + parsed.discussion);
+  // Full discussion text (if successfully fetched) — first ~1000 chars to keep it readable
+  if (fullText) {
+    const shortened = fullText.slice(0, 1500).trim();
+    // keep existing line breaks inside each paragraph rather than collapsing
+    // everything into one long sentence; the RSS / MD text typically has
+    // single-line breaks between sentences, so preserving them improves
+    // readability and gives the AI summarizer more structure to work with.
+    const parts = shortened
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    // Plan §7: "Full meteorologist discussion:"
+    textParagraphs.push('Full meteorologist discussion:', ...parts);
   }
 
-  textLines.push(
+  textParagraphs.push(
     'More updates will be provided as additional information becomes available.',
     'Stay tuned to Local KY News for additional weather updates.',
   );
 
-  const contentText = textLines.join('\n\n');
+  const contentText = textParagraphs.join('\n\n');
 
-  // ── HTML version ──────────────────────────────────────────────────────────
+  // HTML — structured paragraphs with SPC map image
   const mapHtml = getSpcMapHtml(item.productType);
-  const htmlParts: string[] = [];
+  const bodyHtml = textParagraphs
+    .slice(0, -1) // all but closing "Stay tuned" line
+    // convert any remaining line breaks in a paragraph to <br> so that
+    // multi-line paragraphs are rendered sensibly in HTML
+    .map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+    .join('\n');
 
-  // Lead paragraph
-  htmlParts.push(`<p>${esc(textLines[0])}</p>`);
-
-  // Metadata pills / quick-facts block
-  const metaItems: string[] = [];
-  if (parsed?.concerning) metaItems.push(`<strong>Concern:</strong> ${esc(parsed.concerning)}`);
-  if (parsed?.watchProbability) metaItems.push(`<strong>Watch probability:</strong> ${esc(parsed.watchProbability)}`);
-  if (parsed?.valid) metaItems.push(`<strong>Valid:</strong> ${esc(parsed.valid)}`);
-  if (metaItems.length > 0) {
-    htmlParts.push(`<ul>${metaItems.map((m) => `<li>${m}</li>`).join('\n')}</ul>`);
-  }
-
-  // Summary section
-  const summaryText = parsed?.summary || (item.description ? item.description.replace(/^MD\s+\d+\s+[A-Z .]+\n?/i, '').replace(/\s{2,}/g, ' ').trim() : '');
-  if (summaryText) {
-    htmlParts.push(`<h3>Summary</h3>\n<p>${esc(summaryText)}</p>`);
-  }
-
-  // Probable peak hazards
-  if (hazards.length > 0) {
-    htmlParts.push(
-      `<h3>Probable Peak Hazards</h3>\n<ul>${hazards.map((h) => `<li>${esc(h)}</li>`).join('\n')}</ul>`,
-    );
-  }
-
-  // Map image
-  htmlParts.push(mapHtml);
-
-  // Full discussion
-  if (parsed?.discussion) {
-    const discussionHtml = parsed.discussion
-      .split(/\n\n+/)
-      .map((p) => `<p>${esc(p.trim())}</p>`)
-      .join('\n');
-    htmlParts.push(`<h3>Meteorologist Discussion</h3>\n${discussionHtml}`);
-  }
-
-  htmlParts.push(`<p>Stay tuned to Local KY News for additional weather updates.</p>`);
-
-  const contentHtml = htmlParts.join('\n');
+  const contentHtml = [
+    bodyHtml,
+    mapHtml,
+    `<p>Stay tuned to Local KY News for additional weather updates.</p>`,
+  ].join('\n');
 
   return { contentText, contentHtml };
 }
@@ -362,7 +258,7 @@ function slugify(text: string): string {
     .slice(0, 200);
 }
 
-export async function buildSpcArticle(item: SpcItem): Promise<NewArticle> {
+export async function buildSpcArticle(item: SpcItem): Promise<NewArticle & { _rawFullText: string }> {
   const canonicalUrl = item.link;
   const urlHash = await sha256Hex(normalizeCanonicalUrl(canonicalUrl));
 
@@ -408,6 +304,10 @@ export async function buildSpcArticle(item: SpcItem): Promise<NewArticle> {
     rawR2Key: null,
     slug,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
+    // expose raw full text so the orchestrator can run the KY relevance check
+    // against actual product content rather than the assembled article body
+    // (which contains KY-agnostic boilerplate that can cause false positives).
+    _rawFullText: fullText,
   };
 }
 
@@ -421,6 +321,15 @@ export async function buildSpcArticle(item: SpcItem): Promise<NewArticle> {
 function isKentuckyContent(text: string): boolean {
   const lower = text.toLowerCase();
   return lower.includes('kentucky') || /\bky\b/.test(lower);
+}
+
+/**
+ * Returns true if the SPC product text is a placeholder status report that
+ * hasn't been issued yet (e.g. "Watch 37 Status Message has not been issued yet.").
+ * These are empty stub pages SPC publishes before the real content is ready.
+ */
+function isPlaceholderStatusReport(text: string): boolean {
+  return /has not been issued yet/i.test(text);
 }
 
 // ─── Orchestrator ────────────────────────────────────────────────────────────
@@ -443,7 +352,11 @@ export async function processSpcFeed(env: Env): Promise<{ published: number; ski
 
   for (const item of items) {
     try {
-      // 1. KV dedup — skip if we've already published this SPC item URL
+      // 1. KV dedup — skip if we've already *successfully published* this SPC item URL.
+      //     Note: we intentionally do NOT mark placeholder items as seen here — that
+      //     happens below, only after the placeholder check passes.  This way the same
+      //     URL is re-checked on the next tick once SPC replaces the placeholder with
+      //     real content.
       const isNew = await markSpcItemIfNew(env, item.link);
       if (!isNew) {
         skipped++;
@@ -453,11 +366,31 @@ export async function processSpcFeed(env: Env): Promise<{ published: number; ski
       // 2. Build the base article record (also fetches full product text)
       const article = await buildSpcArticle(item);
 
-      // 2a. Hard KY gate — the full text must mention Kentucky or ", KY".
-      //     This blocks non-KY products (e.g. a Texas tornado watch) that
-      //     slipped through the broad RSS pre-filter terms.
-      if (!isKentuckyContent(article.contentText)) {
+      // 2a. Hard KY gate — the raw product text OR the RSS description must
+      //     explicitly mention Kentucky or the standalone abbreviation "KY".
+      //     We intentionally do NOT check article.contentText here because it
+      //     always starts with KY-agnostic boilerplate ("The Storm Prediction
+      //     Center has issued…") that would cause every item to pass the check.
+      //     Checking the raw source text + RSS description is much more reliable.
+      const kyCheckText = `${article._rawFullText} ${item.description}`;
+      if (!isKentuckyContent(kyCheckText)) {
         console.log(`[SPC] Skipped non-KY product: "${item.title}"`);
+        skipped++;
+        continue;
+      }
+
+      // 2b. Skip watch status reports that haven't been issued yet.
+      //     SPC publishes placeholder pages like "Watch 37 Status Message has
+      //     not been issued yet." before the actual report is ready.
+      //     We un-mark the KV key so the URL is re-checked next tick when
+      //     SPC publishes the real content at the same URL.
+      if (isPlaceholderStatusReport(article._rawFullText)) {
+        console.log(`[SPC] Skipped placeholder status report: "${item.title}"`);
+        // Remove the KV mark so we retry this URL on the next scheduled run
+        if (env.CACHE) {
+          const key = await spcDedupeKey(item.link);
+          await env.CACHE.delete(key).catch(() => {});
+        }
         skipped++;
         continue;
       }
