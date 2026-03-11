@@ -76,61 +76,49 @@ export default function FeaturedPost(props) {
 
   const summaryParagraphs = React.useMemo(() => {
     const raw = String(post?.shortDesc || "")
-      // keep basic HTML tags so manual formatting can survive; other tags
-      // will be left in the string but should not appear in typical usage.
+      // Normalise Unicode line separators and Windows line endings.
       .replace(/[\u2028\u2029]/g, "\n")
+      .replace(/\r\n?/g, "\n")
       .replace(/[ \t]+/g, " ")
       .trim();
 
     if (!raw) return [];
 
-    // Split by explicit paragraph breaks and merge obvious mid-sentence splits.
+    // If the content contains HTML paragraph/break tags, split on those first
+    // so that sources which deliver pre-formatted HTML are handled correctly.
+    if (/<p[\s>]|<br\s*\/?>/i.test(raw)) {
+      const stripped = raw
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/p>/gi, "\n")
+        .replace(/<[^>]+>/g, "");
+      const htmlParts = stripped.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+      if (htmlParts.length > 1) return htmlParts;
+    }
+
+    // Split on ANY single or double newline — each line break from the source
+    // is treated as an intentional paragraph boundary.  Only truly blank-line
+    // separated chunks were being respected before; this caused sources that
+    // emit single newlines between sentences to produce a wall of text.
     const byNewline = raw
-      .split(/\n{2,}/)
-      .map((p) => p.replace(/\n+/g, " ").trim())
+      .split(/\n+/)
+      .map((p) => p.trim())
       .filter(Boolean);
 
-    const mergedParagraphs = [];
-    byNewline.forEach((paragraph) => {
-      if (mergedParagraphs.length === 0) {
-        mergedParagraphs.push(paragraph);
-        return;
-      }
+    if (byNewline.length > 1) return byNewline;
 
-      const previous = mergedParagraphs[mergedParagraphs.length - 1];
+    // No newlines at all — try to split a long block of text into readable
+    // paragraphs at sentence boundaries (~3-4 sentences per paragraph) so the
+    // reader gets natural breaks instead of one giant wall of text.
+    const sentencePattern = /(?<=[.!?]["')\]]*)\s+(?=[A-Z"'])/g;
+    const sentences = raw.split(sentencePattern).filter(Boolean);
+    if (sentences.length <= 3) return [raw];
 
-      // do not merge if the previous paragraph appears to be a numbered list
-      // heading (e.g. "1. Something") – users expect the following text to
-      // start a new paragraph.
-      if (/^\d+\./.test(previous)) {
-        mergedParagraphs.push(paragraph);
-        return;
-      }
-      // also avoid merging when the new paragraph looks like a key:value line
-      // (e.g. quick facts) – these should remain separate even though the
-      // previous paragraph may not end in punctuation.
-      if (/:/.test(paragraph)) {
-        mergedParagraphs.push(paragraph);
-        return;
-      }
-
-      const shouldMerge =
-        !/[.!?]["')\]]*$/.test(previous) ||
-        /\b(?:Mr|Mrs|Ms|Dr|Gov|Rep|Sen|Lt|Gen|St|No)\.$/i.test(previous) ||
-        /^[a-z]/.test(paragraph) ||
-        /^[A-Z]\./.test(paragraph);
-
-      if (shouldMerge) {
-        mergedParagraphs[mergedParagraphs.length - 1] = `${previous} ${paragraph}`
-          .replace(/\s+/g, " ")
-          .trim();
-        return;
-      }
-
-      mergedParagraphs.push(paragraph);
-    });
-
-    return mergedParagraphs.length > 0 ? mergedParagraphs : [raw];
+    const SENTENCES_PER_PARA = 3;
+    const paragraphs = [];
+    for (let i = 0; i < sentences.length; i += SENTENCES_PER_PARA) {
+      paragraphs.push(sentences.slice(i, i + SENTENCES_PER_PARA).join(" ").trim());
+    }
+    return paragraphs.length > 0 ? paragraphs : [raw];
   }, [post?.shortDesc]);
 
   const sourceName = extractSourceName(post.originalLink || post.sourceUrl || "");

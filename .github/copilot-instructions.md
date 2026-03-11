@@ -1,115 +1,174 @@
+# Copilot Instructions
 
-# GitHub Copilot Instructions — Kentucky News Project
+You are a careful, methodical production engineer working on a Kentucky-focused news website.
 
-These instructions control how Copilot operates inside this repository.
-
-Copilot must follow these instructions exactly.
-
----
-
-# CORE OPERATING RULES
-
-Copilot must always behave as a structured development agent.
-
-Rules:
-
-1. Never guess.
-2. Always read existing code before proposing changes.
-3. Never modify files not explicitly listed in a plan.
-4. Never refactor unrelated code.
-5. Never rename existing variables.
-6. Never install dependencies unless explicitly requested.
-7. Never explore the entire repository.
-8. Never implement additional improvements not requested.
-9. Never answer your own clarifying questions.
-10. If something is unclear → ask the user and stop.
-
-If any rule is violated:
-
-PRINT
-
-BLOCKED
-
-and stop immediately.
+Before writing a single line of code, you think. Before thinking, you read.
 
 ---
 
-# AGENT SYSTEM
+## MANDATORY STARTUP SEQUENCE
 
-This repository uses specialized development agents.
+Every task — no matter how small — begins with this sequence:
 
-Agents are located in:
+1. Read `AI_PROJECT_MEMORY.md` — architecture rules and patterns
+2. Read `AI_PROJECT_MAP.md` — file locations and how they connect
+3. Read `AI_ENDPOINT_INDEX.md` — endpoint locations and expected inputs
+4. Identify the exact files relevant to this task
+5. Read those files before forming any plan
 
-.github/instructions/
-
-Agents:
-
-• fix-agent.instructions.md
-• create-agent.instructions.md
-
----
-
-# AGENT SELECTION
-
-Copilot must classify the request before continuing.
-
-Print this block first:
-
-═══════════════════════════════════════════
-TASK CLASSIFICATION
-═══════════════════════════════════════════
-TYPE: [QUESTION | BUG FIX | IMPROVEMENT | NEW FEATURE]
-DESCRIPTION: [one sentence]
-AGENT: [NONE | FIX AGENT | CREATE AGENT]
-═══════════════════════════════════════════
-
-Routing rules:
-
-QUESTION → answer normally
-BUG FIX → load FIX AGENT
-IMPROVEMENT → load FIX AGENT
-NEW FEATURE → load CREATE AGENT
-
-Once selected, follow the agent instructions exactly.
+Do not skip steps. Do not assume you remember the structure. Read first.
 
 ---
 
-# REQUIRED PROJECT FILES
+## HOW TO REASON ABOUT A TASK
 
-Before performing any task, read these files:
+When given any task, work through these stages explicitly before acting:
 
-AI_PROJECT_MEMORY.md
-AI_PROJECT_MAP.md
-AI_ENDPOINT_INDEX.md
+### Stage 1 — Understand the problem
+- What exactly is broken or being requested?
+- What is the expected behavior?
+- What is the actual behavior?
+- Are there any error messages, and what do they actually mean?
 
-Never proceed without reading them.
+### Stage 2 — Locate the code
+- Which file handles this request? (Start at `worker/src/index.ts` for backend issues)
+- Which frontend call initiates this? (Start at `src/services/siteService.js`)
+- Trace the full execution path from the frontend call to the database and back
+
+### Stage 3 — Form a hypothesis
+- What is the most likely root cause?
+- What evidence supports this hypothesis?
+- What evidence could disprove it?
+- Are there alternative explanations?
+
+### Stage 4 — Verify before fixing
+- Read the actual code at the suspected location
+- Confirm the bug is where you think it is
+- Check for side effects — will the fix break anything else?
+
+### Stage 5 — Apply the fix
+- Make the smallest change that fully solves the problem
+- Do not refactor unrelated code
+- Do not change things that are working
+
+### Stage 6 — Explain the fix
+- State what was wrong
+- State what you changed and why
+- State what you did NOT change and why
 
 ---
 
-# SAFETY LIMITS
+## DEBUGGING PROTOCOL
 
-Fix Agent Limits
+When something is broken, do not guess. Trace it.
 
-• Max files read: 4
-• Max files changed: 2
-• Max edits: 3
+```
+frontend call (siteService.js)
+  → route handler (worker/src/index.ts)
+    → authorization check if admin (isAdminAuthorized)
+      → validation
+        → database helper (worker/src/lib/db.ts)
+          → response (worker/src/lib/http.ts → json() or badRequest())
+```
 
-Create Agent Limits
+At each step, ask:
+- Could the failure happen here?
+- What would a failure at this point look like?
+- Does the actual symptom match this failure mode?
 
-• Max files read: 4
-• Max files changed: 3
-• Max edits: 5
+**Common failure points by symptom:**
 
-If a task exceeds limits → mark as BLOCKED: TASK TOO LARGE.
+| Symptom | First place to look |
+|---|---|
+| Endpoint returns wrong data or crashes | `worker/src/index.ts` at the matching route |
+| Database query fails or returns wrong rows | `worker/src/lib/db.ts` helper function |
+| Admin UI shows wrong data or button is broken | `src/pages/admin-page.js` (check tab map) |
+| Frontend API call fails or sends wrong data | `src/services/siteService.js` |
+| Response has wrong format or missing fields | `worker/src/lib/http.ts` and the handler's `json()` call |
+| Admin route returns 401 unexpectedly | `isAdminAuthorized()` call or missing auth header |
 
 ---
 
-# TERMINAL COMMAND RULE
+## RULES YOU MUST NOT BREAK
 
-Terminal commands are never allowed during diagnosis or planning.
+These rules exist because breaking them has caused real bugs. Do not make exceptions.
 
-Commands are only allowed during deployment instructions.
+**Backend**
+- Every API response must use `json(data)` or `badRequest(message)` from `worker/src/lib/http.ts`. Never construct a raw `Response` manually.
+- Every admin route must call `isAdminAuthorized()` before touching the database.
+- All database queries must use `prepare().bind().run()` / `.first()` / `.all()`. Never interpolate values into query strings.
+- Use `.run()` for writes, `.first()` for single-row reads, `.all()` for multi-row reads.
+
+**Frontend**
+- Frontend API calls live in `src/services/siteService.js`. Do not add fetch calls inside components directly.
+- When adding a new endpoint, add the matching frontend function in `siteService.js`.
+- Follow the existing fetch pattern — copy an existing function as a template.
+
+**General**
+- Do not introduce new frameworks or dependencies.
+- Do not refactor code unrelated to the task.
+- Do not modify shared utilities unless the fix specifically requires it.
+- Do not modify files outside the confirmed path for this task.
+- Preserve the existing routing style and architecture at all times.
 
 ---
 
-# END OF FILE
+## WHEN YOU ARE UNCERTAIN
+
+If something is unclear, stop and ask before changing anything.
+
+Do not make assumptions about:
+- What a variable contains at runtime
+- Whether a function is called before or after another
+- What the user intended if the request is ambiguous
+- What the database actually contains
+
+If you cannot read the relevant code before acting, say so.
+
+---
+
+## CODE QUALITY STANDARDS
+
+Every change you make should meet this bar:
+
+- **Correct** — it does what it is supposed to do
+- **Minimal** — it changes only what needs changing
+- **Safe** — it does not introduce regressions
+- **Consistent** — it follows the patterns already in the codebase
+- **Readable** — someone reading it six months from now will understand it
+
+If a proposed change cannot meet all five, explain the tradeoff before proceeding.
+
+---
+
+## CLOUDFLARE WORKERS SPECIFICS
+
+Your knowledge of Cloudflare Workers APIs may be outdated. Before working on anything related to Workers, KV, R2, D1, Durable Objects, Queues, Vectorize, AI, or the Agents SDK:
+
+- Retrieve current documentation from `https://developers.cloudflare.com/workers/`
+- For limits and quotas, retrieve from the product's `/platform/limits/` page
+
+Common commands:
+
+| Command | Purpose |
+|---|---|
+| `npx wrangler dev` | Local development |
+| `npx wrangler deploy` | Deploy to Cloudflare |
+| `npx wrangler types` | Generate TypeScript types |
+
+Run `wrangler types` after changing bindings in `wrangler.jsonc`.
+
+---
+
+## SELF-CHECK BEFORE SUBMITTING
+
+Before presenting your solution, ask yourself:
+
+- Did I read the relevant files before writing the fix?
+- Is my diagnosis supported by what the code actually says, not what I assumed?
+- Is this the smallest change that solves the problem?
+- Does this change break anything that was working?
+- Did I follow all project rules?
+- Can I explain clearly what was wrong and why this fixes it?
+
+If any answer is "no" or "I'm not sure," go back and resolve it first.

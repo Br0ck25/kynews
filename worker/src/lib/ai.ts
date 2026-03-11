@@ -967,8 +967,15 @@ function normalizeParagraphBoundaries(text: string): string {
     }
 
     const previous = merged[merged.length - 1];
+    // Only merge when there is a clear syntactic reason to do so.
+    // Do NOT merge simply because the previous paragraph lacks terminal
+    // punctuation — that would collapse AI paragraph breaks into walls of text.
+    // Merge only when the next paragraph is a genuine continuation:
+    //   • starts with continuation punctuation (,;:)])
+    //   • starts lowercase (mid-sentence split)
+    //   • previous ends with an abbreviation and next is a continuation
+    //   • we are inside an unclosed quotation
     const shouldMerge =
-      !endsWithSentenceBoundary(previous) ||
       (endsWithLikelyAbbreviation(previous) && startsWithLikelyContinuation(paragraph)) ||
       /^[,;:)\]]/.test(paragraph) ||
       /^[a-z]/.test(paragraph) ||
@@ -1178,9 +1185,55 @@ function hasHallucinatedNumbers(original: string, summary: string): boolean {
 }
 
 /**
+ * Split text into sentences using a character-walker with abbreviation guards.
+ * Shared by enforceparagraphBreaks and its sub-block re-splitter.
+ */
+function splitIntoSentences(text: string): string[] {
+  const abbrevRe = /\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Col|Gen|Rep|Sen|Prof|St|Sr|Jr|No|vs|etc|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/i;
+  const singleCapRe = /\b[A-Z]$/;
+  const sentences: string[] = [];
+  let buf = '';
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    buf += ch;
+    if (!/[.!?]/.test(ch)) continue;
+    let j = i + 1;
+    while (j < text.length && /["'\)\u201d\u2019]/.test(text[j])) { buf += text[j]; j++; }
+    if (j >= text.length || !/\s/.test(text[j])) continue;
+    let k = j;
+    while (k < text.length && /\s/.test(text[k])) k++;
+    if (k >= text.length) continue;
+    const beforePunct = buf.trimEnd().replace(/[.!?]["')*\u201d\u2019]*$/, '').trimEnd();
+    if (ch === '.' && (singleCapRe.test(beforePunct) || abbrevRe.test(beforePunct))) continue;
+    sentences.push(buf.trim());
+    buf = '';
+    i = k - 1;
+  }
+  if (buf.trim()) sentences.push(buf.trim());
+  return sentences;
+}
+
+/**
+ * Group an array of sentences into paragraphs of 2–3 sentences each.
+ * Prefers 3 per paragraph but uses 2 for the last group when 4 remain.
+ */
+function groupIntoParagraphs(sentences: string[]): string {
+  const paragraphs: string[] = [];
+  let i = 0;
+  while (i < sentences.length) {
+    const remaining = sentences.length - i;
+    const take = remaining === 4 ? 2 : Math.min(3, remaining);
+    paragraphs.push(sentences.slice(i, i + take).join(' '));
+    i += take;
+  }
+  return paragraphs.join('\n\n');
+}
+
+/**
  * If the AI returns a wall of text (no paragraph breaks), split it into
  * readable paragraphs of roughly 2–3 sentences each.
- * Leaves text that already has paragraph breaks (double newlines) untouched.
+ * Also re-splits existing blocks that contain more than 3 sentences.
  */
 function enforceparagraphBreaks(text: string): string {
   // Strip inline section-header lines echoed from the source
@@ -1191,99 +1244,37 @@ function enforceparagraphBreaks(text: string): string {
     '\n\n'
   );
 
-  // If there are already paragraph breaks, only re-split paragraphs that are
-  // too long (more than 4 sentences in a single block).  This handles the case
-  // where the AI returns 2 huge blocks separated by \n\n instead of 6–8 short
-  // paragraphs.  Paragraphs that are already short are left untouched.
-  if (/\n\n/.test(t)) {
-    const blocks = t.split(/\n{2,}/);
-    const rebroken = blocks.flatMap((block) => {
-      // Quick sentence count heuristic: count terminal punctuation followed by space+word
-      const approxSentences = (block.match(/[.!?]["'\u201d\u2019]*\s+\S/g) ?? []).length + 1;
-      if (approxSentences <= 3) return [block]; // already fine
-      // Re-run the char-walker splitter on this block alone
-      const subSentences: string[] = [];
-      const abbrevReSub = /\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Col|Gen|Rep|Sen|Prof|St|Sr|Jr|No|vs|etc|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/i;
-      const singleCapReSub = /\b[A-Z]$/;
-      let buf2 = '';
-      for (let si = 0; si < block.length; si++) {
-        const ch2 = block[si];
-        buf2 += ch2;
-        if (!/[.!?]/.test(ch2)) continue;
-        let sj = si + 1;
-        while (sj < block.length && /["')\u201d\u2019]/.test(block[sj])) { buf2 += block[sj]; sj++; }
-        if (sj >= block.length || !/\s/.test(block[sj])) continue;
-        let sk = sj;
-        while (sk < block.length && /\s/.test(block[sk])) sk++;
-        if (sk >= block.length) continue;
-        const bp = buf2.trimEnd().replace(/[.!?]["')*\u201d\u2019]*$/, '').trimEnd();
-        if (ch2 === '.' && (singleCapReSub.test(bp) || abbrevReSub.test(bp))) continue;
-        subSentences.push(buf2.trim());
-        buf2 = '';
-        si = sk - 1;
-      }
-      if (buf2.trim()) subSentences.push(buf2.trim());
-      if (subSentences.length <= 3) return [block];
-      const subParas: string[] = [];
-      let idx2 = 0;
-      while (idx2 < subSentences.length) {
-        const rem = subSentences.length - idx2;
-        const take = rem === 4 ? 2 : Math.min(3, rem);
-        subParas.push(subSentences.slice(idx2, idx2 + take).join(' '));
-        idx2 += take;
-      }
-      return subParas;
-    });
-    return rebroken.join('\n\n').trim();
+  // Re-split every block — whether or not \n\n already exists.
+  // Blocks already short (≤ 3 sentences) are left as-is;
+  // blocks with 4+ sentences are broken into 2–3-sentence paragraphs.
+  // This handles the very common case where the AI produces a single huge
+  // paragraph or two large blocks separated by \n\n.
+  const blocks = /\n\n/.test(t) ? t.split(/\n{2,}/) : [t];
+  const rebroken = blocks.flatMap((block) => {
+    const trimmedBlock = block.replace(/\n+/g, ' ').trim();
+    if (!trimmedBlock) return [];
+
+    // Quick heuristic sentence count
+    const approxCount = (trimmedBlock.match(/[.!?]["'\u201d\u2019]*\s+\S/g) ?? []).length + 1;
+    // If the block is already ≤ 3 sentences, keep it as-is
+    if (approxCount <= 3) return [trimmedBlock];
+
+    // Split into sentences and re-group
+    const subs = splitIntoSentences(trimmedBlock);
+    if (subs.length <= 3) return [trimmedBlock];
+    return groupIntoParagraphs(subs).split('\n\n');
+  });
+
+  const result = rebroken.join('\n\n').trim();
+
+  // Final safety net: if after all the above we still have a wall of text
+  // (>= 4 sentences with no \n\n), force-split the whole thing.
+  if (!/\n\n/.test(result)) {
+    const allSentences = splitIntoSentences(result);
+    if (allSentences.length >= 4) {
+      return groupIntoParagraphs(allSentences);
+    }
   }
 
-  // Split on sentence boundaries then group into 2–3 sentence paragraphs.
-  // The previous regex required the next char to be uppercase, which missed
-  // sentences starting with digits ("51-year-old…"), lowercase continuations, or
-  // sentences following stripped datelines/broadcaster attributions.
-  // New approach: split on ". " / "! " / "? " preceded by terminal punctuation
-  // (optionally followed by a closing quote/paren), then look ahead for any
-  // non-whitespace so we don't split on trailing ellipsis spaces.
-  // Abbreviation guard: don't split when the period follows a single capital
-  // letter (initialism) or a known title abbreviation.
-  const sentences: string[] = [];
-  const abbrevRe = /\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Col|Gen|Rep|Sen|Prof|St|Sr|Jr|No|vs|etc|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/i;
-  const singleCapRe = /\b[A-Z]$/;
-  let buf = '';
-  // Walk character by character to handle abbreviation guard properly
-  for (let i = 0; i < t.length; i++) {
-    const ch = t[i];
-    buf += ch;
-    if (!/[.!?]/.test(ch)) continue;
-    // Consume optional closing quote/paren
-    let j = i + 1;
-    while (j < t.length && /["')\u201d\u2019]/.test(t[j])) { buf += t[j]; j++; }
-    // Must be followed by whitespace then a non-whitespace char
-    if (j >= t.length || !/\s/.test(t[j])) continue;
-    let k = j;
-    while (k < t.length && /\s/.test(t[k])) k++;
-    if (k >= t.length) continue;
-    // Abbreviation guard
-    const beforePeriod = buf.trimEnd().replace(/[.!?]["')*\u201d\u2019]*$/, '').trimEnd();
-    if (ch === '.'  && (singleCapRe.test(beforePeriod) || abbrevRe.test(beforePeriod))) continue;
-    // Commit sentence
-    sentences.push(buf.trim());
-    buf = '';
-    i = k - 1; // will be incremented by loop
-  }
-  if (buf.trim()) sentences.push(buf.trim());
-
-  if (sentences.length <= 3) return t;
-
-  // Group into paragraphs of 2–3 sentences.  Prefer 3 per paragraph but use
-  // 2 for the last group when 4 sentences remain (avoids a single orphan).
-  const paragraphs: string[] = [];
-  let i = 0;
-  while (i < sentences.length) {
-    const remaining = sentences.length - i;
-    const take = remaining === 4 ? 2 : Math.min(3, remaining);
-    paragraphs.push(sentences.slice(i, i + take).join(' '));
-    i += take;
-  }
-  return paragraphs.join('\n\n');
+  return result;
 }

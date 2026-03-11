@@ -253,13 +253,13 @@ export default function KYWeatherHub() {
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                             <span style={{ fontSize: 18 }}>{s.icon}</span>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: "bold", color: s.text, fontSize: 13 }}>{props.event}</div>
-                              <div style={{ fontSize: 11, color: s.text, margin: "4px 0" }}>{props.areaDesc?.split(";").slice(0, 4).join(" • ")}</div>
-                              <div style={{ fontSize: 11, color: s.text }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
+                              <div style={{ fontWeight: "bold", color: "#000", fontSize: 13 }}>{props.event}</div>
+                              <div style={{ fontSize: 11, color: "#222", margin: "4px 0" }}>{props.areaDesc?.split(";").slice(0, 4).join(" • ")}</div>
+                              <div style={{ fontSize: 11, color: "#333" }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
                             </div>
                             <span style={{ background: s.bg, color: s.text, padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: "bold", textTransform: "uppercase", whiteSpace: "nowrap" }}>{props.severity}</span>
                           </div>
-                          {props.headline && <div style={{ fontSize: 11, color: s.text, marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.1)" }}>{props.headline}</div>}
+                          {props.headline && <div style={{ fontSize: 11, color: "#222", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)" }}>{props.headline}</div>}
                         </div>
                       );
                     })}

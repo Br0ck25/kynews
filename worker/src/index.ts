@@ -4023,10 +4023,94 @@ function extractFullPostTextFromHtml(html: string, truncatedMessage: string): st
 	return null;
 }
 
+/**
+ * Resolve a Facebook share shortlink (facebook.com/share/p/{code}) to its
+ * real post URL by following the redirect chain manually.
+ *
+ * Facebook share links do not expose og: tags to crawler UAs — they just
+ * redirect to the real post URL.  We follow up to 5 Location header hops
+ * using redirect:'manual' so we can capture the final destination URL
+ * and then scrape *that* URL for post content.
+ *
+ * Returns the resolved URL (which may be a full facebook.com/permalink/…
+ * or /photo/… URL), or the original URL if resolution fails.
+ */
+async function resolveFacebookShareUrl(shareUrl: string): Promise<string> {
+	const isShareLink = /facebook\.com\/share\//i.test(shareUrl);
+	if (!isShareLink) return shareUrl;
+
+	// Use a browser-like UA for the redirect resolution so Facebook doesn't
+	// block the HEAD request before it can issue the Location redirect.
+	const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+	let current = shareUrl;
+	for (let hop = 0; hop < 5; hop++) {
+		try {
+			const resp = await fetch(current, {
+				method: 'GET',
+				redirect: 'manual',
+				headers: {
+					'user-agent': BROWSER_UA,
+					'accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+					'accept-language': 'en-US,en;q=0.9',
+					'cache-control': 'no-cache',
+				},
+			});
+
+			// 3xx redirect — follow the Location header
+			if (resp.status >= 300 && resp.status < 400) {
+				const location = resp.headers.get('location');
+				if (!location) break;
+				// Resolve relative locations against the current URL
+				try {
+					current = new URL(location, current).toString();
+				} catch {
+					break;
+				}
+				// Stop if we've landed on a login page — we can't go further
+				if (current.includes('/login') || current.includes('checkpoint')) break;
+				continue;
+			}
+
+			// 200 — we've arrived; use resp.url (the final URL after any implicit follows)
+			if (resp.status === 200) {
+				const finalUrl = resp.url || current;
+				// Only use the resolved URL if it's still on facebook.com
+				if (finalUrl && /facebook\.com/i.test(finalUrl) && !finalUrl.includes('/login')) {
+					return finalUrl;
+				}
+			}
+
+			// Non-redirect, non-200 — stop
+			break;
+		} catch {
+			break;
+		}
+	}
+
+	// Return best resolved URL so far (may still be the share link if all hops failed)
+	return current;
+}
+
 async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: string | null; imageUrl: string | null; publishedAt: string | null }> {
 	// facebookexternalhit is Facebook's own crawler UA. Facebook serves real
 	// og:description content to this UA for public posts, bypassing login walls.
 	const FB_CRAWLER_UA = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)';
+
+	// For /share/p/ shortlinks, resolve the redirect chain to get the real
+	// post URL *before* attempting og: scraping.  Share links don't serve
+	// og: tags even to the crawler UA — they only redirect.
+	if (/facebook\.com\/share\//i.test(fbUrl)) {
+		try {
+			const resolved = await resolveFacebookShareUrl(fbUrl);
+			if (resolved !== fbUrl && !resolved.includes('/login') && !resolved.includes('checkpoint')) {
+				console.log(`[FB SHARE RESOLVED] ${fbUrl} → ${resolved}`);
+				fbUrl = resolved;
+			}
+		} catch {
+			// fall through with original URL
+		}
+	}
 
 	const fetchWithCrawlerUA = async (targetUrl: string) => fetch(targetUrl, {
 		method: 'GET',

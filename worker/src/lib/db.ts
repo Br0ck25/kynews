@@ -640,10 +640,16 @@ export async function queryArticles(env: Env, options: {
   if (options.category === 'all') {
     // special case: no category filter, return articles from every bucket
   } else if (options.category === 'today') {
-    // Always restrict to category = 'today'; the includeNonKentucky flag only
-    // controls whether we also require is_kentucky = 1 on top of that.
-    where.push('category = ?');
-    binds.push('today');
+    // When a county filter is present, also include weather, sports, and schools
+    // articles tagged to that county so they appear in county page feeds.
+    // Without this, these category articles are invisible on county pages even
+    // when they carry a matching county tag.
+    if (options.counties.length > 0) {
+      where.push("(category = 'today' OR category = 'weather' OR category = 'sports' OR category = 'schools')");
+    } else {
+      where.push('category = ?');
+      binds.push('today');
+    }
     if (!options.includeNonKentucky) {
       where.push('is_kentucky = 1');
     }
