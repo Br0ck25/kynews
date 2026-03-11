@@ -15,7 +15,7 @@ import store from "./redux/store/store";
 import Theme from "./components/theme";
 import SiteService from "./services/siteService";
 import { setSelectedCounties } from "./redux/actions/actions";
-import { useNotificationPoller } from "./custom-hooks";
+import { useNotificationPoller } from "./customHooks/custom-hooks";
 
 const TodayPage = lazy(() => import("./pages/today-page"));
 const NationalPage = lazy(() => import("./pages/national-page"));
