@@ -806,6 +806,12 @@ export default function AdminPage() {
   const handleManualIngest = async () => {
     const trimmed = manualUrlInput.trim();
     if (!trimmed) return;
+
+    // Facebook URLs go through the Facebook scrape pipeline on the server side.
+    // The ingest-url-preview endpoint now handles this automatically, but we
+    // also show a helpful hint so the user knows what's happening.
+    const isFbUrl = /^https?:\/\/(www\.)?facebook\.com\//.test(trimmed);
+
     setManualUrlLoading(true);
     setManualUrlResult(null);
     try {
@@ -821,7 +827,11 @@ export default function AdminPage() {
       } else if (result.status === 'duplicate') {
         setManualUrlResult({ status: 'duplicate', message: 'This article is already in the database.' });
       } else if (result.status === 'rejected') {
-        setManualUrlResult({ status: 'rejected', message: `Rejected: ${result.reason || 'unknown reason'}` });
+        const reason = result.reason || 'unknown reason';
+        const hint = isFbUrl && reason.includes('private')
+          ? ' Try "Create Manual Article → Load from Facebook" to fill fields manually.'
+          : '';
+        setManualUrlResult({ status: 'rejected', message: `Rejected: ${reason}${hint}` });
       } else {
         setManualUrlResult({ status: 'error', message: result.error || 'Unknown error from server.' });
       }

@@ -392,6 +392,33 @@ if (url.pathname === '/api/admin/ingest-url' && request.method === 'POST') {
   const articleUrl = body?.url?.trim();
   if (!articleUrl) return badRequest('Missing required field: url');
   if (!isHttpUrl(articleUrl)) return badRequest('url must be an absolute http(s) URL');
+
+  // Facebook URLs cannot be ingested like normal articles — the regular fetch
+  // path hits a login wall.  Route them through the Facebook scrape path and
+  // synthesize an IngestSource with the post content so the rest of the
+  // pipeline (classify → summarize → insert) works normally.
+  if (isFacebookUrl(articleUrl)) {
+    try {
+      const scraped = await scrapeFacebookPostPublic(articleUrl);
+      if (!scraped.message) {
+        return json({ status: 'rejected', reason: 'Could not retrieve Facebook post content — the post may be private or require login.' }, 422);
+      }
+      const { title, body: postBody } = deriveFacebookTitleAndBody(scraped.message);
+      const result = await ingestSingleUrl(env, {
+        url: articleUrl,
+        allowShortContent: true,
+        providedTitle: title,
+        providedDescription: postBody,
+        feedPublishedAt: scraped.publishedAt ?? undefined,
+      });
+      return json(result, result.status === 'rejected' ? 422 : 200);
+    } catch (error) {
+      const msg = safeError(error);
+      console.error('[INGEST-URL FACEBOOK FAILED]', msg);
+      return json({ status: 'rejected', reason: msg }, 422);
+    }
+  }
+
   try {
     const result = await ingestSingleUrl(env, { url: articleUrl });
     return json(result, result.status === 'rejected' ? 422 : 200);
@@ -421,6 +448,35 @@ if (url.pathname === '/api/admin/ingest-url-preview' && request.method === 'POST
   const articleUrl = body?.url?.trim();
   if (!articleUrl) return badRequest('Missing required field: url');
   if (!isHttpUrl(articleUrl)) return badRequest('url must be an absolute http(s) URL');
+
+  // Facebook URLs cannot be fetched like regular articles — they redirect to a
+  // login wall.  Use the Facebook scrape path to get the post content, then
+  // synthesize an IngestSource so the classify+summarize pipeline can run.
+  if (isFacebookUrl(articleUrl)) {
+    try {
+      const scraped = await scrapeFacebookPostPublic(articleUrl);
+      if (!scraped.message) {
+        return json({
+          status: 'rejected',
+          reason: 'Could not retrieve Facebook post content — the post may be private or require login. Use "Create Manual Article → Load from Facebook" or fill fields manually.',
+        }, 422);
+      }
+      const { title, body: postBody } = deriveFacebookTitleAndBody(scraped.message);
+      const result = await ingestSingleUrl(env, {
+        url: articleUrl,
+        preview: true,
+        allowShortContent: true,
+        providedTitle: title,
+        providedDescription: postBody,
+        feedPublishedAt: scraped.publishedAt ?? undefined,
+      });
+      return json(result, result.status === 'rejected' ? 422 : 200);
+    } catch (error) {
+      const msg = safeError(error);
+      console.error('[PREVIEW FACEBOOK FAILED]', msg);
+      return json({ status: 'rejected', reason: msg }, 422);
+    }
+  }
 
   try {
     const result = await ingestSingleUrl(env, { url: articleUrl, preview: true });
@@ -2917,6 +2973,16 @@ function escapeHtml(str: string): string {
             .replace(/'/g, '&#39;');
 }
 
+/** Returns true if the URL is a facebook.com URL (any subdomain). */
+function isFacebookUrl(input: string): boolean {
+  try {
+    const parsed = new URL(input);
+    return parsed.hostname === 'facebook.com' || parsed.hostname.endsWith('.facebook.com');
+  } catch {
+    return false;
+  }
+}
+
 function isHttpUrl(input: string): boolean {
   try {
     const parsed = new URL(input);
@@ -4030,6 +4096,37 @@ async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: strin
 					}
 				} catch {
 					// fall through
+				}
+			}
+		}
+	} catch {
+		// fall through to Attempt 2
+	}
+
+	// Attempt 2: for /share/p/{code} short links the crawler-UA fetch sometimes
+	// lands on an interstitial rather than the post.  Try converting the URL to
+	// m.facebook.com and fetching again — the mobile site serves og: tags for
+	// public posts without requiring JavaScript.
+	try {
+		const parsedFbUrl = new URL(fbUrl);
+		const isShareLink = parsedFbUrl.pathname.startsWith('/share/');
+		const mobileUrl = isShareLink
+			? fbUrl.replace(/^https?:\/\/(www\.)?facebook\.com/, 'https://m.facebook.com')
+			: null;
+		if (mobileUrl && mobileUrl !== fbUrl) {
+			const respM = await fetchWithCrawlerUA(mobileUrl);
+			if (respM.ok) {
+				const htmlM = await respM.text();
+				const resultM = parseOgFromHtml(htmlM);
+				if (resultM.message) return resultM;
+				// Follow redirect if the mobile URL resolved elsewhere
+				if (respM.url && respM.url !== mobileUrl && !respM.url.includes('/login')) {
+					const respM2 = await fetchWithCrawlerUA(respM.url);
+					if (respM2.ok) {
+						const htmlM2 = await respM2.text();
+						const resultM2 = parseOgFromHtml(htmlM2);
+						if (resultM2.message) return resultM2;
+					}
 				}
 			}
 		}
