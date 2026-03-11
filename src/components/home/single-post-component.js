@@ -130,7 +130,7 @@ export default function SinglePost(props) {
               component="img"
               alt={post.title || post.imageText || "Article image"}
               className={classes.media}
-              image={post.image || "/logo.png"}
+              image={post.image && post.image.trim() ? post.image.trim() : "/logo.png"}
               title={post.title}
               loading="lazy"
               onError={(e) => { e.target.onerror = null; e.target.src = "/logo.png"; }}

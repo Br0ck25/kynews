@@ -403,17 +403,72 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
     return readabilityTitle || scrapedTitle || rssTitle || source.url;
   })();
 
+  // NWS/weather.gov RSS titles enumerate every affected county in a long
+  // comma-separated list that often gets truncated mid-word at ~200 chars.
+  // Clean these up: strip the trailing cut-off fragment and condense the
+  // county list to the first few counties with "and N more" suffix.
+  const cleanedTitle = cleanNwsTitle(resolvedTitle);
+
+  // NWS/NOAA pages have no og:image.  Use a branded weather radar placeholder
+  // so articles don't render as a gray box or missing logo in the feed.
+  const isNwsUrl =
+    /(?:^|\.)weather\.gov(?:\/|$)/i.test(normalizedCanonical) ||
+    /(?:^|\.)noaa\.gov(?:\/|$)/i.test(normalizedCanonical);
+  const resolvedImageUrl =
+    scraped.imageUrl ||
+    (isNwsUrl ? 'https://www.weather.gov/images/nws/nws_logo.png' : null);
+
   return {
     canonicalUrl: normalizedCanonical,
     sourceUrl: normalizedSource,
-    title: resolvedTitle,
+    title: cleanedTitle,
     author: scraped.author,
     publishedAt: resolvedPublishedAt,
     contentHtml: readableHtml || scraped.contentHtml,
     contentText: synthesizedText,
     classificationText: classificationLead,
-    imageUrl: scraped.imageUrl,
+    imageUrl: resolvedImageUrl,
   };
+}
+
+/**
+ * NWS RSS titles list every affected county inline, e.g.:
+ *   "Wind Advisory Issued for Wayne and Fayette and ... and Mas"
+ *
+ * This helper:
+ *  1. Strips any mid-word trailing fragment caused by RSS character limits.
+ *  2. If the title is still very long, condenses the county list to the first
+ *     3 counties with "and N more counties" appended.
+ */
+function cleanNwsTitle(title: string): string {
+  if (!title) return title;
+
+  // Pattern: "<Alert Type> Issued for <county list>" or "<Alert Type> in effect for <county list>"
+  const alertMatch = /^(.*?(?:Issued|In Effect|Warning|Watch|Advisory|Statement)\s+(?:for|until|through|in effect)?)\s+(.*)/i.exec(title);
+  if (!alertMatch) return title;
+
+  const prefix = alertMatch[1].trim();
+  let countyPart = alertMatch[2].trim();
+
+  // Remove trailing incomplete word: if the last word doesn't end with a letter
+  // that could close a proper county name, strip back to the last "and" or comma.
+  // County names always end with a full word.
+  if (/\s+\S{1,3}$/.test(countyPart)) {
+    // Last token is suspiciously short — likely a truncation artifact.
+    countyPart = countyPart.replace(/\s+\S{1,3}$/, '').replace(/\s+and\s*$/, '').trim();
+  }
+
+  // Split on " and " to get individual county names
+  const counties = countyPart.split(/\s+and\s+/i).map((c) => c.trim()).filter(Boolean);
+
+  const MAX_COUNTIES = 3;
+  if (counties.length <= MAX_COUNTIES) {
+    return `${prefix} ${counties.join(' and ')}`;
+  }
+
+  const shown = counties.slice(0, MAX_COUNTIES).join(', ');
+  const remaining = counties.length - MAX_COUNTIES;
+  return `${prefix} ${shown} and ${remaining} more ${remaining === 1 ? 'county' : 'counties'}`;
 }
 
 function extractReadableArticle(rawHtml: string): { title?: string; textContent?: string; content?: string } | null {

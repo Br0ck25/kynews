@@ -65,7 +65,8 @@ export default function FeaturedPost(props) {
   const [relatedPosts, setRelatedPosts] = React.useState([]);
   // Track whether the header image URL returned a 404/error so we can fall back to logo
   const [headerImgFailed, setHeaderImgFailed] = React.useState(false);
-  const headerImage = headerImgFailed ? "/logo.png" : (post.image || "/logo.png");
+  const rawHeaderImage = post.image && String(post.image).trim() ? String(post.image).trim() : null;
+  const headerImage = headerImgFailed || !rawHeaderImage ? "/logo.png" : rawHeaderImage;
   // radar GIFs from NWS are wide and important to show in their entirety on
   // mobile.  Using the default background-image with `cover` crops the loop,
   // which makes it difficult to see the full radar map.  Detect the domain and
