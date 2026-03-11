@@ -3,24 +3,39 @@ import type { NewArticle } from '../types';
 import { sha256Hex, normalizeCanonicalUrl } from './http';
 import { findArticleByHash, insertArticle } from './db';
 
-const SPC_RSS_URL = 'https://www.spc.noaa.gov/products/spcrss.xml';
 const SPC_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
 
-// Image assets embedded in SPC articles
-export const SPC_DAY1_RISK_MAP = 'https://www.spc.noaa.gov/products/outlook/day1otlk.gif';
-export const SPC_WATCH_MAP = 'https://www.spc.noaa.gov/products/watch/ww.png';
-
-// Kentucky-relevant keywords used as a first-pass pre-filter on the RSS feed.
-// Items that pass only because of a broad product type (e.g. 'tornado watch')
-// are still subject to the full-text KY relevance check in processSpcFeed before
-// they can be published.  Non-KY products caught by the broad terms will be
-// dropped at that second stage.
-const KY_FILTER_TERMS = [
-  'kentucky', ' ky ', ' ky,', ',ky', 'kentucky.', 'kentucky ',
-  // broad national products that *may* affect KY — full-text verified before publish
-  'tornado watch', 'severe thunderstorm watch', 'convective outlook',
-  'mesoscale discussion',
+// ─── All 7 SPC RSS feed endpoints ────────────────────────────────────────────
+// Each entry declares the feed URL and the product type it represents.
+// The general feed (spcrss.xml) covers all products and is always polled;
+// the remaining six are product-specific and give us early / targeted coverage.
+export const SPC_FEEDS: { url: string; productHint: SpcProductType | null }[] = [
+  { url: 'https://www.spc.noaa.gov/products/spcrss.xml',    productHint: null              }, // all products
+  { url: 'https://www.spc.noaa.gov/products/spcwwrss.xml',  productHint: 'tornado_watch'   }, // watches (tornado + tstorm)
+  { url: 'https://www.spc.noaa.gov/products/spcpdswwrss.xml', productHint: 'pds_watch'     }, // PDS (particularly dangerous situation) watches
+  { url: 'https://www.spc.noaa.gov/products/spcmdrss.xml',  productHint: 'mesoscale_discussion' }, // mesoscale discussions
+  { url: 'https://www.spc.noaa.gov/products/spcacrss.xml',  productHint: 'convective_outlook'   }, // convective outlooks (AC = all-convective)
+  { url: 'https://www.spc.noaa.gov/products/spcmbrss.xml',  productHint: 'public_severe'   }, // public severe weather outlooks (MB)
+  { url: 'https://www.spc.noaa.gov/products/spcfwrss.xml',  productHint: 'fire_weather'    }, // fire weather outlooks
 ];
+
+// Fallback static images used when dynamic scraping fails to find one.
+export const SPC_DAY1_RISK_MAP  = 'https://www.spc.noaa.gov/products/outlook/day1otlk.gif';
+export const SPC_WATCH_MAP      = 'https://www.spc.noaa.gov/products/watch/ww.png';
+export const SPC_FIRE_MAP       = 'https://www.spc.noaa.gov/products/fire_wx/fwdy1.gif';
+export const SPC_MD_MAP         = 'https://www.spc.noaa.gov/products/md/';   // base path, used as fallback hint
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type SpcProductType =
+  | 'tornado_watch'
+  | 'tstorm_watch'
+  | 'pds_watch'
+  | 'mesoscale_discussion'
+  | 'convective_outlook'
+  | 'public_severe'
+  | 'fire_weather'
+  | 'other';
 
 export interface SpcItem {
   /** Human-readable title from the RSS feed */
@@ -31,25 +46,55 @@ export interface SpcItem {
   description: string;
   /** ISO datetime */
   publishedAt: string;
-  /** Product type inferred from title */
+  /** Product type inferred from title + feed hint */
   productType: SpcProductType;
+  /** Source feed URL (for logging / deduplication) */
+  feedUrl: string;
 }
 
-type SpcProductType =
-  | 'tornado_watch'
-  | 'tstorm_watch'
-  | 'mesoscale_discussion'
-  | 'convective_outlook'
-  | 'fire_weather'
-  | 'other';
+// Kentucky-relevant keywords.  Items matching ONLY broad national product
+// keywords must still pass the full-text KY check before being published.
+const KY_FILTER_TERMS = [
+  'kentucky', ' ky ', ' ky,', ',ky', 'kentucky.', 'kentucky ',
+  // broad national products that *may* affect KY — full-text verified before publish
+  'tornado watch', 'severe thunderstorm watch', 'convective outlook',
+  'mesoscale discussion', 'fire weather',
+];
 
 // ─── RSS fetch + parse ───────────────────────────────────────────────────────
 
-/** Fetch and parse the SPC RSS feed. Returns items relevant to Kentucky. */
-export async function fetchSpcItems(): Promise<SpcItem[]> {
+/**
+ * Fetch and parse all SPC RSS feeds.
+ * Returns deduplicated items relevant to Kentucky across all feeds.
+ */
+export async function fetchAllSpcItems(): Promise<SpcItem[]> {
+  const seen = new Set<string>(); // dedup by item link
+  const all: SpcItem[] = [];
+
+  const results = await Promise.allSettled(
+    SPC_FEEDS.map((feed) => fetchSpcFeed(feed.url, feed.productHint)),
+  );
+
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue;
+    for (const item of result.value) {
+      if (seen.has(item.link)) continue;
+      seen.add(item.link);
+      all.push(item);
+    }
+  }
+
+  return all;
+}
+
+/** Fetch one SPC RSS feed and return Kentucky-filtered items. */
+async function fetchSpcFeed(
+  feedUrl: string,
+  productHint: SpcProductType | null,
+): Promise<SpcItem[]> {
   let xml: string;
   try {
-    const res = await fetch(SPC_RSS_URL, {
+    const res = await fetch(feedUrl, {
       headers: { 'User-Agent': SPC_USER_AGENT, Accept: 'application/rss+xml, application/xml' },
     });
     if (!res.ok) return [];
@@ -58,7 +103,7 @@ export async function fetchSpcItems(): Promise<SpcItem[]> {
     return [];
   }
 
-  const items = parseRssItems(xml);
+  const items = parseRssItems(xml, feedUrl, productHint);
 
   return items.filter((item) => {
     const haystack = `${item.title} ${item.description}`.toLowerCase();
@@ -66,19 +111,22 @@ export async function fetchSpcItems(): Promise<SpcItem[]> {
   });
 }
 
-function parseRssItems(xml: string): SpcItem[] {
+function parseRssItems(
+  xml: string,
+  feedUrl: string,
+  productHint: SpcProductType | null,
+): SpcItem[] {
   const results: SpcItem[] = [];
-  // Match each <item>…</item> block
   const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
   let match: RegExpExecArray | null;
 
   while ((match = itemRegex.exec(xml)) !== null) {
     const block = match[1];
-    const title = decodeXml(tagValue(block, 'title') ?? '').trim();
-    const link = decodeXml(tagValue(block, 'link') ?? '').trim();
+    const title       = decodeXml(tagValue(block, 'title') ?? '').trim();
+    const link        = decodeXml(tagValue(block, 'link')  ?? '').trim();
     const description = decodeXml(tagValue(block, 'description') ?? '').trim();
-    const pubDateRaw = tagValue(block, 'pubDate') ?? '';
-    const pubDate = pubDateRaw ? new Date(pubDateRaw).toISOString() : new Date().toISOString();
+    const pubDateRaw  = tagValue(block, 'pubDate') ?? '';
+    const pubDate     = pubDateRaw ? new Date(pubDateRaw).toISOString() : new Date().toISOString();
 
     if (!link) continue;
 
@@ -87,7 +135,8 @@ function parseRssItems(xml: string): SpcItem[] {
       link,
       description,
       publishedAt: pubDate,
-      productType: inferProductType(title),
+      productType: inferProductType(title, productHint),
+      feedUrl,
     });
   }
 
@@ -110,56 +159,95 @@ function decodeXml(s: string): string {
     .trim();
 }
 
-function inferProductType(title: string): SpcProductType {
+function inferProductType(title: string, hint: SpcProductType | null): SpcProductType {
   const t = title.toLowerCase();
-  if (t.includes('tornado watch')) return 'tornado_watch';
-  if (t.includes('severe thunderstorm watch')) return 'tstorm_watch';
-  if (t.includes('mesoscale discussion')) return 'mesoscale_discussion';
-  if (t.includes('convective outlook') || t.includes('day 1') || t.includes('day1')) return 'convective_outlook';
-  if (t.includes('fire weather')) return 'fire_weather';
+  if (t.includes('particularly dangerous situation') || t.includes('pds')) return 'pds_watch';
+  if (t.includes('tornado watch'))                          return 'tornado_watch';
+  if (t.includes('severe thunderstorm watch'))              return 'tstorm_watch';
+  if (t.includes('mesoscale discussion'))                   return 'mesoscale_discussion';
+  if (t.includes('convective outlook') || /day\s*[123]/.test(t)) return 'convective_outlook';
+  if (t.includes('fire weather'))                           return 'fire_weather';
+  if (t.includes('public severe'))                          return 'public_severe';
+  // fall back to the feed-level hint if title parsing didn't resolve a specific type
+  if (hint) return hint;
   return 'other';
 }
 
-// ─── Deduplication ───────────────────────────────────────────────────────────
+// ─── Dynamic image extraction ────────────────────────────────────────────────
 
-/** KV dedup key for an SPC item (keyed by item URL). */
-async function spcDedupeKey(link: string): Promise<string> {
-  return `spc:item:${await sha256Hex(link)}`;
-}
+/**
+ * Scrape the SPC product HTML page and return the first meaningful image
+ * or GIF URL found in the page content.  Prefers in-page <img> tags over
+ * the static fallback images.
+ *
+ * Strategy (in priority order):
+ *  1. Look for <img> tags inside the main product content area.
+ *  2. Look for any spc.noaa.gov absolute image URL in the HTML.
+ *  3. Return null if nothing found (caller will use a static fallback).
+ */
+async function extractSpcPageImage(htmlUrl: string): Promise<string | null> {
+  let html: string;
+  try {
+    const res = await fetch(htmlUrl, {
+      headers: { 'User-Agent': SPC_USER_AGENT },
+      // 5 s timeout via AbortController
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    html = await res.text();
+  } catch {
+    return null;
+  }
 
-/** Returns true if the item is new (and marks it seen). */
-async function markSpcItemIfNew(env: Env, link: string): Promise<boolean> {
-  if (!env.CACHE) return true;
-  const key = await spcDedupeKey(link);
-  if (await env.CACHE.get(key)) return false;
-  // 72h TTL — SPC products don't expire that quickly
-  await env.CACHE.put(key, '1', { expirationTtl: 259200 });
-  return true;
+  const baseUrl = 'https://www.spc.noaa.gov';
+
+  // 1. Find <img src="..."> tags — prefer .gif, .png, .jpg
+  //    Exclude tiny decorative images (e.g. 1x1 spacers, icons < 10px implied by name)
+  const imgRegex = /<img[^>]+src=["']([^"']+\.(?:gif|png|jpg|jpeg))["'][^>]*>/gi;
+  const candidates: string[] = [];
+  let imgMatch: RegExpExecArray | null;
+
+  while ((imgMatch = imgRegex.exec(html)) !== null) {
+    const src = imgMatch[1];
+    if (!src) continue;
+    // Skip tiny icons / bullets
+    if (/\b(?:1x1|spacer|bullet|arrow|icon|logo|nav)\b/i.test(src)) continue;
+    // Build absolute URL
+    const abs = src.startsWith('http') ? src : `${baseUrl}${src.startsWith('/') ? '' : '/'}${src}`;
+    candidates.push(abs);
+  }
+
+  // Prefer GIFs (SPC's primary map format) over PNGs, then any image
+  const gif = candidates.find((u) => u.endsWith('.gif'));
+  if (gif) return gif;
+  const png = candidates.find((u) => u.endsWith('.png') || u.endsWith('.jpg') || u.endsWith('.jpeg'));
+  if (png) return png;
+
+  // 2. Brute-force scan for any spc.noaa.gov image URL in raw HTML
+  const rawImgMatch = /https?:\/\/www\.spc\.noaa\.gov\/[^\s"'<>]+\.(?:gif|png|jpg|jpeg)/i.exec(html);
+  if (rawImgMatch) return rawImgMatch[0];
+
+  return null;
 }
 
 // ─── Full-text fetch ─────────────────────────────────────────────────────────
 
 /**
- * Fetch the plain-text version of an SPC product page.
- * SPC hosts .txt equivalents for most .html product pages.
+ * Fetch the plain-text version of an SPC product page (.html → .txt).
  * Returns empty string on failure.
  */
 async function fetchSpcFullText(htmlUrl: string): Promise<string> {
-  // Convert .html → .txt (works for MD, watches, and outlook pages)
   const txtUrl = htmlUrl.replace(/\.html?$/i, '.txt');
-  if (txtUrl === htmlUrl) return ''; // no conversion possible
+  if (txtUrl === htmlUrl) return '';
 
   try {
     const res = await fetch(txtUrl, {
       headers: { 'User-Agent': SPC_USER_AGENT },
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return '';
     const text = await res.text();
-    // SPC .txt files start with form-feed characters and line separators — clean them
-    return text
-      .replace(/\f/g, '')
-      .replace(/^\s*\d{3}\s*\n/, '')
-      .trim();
+    return text.replace(/\f/g, '').replace(/^\s*\d{3}\s*\n/, '').trim();
   } catch {
     return '';
   }
@@ -167,50 +255,68 @@ async function fetchSpcFullText(htmlUrl: string): Promise<string> {
 
 // ─── Article builder ─────────────────────────────────────────────────────────
 
-/** Choose the right SPC map image for the product type. */
-function getSpcMapHtml(productType: SpcProductType): string {
-  if (productType === 'tornado_watch' || productType === 'tstorm_watch') {
-    return `<p><strong>Current Watch Map:</strong></p>\n<p><img src="${SPC_WATCH_MAP}" alt="SPC Watch Map" style="max-width:100%;border:1px solid #ccc;border-radius:4px;"></p>`;
+/** Choose the static fallback image for a product type. */
+function getFallbackImageUrl(productType: SpcProductType): string {
+  switch (productType) {
+    case 'tornado_watch':
+    case 'tstorm_watch':
+    case 'pds_watch':
+      return SPC_WATCH_MAP;
+    case 'fire_weather':
+      return SPC_FIRE_MAP;
+    case 'mesoscale_discussion':
+    case 'convective_outlook':
+    case 'public_severe':
+    case 'other':
+    default:
+      return SPC_DAY1_RISK_MAP;
   }
-  // Convective outlook, mesoscale discussion, fire weather, other — use day1 risk map
-  return `<p><strong>Day 1 Convective Risk Map:</strong></p>\n<p><img src="${SPC_DAY1_RISK_MAP}" alt="SPC Day 1 Convective Outlook" style="max-width:100%;border:1px solid #ccc;border-radius:4px;"></p>`;
 }
 
-/** Produce a clean display title based on the RSS item. */
+/** Human-readable product name for article copy. */
+function humanProductType(t: SpcProductType): string {
+  switch (t) {
+    case 'tornado_watch':         return 'tornado watch';
+    case 'tstorm_watch':          return 'severe thunderstorm watch';
+    case 'pds_watch':             return 'particularly dangerous situation (PDS) watch';
+    case 'mesoscale_discussion':  return 'mesoscale discussion';
+    case 'convective_outlook':    return 'convective outlook';
+    case 'public_severe':         return 'public severe weather outlook';
+    case 'fire_weather':          return 'fire weather outlook';
+    default:                      return 'weather product';
+  }
+}
+
+/** Produce a clean display title. */
 function buildTitle(item: SpcItem): string {
-  // Plan §7: "{TITLE} — Storm Prediction Center Update"
-  // Strip the "SPC " prefix from the raw RSS title then append the suffix.
   const base = item.title.replace(/^SPC\s+/i, '').trim() || item.title;
   return `${base} — Storm Prediction Center Update`.slice(0, 200);
 }
 
-/** Compose the article body from item RSS description + optional full text. */
-function buildBody(item: SpcItem, fullText: string): { contentText: string; contentHtml: string } {
+/** Compose article body from RSS description + optional full text. */
+function buildBody(
+  item: SpcItem,
+  fullText: string,
+  imageUrl: string,
+): { contentText: string; contentHtml: string } {
+  const productLabel = humanProductType(item.productType);
   const textParagraphs: string[] = [];
 
-  // Opening sentence — plan §7 template
   textParagraphs.push(
-    `The Storm Prediction Center has issued a new weather update affecting portions of the region.`,
+    `The Storm Prediction Center has issued a new ${productLabel} affecting portions of the region.`,
   );
 
-  // Brief summary from RSS description
   if (item.description) {
     const cleanDesc = item.description.replace(/\s{2,}/g, ' ').trim();
     textParagraphs.push(`Summary: ${cleanDesc}`);
   }
 
-  // Full discussion text (if successfully fetched) — first ~1000 chars to keep it readable
   if (fullText) {
     const shortened = fullText.slice(0, 1500).trim();
-    // keep existing line breaks inside each paragraph rather than collapsing
-    // everything into one long sentence; the RSS / MD text typically has
-    // single-line breaks between sentences, so preserving them improves
-    // readability and gives the AI summarizer more structure to work with.
     const parts = shortened
       .split(/\n{2,}/)
       .map((p) => p.trim())
       .filter(Boolean);
-    // Plan §7: "Full meteorologist discussion:"
     textParagraphs.push('Full meteorologist discussion:', ...parts);
   }
 
@@ -221,33 +327,22 @@ function buildBody(item: SpcItem, fullText: string): { contentText: string; cont
 
   const contentText = textParagraphs.join('\n\n');
 
-  // HTML — structured paragraphs with SPC map image
-  const mapHtml = getSpcMapHtml(item.productType);
+  // HTML — embed the extracted (or fallback) image at the top of the article
+  const imageAlt = `SPC ${humanProductType(item.productType)} map`;
+  const imageHtml = `<p><img src="${imageUrl}" alt="${imageAlt}" style="max-width:100%;border:1px solid #ccc;border-radius:4px;"></p>`;
+
   const bodyHtml = textParagraphs
-    .slice(0, -1) // all but closing "Stay tuned" line
-    // convert any remaining line breaks in a paragraph to <br> so that
-    // multi-line paragraphs are rendered sensibly in HTML
+    .slice(0, -1)
     .map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`)
     .join('\n');
 
   const contentHtml = [
+    imageHtml,
     bodyHtml,
-    mapHtml,
     `<p>Stay tuned to Local KY News for additional weather updates.</p>`,
   ].join('\n');
 
   return { contentText, contentHtml };
-}
-
-function humanProductType(t: SpcProductType): string {
-  switch (t) {
-    case 'tornado_watch': return 'tornado watch';
-    case 'tstorm_watch': return 'severe thunderstorm watch';
-    case 'mesoscale_discussion': return 'mesoscale discussion';
-    case 'convective_outlook': return 'convective outlook';
-    case 'fire_weather': return 'fire weather outlook';
-    default: return 'weather product';
-  }
 }
 
 function slugify(text: string): string {
@@ -258,27 +353,29 @@ function slugify(text: string): string {
     .slice(0, 200);
 }
 
-export async function buildSpcArticle(item: SpcItem): Promise<NewArticle & { _rawFullText: string }> {
+export async function buildSpcArticle(
+  item: SpcItem,
+): Promise<NewArticle & { _rawFullText: string }> {
   const canonicalUrl = item.link;
   const urlHash = await sha256Hex(normalizeCanonicalUrl(canonicalUrl));
 
-  const fullText = await fetchSpcFullText(item.link);
-  const { contentText, contentHtml } = buildBody(item, fullText);
+  // Fetch full product text and extract page image in parallel
+  const [fullText, scrapedImageUrl] = await Promise.all([
+    fetchSpcFullText(item.link),
+    extractSpcPageImage(item.link),
+  ]);
+
+  // Use the dynamically extracted image; fall back to the static product-type map
+  const imageUrl = scrapedImageUrl ?? getFallbackImageUrl(item.productType);
+
+  const { contentText, contentHtml } = buildBody(item, fullText, imageUrl);
 
   const title = buildTitle(item);
-  const seoDescription =
-    `${title}. ${item.description}`.replace(/\s+/g, ' ').slice(0, 300);
+  const seoDescription = `${title}. ${item.description}`.replace(/\s+/g, ' ').slice(0, 300);
   const now = new Date().toISOString();
 
-  // generate a mostly-readable slug from the title plus a short hash
   const baseSlug = slugify(title) || urlHash.slice(0, 8);
   const slug = `${baseSlug}-${urlHash.slice(0, 8)}`;
-
-  // choose a representative image — the same map we embed in the body
-  const imageUrl =
-    item.productType === 'tornado_watch' || item.productType === 'tstorm_watch'
-      ? SPC_WATCH_MAP
-      : SPC_DAY1_RISK_MAP;
 
   return {
     canonicalUrl,
@@ -293,7 +390,6 @@ export async function buildSpcArticle(item: SpcItem): Promise<NewArticle & { _ra
     county: null,
     counties: [],
     city: null,
-    // Fallback summary — overwritten by summarizeArticle() in processSpcFeed()
     summary: contentText.slice(0, 800),
     seoDescription,
     rawWordCount: contentText.split(/\s+/).filter(Boolean).length,
@@ -304,89 +400,80 @@ export async function buildSpcArticle(item: SpcItem): Promise<NewArticle & { _ra
     rawR2Key: null,
     slug,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
-    // expose raw full text so the orchestrator can run the KY relevance check
-    // against actual product content rather than the assembled article body
-    // (which contains KY-agnostic boilerplate that can cause false positives).
     _rawFullText: fullText,
   };
 }
 
 // ─── Kentucky relevance check ────────────────────────────────────────────────
 
-/**
- * Returns true if the text clearly mentions Kentucky by name or by the
- * common two-letter abbreviation as a standalone word.  Used as a final gate
- * before publishing SPC products that passed the broad RSS pre-filter.
- */
 function isKentuckyContent(text: string): boolean {
   const lower = text.toLowerCase();
   return lower.includes('kentucky') || /\bky\b/.test(lower);
 }
 
-/**
- * Returns true if the SPC product text is a placeholder status report that
- * hasn't been issued yet (e.g. "Watch 37 Status Message has not been issued yet.").
- * These are empty stub pages SPC publishes before the real content is ready.
- */
 function isPlaceholderStatusReport(text: string): boolean {
   return /has not been issued yet/i.test(text);
 }
 
-// ─── Orchestrator ────────────────────────────────────────────────────────────
+// ─── KV deduplication ────────────────────────────────────────────────────────
+
+async function spcDedupeKey(link: string): Promise<string> {
+  return `spc:item:${await sha256Hex(link)}`;
+}
+
+async function markSpcItemIfNew(env: Env, link: string): Promise<boolean> {
+  if (!env.CACHE) return true;
+  const key = await spcDedupeKey(link);
+  if (await env.CACHE.get(key)) return false;
+  await env.CACHE.put(key, '1', { expirationTtl: 259200 }); // 72 h
+  return true;
+}
+
+// ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 /**
- * Check the SPC RSS feed for new Kentucky-relevant products and publish any
- * that haven't been seen before.  Called from the scheduled handler via ctx.waitUntil().
+ * Poll all 7 SPC RSS feeds for new Kentucky-relevant products and publish any
+ * that haven't been seen before.  Called from the scheduled handler.
  */
-export async function processSpcFeed(env: Env): Promise<{ published: number; skipped: number }> {
+export async function processSpcFeed(
+  env: Env,
+): Promise<{ published: number; skipped: number }> {
   let published = 0;
   let skipped = 0;
 
   let items: SpcItem[];
   try {
-    items = await fetchSpcItems();
+    items = await fetchAllSpcItems();
   } catch (err) {
-    console.error('[SPC] fetchSpcItems failed', err);
+    console.error('[SPC] fetchAllSpcItems failed', err);
     return { published: 0, skipped: 0 };
   }
 
+  console.log(`[SPC] Fetched ${items.length} KY-candidate items across all feeds`);
+
   for (const item of items) {
     try {
-      // 1. KV dedup — skip if we've already *successfully published* this SPC item URL.
-      //     Note: we intentionally do NOT mark placeholder items as seen here — that
-      //     happens below, only after the placeholder check passes.  This way the same
-      //     URL is re-checked on the next tick once SPC replaces the placeholder with
-      //     real content.
+      // 1. KV dedup — skip if already published
       const isNew = await markSpcItemIfNew(env, item.link);
       if (!isNew) {
         skipped++;
         continue;
       }
 
-      // 2. Build the base article record (also fetches full product text)
+      // 2. Build article (fetches full text + extracts page image in parallel)
       const article = await buildSpcArticle(item);
 
-      // 2a. Hard KY gate — the raw product text OR the RSS description must
-      //     explicitly mention Kentucky or the standalone abbreviation "KY".
-      //     We intentionally do NOT check article.contentText here because it
-      //     always starts with KY-agnostic boilerplate ("The Storm Prediction
-      //     Center has issued…") that would cause every item to pass the check.
-      //     Checking the raw source text + RSS description is much more reliable.
+      // 3. Hard KY gate — raw product text OR RSS description must mention KY
       const kyCheckText = `${article._rawFullText} ${item.description}`;
       if (!isKentuckyContent(kyCheckText)) {
-        console.log(`[SPC] Skipped non-KY product: "${item.title}"`);
+        console.log(`[SPC] Skipped non-KY product: "${item.title}" (feed: ${item.feedUrl})`);
         skipped++;
         continue;
       }
 
-      // 2b. Skip watch status reports that haven't been issued yet.
-      //     SPC publishes placeholder pages like "Watch 37 Status Message has
-      //     not been issued yet." before the actual report is ready.
-      //     We un-mark the KV key so the URL is re-checked next tick when
-      //     SPC publishes the real content at the same URL.
+      // 4. Skip unissued placeholder pages; un-mark KV so we retry next tick
       if (isPlaceholderStatusReport(article._rawFullText)) {
-        console.log(`[SPC] Skipped placeholder status report: "${item.title}"`);
-        // Remove the KV mark so we retry this URL on the next scheduled run
+        console.log(`[SPC] Skipped placeholder: "${item.title}"`);
         if (env.CACHE) {
           const key = await spcDedupeKey(item.link);
           await env.CACHE.delete(key).catch(() => {});
@@ -395,14 +482,14 @@ export async function processSpcFeed(env: Env): Promise<{ published: number; ski
         continue;
       }
 
-      // 3. DB dedup — check url_hash in case KV was cleared
+      // 5. DB dedup — guard against KV being cleared
       const existing = await findArticleByHash(env, article.urlHash);
       if (existing) {
         skipped++;
         continue;
       }
 
-      // 4. Run AI summarization (same as normal ingest pipeline)
+      // 6. AI summarization
       const { summarizeArticle } = await import('./ai');
       const aiResult = await summarizeArticle(
         env,
@@ -413,15 +500,17 @@ export async function processSpcFeed(env: Env): Promise<{ published: number; ski
       ).catch(() => null);
 
       if (aiResult) {
-        article.summary = aiResult.summary;
-        article.seoDescription = aiResult.seoDescription || article.seoDescription;
-        article.summaryWordCount = aiResult.summaryWordCount;
+        article.summary           = aiResult.summary;
+        article.seoDescription    = aiResult.seoDescription || article.seoDescription;
+        article.summaryWordCount  = aiResult.summaryWordCount;
       }
 
-      // 5. Insert into D1
+      // 7. Insert into D1
       const id = await insertArticle(env, article);
       published++;
-      console.log(`[SPC] Published: "${article.title}" → id=${id}`);
+      console.log(
+        `[SPC] Published: "${article.title}" → id=${id} | feed=${item.feedUrl} | image=${article.imageUrl}`,
+      );
     } catch (err) {
       console.error(`[SPC] Failed to publish item ${item.link}:`, err);
     }
