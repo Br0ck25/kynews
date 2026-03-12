@@ -98,8 +98,49 @@ export async function markAlertIfNew(env: Env, alertId: string): Promise<boolean
 }
 
 /**
+ * Parse structured NWS "* LABEL...value" fields from an alert description.
+ *
+ * NWS warning products use all-caps structured labels such as WHAT, HAZARD,
+ * WHERE, WHEN, IMPACTS, IMPACT, SOURCE, etc., each separated from its value
+ * by "...". The value may span multiple lines until the next "* LABEL" block
+ * or a blank line.
+ *
+ * Returns a Map of UPPERCASE_LABEL → cleaned value string.
+ *
+ * Example input line:  "* HAZARD...60 mph wind gusts."
+ * Example output:      Map { "HAZARD" => "60 mph wind gusts." }
+ */
+function parseNwsFields(description: string): Map<string, string> {
+  const fields = new Map<string, string>();
+  if (!description) return fields;
+
+  // Match each "* LABEL...value" block; value ends at the next "* LABEL" or blank line.
+  const fieldRe = /^\*\s+([A-Z][A-Z /]+?)\.\.\.([\s\S]*?)(?=^\*\s+[A-Z]|\n{2,}|$)/gm;
+  let match: RegExpExecArray | null;
+  while ((match = fieldRe.exec(description)) !== null) {
+    const label = match[1].trim().toUpperCase();
+    const value = match[2]
+      .replace(/\n+/g, ' ')    // collapse line breaks within value
+      .replace(/\.{2,}/g, '')  // strip NWS "..." artifacts
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (value) fields.set(label, value);
+  }
+  return fields;
+}
+
+/**
  * Build a short, readable plain-text summary for an NWS alert.
- * Produces one or two clean sentences rather than a raw text dump.
+ *
+ * Extracts the WHAT/HAZARD and IMPACTS/IMPACT structured fields from the NWS
+ * description and composes them into a clean prose sentence. This prevents the
+ * previous bug where collapsing all newlines caused label names (HAZARD, SOURCE,
+ * IMPACT) to concatenate directly with their values, producing output like
+ * "HAZARD60 mph wind gusts SOURCERadar indicated IMPACTExpect damage to trees."
+ *
+ * Falls back gracefully when no structured fields are present (e.g. narrative-
+ * style products) by stripping ALL "* LABEL..." lines before extracting the
+ * first prose sentence, so the same run-on bug cannot occur there either.
  */
 function buildAlertSummary(
   alert: NwsAlert,
@@ -107,25 +148,36 @@ function buildAlertSummary(
   issuedAt: string,
   expiryPhrase: string,
 ): string {
-  // Opening sentence: what, where, when
-  let summary = `The National Weather Service has issued a ${alert.event} for ${countyList}, effective ${issuedAt}${expiryPhrase ? ' and expiring' + expiryPhrase : ''}.`;
+  const base = `The National Weather Service has issued a ${alert.event} for ${countyList}${expiryPhrase ? ', in effect' + expiryPhrase : ''}.`;
 
-  // Append the first plain-text sentence from the description if it's useful
-  if (alert.description) {
-    const cleaned = alert.description
-      .replace(/^\*[^\n]+\n?/m, '')   // strip leading "* LABEL..." header line
-      .replace(/\n+/g, ' ')           // collapse newlines
-      .replace(/\.{2,}/g, '')         // remove NWS "..." artifacts
-      .trim();
-    // Grab the first sentence (ends at . ! or ?)
-    const firstSentenceMatch = cleaned.match(/[^.!?]+[.!?]/);
-    const firstSentence = firstSentenceMatch ? firstSentenceMatch[0].trim() : '';
-    if (firstSentence && firstSentence.length > 20) {
-      summary += ' ' + firstSentence;
-    }
+  if (!alert.description) return base;
+
+  const fields = parseNwsFields(alert.description);
+  const parts: string[] = [];
+
+  // Primary hazard: prefer WHAT (used by flood/winter products), fall back to HAZARD
+  const what = fields.get('WHAT') || fields.get('HAZARD');
+  if (what) parts.push(what);
+
+  // Human impact: prefer IMPACTS (plural), fall back to IMPACT
+  const impact = fields.get('IMPACTS') || fields.get('IMPACT');
+  if (impact) parts.push(impact);
+
+  if (parts.length > 0) {
+    return `${base} ${parts.join(' ')}`.slice(0, 500).trim();
   }
 
-  return summary.slice(0, 500).trim();
+  // No structured fields — fall back to first clean prose sentence, but
+  // strip ALL "* LABEL..." lines first so they never bleed into the output.
+  const narrative = alert.description
+    .replace(/\*\s+[A-Z][A-Z /]+?\.\.\.[^\n]*/g, '')
+    .replace(/\n+/g, ' ')
+    .replace(/\.{2,}/g, '')
+    .trim();
+  const firstSentence = narrative.match(/[^.!?]{20,}[.!?]/)?.[0]?.trim() ?? '';
+  if (firstSentence) return `${base} ${firstSentence}`.slice(0, 500).trim();
+
+  return base;
 }
 
 /** Convert an NwsAlert into a NewArticle ready for insertArticle(). */

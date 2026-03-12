@@ -964,7 +964,7 @@ describe('AI cleanup utilities', () => {
 		});
 		expect(classification.category).toBe('today');
 	});
-});
+
 
 describe('classification utilities', () => {
 	it('rejects short content under minimum threshold', () => {
@@ -1035,6 +1035,10 @@ describe('classification utilities', () => {
 
 	it('getSourceDefaultCounty returns Pulaski for k105.com', () => {
 		expect(classifyModule.getSourceDefaultCounty('https://k105.com/article')).toBe('Pulaski');
+	});
+
+	it('getSourceDefaultCounty returns Harlan for harlanenterprise.net', () => {
+		expect(classifyModule.getSourceDefaultCounty('https://harlanenterprise.net/some')).toBe('Harlan');
 	});
 
 	it('classification picks up multiple counties in shared-suffix phrase', async () => {

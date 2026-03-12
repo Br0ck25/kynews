@@ -409,14 +409,10 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
   // county list to the first few counties with "and N more" suffix.
   const cleanedTitle = cleanNwsTitle(resolvedTitle);
 
-  // NWS/NOAA pages have no og:image.  Use a branded weather radar placeholder
-  // so articles don't render as a gray box or missing logo in the feed.
-  const isNwsUrl =
-    /(?:^|\.)weather\.gov(?:\/|$)/i.test(normalizedCanonical) ||
-    /(?:^|\.)noaa\.gov(?:\/|$)/i.test(normalizedCanonical);
-  const resolvedImageUrl =
-    scraped.imageUrl ||
-    (isNwsUrl ? 'https://www.weather.gov/images/nws/nws_logo.png' : null);
+  // NWS/NOAA pages have no og:image meta tag.  Derive the product image
+  // directly from the URL where possible (SPC discussions, watches, etc.),
+  // then fall back to the NWS logo so cards never render as a gray box.
+  const resolvedImageUrl = scraped.imageUrl || derivedNwsImageUrl(normalizedCanonical);
 
   return {
     canonicalUrl: normalizedCanonical,
@@ -469,6 +465,70 @@ function cleanNwsTitle(title: string): string {
   const shown = counties.slice(0, MAX_COUNTIES).join(', ');
   const remaining = counties.length - MAX_COUNTIES;
   return `${prefix} ${shown} and ${remaining} more ${remaining === 1 ? 'county' : 'counties'}`;
+}
+
+/**
+ * For NWS/NOAA product pages that have no og:image, derive the product
+ * image URL directly from the page URL where the pattern is known.
+ *
+ * Supported patterns:
+ *  SPC Mesoscale Discussions
+ *    https://www.spc.noaa.gov/products/md/md0212.html  → .../mcd0212.png
+ *  SPC Tornado/Severe Thunderstorm Watches
+ *    https://www.spc.noaa.gov/products/watch/ww0041.html → .../ww0041.png
+ *  SPC Convective Outlooks
+ *    https://www.spc.noaa.gov/products/outlook/day1otlk.html → .../day1otlk.gif
+ *  NWS local area forecast discussions / text products
+ *    (no reliable image — fall back to NWS logo)
+ *
+ * Returns null for non-NWS/NOAA URLs so the caller can skip the fallback.
+ */
+function derivedNwsImageUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+
+  // ── SPC (Storm Prediction Center) ──────────────────────────────────────
+  if (host === 'www.spc.noaa.gov' || host === 'spc.noaa.gov') {
+    // Mesoscale Discussions: /products/md/md####.html → /products/md/mcd####.png
+    const mdMatch = /\/products\/md\/md(\d+)\.html?$/i.exec(parsed.pathname);
+    if (mdMatch) {
+      return `https://www.spc.noaa.gov/products/md/mcd${mdMatch[1]}.png`;
+    }
+
+    // Watches: /products/watch/ww####.html → /products/watch/ww####.png
+    const watchMatch = /\/products\/watch\/(ww\d+)\.html?$/i.exec(parsed.pathname);
+    if (watchMatch) {
+      return `https://www.spc.noaa.gov/products/watch/${watchMatch[1]}.png`;
+    }
+
+    // Convective Outlooks: /products/outlook/day[N]otlk*.html → .gif
+    const outlookMatch = /\/products\/outlook\/(day\d+otlk[^/]*)\.html?$/i.exec(parsed.pathname);
+    if (outlookMatch) {
+      return `https://www.spc.noaa.gov/products/outlook/${outlookMatch[1]}.gif`;
+    }
+
+    // Generic SPC fallback — use the SPC logo
+    return 'https://www.spc.noaa.gov/images/spclogosmall.gif';
+  }
+
+  // ── NWS weather.gov ────────────────────────────────────────────────────
+  if (host.endsWith('.weather.gov') || host === 'weather.gov') {
+    return 'https://www.weather.gov/images/nws/nws_logo.png';
+  }
+
+  // ── Other NOAA domains ─────────────────────────────────────────────────
+  if (host.endsWith('.noaa.gov') || host === 'noaa.gov') {
+    return 'https://www.weather.gov/images/nws/nws_logo.png';
+  }
+
+  return null;
 }
 
 function extractReadableArticle(rawHtml: string): { title?: string; textContent?: string; content?: string } | null {

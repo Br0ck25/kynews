@@ -47,7 +47,7 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://www.whas11.com/feeds/syndication/rss/news',
   'https://www.wkms.org/rss.xml',
   'https://www.wkms.org/rss.xml?format=rss',
-  'https://www.wlky.com/topstories-rss?format=rss',
+  'https://www.wlky.com/topstories-rss',
   'https://www.wtvq.com/feed',
   'https://www.news-expressky.com/search/?f=rss&t=article',
   'https://feeds.npr.org/1001/rss.xml',
@@ -85,6 +85,14 @@ export const MASTER_SOURCE_SEEDS: string[] = [
 	'https://www.wektradio.com/feed/',
 	'https://www.weather.gov/rss',
 	'https://kyweathercenter.com/',
+	'http://feeds.kentucky.statenews.net/rss/7dea3e4d4c76f3fa',
+	'https://www.tompkinsvillenews.com/feed/',
+	'https://lexingtonky.news/feed/',
+	'https://ky-leadernews.com/feed/',
+	'https://www.wkrn.com/news/kentucky/feed/',
+	'https://www.owensborotimes.com/feed/',
+
+
 ];
 
 export const SCHOOL_SOURCE_SEEDS: string[] = [

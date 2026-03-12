@@ -324,7 +324,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   // Central Kentucky
   'kentucky.com': 'Fayette',             // Lexington Herald-Leader
   'kykernel.com': 'Fayette',              // UK student newspaper
-  'lex18.com': null,   // covers all central/eastern KY; Fayette only when explicitly mentioned
+  'lex18.com': 'Fayette',   // Lexington ABC affiliate; Fayette when Lexington is in the text (HIGH_AMBIGUITY_CITIES blocks geo detection without a source default)
   'wkyt.com': 'Fayette',
   'wymt.com': 'Perry',
   'jessaminejournalonline.com': 'Jessamine',
@@ -1130,6 +1130,23 @@ export async function classifyArticleWithAi(
     }
     // else: counties already correct from mergedCounties — leave untouched
 
+    // Final safety net: if we still have a Kentucky story with no county, but
+    // the source domain is a known hyperlocal outlet with a default county,
+    // apply that county now. This guards against edge cases where earlier
+    // category overrides (such as utility/infrastructure articles being forced
+    // from weather to today) could accidentally clear the county field.
+    // See bug report about harlanenterprise.net losing its county on water
+    // infrastructure stories.
+    if (fallback.isKentucky && !fallback.county) {
+      const finalDefault = getSourceDefaultCounty(input.url);
+      if (finalDefault) {
+        fallback.county = finalDefault;
+        if (fallback.counties.length === 0) {
+          fallback.counties = [finalDefault];
+        }
+      }
+    }
+
     return fallback;
   } catch {
     return fallback;
@@ -1400,7 +1417,7 @@ const SOURCE_DEFAULT_CITY_EVIDENCE = new Map<string, string[]>([
   ['laurel',    ['london', 'laurel']],
   ['butler',    ['morgantown', 'butler']],
   ['barren',    ['glasgow', 'barren']],
-  ['floyd',     ['prestonsburg', 'floyd']],
+  ['floyd',     ['prestonsburg', 'martin', 'floyd']],
   ['johnson',   ['paintsville', 'johnson']],
   ['perry',     ['hazard', 'perry']],
   ['franklin',  ['frankfort', 'franklin']],
