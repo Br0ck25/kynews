@@ -87,6 +87,7 @@ Your summary must:
   Every paragraph must be separated from the next by a blank line.
   A summary of more than 6 sentences MUST contain at least 2 paragraph breaks (\n\n).
 - Preserve important facts, names, locations, dates, and figures exactly.
+- Always include specific numbers, dollar amounts, or statistics when they appear in the article. For government or legislative stories, mention the bill number, the specific policy change proposed, and any dollar figures cited.
 - Include no more than one direct quote, only if it meaningfully adds
   to the story.
 

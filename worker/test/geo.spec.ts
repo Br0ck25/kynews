@@ -52,6 +52,15 @@ describe('geo city matching', () => {
     const text = 'The game was played in Lexington, Ky. on Saturday';
     expect(detectCity(text)).toBe('lexington');
   });
+
+  it('treats a "City, Ky." dateline as authoritative even for ambiguous cities', () => {
+    const text = 'BOWLING GREEN, Ky. (WBKO) – breaking news content here';
+    expect(detectCity(text)).toBe('bowling green');
+    // geo fallback should resolve to the correct county
+    const geo = detectKentuckyGeo(text);
+    expect(geo.city).toBe('bowling green');
+    expect(geo.county).toBe('Warren');
+  });
 });
 
 // county-focused tests

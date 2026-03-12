@@ -494,6 +494,30 @@ const KY_LEGISLATOR_DISTRICT_RE = /[\,\s][RD]-$/i;
 
 export function detectCity(input) {
   const raw = String(input || '');
+  // quick shortcut: if the very beginning of the article contains a
+  // dateline of the form "City, Ky." we can trust that city regardless of
+  // ambiguity.  This handles recurring WBKO datelines such as
+  // "BOWLING GREEN, Ky. (WBKO)" which would otherwise be stripped by the
+  // frankfort filter (DATELINE_CITY_RE) and lose the explicit KY signal.
+  // The clause is unambiguous because a local news dateline always indicates
+  // the location of the story.  We deliberately treat "Frankfort, Ky." as a
+  // no-op to maintain the existing behaviour of ignoring statewide datelines.
+  const datelineMatch = raw.match(/^\s*([A-Za-z][A-Za-z\s]+?),\s*ky\b/i);
+  if (datelineMatch) {
+    const candidate = datelineMatch[1].trim().toLowerCase();
+    if (candidate === 'frankfort') {
+      return null;
+    }
+    if (
+      KY_CITY_TO_COUNTY[candidate] ||
+      (KY_CITY_TO_COUNTIES && KY_CITY_TO_COUNTIES[candidate])
+    ) {
+      return candidate;
+    }
+    // if the extracted word is not a known KY city we fall through to the
+    // normal algorithm rather than trusting an unknown dateline.
+  }
+
   // ignore frankfort dateline – not a story location
   if (DATELINE_CITY_RE.test(raw)) return null;
   const normalized = normalizeForSearch(raw);

@@ -47,9 +47,53 @@ The terminal runs **PowerShell on Windows**. Bash syntax does not work here.
 | `&&` to chain commands | Separate `#tool:runCommands` calls, or use `;` |
 | `cd dir && npm test` | `cd dir; npm test` in a single call |
 
-**Never use bash heredocs (`<<'EOF'`), `cat`, `nl`, `grep`, or `sed`.** Use `#tool:editFiles` to create files and `#tool:readFile` with a line range to inspect them.
+**Never use bash heredocs, `cat`, `nl`, `grep`, or `sed`.** Use `#tool:editFiles` to create files and `#tool:readFile` with a line range to inspect them.
 
 **Directory state does not persist between `#tool:runCommands` calls.** Always include the directory in the command itself: `cd worker; npm test` — never assume you are still in a subdirectory from a previous call.
+
+---
+
+## SAFE EDITING PROTOCOL — FOLLOW FOR EVERY EDIT
+
+Corrupting a file is worse than not fixing the bug. A broken test file blocks the entire team. Follow this protocol for every `#tool:editFiles` call without exception.
+
+### Before every edit — read first
+
+Use `#tool:readFile` with a line range that includes:
+- 5 lines before your insertion point
+- The exact lines you intend to change
+- 5 lines after your insertion point
+
+Do not edit from memory. Do not edit based on a read from 10 steps ago. The file may have changed.
+
+### One location per edit call
+
+- Make **one change per `#tool:editFiles` call**
+- If a task needs changes in 3 places, make 3 separate calls — re-read the file between each one
+- Never replace a large block just to insert something small inside it — you will accidentally delete surrounding code
+
+### Verify immediately after every edit
+
+After every `#tool:editFiles` call, before doing anything else:
+1. Use `#tool:readFile` on the lines you just changed to confirm the result looks correct
+2. Use `#tool:problems` to check for new syntax errors
+3. If either check fails, fix it before making the next edit — do not stack broken edits on top of each other
+
+### Never reconstruct code you cannot see
+
+If a previous edit displaced or orphaned surrounding code:
+- Read the current file state with `#tool:readFile`
+- Identify exactly which lines are wrong
+- Fix only those lines — do not rewrite the block from memory
+
+### Test files require extra caution
+
+Test files have deeply nested closures (`describe` → `it` → `async` → `expect`). One misplaced `});` breaks the entire file.
+
+When editing any test file:
+- Read **10 lines of context above and below** your insertion point before editing
+- After the edit, read the surrounding **20 lines** and manually confirm all `{` and `}` are balanced
+- If you introduced a syntax error in a test file, fix it immediately — do not move on to the next task
 
 ---
 
@@ -101,7 +145,7 @@ Work through these stages in order. Do not skip ahead.
 - Is this frontend, backend, or both?
 
 **2. Locate the code**
-- Use `#tool:codebase` to find the route handler in `worker/src/index.ts`
+- Use `#tool:codebase` to find the relevant function
 - Use `#tool:readFile` to read the specific lines
 - Use `#tool:usages` to find callers of the failing function
 - Read the actual code. Do not assume what it says.
@@ -116,14 +160,16 @@ Work through these stages in order. Do not skip ahead.
 - Confirm the bug is exactly where you think it is
 - Check if the fix affects anything else
 
-**5. Apply the fix**
+**5. Apply the fix — follow the Safe Editing Protocol above**
 - Use `#tool:editFiles` to make the change
 - Change only the lines that are broken
 - Do not refactor anything else
+- Read the result immediately after every edit
 
 **6. Verify the fix**
 - Use `#tool:problems` to check for new errors
-- Use `#tool:runCommands` to run relevant tests if they exist
+- Use `#tool:runCommands` to run relevant tests
+- If tests were passing before and are now failing, that is a regression you caused — fix it before declaring the task done
 
 **7. Explain**
 - What was wrong and why
@@ -179,6 +225,7 @@ Do not loop. Ask.
 - Did I read the relevant files before diagnosing?
 - Is my diagnosis based on what the code actually says — not what I assumed?
 - Is this the smallest change that solves the problem?
-- Did I use `#tool:editFiles` to apply the change?
-- Does this break anything that was working?
+- Did I read the file immediately after each `#tool:editFiles` call to confirm it looks correct?
+- Did I run `#tool:problems` after every edit?
+- Were any previously-passing tests broken by my changes? If so, did I fix them before finishing?
 - Did I follow all project rules?

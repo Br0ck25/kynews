@@ -1182,18 +1182,23 @@ describe('classification utilities', () => {
 			expect(classification.counties).toEqual([]);
 		});
 
-	// redirect handler should return short-lived cache header for county changes
+	it('assigns Warren County for a WBKO dateline on a non-statewide local story', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://wbko.com/article/local-news',
+			title: 'BOWLING GREEN, Ky. (WBKO) – County officials meet',
+			content: 'BOWLING GREEN, Ky. (WBKO) – Warren County fiscal court convened to discuss budget.',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Warren');
+		expect(classification.counties).toEqual(['Warren']);
+	});
+
+	// 301 handler test for county-path mismatches
 	it('301 handler uses short TTL for county-path mismatches', async () => {
 		await ensureSchemaAndFixture();
-		// create an article with a known slug and county
 		const now = new Date().toISOString();
 		const slug = 'test-slug-abc';
-		const id = await insertArticle(env, {
-			canonicalUrl: 'https://example.com/redirect-test',
-			sourceUrl: 'https://example.com',
-			urlHash: 'hash-redirect',
-			title: 'Redirect Test',
-			author: null,
+		await insertArticle(env, {
 			publishedAt: now,
 			category: 'today',
 			isKentucky: true,
