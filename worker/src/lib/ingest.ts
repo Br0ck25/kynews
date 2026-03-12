@@ -2,7 +2,7 @@ import type { ExtractedArticle, IngestResult, IngestSource, NewArticle } from '.
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
-import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE, isStatewideKyPoliticalStory } from './classify';
+import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE, isStatewideKyPoliticalStory, getSourceDefaultImage } from './classify';
 import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
 import { browserFetch, cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
@@ -45,6 +45,17 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   }
 
   const extracted = await fetchAndExtractArticle(env, source);
+
+  // ISSUE #1: override missing images for certain sources
+  if (!extracted.imageUrl) {
+    // prefer the sourceUrl for host lookup but fall back to canonical if needed
+    const candidateUrl = extracted.sourceUrl || extracted.canonicalUrl;
+    const defaultImg = getSourceDefaultImage(candidateUrl);
+    if (defaultImg) {
+      extracted.imageUrl = defaultImg;
+    }
+  }
+
   const rssTitle = source.providedTitle?.trim() ?? '';
   const rssDescription = source.providedDescription?.trim() ?? '';
   // RSS-only primary relevance check payload.
@@ -119,6 +130,16 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     rssTitle,
     rssDescription,
   });
+
+  // ISSUE #2: reject obituary articles immediately to avoid wasting tokens
+  if (classification.category === 'obituaries') {
+    console.log(`[REJECTED] obituary article skipped: ${extracted.title}`);
+    return {
+      status: 'rejected',
+      reason: 'obituaries not published',
+      urlHash: canonicalHash,
+    };
+  }
 
   // For statewide Kentucky political roundups we intentionally clear any
   // primary county even if our classifier returned one.  The `counties`

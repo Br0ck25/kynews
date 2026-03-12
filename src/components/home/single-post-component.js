@@ -38,6 +38,7 @@ const useStyles = makeStyles({
   media: {
     height: 180,
     objectFit: "cover",
+    aspectRatio: "400 / 180",  // reserves space before image loads
   },
   cardContent: {
     padding: "12px 12px 0 12px",
@@ -133,6 +134,8 @@ export default function SinglePost(props) {
               image={post.image && post.image.trim() ? post.image.trim() : "/logo.png"}
               title={post.title}
               loading="lazy"
+              width="400"
+              height="180"
               onError={(e) => { e.target.onerror = null; e.target.src = "/logo.png"; }}
             />
             <CardContent className={classes.cardContent}>

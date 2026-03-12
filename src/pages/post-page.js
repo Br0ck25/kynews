@@ -22,6 +22,7 @@ const useStyles = makeStyles({
 
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
+const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/preview.png';
 let FB_APP_ID = '';
 try {
   // eslint-disable-next-line no-eval
@@ -127,7 +128,7 @@ export default function PostPage() {
     setMeta("property", "og:description", cleanDesc);
     setMeta("property", "og:url", pageUrl);
     setMeta("property", "og:site_name", SITE_NAME);
-    const defaultImage = `${SITE_URL}/img/preview.png`;
+    const defaultImage = DEFAULT_OG_IMAGE;
     setMeta("property", "og:image", post.image || defaultImage);
 
     // Twitter card

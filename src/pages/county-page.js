@@ -68,6 +68,7 @@ const useStyles = makeStyles((theme) => ({
 const service = new SiteService();
 
 const SITE_URL = "https://localkynews.com";
+const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/preview.png';
 
 // utility used by multiple pages to inject/update meta tags
 function setMeta(attr, value, content) {
@@ -233,7 +234,7 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
     // Open Graph / Twitter cards
     const ogTitle = `${countyName} County, KY News — Local KY News`;
     const ogDesc = `The latest news from ${countyName} County, Kentucky — local government, schools, sports, weather, and community stories.`;
-    const defaultImage = 'https://localkynews.com/img/preview.png';
+    const defaultImage = DEFAULT_OG_IMAGE;
 
     setMeta('property', 'og:type', 'website');
     setMeta('property', 'og:title', ogTitle);
@@ -245,6 +246,7 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
     setMeta('name', 'twitter:title', ogTitle);
     setMeta('name', 'twitter:description', ogDesc);
     setMeta('name', 'twitter:image', defaultImage);
+    setMeta('name', 'twitter:site', '@LocalKYNews');
 
     // handle pagination robots tags when ?cursor is present
     const params = new URLSearchParams(location.search);
@@ -265,8 +267,8 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
       if (meta) meta.setAttribute('content', genericDesc);
       setCanonical(SITE_URL);
       // clear OG/Twitter back to defaults
-      setMeta('property', 'og:image', `${SITE_URL}/img/preview.png`);
-      setMeta('name', 'twitter:image', `${SITE_URL}/img/preview.png`);
+      setMeta('property', 'og:image', DEFAULT_OG_IMAGE);
+      setMeta('name', 'twitter:image', DEFAULT_OG_IMAGE);
       setMeta('property', 'og:title', SITE_URL);
       setMeta('property', 'og:description', genericDesc);
       setMeta('name', 'twitter:title', SITE_URL);

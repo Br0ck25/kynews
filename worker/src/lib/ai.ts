@@ -87,9 +87,7 @@ Your summary must:
   Every paragraph must be separated from the next by a blank line.
   A summary of more than 6 sentences MUST contain at least 2 paragraph breaks (\n\n).
 - Preserve important facts, names, locations, dates, and figures exactly.
-- Always include specific numbers, dollar amounts, or statistics when they appear in the article. For government or legislative stories, mention the bill number, the specific policy change proposed, and any dollar figures cited.
-- Include no more than one direct quote, only if it meaningfully adds
-  to the story.
+- When covering criminal cases, distinguish clearly between: (a) the dateline city / courthouse where proceedings occurred, and (b) the city or county where defendants are from or where the crime occurred. Include both when present and relevant.
 
 Your summary must never:
 - Repeat, restate, or begin with the article title. Start directly with the first sentence of your summary.

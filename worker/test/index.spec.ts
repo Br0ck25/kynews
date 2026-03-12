@@ -676,12 +676,82 @@ async function ensureSchemaAndFixture() {
 		expect(xml).toContain('<rss');
 	});
 
-		const includeResp = await SELF.fetch('https://example.com/today.rss?county=Adair');
-		const includeText = await includeResp.text();
-		expect(includeText).toMatch(/County RSS Test/);
+	// the feed should respect the hard limit defined in the codebase.  create
+	// more than that many articles and ensure we never exceed the constant.
+	it('today.rss obeys TODAY_RSS_LIMIT', async () => {
+		await ensureSchemaAndFixture();
+		const limit = __testables.TODAY_RSS_LIMIT;
+		const now = new Date().toISOString();
+		for (let i = 0; i < limit + 10; i++) {
+			await insertArticle(env, {
+				canonicalUrl: `https://example.com/story-${i}`,
+				sourceUrl: 'https://example.com',
+				urlHash: `hash-${i}`,
+				title: `Story ${i}`,
+				author: null,
+				publishedAt: now,
+				category: 'today',
+				isKentucky: true,
+				isNational: false,
+				county: 'Fayette',
+				counties: ['Fayette'],
+				city: null,
+				summary: 's',
+				seoDescription: 'seo',
+				rawWordCount: 1,
+				summaryWordCount: 1,
+				contentText: 'x',
+				contentHtml: '<p>x</p>',
+				imageUrl: null,
+				rawR2Key: null,
+				slug: null,
+			});
+		}
+		const xml = await __testables.generateTodayRss(env as any, []);
+		const items = (xml.match(/<item>/g) || []);
+		expect(items.length).toBeGreaterThan(50);
+		expect(items.length).toBeLessThanOrEqual(limit);
+	});
 
-		const excludeResp = await SELF.fetch('https://example.com/today.rss?county=Jefferson');
-		expect((await excludeResp.text())).not.toMatch(/County RSS Test/);
+	it('today.rss respects limit query parameter', async () => {
+		await ensureSchemaAndFixture();
+		const limit = __testables.TODAY_RSS_LIMIT;
+		const now = new Date().toISOString();
+		// populate at least 30 stories for testing
+		for (let i = 0; i < 30; i++) {
+			await insertArticle(env, {
+				canonicalUrl: `https://example.com/param-${i}`,
+				sourceUrl: 'https://example.com',
+				urlHash: `hash-param-${i}`,
+				title: `Param ${i}`,
+				author: null,
+				publishedAt: now,
+				category: 'today',
+				isKentucky: true,
+				isNational: false,
+				county: 'Fayette',
+				counties: ['Fayette'],
+				city: null,
+				summary: 's',
+				seoDescription: 'seo',
+				rawWordCount: 1,
+				summaryWordCount: 1,
+				contentText: 'x',
+				contentHtml: '<p>x</p>',
+				imageUrl: null,
+				rawR2Key: null,
+				slug: null,
+			});
+		}
+		// ask for 5 items explicitly
+		let resp = await SELF.fetch('https://example.com/today.rss?limit=5');
+		let items = (await resp.text()).match(/<item>/g) || [];
+		expect(items.length).toBe(5);
+
+		// ask for more than the cap
+		resp = await SELF.fetch(`https://example.com/today.rss?limit=${limit + 50}`);
+		items = (await resp.text()).match(/<item>/g) || [];
+		expect(items.length).toBeLessThanOrEqual(limit);
 	});
 
 	// verify slug/id endpoints include counties for multi-county articles
@@ -1023,6 +1093,21 @@ describe('classification utilities', () => {
 		// auto-assign a county because Greenville is ambiguous and the term
 		// itself is not a Kentucky county.
 		expect(detectCounty(text, text)).toBeNull();
+	});
+
+	it('detects Barren County when slash follows the county name', () => {
+		const text = 'Glasgow, Ky. Barren County/Metcalfe EMS responded to a crash.';
+		expect(detectCounty(text, text)).toBe('Barren');
+	});
+
+	it('getSourceDefaultImage returns KSP logo for state police domains', () => {
+		expect(classifyModule.getSourceDefaultImage('https://kentuckystatepolice.ky.gov/foo')).toBe(
+		'https://www.kentuckystatepolice.ky.gov/images/KSP-logo.png'
+	);
+		expect(classifyModule.getSourceDefaultImage('https://wp.kentuckystatepolice.ky.gov/bar')).toBe(
+		'https://www.kentuckystatepolice.ky.gov/images/KSP-logo.png'
+	);
+		expect(classifyModule.getSourceDefaultImage('https://example.com')).toBeNull();
 	});
 
 	it('getSourceDefaultCounty returns null for wlwt.com', () => {
@@ -2191,6 +2276,34 @@ describe('database utilities', () => {
 
 		const row = await getArticleById(env, id3);
 		expect(row?.is_national).toBe(1); // should remain unchanged
+
+		// simulate a transient D1 error on the first execution path
+		let attempt = 0;
+		const origPrepare = env.ky_news_db.prepare.bind(env.ky_news_db);
+		env.ky_news_db.prepare = (sql: string) => {
+			const stmt = origPrepare(sql);
+			const origRun = stmt.run.bind(stmt);
+			stmt.run = async (...args: any[]) => {
+				if (attempt === 0) {
+					attempt++;
+					const err: any = new Error('D1_ERROR: no such table: main.articles_old');
+					throw err;
+				}
+				return origRun(...args);
+			};
+			return stmt;
+		};
+
+		// a second call should succeed despite the first failure
+		await updateArticleClassification(env, id3, {
+			category: '',
+			isKentucky: false,
+			isNational: true,
+			county: null,
+		});
+		const row3 = await getArticleById(env, id3);
+		expect(row3?.category).toBe('');
+		env.ky_news_db.prepare = origPrepare;
 	});
 
 	it('listAdminArticles reflects updated counties', async () => {
@@ -2256,61 +2369,10 @@ describe('database utilities', () => {
 		const resp2 = await listAdminArticles(env, { limit: 10, cursor: null, search: 'findme-admin-summary', category: 'all' });
 		expect(resp2.items.some((i) => i.id === id)).toBe(true);
 	});
-			canonicalUrl: 'https://example.com/retry',
-			sourceUrl: 'https://example.com',
-			urlHash: 'hash-retry',
-			title: 'Retry test',
-			author: null,
-			publishedAt: now,
-			category: 'today',
-			isKentucky: true,
-			isNational: false,
-			county: 'Fayette',
-			counties: ['Fayette'],
-			city: null,
-			summary: 's',
-			seoDescription: 'seo',
-			rawWordCount: 1,
-			summaryWordCount: 1,
-			contentText: 'x',
-			contentHtml: '<p>x</p>',
-			imageUrl: null,
-			rawR2Key: null,
-			slug: null,
-		});
 
-		// stub prepare to throw once with the specific articles_old error
-		let attempt = 0;
-		const origPrepare = env.ky_news_db.prepare.bind(env.ky_news_db);
-		env.ky_news_db.prepare = (sql: string) => {
-			const stmt = origPrepare(sql);
-			const origRun = stmt.run.bind(stmt);
-			stmt.run = async (...args: any[]) => {
-				if (attempt === 0) {
-					attempt++;
-					const err: any = new Error('D1_ERROR: no such table: main.articles_old');
-					throw err;
-				}
-				return origRun(...args);
-			};
-			return stmt;
-		};
 
-		await updateArticleClassification(env, id3, {
-			category: '',
-			isKentucky: false,
-			isNational: true,
-			county: null,
-		});
-		const row3 = await getArticleById(env, id3);
-		expect(row3?.category).toBe('');
-		env.ky_news_db.prepare = origPrepare;
-	});
 
-		const found = resp.items.find((i) => i.id === id);
-		expect(found).toBeDefined();
-		expect(found?.counties).toEqual(['Fayette', 'Jefferson']);
-	});
+
 
 	it('queryArticles search matches summary text', async () => {
 		await ensureSchemaAndFixture();
@@ -2838,6 +2900,69 @@ describe('ingestSingleUrl error handling', () => {
 		vi.restoreAllMocks();
 	});
 
+	// new tests for KSP override and obituary rejection
+	it('applies KSP logo when source has no image', async () => {
+		await ensureSchemaAndFixture();
+		const originalFetch = global.fetch;
+		global.fetch = async () =>
+			new Response('<html><body><p>no image</p></body></html>', {
+				status: 200,
+				headers: { 'Content-Type': 'text/html' },
+			});
+
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+		});
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'x',
+			seoDescription: 'y',
+			summaryWordCount: 1,
+		});
+
+		const res = await __testables.ingestSingleUrl(env, {
+			url: 'https://wp.kentuckystatepolice.ky.gov/article',
+			preview: true,
+		});
+		expect(res.status).toBe('inserted');
+		expect(res.imageUrl).toBe('https://www.kentuckystatepolice.ky.gov/images/KSP-logo.png');
+
+		global.fetch = originalFetch;
+		vi.restoreAllMocks();
+	});
+
+	it('rejects obituary articles before summarization', async () => {
+		await ensureSchemaAndFixture();
+		const originalFetch = global.fetch;
+		global.fetch = async () =>
+			new Response('<html><body><p>obit text</p></body></html>', {
+				status: 200,
+				headers: { 'Content-Type': 'text/html' },
+			});
+
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'obituaries',
+			isKentucky: true,
+			isNational: false,
+			county: null,
+			counties: [],
+			city: null,
+		});
+		const summarySpy = vi.spyOn(aiModule, 'summarizeArticle');
+
+		const result = await __testables.ingestSingleUrl(env, { url: 'https://example.com/obit' });
+		expect(result.status).toBe('rejected');
+		expect(result.reason).toContain('obituaries not published');
+		expect(summarySpy).not.toHaveBeenCalled();
+
+		global.fetch = originalFetch;
+		vi.restoreAllMocks();
+	});
+
     it('serves a simple OG preview page for county hub URLs to social bots', async () => {
         // bot requests to county pages should return static HTML with meaningful metadata
         const resp = await SELF.fetch('https://example.com/news/kentucky/pike-county', {
@@ -2850,11 +2975,10 @@ describe('ingestSingleUrl error handling', () => {
         expect(text).toContain('<meta property="og:url" content="https://localkynews.com/news/kentucky/pike-county"');
         expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/preview.png"');
     });
-				headers: { 'Content-Type': 'text/html' },
-			});
 
-		// stub classification and summarization to simple values
-		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+		it('returns rejected status when insertArticle throws on ingest', async () => {
+			// stub classification and summarization to simple values
+			vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
 			category: 'today',
 			isKentucky: true,
 			isNational: false,

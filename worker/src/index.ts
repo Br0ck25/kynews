@@ -2373,6 +2373,106 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 // to the Pages site and return the correct HTML.  Without this branch the
 // request would fall through to the final 404 handler (which is what caused
 // all article links to break after the preview change).
+
+// Serve static HTML for certain section index pages when crawled by bots.
+// Bots that don't execute JavaScript need real content to index; normal
+// browsers will fall through to the SPA shell below.
+const SECTION_PATHS: Record<string, { title: string; description: string; category: string }> = {
+  '/today':    { title: 'Kentucky News Today — Local KY News', description: 'The latest local news from across all 120 Kentucky counties.', category: 'today' },
+  '/national': { title: 'National News — Local KY News', description: 'National headlines curated for Kentucky readers.', category: 'national' },
+  '/sports':   { title: 'Kentucky Sports News — Local KY News', description: 'High school, college, and local sports coverage across Kentucky.', category: 'sports' },
+  '/weather':  { title: 'Kentucky Weather — Local KY News', description: 'Weather alerts, forecasts, and updates across Kentucky.', category: 'weather' },
+  '/schools':  { title: 'Kentucky Schools News — Local KY News', description: 'Education news, school events, and district updates across Kentucky.', category: 'schools' },
+  '/local':    { title: 'Local Kentucky News — Local KY News', description: 'Community news and local stories from Kentucky counties.', category: 'local' },
+};
+
+const sectionMeta = SECTION_PATHS[url.pathname];
+if (request.method === 'GET' && sectionMeta && isBotUserAgent(request.headers.get('user-agent') || '')) {
+  // Fetch recent articles for this section from D1
+  const rows = await (env as any).DB.prepare(
+    `SELECT title, slug, county, category, published_at, seo_description, summary
+     FROM articles
+     WHERE category = ? AND blocked = 0
+     ORDER BY published_at DESC
+     LIMIT 10`
+  ).bind(sectionMeta.category).all();
+
+  const baseUrl = 'https://localkynews.com';
+  const articles = (rows.results || []) as Array<{
+    title: string; slug: string; county: string | null;
+    category: string; published_at: string | null;
+    seo_description: string | null; summary: string | null;
+  }>;
+
+  const listItems = articles.map((a) => {
+    const path = a.slug
+      ? (a.county ? `/news/kentucky/${a.county.toLowerCase().replace(/\s+/g, '-')}-county/${a.slug}` : `/news/kentucky/${a.slug}`)
+      : '';
+    const href = path ? `${baseUrl}${path}` : baseUrl;
+    const desc = (a.seo_description || a.summary || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 120);
+    return `<li><a href="${href}">${escapeHtml(a.title)}</a>${desc ? `<p>${escapeHtml(desc)}</p>` : ''}</li>`;
+  }).join('\n');
+
+  const html = `<!doctype html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${escapeHtml(sectionMeta.title)}</title>
+  <meta name="description" content="${escapeHtml(sectionMeta.description)}"/>
+  <link rel="canonical" href="${baseUrl}${url.pathname}"/>
+  <meta property="og:type" content="website"/>
+  <meta property="og:title" content="${escapeHtml(sectionMeta.title)}"/>
+  <meta property="og:description" content="${escapeHtml(sectionMeta.description)}"/>
+  <meta property="og:url" content="${baseUrl}${url.pathname}"/>
+  <meta property="og:site_name" content="Local KY News"/>
+  <meta property="og:image" content="${baseUrl}/img/preview.png"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <meta name="twitter:site" content="@LocalKYNews"/>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:700px;margin:0 auto;padding:16px;color:#111;line-height:1.6;}
+    h1{font-size:1.4rem;margin-bottom:8px;}
+    ul{list-style:none;padding:0;}
+    li{border-bottom:1px solid #eee;padding:12px 0;}
+    li p{font-size:.87rem;color:#555;margin:4px 0 0;}
+    a{color:#1a56db;text-decoration:none;font-weight:600;}
+    footer{margin-top:24px;font-size:.78rem;color:#999;text-align:center;}
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(sectionMeta.title)}</h1>
+  <p>${escapeHtml(sectionMeta.description)}</p>
+  <ul>${listItems}</ul>
+  <footer>Local KY News · <a href="${baseUrl}" style="color:#999">${baseUrl.replace('https://', '')}</a></footer>
+  <script>window.location.href="${baseUrl}${url.pathname}";</script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'public, max-age=300, s-maxage=300',
+    },
+  });
+}
+
+// SPA fallback for any /news/ path or the legacy /post endpoint
+// (after preview logic)
+//
+// When the worker is invoked for `/news/*` URLs we still need to serve the
+// single‑page app shell so the browser can hydrate and render the article.
+// In a standalone deployment we could simply bind the build output as
+// `ASSETS` and call `env.ASSETS.fetch('/index.html')` (this is how unit tests
+// exercise the code).  However, the production release runs on Cloudflare
+// Pages where the static assets are hosted separately; the worker is only
+// routed for the subset of paths that need dynamic content (/api, /news,
+// /post, /sitemap*).  In that configuration `env.ASSETS` is undefined, so we
+// must proxy the request back to the Pages origin rather than attempting to
+// fetch a non‑existent binding.  The origin URL (`BASE_URL/index.html`) is
+// not covered by the worker route, so calling `fetch()` here will go straight
+// to the Pages site and return the correct HTML.  Without this branch the
+// request would fall through to the final 404 handler (which is what caused
+// all article links to break after the preview change).
 if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathname === '/post')) {
     // serve the React app shell so client JS can render the appropriate page
     if (env.ASSETS) {
@@ -2391,7 +2491,8 @@ if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathna
 // users requested an RSS version of the “today” feed so they can subscribe
 // externally.  This behaves much like the `/api/articles/today` endpoint but
 // returns XML instead of JSON.  Query parameters are identical (counties
-// short/long form).  We generate the feed on‑the‑fly and cache it for a short
+// short/long form) and you can also supply a `limit` value (capped at
+// `TODAY_RSS_LIMIT`).  We generate the feed on‑the‑fly and cache it for a short
 // period to reduce DB load.
 
 if (request.method === 'GET' && url.pathname === '/today.rss') {
@@ -2403,7 +2504,16 @@ if (request.method === 'GET' && url.pathname === '/today.rss') {
         // treat as if no filter was provided; too many binds would overflow SQLite
         counties = [];
     }
-    const xml = await generateTodayRss(env, counties);
+    // allow callers to request a higher limit, but never above our hard maximum
+    let limit = TODAY_RSS_LIMIT;
+    const rawLimit = url.searchParams.get('limit');
+    if (rawLimit) {
+        const n = parseInt(rawLimit, 10);
+        if (Number.isFinite(n) && n > 0) {
+            limit = Math.min(n, TODAY_RSS_LIMIT);
+        }
+    }
+    const xml = await generateTodayRss(env, counties, limit);
     return new Response(xml, {
         headers: {
             'content-type': 'application/rss+xml; charset=utf-8',
@@ -2703,10 +2813,23 @@ function escapeXml(str: string): string {
  * Build a simple RSS feed for the "today" category.  exported so unit
  * tests can call it directly.
  */
-async function generateTodayRss(env: Env, counties: string[]): Promise<string> {
+// maximum number of items included in the /today.rss feed.  the
+// frontend JSON endpoint uses a similar limit (50000) but the RSS feed is
+// intentionally smaller to keep the XML payload reasonable for subscribers.
+// users asked for “more articles”, so bump this constant here; tests below
+// validate that we honour it.
+export const TODAY_RSS_LIMIT = 100;
+
+async function generateTodayRss(env: Env, counties: string[], limit: number = TODAY_RSS_LIMIT): Promise<string> {
+    // original code guarded against giant county arrays; keep that logic
     if (counties.length > 100) {
         counties = [];
     }
+    // ensure limit is sane
+    if (!Number.isFinite(limit) || limit <= 0) {
+        limit = TODAY_RSS_LIMIT;
+    }
+    limit = Math.min(limit, TODAY_RSS_LIMIT);
 
     const baseUrl = BASE_URL;
 
@@ -2730,7 +2853,7 @@ async function generateTodayRss(env: Env, counties: string[]): Promise<string> {
                      WHERE ac.article_id = articles.id AND ac.county IN (${placeholders})
                    )
                  )
-                 ORDER BY published_at DESC, id DESC LIMIT 50`
+                 ORDER BY published_at DESC, id DESC LIMIT ${limit}`
             ).bind(...counties, ...counties).all<RssRow>();
             rows = result.results ?? [];
         }
@@ -2740,7 +2863,7 @@ async function generateTodayRss(env: Env, counties: string[]): Promise<string> {
                 `SELECT id, title, slug, county, category, is_national, published_at, summary
                  FROM articles
                  WHERE category = 'today'
-                 ORDER BY published_at DESC, id DESC LIMIT 50`
+                 ORDER BY published_at DESC, id DESC LIMIT ${limit}`
             ).all<RssRow>();
             rows = result.results ?? [];
         }
@@ -2995,6 +3118,11 @@ function isHttpUrl(input: string): boolean {
   } catch {
     return false;
   }
+}
+
+// detect well-known bots by user-agent string
+function isBotUserAgent(ua: string): boolean {
+  return /googlebot|bingbot|slurp|duckduckbot|baiduspider|yandex|sogou|facebookexternalhit|twitterbot|linkedinbot|whatsapp|applebot|ia_archiver/i.test(ua);
 }
 
 function safeError(error: unknown): string {

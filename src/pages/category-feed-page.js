@@ -43,6 +43,24 @@ const useStyles = makeStyles((theme) => ({
 const service = new SiteService();
 const PAGE_LIMIT = 20;
 
+function setPaginationLinks(prevCursor, nextCursor, baseUrl) {
+  // Remove any existing pagination links
+  document.querySelectorAll('link[rel="prev"], link[rel="next"]').forEach(el => el.remove());
+
+  if (prevCursor) {
+    const prev = document.createElement('link');
+    prev.rel = 'prev';
+    prev.href = `${baseUrl}?cursor=${encodeURIComponent(prevCursor)}`;
+    document.head.appendChild(prev);
+  }
+  if (nextCursor) {
+    const next = document.createElement('link');
+    next.rel = 'next';
+    next.href = `${baseUrl}?cursor=${encodeURIComponent(nextCursor)}`;
+    document.head.appendChild(next);
+  }
+}
+
 function getPageLimit(_category) {
   return PAGE_LIMIT;
 }
@@ -210,6 +228,27 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
       robotsMeta?.setAttribute('content', 'index, follow');
     };
   }, [window.location.search]);
+
+  // Inject rel=prev / rel=next for paginated feeds
+  useEffect(() => {
+    const base = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const currentCursor = params.get('cursor');
+    // prev = the cursor that produced the current page (stored when we navigated here)
+    // For the first page there is no prev; cursor in the URL IS the next page token
+    // The component already loaded page 1 without a cursor in the URL, so:
+    // - if cursor is in the URL, this is a paginated page; prev = base URL (no cursor)
+    // - next = cursor state variable (from the API response)
+    const prevCursor = currentCursor ? '' : null; // empty string = base URL, null = omit
+    setPaginationLinks(
+      currentCursor ? '' : null,  // prev: link to base URL when on page 2+
+      cursor,                      // next: next cursor from API
+      base
+    );
+    return () => {
+      document.querySelectorAll('link[rel="prev"], link[rel="next"]').forEach(el => el.remove());
+    };
+  }, [cursor]);
 
   // Load next page when the sentinel scrolls into view.
   // Uses a ref-based guard (isLoadingMoreRef) so this callback reference stays

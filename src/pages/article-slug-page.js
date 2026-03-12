@@ -27,6 +27,7 @@ const useStyles = makeStyles((theme) => ({
 
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
+const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/preview.png';
 // allow optional FB App ID to be provided via environment variables
 let FB_APP_ID = '';
 try {
@@ -143,7 +144,7 @@ export default function ArticleSlugPage() {
     // ensure OG image is always absolute; fall back to our site logo when the
     // article itself doesnt provide an image.  Facebook will then display the
     // logo instead of the generic preview thumbnail.
-    const defaultImage = `${SITE_URL}/logo512.png`;
+    const defaultImage = DEFAULT_OG_IMAGE;
     // post.image may be a relative path so coerce to a full URL like the
     // server-side preview logic does.  this only affects clients, but it
     // prevents the DOM-based tags from ending up with "/foo.jpg" which
@@ -162,6 +163,7 @@ export default function ArticleSlugPage() {
     setMeta("name", "twitter:title", post.title || SITE_NAME);
     setMeta("name", "twitter:description", cleanDesc);
     setMeta("name", "twitter:image", ogImage);
+    setMeta('name', 'twitter:site', '@LocalKYNews');
     if (FB_APP_ID) setMeta("property", "fb:app_id", FB_APP_ID);
 
     // alternate plain-text version for AI crawlers
@@ -264,8 +266,8 @@ export default function ArticleSlugPage() {
       // restore default image tags as well; use the logo fallback here too so
       // we don't accidentally revert to the old preview graphic when leaving
       // an article.
-      setMeta("property", "og:image", `${SITE_URL}/logo512.png`);
-      setMeta("name", "twitter:image", `${SITE_URL}/logo512.png`);
+      setMeta("property", "og:image", DEFAULT_OG_IMAGE);
+      setMeta("name", "twitter:image", DEFAULT_OG_IMAGE);
       setMeta("property", "fb:app_id", FB_APP_ID || "0");
       document.getElementById("json-ld-article")?.remove();
       document.getElementById("json-ld-breadcrumb-post")?.remove();
