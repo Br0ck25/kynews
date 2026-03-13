@@ -2965,12 +2965,29 @@ async function generateSitemap(env: Env): Promise<string> {
 	const rows = await env.ky_news_db
 		.prepare(
             `SELECT id, slug, county, category, is_national, published_at, updated_at FROM articles
-       WHERE (is_kentucky = 1 OR is_national = 1) AND slug IS NOT NULL AND slug != ''
+       WHERE (is_kentucky = 1 OR is_national = 1)
+         AND slug IS NOT NULL AND slug != ''
+         AND blocked = 0
+         AND raw_word_count > 50
        ORDER BY id DESC LIMIT 50000`,
         )
         .all<{ id: number; slug: string | null; county: string | null; category: string; is_national: number; published_at: string; updated_at: string }>();
 	// filter out any rows missing a usable slug (legacy /post? urls are not canonical)
 	const validRows = (rows.results || []).filter((row) => row.slug && row.slug.trim() !== '');
+	// compute latest update date per county slug for hub pages
+	const countyLastmod: Record<string, string> = {};
+	validRows.forEach((row) => {
+		if (row.county) {
+			const slug = row.county.toLowerCase().replace(/\s+/g, '-');
+			const iso = toIsoDateOrNull(row.updated_at || row.published_at || '');
+			const date = iso ? iso.split('T')[0] : '';
+			if (date) {
+				if (!countyLastmod[slug] || date > countyLastmod[slug]) {
+					countyLastmod[slug] = date;
+				}
+			}
+		}
+	});
 	const urls = validRows.map((row) => {
 		// normalize whatever timestamp we have and then take the UTC date portion
 		const iso = toIsoDateOrNull(row.updated_at || row.published_at || '');
@@ -3021,15 +3038,17 @@ async function generateSitemap(env: Env): Promise<string> {
 		'Wayne','Webster','Whitley','Wolfe','Woodford',
 	];
 
+	const today = new Date().toISOString().split('T')[0];
 	const staticXml = [
 		...staticPages.map(
 			(p) =>
 				`  <url>\n    <loc>${baseUrl}${p.path}</loc>\n    <changefreq>${p.changefreq}</changefreq>\n    <priority>${p.priority}</priority>\n  </url>`,
 		),
-		...counties.map(
-			(c) =>
-				`  <url>\n    <loc>${baseUrl}/news/kentucky/${c.toLowerCase().replace(/\s/g, '-')}-county</loc>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>`,
-		),
+		...counties.map((c) => {
+			const slug = c.toLowerCase().replace(/\s/g, '-');
+			const last = countyLastmod[slug] || today;
+			return `  <url>\n    <loc>${baseUrl}/news/kentucky/${slug}-county</loc>\n    <lastmod>${last}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>`;
+		}),
 	];
 
 	const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -3086,6 +3105,15 @@ const rows = await prepare(env,
 			.replace(/"/g, '&quot;')
 			.replace(/'/g, '&apos;');
 		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, Boolean(row.is_national), row.id);
+		// build keywords: county (if any), capitalized category, Kentucky if not national
+		const parts: string[] = [];
+		if (row.county) parts.push(row.county);
+		if (row.category) {
+			const cap = row.category.charAt(0).toUpperCase() + row.category.slice(1);
+			parts.push(cap);
+		}
+		if (!row.is_national) parts.push('Kentucky');
+		const keywords = parts.join(', ');
 		return `  <url>
     <loc>${loc}</loc>
     <news:news>
@@ -3095,6 +3123,7 @@ const rows = await prepare(env,
       </news:publication>
       <news:publication_date>${pubDate}</news:publication_date>
       <news:title>${safeTitle}</news:title>
+      <news:keywords>${keywords}</news:keywords>
     </news:news>
   </url>`;
 	});

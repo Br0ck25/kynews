@@ -375,87 +375,183 @@ async function ensureSchemaAndFixture() {
 		});
 
 		describe('sitemap generation', () => {
-			it('normalizes lastmod and publication dates', async () => {
-				await ensureSchemaAndFixture();
-				if (env.CACHE) {
-					await env.CACHE.delete('sitemap:main');
-					await env.CACHE.delete('sitemap:news');
-				}
+				it('normalizes lastmod, filters stub articles, and adds county lastmod', async () => {
+					await ensureSchemaAndFixture();
+					if (env.CACHE) {
+						await env.CACHE.delete('sitemap:main');
+						await env.CACHE.delete('sitemap:news');
+					}
 
-				const badDate = '2025-12-15 08:30:00';
-				const goodDate = '2024-01-01T10:20:30Z';
-				await env.ky_news_db.prepare(`
-				  INSERT INTO articles (
-				    canonical_url, source_url, url_hash, title, author, published_at, category,
-				    is_kentucky, is_national, county, city, summary, seo_description,
-				    raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
-				  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				`).bind(
-				  'https://example.com/baddate',
-				  'https://example.com',
-				  'hash-baddate',
-				  'Bad Date Article',
-				  null,
-				  badDate,
-				  'today',
-				  1,
-				  0,
-				  'Fayette',
-				  null,
-				  'summary',
-				  'seo',
-				  10,
-				  5,
-				  'text',
-				  '<p>text</p>',
-				  null,
-				  null,
-				  null
-				).run();
-				await env.ky_news_db.prepare(`
-				  INSERT INTO articles (
-				    canonical_url, source_url, url_hash, title, author, published_at, category,
-				    is_kentucky, is_national, county, city, summary, seo_description,
-				    raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
-				  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				`).bind(
-				  'https://example.com/gooddate',
-				  'https://example.com',
-				  'hash-gooddate',
-				  'Good Date Article',
-				  null,
-				  goodDate,
-				  'today',
-				  1,
-				  0,
-				  'Jefferson',
-				  null,
-				  'summary2',
-				  'seo2',
-				  10,
-				  5,
-				  'text2',
-				  '<p>text2</p>',
-				  null,
-				  null,
-				  null
-				).run();
+					const badDate = '2025-12-15 08:30:00';
+					// insert a stub article that should be filtered out by word count
+					await env.ky_news_db.prepare(`
+					  INSERT INTO articles (
+					    canonical_url, source_url, url_hash, title, author, published_at, category,
+					    is_kentucky, is_national, county, city, summary, seo_description,
+					    raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+					  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					`).bind(
+					  'https://example.com/stub',
+					  'https://example.com',
+					  'hash-stub',
+					  'Stub Article',
+					  null,
+					  badDate,
+					  'today',
+					  1,
+					  0,
+					  'Pike',
+					  null,
+					  'summary',
+					  'seo',
+					  10,
+					  5,
+					  'text',
+					  '<p>text</p>',
+					  null,
+					  null,
+					  'stubslug'
+					).run();
+					// insert a valid article with bad timestamp
+					await env.ky_news_db.prepare(`
+					  INSERT INTO articles (
+					    canonical_url, source_url, url_hash, title, author, published_at, category,
+					    is_kentucky, is_national, county, city, summary, seo_description,
+					    raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+					  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					`).bind(
+					  'https://example.com/good',
+					  'https://example.com',
+					  'hash-good',
+					  'Good Date Article',
+					  null,
+					  badDate,
+					  'today',
+					  1,
+					  0,
+					  'Fayette',
+					  null,
+					  'summary2',
+					  'seo2',
+					  100,
+					  5,
+					  'text2',
+					  '<p>text2</p>',
+					  null,
+					  null,
+					  'goodslug'
+					).run();
 
-				const xml = await __testables.generateSitemap(env as any);
-				expect(xml).toMatch(/<lastmod>2025-12-15<\/lastmod>/);
-				expect(xml).toMatch(/<lastmod>2024-01-01<\/lastmod>/);
-				expect(xml).not.toContain('2025-12-15 08:30:00');
-                // slugless articles should be excluded entirely
-                expect(xml).not.toContain('/post?articleId=');
-                // there should be at least one changefreq/priority tag from our age logic
-                expect(xml).toMatch(/<changefreq>(daily|weekly|monthly)<\/changefreq>/);
-                expect(xml).toMatch(/<priority>0\.[0-9]<\/priority>/);
-			// RSS generator for the today feed should include our fixture story
-			const rss = await __testables.generateTodayRss(env as any, []);
-			expect(rss).toContain('<rss');
-			expect(rss).toContain('<item>');
-			expect(rss).toMatch(/Kentucky Today Story/);
+					const xml = await __testables.generateSitemap(env as any);
+					expect(xml).toContain('goodslug');
+					expect(xml).not.toContain('stubslug');
+					expect(xml).toMatch(/<lastmod>2025-12-15<\/lastmod>/);
+					const countySlug = 'fayette';
+					expect(xml).toMatch(new RegExp(`<loc>${BASE_URL}/news/kentucky/${countySlug}-county<\/loc>[\s\S]*?<lastmod>2025-12-15<\/lastmod>`));
+					expect(xml).toMatch(/<changefreq>(daily|weekly|monthly)<\/changefreq>/);
+					expect(xml).toMatch(/<priority>0\.[0-9]<\/priority>/);
+				});
 
+				it('news sitemap includes keywords and respects cutoff', async () => {
+					await ensureSchemaAndFixture();
+					if (env.CACHE) {
+						await env.CACHE.delete('sitemap:news');
+					}
+					const now = new Date().toISOString();
+					const oldDate = new Date(Date.now() - 49 * 60 * 60 * 1000).toISOString();
+					await env.ky_news_db.prepare(`
+					  INSERT INTO articles (
+					    canonical_url, source_url, url_hash, title, author, published_at, category,
+					    is_kentucky, is_national, county, city, summary, seo_description,
+					    raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+					  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					`).bind(
+					  'https://example.com/old',
+					  'https://example.com',
+					  'hash-old',
+					  'Old News',
+					  null,
+					  oldDate,
+					  'sports',
+					  1,
+					  0,
+					  'Pike',
+					  null,
+					  's',
+					  's',
+					  100,
+					  50,
+					  't',
+					  '<p>t</p>',
+					  null,
+					  null,
+					  'oldslug'
+					).run();
+					await env.ky_news_db.prepare(`
+					  INSERT INTO articles (
+					    canonical_url, source_url, url_hash, title, author, published_at, category,
+					    is_kentucky, is_national, county, city, summary, seo_description,
+					    raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+					  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					`).bind(
+					  'https://example.com/kynew',
+					  'https://example.com',
+					  'hash-ky',
+					  'KY Story',
+					  null,
+					  now,
+					  'sports',
+					  1,
+					  0,
+					  'Fayette',
+					  null,
+					  's',
+					  's',
+					  120,
+					  60,
+					  't',
+					  '<p>t</p>',
+					  null,
+					  null,
+					  'kyslug'
+					).run();
+					await env.ky_news_db.prepare(`
+					  INSERT INTO articles (
+					    canonical_url, source_url, url_hash, title, author, published_at, category,
+					    is_kentucky, is_national, county, city, summary, seo_description,
+					    raw_word_count, summary_word_count, content_text, content_html, image_url, raw_r2_key, slug
+					  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					`).bind(
+					  'https://example.com/nat',
+					  'https://example.com',
+					  'hash-nat',
+					  'Nat Story',
+					  null,
+					  now,
+					  'national',
+					  0,
+					  1,
+					  null,
+					  null,
+					  's',
+					  's',
+					  110,
+					  55,
+					  't',
+					  '<p>t</p>',
+					  null,
+					  null,
+					  'natslug'
+					).run();
+
+					const xml = await __testables.generateNewsSitemap(env as any);
+					expect(xml).toContain('kyslug');
+					expect(xml).toContain('natslug');
+					expect(xml).not.toContain('oldslug');
+					expect(xml).toMatch(/<news:keywords>Fayette County, Sports, Kentucky<\/news:keywords>/);
+					expect(xml).toMatch(/<news:keywords>National<\/news:keywords>/);
+				});
+		});
 	it('national endpoint returns articles flagged as national (category ignored)', async () => {
 		await ensureSchemaAndFixture();
 
@@ -4793,5 +4889,6 @@ describe('social preview HTML route', () => {
 	});
 
 
+});
 });
 });

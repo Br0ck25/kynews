@@ -249,6 +249,11 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   let articleId: number;
   try {
     articleId = await insertArticle(env, newArticle);
+    // make sure sitemaps are regenerated when new article goes in
+    if (env.CACHE) {
+      env.CACHE.delete('sitemap:main').catch(() => {});
+      env.CACHE.delete('sitemap:news').catch(() => {});
+    }
   } catch (error) {
     // convert error to safe string for logs and response
     const msg = error instanceof Error ? error.message : String(error);
