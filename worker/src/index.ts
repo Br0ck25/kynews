@@ -2010,6 +2010,70 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           const countyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
           const categoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
 
+          // build JSON-LD schemas for IAB and bots
+          const newsArticleSchema = {
+            "@context": "https://schema.org",
+            "@type": "NewsArticle",
+            headline: article.title,
+            description: desc,
+            url: pageUrl,
+            mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
+            datePublished: article.publishedAt,
+            dateModified: article.updatedAt || article.publishedAt,
+            ...(article.author
+              ? { author: { "@type": "Person", name: article.author } }
+              : {}),
+            publisher: {
+              "@type": "Organization",
+              name: "Local KY News",
+              url: "https://localkynews.com",
+              logo: {
+                "@type": "ImageObject",
+                url: "https://localkynews.com/img/logo512.png",
+                width: 512,
+                height: 512,
+              },
+            },
+            ...(imageForMeta
+              ? { image: { "@type": "ImageObject", url: imageForMeta } }
+              : {}),
+            ...(article.county
+              ? {
+                  contentLocation: {
+                    "@type": "AdministrativeArea",
+                    name: `${article.county} County, Kentucky`,
+                  },
+                }
+              : article.isKentucky
+              ? {
+                  contentLocation: {
+                    "@type": "State",
+                    name: "Kentucky",
+                  },
+                }
+              : {}),
+            speakable: {
+              "@type": "SpeakableSpecification",
+              cssSelector: ["h1", ".article-summary"],
+            },
+          };
+          const countyUrl = article.county
+            ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`
+            : null;
+          const breadcrumbSchema = {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: "Home", item: "https://localkynews.com" },
+              ...(countyUrl
+                ? [
+                    { "@type": "ListItem", position: 2, name: `${article.county} County`, item: countyUrl },
+                    { "@type": "ListItem", position: 3, name: article.title, item: pageUrl },
+                  ]
+                : [{ "@type": "ListItem", position: 2, name: article.title, item: pageUrl }]),
+            ],
+          };
+
           const iabHtml = `<!doctype html>
 <html lang="en">
 <head>
@@ -2022,6 +2086,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta property="og:description" content="${escapeHtml(desc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
+  <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
+  <meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>
+  <meta property="article:modified_time" content="${escapeHtml(article.updatedAt || article.publishedAt)}"/>
   <meta property="og:site_name" content="Local KY News"/>
   <meta name="twitter:card" content="summary_large_image"/>
   <style>
@@ -2055,7 +2122,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 </body>
 </html>`;
 
-          return new Response(iabHtml, {
+          const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
+<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`;
+          const finalHtml = iabHtml.replace('</head>', `${schemaScripts}\n</head>`);
+          return new Response(finalHtml, {
             headers: {
               'content-type': 'text/html; charset=utf-8',
               'cache-control': 'public, max-age=300, s-maxage=300',
@@ -2078,6 +2148,76 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           metas.push('<meta name="twitter:card" content="summary_large_image"/>');
           metas.push(`<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>`);
           metas.push(`<meta property="fb:app_id" content="${escapeHtml(env.FB_APP_ID || '0')}"/>`);
+        // add description, canonical link, and article timestamps
+        metas.push(`<meta name="description" content="${escapeHtml(desc)}"/>`);
+        metas.push(`<link rel="canonical" href="${escapeHtml(pageUrl)}"/>`);
+        metas.push(`<meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>`);
+        metas.push(`<meta property="article:modified_time" content="${escapeHtml(article.updatedAt || article.publishedAt)}"/>`);
+
+        // build JSON-LD schemas for bots
+        const newsArticleSchema = {
+          "@context": "https://schema.org",
+          "@type": "NewsArticle",
+          headline: article.title,
+          description: desc,
+          url: pageUrl,
+          mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
+          datePublished: article.publishedAt,
+          dateModified: article.updatedAt || article.publishedAt,
+          ...(article.author
+            ? { author: { "@type": "Person", name: article.author } }
+            : {}),
+          publisher: {
+            "@type": "Organization",
+            name: "Local KY News",
+            url: "https://localkynews.com",
+            logo: {
+              "@type": "ImageObject",
+              url: "https://localkynews.com/img/logo512.png",
+              width: 512,
+              height: 512,
+            },
+          },
+          ...(imageForMeta
+            ? { image: { "@type": "ImageObject", url: imageForMeta } }
+            : {}),
+          ...(article.county
+            ? {
+                contentLocation: {
+                  "@type": "AdministrativeArea",
+                  name: `${article.county} County, Kentucky`,
+                },
+              }
+            : article.isKentucky
+            ? {
+                contentLocation: {
+                  "@type": "State",
+                  name: "Kentucky",
+                },
+              }
+            : {}),
+          speakable: {
+            "@type": "SpeakableSpecification",
+            cssSelector: ["h1", ".article-summary"],
+          },
+        };
+        const countyUrl = article.county
+          ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`
+          : null;
+        const breadcrumbSchema = {
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Home", item: "https://localkynews.com" },
+            ...(countyUrl
+              ? [
+                  { "@type": "ListItem", position: 2, name: `${article.county} County`, item: countyUrl },
+                  { "@type": "ListItem", position: 3, name: article.title, item: pageUrl },
+                ]
+              : [{ "@type": "ListItem", position: 2, name: article.title, item: pageUrl }]),
+          ],
+        };
+
         // Build article body so Googlebot can index the actual text content
         const botSummaryParagraphs = (article.summary || '')
           .split(/\n\n+/)
@@ -2115,7 +2255,11 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
 </body>
 </html>`;
-        return new Response(html, {
+        // insert JSON-LD before sending
+        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
+<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`;
+        const finalHtml = html.replace('</head>', `${schemaScripts}\n</head>`);
+        return new Response(finalHtml, {
           headers: {
             'content-type': 'text/html; charset=utf-8',
             'cache-control': 'public, max-age=300, s-maxage=300',
@@ -2192,6 +2336,71 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           .join('\n');
         const countyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
         const categoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
+
+        // build JSON-LD schemas for IAB responses
+        const newsArticleSchema = {
+          "@context": "https://schema.org",
+          "@type": "NewsArticle",
+          headline: article.title,
+          description: desc,
+          url: pageUrl,
+          mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
+          datePublished: article.publishedAt,
+          dateModified: article.updatedAt || article.publishedAt,
+          ...(article.author
+            ? { author: { "@type": "Person", name: article.author } }
+            : {}),
+          publisher: {
+            "@type": "Organization",
+            name: "Local KY News",
+            url: "https://localkynews.com",
+            logo: {
+              "@type": "ImageObject",
+              url: "https://localkynews.com/img/logo512.png",
+              width: 512,
+              height: 512,
+            },
+          },
+          ...(imageForMeta
+            ? { image: { "@type": "ImageObject", url: imageForMeta } }
+            : {}),
+          ...(article.county
+            ? {
+                contentLocation: {
+                  "@type": "AdministrativeArea",
+                  name: `${article.county} County, Kentucky`,
+                },
+              }
+            : article.isKentucky
+            ? {
+                contentLocation: {
+                  "@type": "State",
+                  name: "Kentucky",
+                },
+              }
+            : {}),
+          speakable: {
+            "@type": "SpeakableSpecification",
+            cssSelector: ["h1", ".article-summary"],
+          },
+        };
+        const countyUrl = article.county
+          ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`
+          : null;
+        const breadcrumbSchema = {
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Home", item: "https://localkynews.com" },
+            ...(countyUrl
+              ? [
+                  { "@type": "ListItem", position: 2, name: `${article.county} County`, item: countyUrl },
+                  { "@type": "ListItem", position: 3, name: article.title, item: pageUrl },
+                ]
+              : [{ "@type": "ListItem", position: 2, name: article.title, item: pageUrl }]),
+          ],
+        };
+
         const iabHtml = `<!doctype html>
 <html lang="en">
 <head>
@@ -2204,6 +2413,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta property="og:description" content="${escapeHtml(iabDesc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
+  <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
+  <meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>
+  <meta property="article:modified_time" content="${escapeHtml(article.updatedAt || article.publishedAt)}"/>
   <meta property="og:site_name" content="Local KY News"/>
   <meta name="twitter:card" content="summary_large_image"/>
   <style>
@@ -2236,7 +2448,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
 </body>
 </html>`;
-        return new Response(iabHtml, {
+        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
+<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`;
+        const finalHtml = iabHtml.replace('</head>', `${schemaScripts}\n</head>`);
+        return new Response(finalHtml, {
           headers: {
             'content-type': 'text/html; charset=utf-8',
             'cache-control': 'public, max-age=300, s-maxage=300',
@@ -2272,6 +2487,71 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
         metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
         const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+
+        // build JSON-LD schemas for bots
+        const newsArticleSchema = {
+          "@context": "https://schema.org",
+          "@type": "NewsArticle",
+          headline: article.title,
+          description: desc,
+          url: pageUrl,
+          mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
+          datePublished: article.publishedAt,
+          dateModified: article.updatedAt || article.publishedAt,
+          ...(article.author
+            ? { author: { "@type": "Person", name: article.author } }
+            : {}),
+          publisher: {
+            "@type": "Organization",
+            name: "Local KY News",
+            url: "https://localkynews.com",
+            logo: {
+              "@type": "ImageObject",
+              url: "https://localkynews.com/img/logo512.png",
+              width: 512,
+              height: 512,
+            },
+          },
+          ...(imageForMeta
+            ? { image: { "@type": "ImageObject", url: imageForMeta } }
+            : {}),
+          ...(article.county
+            ? {
+                contentLocation: {
+                  "@type": "AdministrativeArea",
+                  name: `${article.county} County, Kentucky`,
+                },
+              }
+            : article.isKentucky
+            ? {
+                contentLocation: {
+                  "@type": "State",
+                  name: "Kentucky",
+                },
+              }
+            : {}),
+          speakable: {
+            "@type": "SpeakableSpecification",
+            cssSelector: ["h1", ".article-summary"],
+          },
+        };
+        const countyUrl = article.county
+          ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`
+          : null;
+        const breadcrumbSchema = {
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Home", item: "https://localkynews.com" },
+            ...(countyUrl
+              ? [
+                  { "@type": "ListItem", position: 2, name: `${article.county} County`, item: countyUrl },
+                  { "@type": "ListItem", position: 3, name: article.title, item: pageUrl },
+                ]
+              : [{ "@type": "ListItem", position: 2, name: article.title, item: pageUrl }]),
+          ],
+        };
+
         metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
         metas.push(`<meta property="og:image:width" content="1200"/>`);
         metas.push(`<meta property="og:image:height" content="630"/>`);
@@ -2291,6 +2571,11 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           )}"/>`
         );
 
+        // add description, canonical link, and article timestamps
+        metas.push(`<meta name="description" content="${escapeHtml(desc)}"/>`);
+        metas.push(`<link rel="canonical" href="${escapeHtml(pageUrl)}"/>`);
+        metas.push(`<meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>`);
+        metas.push(`<meta property="article:modified_time" content="${escapeHtml(article.updatedAt || article.publishedAt)}"/>`);
         // Build article body so Googlebot can index the actual text content
         const botSummaryParagraphs = (article.summary || '')
           .split(/\n\n+/)
@@ -2328,7 +2613,11 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
 </body>
 </html>`;
-        return new Response(html, {
+        // insert JSON-LD scripts
+        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
+<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`;
+        const finalHtml = html.replace('</head>', `${schemaScripts}\n</head>`);
+        return new Response(finalHtml, {
           headers: {
             'content-type': 'text/html; charset=utf-8',
             'cache-control': 'public, max-age=300, s-maxage=300',
