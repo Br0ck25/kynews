@@ -7,8 +7,8 @@ vi.mock('web-push', () => ({
 	sendNotification: vi.fn().mockResolvedValue(undefined),
 }));
 
-import worker from '../src/entry.mts';
-import { __testables, BASE_URL, buildArticleUrl } from '../src/entry.mts';
+import worker from '../src/index';
+import { __testables } from '../src/index';
 import * as classifyModule from '../src/lib/classify';
 import { classifyArticleWithAi, detectSemanticCategory, isShortContentAllowed, isStatewideKyPoliticalStory } from '../src/lib/classify';
 import { isScheduleOrScoresArticle } from '../src/lib/ai';
@@ -31,6 +31,7 @@ import {
 import { KY_COUNTIES } from '../src/data/ky-geo';
 
 // helpers tested later
+import { BASE_URL, buildArticleUrl } from '../src/index';
 import { articleToUrl } from '../src/utils/functions';
 
 // simplified alias for testing; avoid TypeScript generics to keep Vitest happy
@@ -58,7 +59,6 @@ async function ensureSchemaAndFixture() {
 			content_text TEXT NOT NULL,
 			content_html TEXT NOT NULL,
 			image_url TEXT,
-			image_alt TEXT,
 			raw_r2_key TEXT,
 			slug TEXT,
 			content_hash TEXT,

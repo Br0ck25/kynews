@@ -185,11 +185,6 @@ export default function PostPage() {
       }
     }
     setMeta("property", "og:image", ogImage);
-    const ogImageType = /\.png(\?|$)/i.test(ogImage) ? 'image/png' : 'image/jpeg';
-    setMeta("property", "og:image:secure_url", ogImage);
-    setMeta("property", "og:image:type", ogImageType);
-    setMeta("property", "og:image:width", "1200");
-    setMeta("property", "og:image:height", "630");
 
     // Twitter card
     setMeta("name", "twitter:card", "summary_large_image");
@@ -323,7 +318,6 @@ export default function PostPage() {
       setCanonical(SITE_URL);
       setMeta("name", "robots", "index,follow");
       setMeta("property", "og:image", `${SITE_URL}/img/preview.png`);
-      setMeta("property", "og:image:secure_url", `${SITE_URL}/img/preview.png`);
       setMeta("name", "twitter:image", `${SITE_URL}/img/preview.png`);
       setMeta("property", "fb:app_id", getFbAppId() || "0");
       const ldScript = document.getElementById("json-ld-article");

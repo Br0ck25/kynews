@@ -56,7 +56,6 @@ import { buildPageTitle } from './lib/pageTitle';
 import { processNwsAlerts, processNwsProducts } from './lib/nws';
 import { processSpcFeed } from './lib/spc';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
-import { BASE_URL, TODAY_RSS_LIMIT, buildArticleUrl, countyNameToSlug } from './lib/constants';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -74,16 +73,6 @@ function getRobotsContent(wordCount: number | null | undefined): string {
 	if (wc < NOINDEX_WORD_THRESHOLD) return 'noindex,follow';
 	if (wc < SNIPPET_LIMIT_THRESHOLD) return 'index,follow,max-snippet:160';
 	return 'index,follow';
-}
-
-function escapeHtml(input: string | null | undefined): string {
-	const str = input ?? '';
-	return str
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&#39;');
 }
 
 const INGEST_METRICS_KEY = 'admin:ingest:latest';
@@ -144,12 +133,7 @@ const PUBLIC_ARTICLE_CACHE_HEADERS = {
 // avoids subtle bugs where a locally scoped variable might not be defined at
 // runtime ("baseUrl is not defined" errors) and makes it easy to change if the
 // domain ever moves.
-
-// maximum number of items included in the /today.rss feed.  the
-// frontend JSON endpoint uses a similar limit (50000) but the RSS feed is
-// intentionally smaller to keep the XML payload reasonable for subscribers.
-// users asked for “more articles”, so bump this constant here; tests below
-// validate that we honour it.
+export const BASE_URL = 'https://localkynews.com';
 
 /**
  * Return an HTML block listing up to 4 recent articles from the same county.
@@ -1489,39 +1473,20 @@ if (url.pathname === '/api/admin/facebook/caption' && request.method === 'POST')
 // helper reused by several endpoints: choose a sensible preview image URL for an
 // article record.  This mirrors the logic used when rendering OG tags for bots.
 async function selectPreviewImage(article: ArticleRecord): Promise<string | null> {
-	// Normalize and trim any stored value.  Occasionally scraping can leave
-	// whitespace around URLs which can cause downstream crawlers to treat the
-	// value as invalid and fall back to the default preview image.
-	let previewImage = article.imageUrl?.trim() || null;
-
-	// Never use data: URIs as Open Graph images; these are not fetchable by crawlers.
-	if (previewImage && /^data:/i.test(previewImage)) {
-		previewImage = null;
-	}
-
+	let previewImage = article.imageUrl || null;
 	if (!previewImage && article.contentHtml) {
 		const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
-		if (match && match[1]) previewImage = match[1].trim();
+		if (match && match[1]) previewImage = match[1];
 	}
-	const canonicalUrl = (article.canonicalUrl || '').trim();
-	const shouldFetchCanonical = Boolean(canonicalUrl && (() => {
+	if (!previewImage) {
 		try {
-			const parsed = new URL(canonicalUrl);
-			const baseHost = new URL(BASE_URL).hostname;
-			return parsed.hostname !== baseHost && parsed.hostname !== `www.${baseHost}`;
-		} catch {
-			return false;
-		}
-	})());
-	if (!previewImage && shouldFetchCanonical) {
-		try {
-			const fetchResp = await fetch(`${canonicalUrl}?_=${Date.now()}`);
+			const fetchResp = await fetch((article.canonicalUrl || '') + `?_=${Date.now()}`);
 			if (fetchResp.ok) {
 				const body = await fetchResp.text();
 				const { scrapeArticleHtml } = await import('./lib/scrape');
-				const scraped = scrapeArticleHtml(canonicalUrl, body);
+				const scraped = scrapeArticleHtml(article.canonicalUrl || '', body);
 				if (scraped.imageUrl) {
-					previewImage = scraped.imageUrl.trim();
+					previewImage = scraped.imageUrl;
 				}
 			}
 		} catch {
@@ -1534,10 +1499,6 @@ async function selectPreviewImage(article: ArticleRecord): Promise<string | null
 		} catch {
 			/* ignore invalid URL */
 		}
-	}
-	// As a final safeguard, ensure the returned URL is an http(s) URL.
-	if (previewImage && !/^https?:\/\//i.test(previewImage)) {
-		return null;
 	}
 	return previewImage || null;
 }
@@ -2048,10 +2009,6 @@ if (countyPageMatch && request.method === 'GET') {
 <meta property="og:description" content="${escapeHtml(description)}"/>
 <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
 <meta property="og:image" content="${escapeHtml(image)}"/>
-<meta property="og:image:secure_url" content="${escapeHtml(image)}"/>
-<meta property="og:image:type" content="image/png"/>
-<meta property="og:image:width" content="1200"/>
-<meta property="og:image:height" content="630"/>
 <meta property="og:site_name" content="Local KY News"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="${escapeHtml(title)}"/>
@@ -2107,19 +2064,18 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           .slice(0, 160);
 
         if (isFacebookIab && article) {
-          try {
-            // Facebook/Instagram in-app browser: serve a lightweight server-rendered
-            // HTML page with the article content directly in the body. This bypasses
-            // the React SPA which cannot load correctly in the IAB due to JS/CORS
-            // restrictions. Include OG tags so the header still previews correctly.
-            const pageUrl = `https://localkynews.com${canonicalPath}`;
-            const desc = (article.seoDescription || article.summary || '')
-              .replace(/<[^>]+>/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim()
-              .slice(0, 300);
-            const fallbackImage = 'https://localkynews.com/img/preview.png';
-            const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+          // Facebook/Instagram in-app browser: serve a lightweight server-rendered
+          // HTML page with the article content directly in the body. This bypasses
+          // the React SPA which cannot load correctly in the IAB due to JS/CORS
+          // restrictions. Include OG tags so the header still previews correctly.
+          const pageUrl = `https://localkynews.com${canonicalPath}`;
+          const desc = (article.seoDescription || article.summary || '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 300);
+          const fallbackImage = 'https://localkynews.com/img/preview.png';
+          const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
 
           // Render the summary as paragraphs
           const summaryParagraphs = (article.summary || '')
@@ -2195,12 +2151,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             ],
           };
 
-          const safeTitle = article.title ?? '';
-          const safeCanonical = article.canonicalUrl ?? '';
-          const safePublished = article.publishedAt ?? '';
-          const safeUpdated = article.updatedAt ?? safePublished;
-
-          const iabPageTitle = buildPageTitle(safeTitle, article.county, article.isKentucky);
+          const iabPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
 
           const iabHtml = `<!doctype html>
 <html lang="en">
@@ -2214,14 +2165,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta property="og:title" content="${escapeHtml(iabPageTitle)}"/>
   <meta property="og:description" content="${escapeHtml(desc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
-  <meta property="og:image:secure_url" content="${escapeHtml(imageForMeta)}"/>
-  <meta property="og:image:type" content="${/\.png(\?|$)/i.test(imageForMeta) ? 'image/png' : 'image/jpeg'}"/>
-  <meta property="og:image:width" content="1200"/>
-  <meta property="og:image:height" content="630"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
   <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
-  <meta property="article:published_time" content="${escapeHtml(safePublished)}"/>
-  <meta property="article:modified_time" content="${escapeHtml(safeUpdated)}"/>
+  <meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>
+  <meta property="article:modified_time" content="${escapeHtml(article.updatedAt || article.publishedAt)}"/>
   <meta property="og:site_name" content="Local KY News"/>
   <meta name="twitter:card" content="summary_large_image"/>
   <style>
@@ -2237,15 +2184,15 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   </style>
 </head>
 <body>
-  <h1>${escapeHtml(safeTitle)}</h1>
+  <h1>${escapeHtml(article.title)}</h1>
   <div class="meta">
     ${countyLabel ? `<span>📍 ${escapeHtml(countyLabel)}</span>` : ''}
     ${categoryLabel ? `<span>${escapeHtml(categoryLabel)}</span>` : ''}
-    ${safePublished ? `<span>${new Date(safePublished).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>` : ''}
+    ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>` : ''}
   </div>
-  ${imageForMeta && imageForMeta !== fallbackImage ? `<img class="hero" src="${escapeHtml(imageForMeta)}" alt="${escapeHtml(article.imageAlt || safeTitle)}" loading="eager"/>` : ''}
+  ${imageForMeta && imageForMeta !== fallbackImage ? `<img class="hero" src="${escapeHtml(imageForMeta)}" alt="${escapeHtml(article.imageAlt || article.title)}" loading="eager"/>` : ''}
   ${summaryParagraphs || `<p>${escapeHtml(desc)}</p>`}
-  <a class="source-link" href="${escapeHtml(safeCanonical)}" target="_blank" rel="noopener">
+  <a class="source-link" href="${escapeHtml(article.canonicalUrl)}" target="_blank" rel="noopener">
     Read full article at source →
   </a>
   <a class="site-link" href="${escapeHtml(pageUrl)}">
@@ -2264,131 +2211,104 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
               'cache-control': 'public, max-age=300, s-maxage=300',
             },
           });
-        } catch (err) {
-          // If anything fails while generating the bot/IAB preview, return a
-          // minimal HTML response so crawlers still receive valid OG tags.
-          const fallbackPageUrl = `https://localkynews.com${canonicalPath}`;
-          const fallbackImage = 'https://localkynews.com/img/preview.png';
-          const fallbackHtml = `<!doctype html><html><head>
-<meta property="og:type" content="article"/>
-<meta property="og:title" content="Local KY News"/>
-<meta property="og:description" content="Kentucky News - local, state, and national updates for all 120 Kentucky counties."/>
-<meta property="og:image" content="${escapeHtml(fallbackImage)}"/>
-<meta property="og:image:secure_url" content="${escapeHtml(fallbackImage)}"/>
-<meta property="og:image:type" content="image/png"/>
-<meta property="og:image:width" content="1200"/>
-<meta property="og:image:height" content="630"/>
-<meta property="og:url" content="${escapeHtml(fallbackPageUrl)}"/>
-<meta property="og:site_name" content="Local KY News"/>
-</head><body></body></html>`;
-          return new Response(fallbackHtml, {
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-          });
         }
         if (isBot) {
-          try {
-            const safeTitle = article.title ?? '';
-            const safeCanonical = article.canonicalUrl ?? '';
-            const safePublished = article.publishedAt ?? '';
-            const safeUpdated = article.updatedAt ?? safePublished;
-            const pageUrl = `https://localkynews.com${canonicalPath}`;
-            const metas: string[] = [];
-            const metaPageTitle = buildPageTitle(safeTitle, article.county, article.isKentucky);
-            const fallbackImage = 'https://localkynews.com/img/preview.png';
-            const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+          const pageUrl = `https://localkynews.com${canonicalPath}`;
+          const metas: string[] = [];
+          const metaPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
+          const fallbackImage = 'https://localkynews.com/img/preview.png';
+          metas.push('<meta property="og:type" content="article"/>');
+          metas.push(`<meta property="og:title" content="${escapeHtml(metaPageTitle)}"/>`);
+          metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
+          const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+          metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
+          metas.push(`<meta property="og:image:width" content="1200"/>`);
+          metas.push(`<meta property="og:image:height" content="630"/>`);
+          metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
+          metas.push('<meta property="og:site_name" content="Local KY News"/>');
+          metas.push('<meta name="twitter:card" content="summary_large_image"/>');
+          metas.push(`<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>`);
+          metas.push(`<meta property="fb:app_id" content="${escapeHtml(env.FB_APP_ID || '0')}"/>`);
+        // add description, canonical link, and article timestamps
+        metas.push(`<meta name="description" content="${escapeHtml(desc)}"/>`);
+        metas.push(`<link rel="canonical" href="${escapeHtml(pageUrl)}"/>`);
+        metas.push(`<meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>`);
+        metas.push(`<meta property="article:modified_time" content="${escapeHtml(article.updatedAt || article.publishedAt)}"/>`);
 
-            metas.push('<meta property="og:type" content="article"/>');
-            metas.push(`<meta property="og:title" content="${escapeHtml(metaPageTitle)}"/>`);
-            metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-            metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
-            metas.push(`<meta property="og:image:secure_url" content="${escapeHtml(imageForMeta)}"/>`);
-            metas.push(`<meta property="og:image:type" content="${/\.png(\?|$)/i.test(imageForMeta) ? 'image/png' : 'image/jpeg'}"/>`);
-            metas.push(`<meta property="og:image:width" content="1200"/>`);
-            metas.push(`<meta property="og:image:height" content="630"/>`);
-            metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
-            metas.push('<meta property="og:site_name" content="Local KY News"/>');
-            metas.push('<meta name="twitter:card" content="summary_large_image"/>');
-            metas.push(`<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>`);
-            metas.push(`<meta property="fb:app_id" content="${escapeHtml(env.FB_APP_ID || '0')}"/>`);
-            // add description, canonical link, and article timestamps
-            metas.push(`<meta name="description" content="${escapeHtml(desc)}"/>`);
-            metas.push(`<link rel="canonical" href="${escapeHtml(pageUrl)}"/>`);
-            metas.push(`<meta property="article:published_time" content="${escapeHtml(safePublished)}"/>`);
-            metas.push(`<meta property="article:modified_time" content="${escapeHtml(safeUpdated)}"/>`);
-
-            const newsArticleSchema = {
-              "@context": "https://schema.org",
-              "@type": "NewsArticle",
-              headline: article.title,
-              description: desc,
-              url: pageUrl,
-              mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
-              datePublished: article.publishedAt,
-              dateModified: article.updatedAt || article.publishedAt,
-              ...(article.author
-                ? { author: { "@type": "Person", name: article.author } }
-                : {}),
-              publisher: {
-                "@type": "Organization",
-                name: "Local KY News",
-                url: "https://localkynews.com",
-                logo: {
-                  "@type": "ImageObject",
-                  url: "https://localkynews.com/img/logo512.png",
-                  width: 512,
-                  height: 512,
+        // build JSON-LD schemas for bots
+        const newsArticleSchema = {
+          "@context": "https://schema.org",
+          "@type": "NewsArticle",
+          headline: article.title,
+          description: desc,
+          url: pageUrl,
+          mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
+          datePublished: article.publishedAt,
+          dateModified: article.updatedAt || article.publishedAt,
+          ...(article.author
+            ? { author: { "@type": "Person", name: article.author } }
+            : {}),
+          publisher: {
+            "@type": "Organization",
+            name: "Local KY News",
+            url: "https://localkynews.com",
+            logo: {
+              "@type": "ImageObject",
+              url: "https://localkynews.com/img/logo512.png",
+              width: 512,
+              height: 512,
+            },
+          },
+          ...(imageForMeta
+            ? { image: { "@type": "ImageObject", url: imageForMeta } }
+            : {}),
+          ...(article.county
+            ? {
+                contentLocation: {
+                  "@type": "AdministrativeArea",
+                  name: `${article.county} County, Kentucky`,
                 },
-              },
-              ...(imageForMeta
-                ? { image: { "@type": "ImageObject", url: imageForMeta } }
-                : {}),
-              ...(article.county
-                ? {
-                    contentLocation: {
-                      "@type": "AdministrativeArea",
-                      name: `${article.county} County, Kentucky`,
-                    },
-                  }
-                : article.isKentucky
-                ? {
-                    contentLocation: {
-                      "@type": "State",
-                      name: "Kentucky",
-                    },
-                  }
-                : {}),
-              speakable: {
-                "@type": "SpeakableSpecification",
-                cssSelector: ["h1", ".article-summary"],
-              },
-            };
-            const countyUrl = article.county
-              ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`
-              : null;
-            const breadcrumbSchema = {
-              "@context": "https://schema.org",
-              "@type": "BreadcrumbList",
-              itemListElement: [
-                { "@type": "ListItem", position: 1, name: "Home", item: "https://localkynews.com" },
-                ...(countyUrl
-                  ? [
-                      { "@type": "ListItem", position: 2, name: `${article.county} County`, item: countyUrl },
-                      { "@type": "ListItem", position: 3, name: article.title, item: pageUrl },
-                    ]
-                  : [{ "@type": "ListItem", position: 2, name: article.title, item: pageUrl }]),
-              ],
-            };
+              }
+            : article.isKentucky
+            ? {
+                contentLocation: {
+                  "@type": "State",
+                  name: "Kentucky",
+                },
+              }
+            : {}),
+          speakable: {
+            "@type": "SpeakableSpecification",
+            cssSelector: ["h1", ".article-summary"],
+          },
+        };
+        const countyUrl = article.county
+          ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`
+          : null;
+        const breadcrumbSchema = {
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Home", item: "https://localkynews.com" },
+            ...(countyUrl
+              ? [
+                  { "@type": "ListItem", position: 2, name: `${article.county} County`, item: countyUrl },
+                  { "@type": "ListItem", position: 3, name: article.title, item: pageUrl },
+                ]
+              : [{ "@type": "ListItem", position: 2, name: article.title, item: pageUrl }]),
+          ],
+        };
 
-            // Build article body so Googlebot can index the actual text content
-            const botSummaryParagraphs = (article.summary || '')
-              .split(/\n\n+/)
-              .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
-              .filter((p: string) => p.length > 10)
-              .join('\n');
-            const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
-            const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
-            const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
-            const html = `<!doctype html>
+        // Build article body so Googlebot can index the actual text content
+        const botSummaryParagraphs = (article.summary || '')
+          .split(/\n\n+/)
+          .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
+          .filter((p: string) => p.length > 10)
+          .join('\n');
+        const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
+        const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
+        const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
+        const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
@@ -2419,35 +2339,16 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
 </body>
 </html>`;
-            // insert JSON-LD before sending
-            const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
+        // insert JSON-LD before sending
+        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
 <script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`;
-            const finalHtml = html.replace('</head>', `${schemaScripts}\n</head>`);
-            return new Response(finalHtml, {
-              headers: {
-                'content-type': 'text/html; charset=utf-8',
-                'cache-control': 'public, max-age=300, s-maxage=300',
-              },
-            });
-          } catch (err) {
-            const fallbackPageUrl = `https://localkynews.com${canonicalPath}`;
-            const fallbackImage = 'https://localkynews.com/img/preview.png';
-            const fallbackHtml = `<!doctype html><html><head>
-<meta property="og:type" content="article"/>
-<meta property="og:title" content="Local KY News"/>
-<meta property="og:description" content="Kentucky News - local, state, and national updates for all 120 Kentucky counties."/>
-<meta property="og:image" content="${escapeHtml(fallbackImage)}"/>
-<meta property="og:image:secure_url" content="${escapeHtml(fallbackImage)}"/>
-<meta property="og:image:type" content="image/png"/>
-<meta property="og:image:width" content="1200"/>
-<meta property="og:image:height" content="630"/>
-<meta property="og:url" content="${escapeHtml(fallbackPageUrl)}"/>
-<meta property="og:site_name" content="Local KY News"/>
-</head><body></body></html>`;
-            return new Response(fallbackHtml, {
-              headers: { 'content-type': 'text/html; charset=utf-8' },
-            });
-          }
+        const finalHtml = html.replace('</head>', `${schemaScripts}\n</head>`);
+        return new Response(finalHtml, {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'public, max-age=300, s-maxage=300',
+          },
+        });
         }
         if (!isBot && canonicalPath !== url.pathname) {
           return new Response(null, {
@@ -2598,10 +2499,6 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta property="og:title" content="${escapeHtml(iabPageTitle)}"/>
   <meta property="og:description" content="${escapeHtml(iabDesc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
-  <meta property="og:image:secure_url" content="${escapeHtml(imageForMeta)}"/>
-  <meta property="og:image:type" content="${/\.png(\?|$)/i.test(imageForMeta) ? 'image/png' : 'image/jpeg'}"/>
-  <meta property="og:image:width" content="1200"/>
-  <meta property="og:image:height" content="630"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
   <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
   <meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>
@@ -2744,8 +2641,6 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         };
 
         metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
-        metas.push(`<meta property="og:image:secure_url" content="${escapeHtml(imageForMeta)}"/>`);
-        metas.push(`<meta property="og:image:type" content="${/\.png(\?|$)/i.test(imageForMeta) ? 'image/png' : 'image/jpeg'}"/>`);
         metas.push(`<meta property="og:image:width" content="1200"/>`);
         metas.push(`<meta property="og:image:height" content="630"/>`);
         metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
@@ -2753,7 +2648,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 
         // Twitter uses its own tags and also wants the large image card.
         metas.push('<meta name="twitter:card" content="summary_large_image"/>');
-        metas.push(`<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>`);
+        metas.push(
+          `<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>
+        `);
 
         // always include the tag; use configured ID or fall back to '0'
         metas.push(
@@ -2910,10 +2807,6 @@ if (request.method === 'GET' && sectionMeta && isBotUserAgent(request.headers.ge
   <meta property="og:url" content="${baseUrl}${url.pathname}"/>
   <meta property="og:site_name" content="Local KY News"/>
   <meta property="og:image" content="${baseUrl}/img/preview.png"/>
-  <meta property="og:image:secure_url" content="${baseUrl}/img/preview.png"/>
-  <meta property="og:image:type" content="image/png"/>
-  <meta property="og:image:width" content="1200"/>
-  <meta property="og:image:height" content="630"/>
   <meta name="twitter:card" content="summary_large_image"/>
   <meta name="twitter:site" content="@LocalKYNews"/>
   <style>
@@ -3068,7 +2961,26 @@ return json({ error: 'Not found' }, 404);
  * Build a clean article URL for use in sitemaps and API responses.
  * Mirrors the frontend articleToUrl() logic in src/utils/functions.js.
  */
-// buildArticleUrl and related helpers live in src/lib/constants.ts.
+function countyNameToSlug(countyName: string): string {
+	let cleaned = countyName.trim();
+	if (!/county$/i.test(cleaned)) cleaned += ' County';
+	return cleaned.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function buildArticleUrl(
+	baseUrl: string,
+	slug: string | null,
+	county: string | null,
+	category: string,
+	isNational: boolean,
+	id: number,
+): string {
+	if (!slug) return `${baseUrl}/post?articleId=${id}`;
+	if (county) return `${baseUrl}/news/kentucky/${countyNameToSlug(county)}/${slug}`;
+	// anything marked national or explicitly category 'national' goes in national path
+	if (isNational || category === 'national') return `${baseUrl}/news/national/${slug}`;
+	return `${baseUrl}/news/kentucky/${slug}`;
+}
 
 /**
  * Build the canonical /news/ path for an article based on its
@@ -3328,6 +3240,13 @@ function escapeXml(str: string): string {
  * Build a simple RSS feed for the "today" category.  exported so unit
  * tests can call it directly.
  */
+// maximum number of items included in the /today.rss feed.  the
+// frontend JSON endpoint uses a similar limit (50000) but the RSS feed is
+// intentionally smaller to keep the XML payload reasonable for subscribers.
+// users asked for “more articles”, so bump this constant here; tests below
+// validate that we honour it.
+export const TODAY_RSS_LIMIT = 100;
+
 async function generateTodayRss(env: Env, counties: string[], limit: number = TODAY_RSS_LIMIT): Promise<string> {
     // original code guarded against giant county arrays; keep that logic
     if (counties.length > 100) {
@@ -3423,7 +3342,7 @@ function generateSitemapIndex(): string {
 </sitemapindex>`;
 }
 
-const worker = {
+export default {
 async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 // Handle CORS preflight requests first
 if (request.method === 'OPTIONS') {
@@ -3513,8 +3432,6 @@ async queue(batch: MessageBatch<QueueJob>, env: Env, ctx: ExecutionContext): Pro
 },
 
 };
-
-
 
 /** Process sources sequentially and store results - used by both HTTP seed endpoint and cron. */
 async function runIngest(
@@ -4471,7 +4388,7 @@ async function checkArticleUpdates(env: Env, maxAgeHours: number = 24): Promise<
   }
 }
 
-const __testables = {
+export const __testables = {
 	normalizeSourceUrl,
 	isStructuredSearchSource,
 	isRobotsBypassAllowed,
@@ -4499,12 +4416,13 @@ const __testables = {
 };
 
 // also export runIngest directly for easier import in tests or tooling
+export { runIngest };
 
 /**
  * Cloudflare queue handler.  messages are sent by the admin UI and processed
  * asynchronously here; each invocation receives a batch of jobs.
  */
-async function queue(
+export async function queue(
 	batch: MessageBatch<QueueJob>,
 	env: Env,
 	ctx: ExecutionContext,
@@ -4995,14 +4913,4 @@ function matchesRobotsPattern(pathname: string, pattern: string): boolean {
 		.replace(/\*/g, '.*');
 	const regex = new RegExp(`^${escaped}${hasEndAnchor ? '$' : ''}`);
 	return regex.test(pathname);
-}
-
-// Expose internal helpers and constants to the module entrypoint and for unit tests.
-;(globalThis as any).handleRequest = handleRequest;
-;(globalThis as any).scheduledHandler = worker.scheduled.bind(worker);
-;(globalThis as any).queue = queue;
-;(globalThis as any).__testables = __testables;
-;(globalThis as any).BASE_URL = BASE_URL;
-;(globalThis as any).buildArticleUrl = buildArticleUrl;
-;(globalThis as any).TODAY_RSS_LIMIT = TODAY_RSS_LIMIT;
 }

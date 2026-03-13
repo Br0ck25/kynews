@@ -66,26 +66,6 @@ describe('ArticleSlugPage metadata', () => {
     });
   });
 
-  it('sets og:image to the article image URL when post.image is set', async () => {
-    const post = {
-      title: 'Test',
-      slug: 'test-slug',
-      image: 'https://example.com/photo.jpg',
-      seoDescription: 'desc',
-      categories: [],
-      rawWordCount: 200,
-    };
-    jest.spyOn(SiteService.prototype, 'getPostBySlug').mockResolvedValue(post);
-
-    renderArticleSlugPage(post);
-
-    await waitFor(() => {
-      expect(getMeta('og:image')).toBe('https://example.com/photo.jpg');
-      expect(getMeta('og:image:width')).toBe('1200');
-      expect(getMeta('og:image:height')).toBe('630');
-    });
-  });
-
   it('sets robots meta to max-snippet for intermediate word counts', async () => {
     const post = {
       title: 'Medium Word Count Title',

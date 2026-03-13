@@ -5,19 +5,13 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "worker",
-	"main": "src/entry.mts",
+	"main": "src/index.ts",
 	"compatibility_date": "2026-02-19",
 	"observability": {
 		"enabled": true
 	},
 	"compatibility_flags": [
 		"nodejs_compat"
-	],
-	"rules": [
-		{
-			"type": "ESModule",
-			"globs": ["src/**/*.ts", "src/**/*.mts"]
-		}
 	],
 	"d1_databases": [
 		{
