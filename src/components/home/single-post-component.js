@@ -129,7 +129,7 @@ export default function SinglePost(props) {
                 loading="lazy" defers off-screen images to reduce initial payload. */}
             <CardMedia
               component="img"
-              alt={post.title || post.imageText || "Article image"}
+              alt={post.imageAlt || post.title || post.imageText || "Article image"}
               className={classes.media}
               image={post.image && post.image.trim() ? post.image.trim() : "/logo.png"}
               title={post.title}

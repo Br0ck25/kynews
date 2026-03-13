@@ -379,6 +379,10 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const seoDescription = `${alert.event} issued for ${countyList}. Check Local KY News for details and safety instructions.`.slice(0, 300);
   const now = new Date().toISOString();
 
+  const imageAlt = `https://www.spc.noaa.gov/products/watch/ww.png`
+    ? [title, primaryCounty ? `${primaryCounty} County, Kentucky` : null].filter(Boolean).join(' — ')
+    : null;
+
   return {
     canonicalUrl,
     sourceUrl: 'https://www.weather.gov/',
@@ -403,6 +407,7 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
     contentText,
     contentHtml,
     imageUrl: 'https://www.spc.noaa.gov/products/watch/ww.png',
+    imageAlt,
     rawR2Key: null,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
     alertGeojson: alert.geometry ? JSON.stringify(alert.geometry) : null,

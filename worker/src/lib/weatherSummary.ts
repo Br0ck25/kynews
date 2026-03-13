@@ -605,6 +605,10 @@ export async function buildDailyWeatherArticle(
     .slice(0, 160)
     .trim();
 
+  const imageAlt = imageUrl
+    ? [headline].filter(Boolean).join(' — ')
+    : null;
+
   return {
     canonicalUrl,
     sourceUrl: BASE_URL,
@@ -635,6 +639,7 @@ export async function buildDailyWeatherArticle(
     contentText,
     contentHtml,
     imageUrl,
+    imageAlt,
     rawR2Key: null,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
   };

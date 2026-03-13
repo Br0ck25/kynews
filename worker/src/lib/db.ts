@@ -30,6 +30,7 @@ interface ArticleRow {
   content_text: string;
   content_html: string;
   image_url: string | null;
+  image_alt: string | null;
   raw_r2_key: string | null;
   slug: string | null;
   content_hash: string | null;
@@ -222,11 +223,12 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           content_text,
           content_html,
           image_url,
+          image_alt,
           raw_r2_key,
           slug,
           content_hash,
           alert_geojson
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         article.canonicalUrl,
@@ -247,6 +249,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
         article.contentText,
         article.contentHtml,
         article.imageUrl,
+        article.imageAlt ?? null,
         article.rawR2Key,
         article.slug ?? null,
         article.contentHash ?? null,
@@ -744,12 +747,15 @@ export async function queryArticles(env: Env, options: {
   const sqlLimit = Math.min(options.limit + 10, 60);
   binds.push(sqlLimit);
 
+  const supportsImageAlt = await columnExists(env, 'articles', 'image_alt');
+  const imageAltSelect = supportsImageAlt ? 'image_alt,' : 'NULL AS image_alt,';
+
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1';
   const query = `
     SELECT id, canonical_url, source_url, url_hash, title, author,
            published_at, category, is_kentucky, is_national, county, city,
            summary, seo_description, raw_word_count, summary_word_count,
-           image_url, raw_r2_key, slug, content_hash, created_at, updated_at
+           image_url, ${imageAltSelect} raw_r2_key, slug, content_hash, created_at, updated_at
     FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?
   `;
 
@@ -807,6 +813,7 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     contentText: row.content_text ?? '',
     contentHtml: row.content_html ?? '',
     imageUrl: row.image_url,
+    imageAlt: row.image_alt ?? null,
     rawR2Key: row.raw_r2_key,
     contentHash: row.content_hash ?? null,
     slug: row.slug ?? null,

@@ -211,6 +211,12 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     wordCount: words,
   });
 
+  const imageAlt = extracted.imageUrl
+    ? [extracted.title, classification.county ? `${classification.county} County, Kentucky` : null]
+        .filter(Boolean)
+        .join(' — ')
+    : null;
+
   const newArticle: NewArticle = {
     canonicalUrl: extracted.canonicalUrl,
     sourceUrl: extracted.sourceUrl,
@@ -231,6 +237,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     contentText: extracted.contentText,
     contentHtml: extracted.contentHtml,
     imageUrl: extracted.imageUrl,
+    imageAlt,
     rawR2Key,
     contentHash,
     // SEO-friendly slug: title-slug + first 8 chars of urlHash for uniqueness (Section 4)

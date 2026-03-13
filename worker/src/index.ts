@@ -1777,6 +1777,12 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 			: seoRaw.slice(0, 157).replace(/[\s,;:.!?-]+$/g, '') + '...';
 	}
 
+	const imageAlt = imageUrl
+		? [title, classification.county ? `${classification.county} County, Kentucky` : null]
+			.filter(Boolean)
+			.join(' — ')
+		: null;
+
 	const newArticle: NewArticle = {
 		canonicalUrl,
 		sourceUrl: normalizedSourceUrl || canonicalUrl,
@@ -1797,6 +1803,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		contentText: postBody || title,
 		contentHtml,
 		imageUrl,
+		imageAlt,
 		rawR2Key: null,
 		slug: generateArticleSlug(title, canonicalHash),
 	};
@@ -2172,7 +2179,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
     ${categoryLabel ? `<span>${escapeHtml(categoryLabel)}</span>` : ''}
     ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>` : ''}
   </div>
-  ${imageForMeta && imageForMeta !== fallbackImage ? `<img class="hero" src="${escapeHtml(imageForMeta)}" alt="${escapeHtml(article.title)}" loading="eager"/>` : ''}
+  ${imageForMeta && imageForMeta !== fallbackImage ? `<img class="hero" src="${escapeHtml(imageForMeta)}" alt="${escapeHtml(article.imageAlt || article.title)}" loading="eager"/>` : ''}
   ${summaryParagraphs || `<p>${escapeHtml(desc)}</p>`}
   <a class="source-link" href="${escapeHtml(article.canonicalUrl)}" target="_blank" rel="noopener">
     Read full article at source →
@@ -2506,7 +2513,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
     ${categoryLabel ? `<span>${escapeHtml(categoryLabel)}</span>` : ''}
     ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>` : ''}
   </div>
-  ${imageForMeta && imageForMeta !== fallbackImage ? `<img class="hero" src="${escapeHtml(imageForMeta)}" alt="${escapeHtml(article.title)}" loading="eager"/>` : ''}
+  ${imageForMeta && imageForMeta !== fallbackImage ? `<img class="hero" src="${escapeHtml(imageForMeta)}" alt="${escapeHtml(article.imageAlt || article.title)}" loading="eager"/>` : ''}
   ${summaryParagraphs || `<p>${escapeHtml(iabDesc)}</p>`}
   <a class="source-link" href="${escapeHtml(article.canonicalUrl)}" target="_blank" rel="noopener">
     Read full article at source →

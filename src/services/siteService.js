@@ -95,7 +95,8 @@ function mapWorkerArticleToPost(article) {
     description: article?.contentHtml ?? article?.summary ?? "",
     contentText: bodyText,
     image: article?.imageUrl ?? null,
-    imageText: article?.title ?? "Kentucky News",
+    imageAlt: article?.imageAlt ?? null,
+    imageText: article?.imageAlt || article?.title || "Kentucky News",
     link: "/post",
     // prefer canonical URL for the "Read full story" button except when
     // the canonical link is one of our manually generated slugs.  Those slugs

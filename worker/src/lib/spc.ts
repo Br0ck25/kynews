@@ -377,6 +377,10 @@ export async function buildSpcArticle(
   const baseSlug = slugify(title) || urlHash.slice(0, 8);
   const slug = `${baseSlug}-${urlHash.slice(0, 8)}`;
 
+  const imageAlt = imageUrl
+    ? [title].filter(Boolean).join(' — ')
+    : null;
+
   return {
     canonicalUrl,
     sourceUrl: canonicalUrl,
@@ -397,6 +401,7 @@ export async function buildSpcArticle(
     contentText,
     contentHtml,
     imageUrl,
+    imageAlt,
     rawR2Key: null,
     slug,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
