@@ -202,6 +202,8 @@ export default function ArticleSlugPage() {
       }
     }
     setMeta("property", "og:image", ogImage);
+    setMeta("property", "og:image:width", "1200");
+    setMeta("property", "og:image:height", "630");
 
     // for schema.org we deliberately declare fixed dimensions; Google
     // allows declared values rather than seeking the actual image.  the

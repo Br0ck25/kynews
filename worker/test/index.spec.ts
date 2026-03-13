@@ -59,6 +59,7 @@ async function ensureSchemaAndFixture() {
 			content_text TEXT NOT NULL,
 			content_html TEXT NOT NULL,
 			image_url TEXT,
+			image_alt TEXT,
 			raw_r2_key TEXT,
 			slug TEXT,
 			content_hash TEXT,

@@ -185,6 +185,8 @@ export default function PostPage() {
       }
     }
     setMeta("property", "og:image", ogImage);
+    setMeta("property", "og:image:width", "1200");
+    setMeta("property", "og:image:height", "630");
 
     // Twitter card
     setMeta("name", "twitter:card", "summary_large_image");

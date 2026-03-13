@@ -1473,10 +1473,19 @@ if (url.pathname === '/api/admin/facebook/caption' && request.method === 'POST')
 // helper reused by several endpoints: choose a sensible preview image URL for an
 // article record.  This mirrors the logic used when rendering OG tags for bots.
 async function selectPreviewImage(article: ArticleRecord): Promise<string | null> {
-	let previewImage = article.imageUrl || null;
+	// Normalize and trim any stored value.  Occasionally scraping can leave
+	// whitespace around URLs which can cause downstream crawlers to treat the
+	// value as invalid and fall back to the default preview image.
+	let previewImage = article.imageUrl?.trim() || null;
+
+	// Never use data: URIs as Open Graph images; these are not fetchable by crawlers.
+	if (previewImage && /^data:/i.test(previewImage)) {
+		previewImage = null;
+	}
+
 	if (!previewImage && article.contentHtml) {
 		const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
-		if (match && match[1]) previewImage = match[1];
+		if (match && match[1]) previewImage = match[1].trim();
 	}
 	if (!previewImage) {
 		try {
@@ -1486,7 +1495,7 @@ async function selectPreviewImage(article: ArticleRecord): Promise<string | null
 				const { scrapeArticleHtml } = await import('./lib/scrape');
 				const scraped = scrapeArticleHtml(article.canonicalUrl || '', body);
 				if (scraped.imageUrl) {
-					previewImage = scraped.imageUrl;
+					previewImage = scraped.imageUrl.trim();
 				}
 			}
 		} catch {
@@ -1499,6 +1508,10 @@ async function selectPreviewImage(article: ArticleRecord): Promise<string | null
 		} catch {
 			/* ignore invalid URL */
 		}
+	}
+	// As a final safeguard, ensure the returned URL is an http(s) URL.
+	if (previewImage && !/^https?:\/\//i.test(previewImage)) {
+		return null;
 	}
 	return previewImage || null;
 }
@@ -2165,6 +2178,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta property="og:title" content="${escapeHtml(iabPageTitle)}"/>
   <meta property="og:description" content="${escapeHtml(desc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
+  <meta property="og:image:width" content="1200"/>
+  <meta property="og:image:height" content="630"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
   <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
   <meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>
