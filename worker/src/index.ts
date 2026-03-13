@@ -2522,6 +2522,24 @@ if (request.method === 'GET' && url.pathname === '/today.rss') {
     });
 }
 
+if (url.pathname === '/robots.txt' && request.method === 'GET') {
+  const body = [
+    'User-agent: *',
+    'Allow: /',
+    '',
+    'Disallow: /api/admin/',
+    'Disallow: /api/push/',
+    '',
+    `Sitemap: ${BASE_URL}/sitemap-index.xml`,
+  ].join('\n');
+  return new Response(body, {
+    headers: {
+      'content-type': 'text/plain; charset=utf-8',
+      'cache-control': 'public, max-age=86400, s-maxage=86400',
+    },
+  });
+}
+
 // --- Sitemap routes (Section 7: News Sitemap Strategy) ---
 if (url.pathname === '/sitemap-index.xml' && request.method === 'GET') {
 	return new Response(generateSitemapIndex(), {

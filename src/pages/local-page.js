@@ -19,6 +19,16 @@ export default function LocalPage() {
   const classes = useStyles();
   const dispatch = useDispatch();
 
+  React.useEffect(() => {
+    document.title = 'Kentucky County News — Local KY News';
+    let meta = document.querySelector('meta[name="description"]');
+    if (!meta) { meta = document.createElement('meta'); meta.name = 'description'; document.head.appendChild(meta); }
+    meta.setAttribute('content', 'Browse local news by county. Select any of Kentucky\'s 120 counties to read the latest local government, community, and public safety stories.');
+    return () => {
+      document.title = 'Local KY News — Kentucky\'s Local News Aggregator';
+      meta?.setAttribute('content', 'Local KY News — AI-assisted news summaries covering all 120 Kentucky counties. Local government, schools, sports, weather, and more.');
+    };
+  }, []);
 
   return (
     <div className={classes.root}>

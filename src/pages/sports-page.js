@@ -10,6 +10,17 @@ function isLikelySportsArticle(post) {
 }
 
 export default function SportsPage() {
+  React.useEffect(() => {
+    document.title = 'Kentucky Sports News — Local KY News';
+    let meta = document.querySelector('meta[name="description"]');
+    if (!meta) { meta = document.createElement('meta'); meta.name = 'description'; document.head.appendChild(meta); }
+    meta.setAttribute('content', 'High school, college, and local sports coverage across Kentucky — KHSAA, UK Wildcats, Louisville Cardinals, and all 120 counties.');
+    return () => {
+      document.title = 'Local KY News — Kentucky\'s Local News Aggregator';
+      meta?.setAttribute('content', 'Local KY News — AI-assisted news summaries covering all 120 Kentucky counties. Local government, schools, sports, weather, and more.');
+    };
+  }, []);
+
   return (
     <CategoryFeedPage
       category="sports"

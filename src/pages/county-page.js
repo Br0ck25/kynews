@@ -13,6 +13,7 @@ import {
 } from "@material-ui/core";
 import { useLocation } from "react-router-dom";
 import { countyInfo } from "../data/countyInfo";
+import { getCountyInfo } from "../constants/countyInfo";
 import FullScreenPostDialog from "../components/post/dialog-fullscreen-component";
 import ShareIcon from "@material-ui/icons/Share";
 import FavoriteIcon from "@material-ui/icons/Favorite";
@@ -215,7 +216,11 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
     if (!countyName) return;
 
     document.title = `${countyName} County, KY News — Local KY News`;
-    const description = `The latest news from ${countyName} County, Kentucky — local government, schools, sports, weather, and community stories.`;
+    const infoMap = getCountyInfo();
+    const info = infoMap[`${countyName} County`] || {};
+    const seat = info['County Seat'] ? ` County seat: ${info['County Seat']}.` : '';
+    const pop = info['Population'] ? ` Pop. ~${info['Population'].replace(/[^0-9,]/g, '')}.` : '';
+    const description = `${countyName} County, KY news — local government, schools, sports, weather, and community stories.${seat}${pop} Updated continuously.`;
     let meta = document.querySelector('meta[name="description"]');
     if (!meta) {
       meta = document.createElement("meta");
@@ -233,7 +238,7 @@ export default function CountyPage({ countySlugProp = null, onClose = null, info
 
     // Open Graph / Twitter cards
     const ogTitle = `${countyName} County, KY News — Local KY News`;
-    const ogDesc = `The latest news from ${countyName} County, Kentucky — local government, schools, sports, weather, and community stories.`;
+    const ogDesc = description;
     const defaultImage = DEFAULT_OG_IMAGE;
 
     setMeta('property', 'og:type', 'website');

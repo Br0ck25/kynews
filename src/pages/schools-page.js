@@ -10,6 +10,17 @@ function isLikelySchoolsArticle(post) {
 }
 
 export default function SchoolsPage() {
+  React.useEffect(() => {
+    document.title = 'Kentucky Schools News — Local KY News';
+    let meta = document.querySelector('meta[name="description"]');
+    if (!meta) { meta = document.createElement('meta'); meta.name = 'description'; document.head.appendChild(meta); }
+    meta.setAttribute('content', 'Education news, school board decisions, district updates, and student events from public schools across all 120 Kentucky counties.');
+    return () => {
+      document.title = 'Local KY News — Kentucky\'s Local News Aggregator';
+      meta?.setAttribute('content', 'Local KY News — AI-assisted news summaries covering all 120 Kentucky counties. Local government, schools, sports, weather, and more.');
+    };
+  }, []);
+
   return (
     <CategoryFeedPage
       category="schools"

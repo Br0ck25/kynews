@@ -298,6 +298,10 @@ const COUNTY_REQUIRES_EXPLICIT_EVIDENCE = new Set<string>([
   'wkms.org',
   'weku.org',
   'wfpl.org',
+  // lex18.com syndicates heavy AP/national wire content; county only when
+  // explicitly named in the article text (e.g. "Fayette County" or "Lexington, Ky.")
+  // This prevents AP wire stories published on lex18 from being tagged Fayette.
+  'lex18.com',
 ]);
 
 
@@ -374,7 +378,6 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'kentuckytoday.com': null,
   'kentuckysportsradio.com': null,
   'kentuckystatepolice.ky.gov': null, // KSP covers all of KY — no single county default
-  'justice.gov': null, // U.S. Attorney press releases — county derived from dateline/text, not source default (covers all KY districts)
   'k105.com': 'Pulaski',  // K-105 radio, Somerset / Pulaski County area
   'stateline.org': null,  // national wire — no county default
   'state-journal.com': 'Franklin',  // The State Journal — Frankfort / Franklin County paper
@@ -421,7 +424,7 @@ const KY_HARD_NEGATIVES: RegExp[] = [
 // This prevents local outlets from tagging such wire stories with their
 // home county.  Example: "GILBERT, Ariz. —" or "TULSA, Okla. (AP) —".
 export const NATIONAL_WIRE_OVERRIDE_RE =
-  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london(?!\s*,?\s*ky)|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[a-z]{2,}\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]\s*|(?:^|\n|\.\s+)[A-Z][A-Z\s]{1,25},\s*(?:United Arab Emirates|Afghanistan|Albania|Algeria|Argentina|Australia|Austria|Azerbaijan|Bahrain|Bangladesh|Belarus|Belgium|Bolivia|Bosnia|Brazil|Cambodia|Canada|Chile|China|Colombia|Croatia|Cuba|Cyprus|Denmark|Ecuador|Egypt|Ethiopia|Finland|France|Germany|Ghana|Greece|Guatemala|Haiti|Honduras|Hungary|India|Indonesia|Iran|Iraq|Ireland|Israel|Italy|Jamaica|Japan|Jordan|Kazakhstan|Kenya|Kuwait|Lebanon|Libya|Malaysia|Mali|Mexico|Moldova|Morocco|Myanmar|Nepal|Netherlands|New Zealand|Nicaragua|Nigeria|North Korea|Norway|Oman|Pakistan|Palestine|Panama|Paraguay|Peru|Philippines|Poland|Portugal|Qatar|Romania|Russia|Saudi Arabia|Senegal|Serbia|Somalia|South Africa|South Korea|Spain|Sri Lanka|Sudan|Sweden|Switzerland|Syria|Taiwan|Tanzania|Thailand|Tunisia|Turkey|Uganda|Ukraine|United Kingdom|Uruguay|Venezuela|Vietnam|Yemen|Zimbabwe)\s*)/i;
+  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[a-z]{2,}\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]\s*|(?:^|\n|\.\s+)[A-Z][A-Z\s]{1,25},\s*(?:United Arab Emirates|Afghanistan|Albania|Algeria|Argentina|Australia|Austria|Azerbaijan|Bahrain|Bangladesh|Belarus|Belgium|Bolivia|Bosnia|Brazil|Cambodia|Canada|Chile|China|Colombia|Croatia|Cuba|Cyprus|Denmark|Ecuador|Egypt|Ethiopia|Finland|France|Germany|Ghana|Greece|Guatemala|Haiti|Honduras|Hungary|India|Indonesia|Iran|Iraq|Ireland|Israel|Italy|Jamaica|Japan|Jordan|Kazakhstan|Kenya|Kuwait|Lebanon|Libya|Malaysia|Mali|Mexico|Moldova|Morocco|Myanmar|Nepal|Netherlands|New Zealand|Nicaragua|Nigeria|North Korea|Norway|Oman|Pakistan|Palestine|Panama|Paraguay|Peru|Philippines|Poland|Portugal|Qatar|Romania|Russia|Saudi Arabia|Senegal|Serbia|Somalia|South Africa|South Korea|Spain|Sri Lanka|Sudan|Sweden|Switzerland|Syria|Taiwan|Tanzania|Thailand|Tunisia|Turkey|Uganda|Ukraine|United Kingdom|Uruguay|Venezuela|Vietnam|Yemen|Zimbabwe)\s*)/i;
 
 
 /**
@@ -1435,15 +1438,6 @@ const SOURCE_DEFAULT_CITY_EVIDENCE = new Map<string, string[]>([
   ['boone',     ['florence', 'boone', 'walton', 'union']],
 ]);
 
-/**
- * City names that appear in federal/state agency field office designations.
- * When a city appears ONLY inside an agency office phrase (e.g. "FBI, Louisville
- * Field Office" or "ATF Louisville Field Division"), it should NOT drive a
- * county assignment — the story is not set in that city.
- */
-const AGENCY_FIELD_OFFICE_RE =
-  /\b(?:fbi|dea|atf|irs|usss|secret\s+service|u\.s\.\s+(?:marshals?|attorney|probation)|homeland\s+security|hsi|ice\b|bureau\s+of\s+(?:alcohol|investigation)|drug\s+enforcement|alcohol,?\s+tobacco)[,\s]+\w[\w\s,\.]{0,40}field\s+(?:office|division|region|agent)|field\s+(?:office|division|region)\s+(?:in|of|for)\s+\w[\w\s,]{0,30}(?:,\s*ky\.?|,\s*kentucky)/gi;
-
 function isCountyEvidenced(
   county: string | null,
   semanticText: string,
@@ -1451,25 +1445,6 @@ function isCountyEvidenced(
   sourceDefault: string | null,
 ): boolean {
   if (!county) return true; // null is always valid
-  // Reject counties that are derived solely from a federal/state agency field
-  // office city mention (e.g. "FBI, Louisville Field Office" should not tag
-  // the story as Jefferson County when it is set elsewhere in KY).
-  if (SOURCE_DEFAULT_CITY_EVIDENCE.has(county.toLowerCase())) {
-    const citiesForCounty = SOURCE_DEFAULT_CITY_EVIDENCE.get(county.toLowerCase())!;
-    const countyAppearsPrimarily = citiesForCounty.some((city) =>
-      new RegExp(`\\b${escapeRegExp(city)}\\b`, 'i').test(semanticText)
-    );
-    if (countyAppearsPrimarily) {
-      // Check whether ALL occurrences of the city appear only in agency-office contexts.
-      const strippedText = semanticText.replace(AGENCY_FIELD_OFFICE_RE, ' ');
-      const cityStillPresent = citiesForCounty.some((city) =>
-        new RegExp(`\\b${escapeRegExp(city)}\\b`, 'i').test(strippedText)
-      );
-      if (!cityStillPresent && !geoCounties.some((c) => c.toLowerCase() === county.toLowerCase())) {
-        return false;
-      }
-    }
-  }
   // Reject counties that appear ONLY in conviction history context.
   // "Saltman has convictions in Daviess County" is background, not story location.
   if (/\b(?:convictions?\s+in|convicted\s+in|prior\s+(?:record|conviction|offense)s?\s+in|criminal\s+history\s+in|sentenced\s+in|previously\s+(?:convicted|charged)\s+in)\b/i.test(semanticText)) {

@@ -87,7 +87,13 @@ Your summary must:
   Every paragraph must be separated from the next by a blank line.
   A summary of more than 6 sentences MUST contain at least 2 paragraph breaks (\n\n).
 - Preserve important facts, names, locations, dates, and figures exactly.
-- When covering criminal cases, distinguish clearly between: (a) the dateline city / courthouse where proceedings occurred, and (b) the city or county where defendants are from or where the crime occurred. Include both when present and relevant.
+- Include no more than one direct quote, only if it meaningfully adds
+  to the story. If the source article contains many quotes, paraphrase
+  all but the single most impactful one. Do not include partial quotes
+  or string together multiple short quotes from the same speaker.
+- Treat every multi-sentence quote as a single indivisible unit — never
+  paraphrase part of it and quote the rest, and never let a paragraph
+  break fall inside a quoted passage.
 
 Your summary must never:
 - Repeat, restate, or begin with the article title. Start directly with the first sentence of your summary.
@@ -1216,6 +1222,10 @@ function splitIntoSentences(text: string): string[] {
 /**
  * Group an array of sentences into paragraphs of 2–3 sentences each.
  * Prefers 3 per paragraph but uses 2 for the last group when 4 remain.
+ *
+ * Quote-aware: never places a paragraph break inside an open quoted passage.
+ * If a sentence opens a curly-quote (\u201c) without closing it (\u201d), the
+ * next sentence(s) are appended to the same paragraph until the quote closes.
  */
 function groupIntoParagraphs(sentences: string[]): string {
   const paragraphs: string[] = [];
@@ -1223,8 +1233,23 @@ function groupIntoParagraphs(sentences: string[]): string {
   while (i < sentences.length) {
     const remaining = sentences.length - i;
     const take = remaining === 4 ? 2 : Math.min(3, remaining);
-    paragraphs.push(sentences.slice(i, i + take).join(' '));
-    i += take;
+    let group = sentences.slice(i, i + take);
+
+    // Extend group if it ends mid-quote (more \u201c than \u201d in accumulated text).
+    let accumulated = group.join(' ');
+    let openCount = (accumulated.match(/\u201c/g) ?? []).length;
+    let closeCount = (accumulated.match(/\u201d/g) ?? []).length;
+    let extra = i + take;
+    while (openCount > closeCount && extra < sentences.length) {
+      group = [...group, sentences[extra]];
+      accumulated = group.join(' ');
+      openCount = (accumulated.match(/\u201c/g) ?? []).length;
+      closeCount = (accumulated.match(/\u201d/g) ?? []).length;
+      extra++;
+    }
+
+    paragraphs.push(group.join(' '));
+    i += group.length;
   }
   return paragraphs.join('\n\n');
 }

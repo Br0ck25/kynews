@@ -18,11 +18,17 @@ const useStyles = makeStyles((theme) => ({
     marginBottom: theme.spacing(4),
     borderRadius: 18,
     overflow: "hidden",
-    backgroundImage: "url(https://source.unsplash.com/random)",
-    backgroundSize: "cover",
-    backgroundRepeat: "no-repeat",
-    backgroundPosition: "center",
     boxShadow: "0 16px 40px rgba(15, 23, 42, .22)",
+    minHeight: 320,
+  },
+  heroImg: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    objectPosition: "center",
+    display: "block",
   },
   overlay: {
     position: "absolute",
@@ -56,23 +62,20 @@ export default function FeaturedPost(props) {
   return (
     <Paper
       className={classes.mainFeaturedPost}
-      style={{ backgroundImage: `url(${displayImage})` }}
+      onClick={() => handlePost(post)}
+      style={{ cursor: "pointer" }}
     >
-      {/* Hidden preload image for the LCP background-image.
-          fetchpriority="high" and loading="eager" instruct the browser to
-          discover and download this resource as early as possible, reducing
-          the "Resource load delay" in LCP breakdown.
-          onError falls back to logo.png if the image URL is broken. */}
-      {
-        <img
-          style={{ display: "none" }}
-          src={displayImage}
-          alt={post.imageText}
-          fetchpriority="high"
-          loading="eager"
-          onError={() => setImgFailed(true)}
-        />
-      }
+      <img
+        className={classes.heroImg}
+        src={displayImage}
+        alt={post.imageText || post.title || "Featured article"}
+        fetchpriority="high"
+        loading="eager"
+        decoding="async"
+        width="800"
+        height="320"
+        onError={() => setImgFailed(true)}
+      />
       <div className={classes.overlay} />
       <Grid container>
         <Grid item md={6}>
@@ -104,20 +107,13 @@ export default function FeaturedPost(props) {
               color="inherit"
               paragraph
               dangerouslySetInnerHTML={{
-                __html:
-                  post.description.split(" ").splice(0, 15).join(" ") + "...",
+                __html: post.description.split(" ").splice(0, 15).join(" ") + "...",
               }}
-            >
-              {/* {post.description.split(' ').splice(0, 10).join(' ')}... */}
-            </Typography>
+            />
             <Typography variant="body2" color="inherit" style={{ opacity: 0.9 }}>
               {DateFromNow(post.date)}
             </Typography>
-            <Button
-              size="small"
-              color="primary"
-              onClick={() => handlePost(post)}
-            >
+            <Button size="small" color="primary">
               Continue reading...
             </Button>
           </div>
