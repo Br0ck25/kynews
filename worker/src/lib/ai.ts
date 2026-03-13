@@ -651,7 +651,8 @@ function deterministicFallbackSummary(content: string, originalWords: number): {
 
   return {
     summary,
-    seoDescription: enforceSeoLength(summary.slice(0, 220), summary),
+    // use first complete sentence so we don't truncate mid-thought
+    seoDescription: enforceSeoLength(extractFirstSentence(summary), summary),
   };
 }
 

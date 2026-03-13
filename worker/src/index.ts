@@ -1714,9 +1714,17 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 
 	// For manual articles we treat the provided body as the full summary.
 	// We do *not* run AI summarization; the content should appear verbatim.
-	// SEO description is just the first 160 characters of the body (or blank).
+	// SEO description should still be sentence-safe rather than cutting mid-word.
 	const manualSummary = postBody;
-	const manualSeoDescription = postBody.slice(0, 160).trim();
+	// Truncate at the nearest sentence boundary within 160 chars
+	let manualSeoDescription = '';
+	if (postBody) {
+		const seoRaw = postBody.slice(0, 220);
+		const sentenceEnd = seoRaw.search(/[.!?]\s/);
+		manualSeoDescription = sentenceEnd > 0 && sentenceEnd < 160
+			? seoRaw.slice(0, sentenceEnd + 1).trim()
+			: seoRaw.slice(0, 157).replace(/[\s,;:.!?-]+$/g, '') + '...';
+	}
 
 	const newArticle: NewArticle = {
 		canonicalUrl,
