@@ -52,6 +52,11 @@ describe('PostPage metadata', () => {
       expect(json).toContain('"publisher":');
       expect(json).toContain('Local KY News');
       expect(json).toContain('"sourceOrganization"');
+      // speakable spec must be present for voice search
+      expect(json).toContain('"speakable"');
+      expect(json).toContain('"SpeakableSpecification"');
+      const parsed = JSON.parse(json);
+      expect(parsed.speakable.cssSelector).toEqual(['h1', '.article-summary']);
     });
   });
 

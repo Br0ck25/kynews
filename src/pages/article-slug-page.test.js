@@ -59,6 +59,11 @@ describe('ArticleSlugPage metadata', () => {
       expect(json).toContain('"publisher":');
       expect(json).toContain('Local KY News');
       expect(json).toContain('"sourceOrganization"');
+      // speakable spec must be present for voice search
+      expect(json).toContain('"speakable"');
+      expect(json).toContain('"SpeakableSpecification"');
+      const parsed = JSON.parse(json);
+      expect(parsed.speakable.cssSelector).toEqual(['h1', '.article-summary']);
       // alternate plain-text link should exist
       const alt = document.querySelector('link[rel="alternate"][type="text/plain"]');
       expect(alt).toBeTruthy();
