@@ -152,7 +152,11 @@ function App() {
                       <ArticleSlugPage />
                     </Route>
                     {/* kentucky articles that are statewide (no county path segment) */}
-                    <Route exact path="/news/kentucky/:articleSlug">
+                    {/*
+                      Exclude county landing page URLs (e.g. `/news/kentucky/adair-county`)
+                      from this route so they are handled by the county dispatcher below.
+                    */}
+                    <Route exact path="/news/kentucky/:articleSlug((?!.*-county$)[a-z0-9-]+)">
                       <ArticleSlugPage />
                     </Route>
                     {/* Existing dispatcher for county homepage and info pages.  This must

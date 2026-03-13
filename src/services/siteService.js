@@ -253,11 +253,15 @@ export default class SiteService {
     // 5xx server errors, since those indicate a real API problem that would
     // just be duplicated by hitting the fallback host and only generate
     // confusing CORS errors in the browser.
+    // Only retry against the worker fallback when we clearly hit the SPA (HTML
+    // page) or got a non-JSON response.  A valid API error (e.g. 404 with a JSON
+    // body) should not trigger the fallback because that is a real response from
+    // the API.
     const shouldFallback =
       path.startsWith("/api/") &&
       !isAdminPath &&
       this.baseUrl !== WORKER_FALLBACK_BASE_URL &&
-      ((parsed == null || isHtmlLike) || (!response.ok && response.status >= 400 && response.status < 500));
+      (parsed == null || isHtmlLike);
 
     if (shouldFallback) {
       console.warn('[siteService] primary request returned non-JSON/HTML, falling back to worker.dev:', path);
