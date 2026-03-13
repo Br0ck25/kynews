@@ -168,6 +168,17 @@ export default function ArticleSlugPage() {
     }
     setMeta("property", "og:image", ogImage);
 
+    // for schema.org we deliberately declare fixed dimensions; Google
+    // allows declared values rather than seeking the actual image.  the
+    // standard Open Graph size is 1200x630, but the logo fallback is
+    // 512x512 so adjust accordingly.
+    let schemaImageWidth = 1200;
+    let schemaImageHeight = 630;
+    if (ogImage === "https://localkynews.com/img/logo512.png") {
+      schemaImageWidth = 512;
+      schemaImageHeight = 512;
+    }
+
     setMeta("name", "twitter:card", "summary_large_image");
     setMeta("name", "twitter:title", post.title || SITE_NAME);
     setMeta("name", "twitter:description", cleanDesc);
@@ -223,7 +234,16 @@ export default function ArticleSlugPage() {
         "@type": "Organization",
         name: publisherName,
       },
-      ...(post.image ? { image: { "@type": "ImageObject", url: post.image } } : {}),
+      ...(post.image
+        ? {
+            image: {
+              "@type": "ImageObject",
+              url: ogImage,
+              width: schemaImageWidth,
+              height: schemaImageHeight,
+            },
+          }
+        : {}),
       ...(post.county
         ? {
             contentLocation: {

@@ -138,13 +138,32 @@ export default function PostPage() {
       setMeta("property", "article:modified_time", modifiedTime);
     }
     const defaultImage = DEFAULT_OG_IMAGE;
-    setMeta("property", "og:image", post.image || defaultImage);
+    // similar to ArticleSlugPage we normalize an absolute URL and declare
+    // fixed dimensions for schema use.  this mirrors the logic on the
+    // client-side page so failures are consistent.
+    let ogImage = post.image || defaultImage;
+    if (ogImage && !/^https?:\/\//i.test(ogImage)) {
+      try {
+        ogImage = new URL(ogImage, SITE_URL).toString();
+      } catch {
+        // leave it alone
+      }
+    }
+    setMeta("property", "og:image", ogImage);
 
     // Twitter card
     setMeta("name", "twitter:card", "summary_large_image");
     setMeta("name", "twitter:title", post.title || SITE_NAME);
     setMeta("name", "twitter:description", cleanDesc);
-    setMeta("name", "twitter:image", post.image || defaultImage);
+    setMeta("name", "twitter:image", ogImage);
+
+    // dimensions for schema.org image object (see ArticleSlugPage)
+    let schemaImageWidth = 1200;
+    let schemaImageHeight = 630;
+    if (ogImage === "https://localkynews.com/img/logo512.png") {
+      schemaImageWidth = 512;
+      schemaImageHeight = 512;
+    }
     if (FB_APP_ID) setMeta("property", "fb:app_id", FB_APP_ID);
 
     // alternate plain-text article endpoint
@@ -196,7 +215,16 @@ export default function PostPage() {
         "@type": "Organization",
         name: publisherName,
       },
-      ...(post.image ? { image: { "@type": "ImageObject", url: post.image } } : {}),
+      ...(post.image
+        ? {
+            image: {
+              "@type": "ImageObject",
+              url: ogImage,
+              width: schemaImageWidth,
+              height: schemaImageHeight,
+            },
+          }
+        : {}),
       ...(post.county
         ? {
             contentLocation: {
