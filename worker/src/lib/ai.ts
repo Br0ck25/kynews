@@ -94,12 +94,16 @@ Your summary must:
 - Treat every multi-sentence quote as a single indivisible unit — never
   paraphrase part of it and quote the rest, and never let a paragraph
   break fall inside a quoted passage.
+- If the article is longer than 400 words and covers multiple distinct topics or
+  timeline phases, structure your summary with 2–3 short H2 subheadings using
+  Markdown \`##\` syntax. Each section should be 2–4 sentences. If the article is
+  short or single-topic, output plain paragraphs with no headings.
 
 Your summary must never:
 - Repeat, restate, or begin with the article title. Start directly with the first sentence of your summary.
 - End mid-sentence under any circumstances. If you are approaching the
   word limit, finish the current sentence and stop cleanly.
-- Output section headers, subheadings, or bolded titles of any kind.
+- Output bolded titles, bullet points, or formatting other than the optional \`##\` headings described above.
 - Output text as one unbroken paragraph. Use blank lines (\n\n) between every 2–3 sentences.
 - Include copyright notices, bylines, legal text, or publication footers.
 - Include any "click here" text, "read more" links, or URLs of any kind.
@@ -113,8 +117,8 @@ Your summary must never:
 
 After the summary, output a separate line beginning with "SEO_DESCRIPTION:" followed by a 120–155 character meta description. This line should be a compelling teaser that includes the county when present (from the provided article metadata), reflects the primary news hook, and ends with a call to curiosity rather than cutting off mid-thought. Do not include HTML, URLs, or extra labels.
 
-Return clean, publication-ready paragraphs only. No headlines, labels,
-bullet points, subheadings, URLs, or commentary.`;
+Return clean, publication-ready text only. No headlines, labels, bullet points,
+URLs, or commentary. Use \`##\` subheadings only when the conditional rule above applies.`;
 
 // ---------------------------------------------------------------------------
 // Dynamic system prompt builder
@@ -331,6 +335,9 @@ export async function summarizeArticle(
   if (seo.length > 0) {
     seo = seo.charAt(0).toUpperCase() + seo.slice(1);
   }
+
+  // Convert any Markdown headings the AI produced to HTML, after all sanitization
+  summary = markdownHeadingsToHtml(summary);
 
   const result: SummaryResult = {
     summary,
@@ -1138,6 +1145,16 @@ function repairUnbalancedQuotes(text: string): string {
   return output;
 }
 
+// ---------------------------------------------------------------------------
+// Markdown heading → HTML conversion (applied after all sanitization)
+// ---------------------------------------------------------------------------
+
+function markdownHeadingsToHtml(text: string): string {
+  return text
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>');
+}
+
 function isMalformedSummary(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return true;
@@ -1145,9 +1162,12 @@ function isMalformedSummary(text: string): boolean {
   if (/&(?:#\d+|#x[0-9a-f]+|nbsp|amp|quot|lt|gt);?/i.test(trimmed)) return true;
   if (/^\s*(?:published|photo by)\b/im.test(trimmed)) return true;
 
-  const straightQuoteCount = (trimmed.match(/"/g) ?? []).length;
-  const curlyOpenCount = (trimmed.match(/\u201c/g) ?? []).length;
-  const curlyCloseCount = (trimmed.match(/\u201d/g) ?? []).length;
+  // Strip heading lines before counting quotes — headings are valid output
+  const withoutHeadings = trimmed.replace(/^#{1,3} .+$/gm, '');
+
+  const straightQuoteCount = (withoutHeadings.match(/"/g) ?? []).length;
+  const curlyOpenCount = (withoutHeadings.match(/\u201c/g) ?? []).length;
+  const curlyCloseCount = (withoutHeadings.match(/\u201d/g) ?? []).length;
 
   return straightQuoteCount % 2 !== 0 || curlyOpenCount !== curlyCloseCount;
 }

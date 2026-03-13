@@ -173,3 +173,72 @@ describe('summary sanitization', () => {
     expect(isScheduleOrScoresArticle(base)).toBe(true);
   });
 });
+
+describe('markdown headings in summaries', () => {
+  it('converts ## headings to <h2> tags for long multi-section summaries', async () => {
+    const aiOutput = [
+      'The Harlan County School Board voted 4\u20131 on March 5 to close Harlan Middle School at the end of the 2025\u201326 school year.',
+      '',
+      '## Background',
+      '',
+      'The school has seen declining enrollment for five consecutive years.',
+      'District officials cited unsustainable operating costs as the primary driver.',
+      '',
+      '## Next Steps',
+      '',
+      'Students will be redistributed to two neighboring schools beginning in August.',
+      'The board will hold a community meeting on April 10 to address parent concerns.',
+    ].join('\n');
+
+    // Source must include the same numbers the AI output references so that
+    // hasHallucinatedNumbers does not veto the result.
+    const baseSource =
+      'The Harlan County School Board voted 4 to 1 on March 5 to close Harlan Middle School ' +
+      'at the end of the 2025-26 school year after five consecutive years of declining enrollment. ' +
+      'District officials said operating costs were unsustainable and that students would move to ' +
+      'two neighboring buildings in August. A community meeting is planned for April 10.';
+    // Repeat to push the source past 400 words so the multi-topic heading rule applies.
+    const longSource = Array(20).fill(baseSource).join(' ');
+
+    const env = makeEnv(aiOutput);
+
+    const result = await summarizeArticle(
+      env,
+      'unit-h2-1',
+      'Harlan Middle School to close',
+      longSource,
+      new Date().toISOString(),
+    );
+
+    expect(result.summary).toContain('<h2>Background</h2>');
+    expect(result.summary).toContain('<h2>Next Steps</h2>');
+    expect(result.summary).not.toContain('## Background');
+    expect(result.summary).not.toContain('## Next Steps');
+    expect(result.summary).toContain('Harlan County School Board');
+  });
+
+  it('leaves short single-topic summaries as plain paragraphs with no headings', async () => {
+    const aiOutput = [
+      'The Pike County Commission approved a road paving contract on Tuesday.',
+      '',
+      'The $2.4 million contract covers twelve miles of rural roads in the eastern part of the county.',
+    ].join('\n');
+
+    const shortSource = 'Pike County commissioners met Tuesday and approved a road paving contract worth 2.4 million dollars covering twelve miles.';
+
+    const env = makeEnv(aiOutput);
+
+    const result = await summarizeArticle(
+      env,
+      'unit-h2-2',
+      'Pike County approves paving contract',
+      shortSource,
+      new Date().toISOString(),
+    );
+
+    expect(result.summary).not.toContain('<h2>');
+    expect(result.summary).not.toContain('<h3>');
+    expect(result.summary).not.toContain('##');
+    expect(result.summary).toContain('Pike County');
+  });
+});

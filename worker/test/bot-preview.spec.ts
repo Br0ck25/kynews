@@ -31,7 +31,17 @@ async function ensureSchema() {
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
 	`).run();
+	await env.ky_news_db.prepare(`
+		CREATE TABLE IF NOT EXISTS article_counties (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+			county TEXT NOT NULL,
+			is_primary INTEGER NOT NULL DEFAULT 1 CHECK (is_primary IN (0,1)),
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`).run();
 	await env.ky_news_db.prepare(`DELETE FROM articles`).run();
+	await env.ky_news_db.prepare(`DELETE FROM article_counties`).run();
 }
 
 async function insertArticle(article) {

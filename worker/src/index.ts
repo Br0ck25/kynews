@@ -145,7 +145,7 @@ async function buildRelatedCountyArticlesHtml(env: Env, article: ArticleRecord):
 	const rows = await prepare(env,
 		`SELECT title, slug, county, category, is_national, id
 		 FROM articles
-		 WHERE county = ? AND id != ? AND slug IS NOT NULL AND blocked = 0
+		 WHERE county = ? AND id != ? AND slug IS NOT NULL
 		 ORDER BY published_at DESC
 		 LIMIT 4`
 	).bind(article.county, article.id).all<any>();
@@ -2302,7 +2302,11 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         // Build article body so Googlebot can index the actual text content
         const botSummaryParagraphs = (article.summary || '')
           .split(/\n\n+/)
-          .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
+          .map((p: string) => {
+            const t = p.trim();
+            if (t.startsWith('<h2>') || t.startsWith('<h3>')) return t;
+            return `<p>${escapeHtml(t)}</p>`;
+          })
           .filter((p: string) => p.length > 10)
           .join('\n');
         const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
@@ -2667,7 +2671,11 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         // Build article body so Googlebot can index the actual text content
         const botSummaryParagraphs = (article.summary || '')
           .split(/\n\n+/)
-          .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
+          .map((p: string) => {
+            const t = p.trim();
+            if (t.startsWith('<h2>') || t.startsWith('<h3>')) return t;
+            return `<p>${escapeHtml(t)}</p>`;
+          })
           .filter((p: string) => p.length > 10)
           .join('\n');
         const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
@@ -2769,10 +2777,10 @@ const SECTION_PATHS: Record<string, { title: string; description: string; catego
 const sectionMeta = SECTION_PATHS[url.pathname];
 if (request.method === 'GET' && sectionMeta && isBotUserAgent(request.headers.get('user-agent') || '')) {
   // Fetch recent articles for this section from D1
-  const rows = await (env as any).DB.prepare(
+  const rows = await prepare(env,
     `SELECT title, slug, county, category, published_at, seo_description, summary
      FROM articles
-     WHERE category = ? AND blocked = 0
+     WHERE category = ?
      ORDER BY published_at DESC
      LIMIT 10`
   ).bind(sectionMeta.category).all();
@@ -3050,7 +3058,6 @@ async function generateSitemap(env: Env): Promise<string> {
             `SELECT id, slug, county, category, is_national, published_at, updated_at FROM articles
        WHERE (is_kentucky = 1 OR is_national = 1)
          AND slug IS NOT NULL AND slug != ''
-         AND blocked = 0
          AND raw_word_count > 50
        ORDER BY id DESC LIMIT 50000`,
         )
