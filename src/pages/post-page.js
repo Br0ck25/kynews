@@ -128,6 +128,15 @@ export default function PostPage() {
     setMeta("property", "og:description", cleanDesc);
     setMeta("property", "og:url", pageUrl);
     setMeta("property", "og:site_name", SITE_NAME);
+    // article published/modified timestamps
+    const publishedTime = post.publishedAt || post.date || "";
+    if (publishedTime) {
+      setMeta("property", "article:published_time", publishedTime);
+    }
+    const modifiedTime = post.updatedAt || post.publishedAt || post.date || "";
+    if (modifiedTime) {
+      setMeta("property", "article:modified_time", modifiedTime);
+    }
     const defaultImage = DEFAULT_OG_IMAGE;
     setMeta("property", "og:image", post.image || defaultImage);
 

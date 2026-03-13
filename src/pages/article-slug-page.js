@@ -141,6 +141,15 @@ export default function ArticleSlugPage() {
     setMeta("property", "og:description", cleanDesc);
     setMeta("property", "og:url", pageUrl);
     setMeta("property", "og:site_name", SITE_NAME);
+    // add article published/modified times if present (ISO8601 strings from DB)
+    const publishedTime = post.publishedAt || post.date || "";
+    if (publishedTime) {
+      setMeta("property", "article:published_time", publishedTime);
+    }
+    const modifiedTime = post.updatedAt || post.publishedAt || post.date || "";
+    if (modifiedTime) {
+      setMeta("property", "article:modified_time", modifiedTime);
+    }
     // ensure OG image is always absolute; fall back to our site logo when the
     // article itself doesnt provide an image.  Facebook will then display the
     // logo instead of the generic preview thumbnail.
