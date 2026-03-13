@@ -308,3 +308,40 @@ export function generateFacebookCaption(post = {}) {
   if (hashtags.length) caption += `\n\n${hashtags.join(' ')}`;
   return caption.trim();
 }
+
+/**
+ * Build an SEO-friendly <title> / og:title string for an article.
+ *
+ * If a county is provided, the title includes the county and site name.
+ * If only isKentucky is true, it includes "Kentucky" and the site name.
+ * Otherwise it falls back to the standard "— Local KY News" suffix.
+ *
+ * The result is kept under 70 characters where possible to avoid truncation in search results.
+ */
+export function buildPageTitle(title, county, isKentucky) {
+  const base = (title || '').trim();
+  if (!base) return 'Local KY News';
+
+  const countyName = county ? String(county).trim() : '';
+  if (countyName) {
+    const full = `${base} | ${countyName} County, KY — Local KY News`;
+    if (full.length <= 70) return full;
+
+    const shorter = `${base} — ${countyName} County, KY`;
+    if (shorter.length <= 70) return shorter;
+
+    return shorter;
+  }
+
+  if (isKentucky) {
+    const full = `${base} | Kentucky — Local KY News`;
+    if (full.length <= 70) return full;
+
+    const shorter = `${base} — Kentucky`;
+    if (shorter.length <= 70) return shorter;
+
+    return full;
+  }
+
+  return `${base} — Local KY News`;
+}

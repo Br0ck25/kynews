@@ -1,4 +1,4 @@
-import { countyToSlug, slugToCounty, SITE_URL } from './functions';
+import { buildPageTitle, countyToSlug, slugToCounty, SITE_URL } from './functions';
 import { KENTUCKY_COUNTIES } from '../constants/counties';
 import { categoryDisplayName, categoryRoute } from '../components/post/post-component';
 
@@ -173,5 +173,31 @@ describe('category helper functions', () => {
 
     const national = { title: 'National', summary: 'Info', isKentucky: false };
     expect(generateFacebookCaption(national)).toBe('');
+  });
+});
+
+describe('buildPageTitle helper', () => {
+  it('adds county context when provided', () => {
+    expect(buildPageTitle('School Board Votes on Budget', 'Fayette', true)).toBe(
+      'School Board Votes on Budget | Fayette County, KY — Local KY News',
+    );
+  });
+
+  it('adds Kentucky context when no county', () => {
+    expect(buildPageTitle('State Education Update', null, true)).toBe(
+      'State Education Update | Kentucky — Local KY News',
+    );
+  });
+
+  it('falls back to default branding when no KY context', () => {
+    expect(buildPageTitle('National Story', null, false)).toBe('National Story — Local KY News');
+  });
+
+  it('uses the shorter county suffix when the full title would exceed 70 chars', () => {
+    const longTitle = 'A'.repeat(40); // ensures the full branded title would exceed 70
+    const result = buildPageTitle(longTitle, 'Pike', true);
+    expect(result).toContain(' — Pike County, KY');
+    expect(result).not.toContain('— Local KY News');
+    expect(result.length).toBeLessThanOrEqual(70);
   });
 });

@@ -5,7 +5,7 @@ import { Button, Typography } from "@material-ui/core";
 import { useLocation, Link as RouterLink } from "react-router-dom";
 import { useSelector } from "react-redux";
 import SiteService from "../services/siteService";
-import { articleToUrl, countyToSlug } from "../utils/functions";
+import { articleToUrl, buildPageTitle, countyToSlug } from "../utils/functions";
 
 const useStyles = makeStyles({
   root: {
@@ -132,9 +132,8 @@ export default function PostPage() {
       : `${SITE_URL}${cleanPath}`;
 
     // Page title
-    document.title = post.title
-      ? `${post.title} — ${SITE_NAME}`
-      : SITE_NAME;
+    const pageTitle = buildPageTitle(post.title, post.county, post.isKentucky);
+    document.title = pageTitle;
 
     // Meta description
     const desc = post.seoDescription || post.shortDesc || "";
@@ -151,7 +150,7 @@ export default function PostPage() {
 
     // Open Graph
     setMeta("property", "og:type", "article");
-    setMeta("property", "og:title", post.title || SITE_NAME);
+    setMeta("property", "og:title", pageTitle);
     setMeta("property", "og:description", cleanDesc);
     setMeta("property", "og:url", pageUrl);
     setMeta("property", "og:site_name", SITE_NAME);
@@ -180,7 +179,7 @@ export default function PostPage() {
 
     // Twitter card
     setMeta("name", "twitter:card", "summary_large_image");
-    setMeta("name", "twitter:title", post.title || SITE_NAME);
+    setMeta("name", "twitter:title", pageTitle);
     setMeta("name", "twitter:description", cleanDesc);
     setMeta("name", "twitter:image", ogImage);
 

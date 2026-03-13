@@ -52,6 +52,7 @@ import { classifyArticleWithAi } from './lib/classify';
 import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption } from './lib/facebook';
+import { buildPageTitle } from './lib/pageTitle';
 import { processNwsAlerts, processNwsProducts } from './lib/nws';
 import { processSpcFeed } from './lib/spc';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
@@ -2132,16 +2133,18 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             ],
           };
 
+          const iabPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
+
           const iabHtml = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   ${(article.rawWordCount ?? 0) < NOINDEX_WORD_THRESHOLD ? '<meta name="robots" content="noindex,follow"/>' : '<meta name="robots" content="index,follow"/>'}
-  <title>${escapeHtml(article.title)}</title>
+  <title>${escapeHtml(iabPageTitle)}</title>
   <meta name="description" content="${escapeHtml(desc)}"/>
   <meta property="og:type" content="article"/>
-  <meta property="og:title" content="${escapeHtml(article.title)}"/>
+  <meta property="og:title" content="${escapeHtml(iabPageTitle)}"/>
   <meta property="og:description" content="${escapeHtml(desc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
@@ -2194,9 +2197,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         if (isBot) {
           const pageUrl = `https://localkynews.com${canonicalPath}`;
           const metas: string[] = [];
+          const metaPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
           const fallbackImage = 'https://localkynews.com/img/preview.png';
           metas.push('<meta property="og:type" content="article"/>');
-          metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
+          metas.push(`<meta property="og:title" content="${escapeHtml(metaPageTitle)}"/>`);
           metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
           const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
           metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
@@ -2292,7 +2296,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   ${(article.rawWordCount ?? 0) < NOINDEX_WORD_THRESHOLD ? '<meta name="robots" content="noindex,follow"/>' : '<meta name="robots" content="index,follow"/>'}
-  <title>${escapeHtml(article.title)}</title>
+  <title>${escapeHtml(metaPageTitle)}</title>
   ${metas.join('\n  ')}
   <style>
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;margin:0 auto;padding:16px;color:#111;line-height:1.6;}
@@ -2463,16 +2467,18 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           ],
         };
 
+        const iabPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
+
         const iabHtml = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   ${(article.rawWordCount ?? 0) < NOINDEX_WORD_THRESHOLD ? '<meta name="robots" content="noindex,follow"/>' : '<meta name="robots" content="index,follow"/>'}
-  <title>${escapeHtml(article.title)}</title>
+  <title>${escapeHtml(iabPageTitle)}</title>
   <meta name="description" content="${escapeHtml(iabDesc)}"/>
   <meta property="og:type" content="article"/>
-  <meta property="og:title" content="${escapeHtml(article.title)}"/>
+  <meta property="og:title" content="${escapeHtml(iabPageTitle)}"/>
   <meta property="og:description" content="${escapeHtml(iabDesc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
@@ -2546,8 +2552,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         // 3. attempt external fetch+scrape (useful for third-party sources)
         // use the shared preview-image logic so bots and Graph posts agree
         const metas = [];
+        const metaPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
         metas.push('<meta property="og:type" content="article"/>');
-        metas.push(`<meta property="og:title" content="${escapeHtml(article.title)}"/>`);
+        metas.push(`<meta property="og:title" content="${escapeHtml(metaPageTitle)}"/>`);
         metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
         const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
 
@@ -2654,7 +2661,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   ${(article.rawWordCount ?? 0) < NOINDEX_WORD_THRESHOLD ? '<meta name="robots" content="noindex,follow"/>' : '<meta name="robots" content="index,follow"/>'}
-  <title>${escapeHtml(article.title)}</title>
+  <title>${escapeHtml(metaPageTitle)}</title>
   ${metas.join('\n  ')}
   <style>
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;margin:0 auto;padding:16px;color:#111;line-height:1.6;}

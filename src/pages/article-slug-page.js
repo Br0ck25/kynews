@@ -5,7 +5,7 @@ import AlertPolygonMap from "../components/weather/alert-polygon-map";
 import { Button, Typography, Card, CardContent } from "@material-ui/core";
 import { useParams, useLocation, Link as RouterLink } from "react-router-dom";
 import SiteService from "../services/siteService";
-import { articleToUrl, countyToSlug } from "../utils/functions";
+import { articleToUrl, buildPageTitle, countyToSlug } from "../utils/functions";
 
 const useStyles = makeStyles((theme) => ({
   root: { marginTop: 15 },
@@ -150,7 +150,8 @@ export default function ArticleSlugPage() {
 
     const pageUrl = `${SITE_URL}${articleToUrl(post)}`;
 
-    document.title = post.title ? `${post.title} — ${SITE_NAME}` : SITE_NAME;
+    const pageTitle = buildPageTitle(post.title, post.county, post.isKentucky);
+    document.title = pageTitle;
 
     const desc = post.seoDescription || post.shortDesc || "";
     const cleanDesc = desc.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -164,7 +165,7 @@ export default function ArticleSlugPage() {
     setMeta("name", "robots", robotsContent);
 
     setMeta("property", "og:type", "article");
-    setMeta("property", "og:title", post.title || SITE_NAME);
+    setMeta("property", "og:title", pageTitle);
     setMeta("property", "og:description", cleanDesc);
     setMeta("property", "og:url", pageUrl);
     setMeta("property", "og:site_name", SITE_NAME);
@@ -207,7 +208,7 @@ export default function ArticleSlugPage() {
     }
 
     setMeta("name", "twitter:card", "summary_large_image");
-    setMeta("name", "twitter:title", post.title || SITE_NAME);
+    setMeta("name", "twitter:title", pageTitle);
     setMeta("name", "twitter:description", cleanDesc);
     setMeta("name", "twitter:image", ogImage);
     setMeta('name', 'twitter:site', '@LocalKYNews');
