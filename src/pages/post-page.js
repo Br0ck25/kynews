@@ -23,6 +23,7 @@ const useStyles = makeStyles({
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
 const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/preview.png';
+const NOINDEX_WORD_THRESHOLD = 150;
 let FB_APP_ID = '';
 try {
   // eslint-disable-next-line no-eval
@@ -121,6 +122,11 @@ export default function PostPage() {
 
     // Canonical (self-referencing — section 5.2)
     setCanonical(pageUrl);
+
+    const robotsContent = (post.rawWordCount ?? post.wordCount ?? 0) < NOINDEX_WORD_THRESHOLD
+      ? "noindex,follow"
+      : "index,follow";
+    setMeta("name", "robots", robotsContent);
 
     // Open Graph
     setMeta("property", "og:type", "article");
@@ -280,6 +286,7 @@ export default function PostPage() {
       const genericDesc = "Kentucky News - local, state, and national updates for all 120 Kentucky counties.";
       setMeta("name", "description", genericDesc);
       setCanonical(SITE_URL);
+      setMeta("name", "robots", "index,follow");
       setMeta("property", "og:image", `${SITE_URL}/img/preview.png`);
       setMeta("name", "twitter:image", `${SITE_URL}/img/preview.png`);
       setMeta("property", "fb:app_id", FB_APP_ID || "0");

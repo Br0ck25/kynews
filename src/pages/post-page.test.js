@@ -38,10 +38,37 @@ describe('PostPage metadata', () => {
     await waitFor(() => {
       expect(getMeta('og:image')).toBe('https://localkynews.com/img/preview.png');
       expect(getMeta('fb:app_id')).toBe('testid');
+      expect(getMeta('robots', 'name')).toBe('noindex,follow');
       const json = document.getElementById('json-ld-article')?.textContent || '';
       expect(json).toContain('"publisher":');
       expect(json).toContain('Local KY News');
       expect(json).toContain('"sourceOrganization"');
+    });
+  });
+
+  it('sets robots meta to index for posts with sufficient word count', async () => {
+    const post = {
+      id: 42,
+      title: 'Legacy Post',
+      seoDescription: 'desc',
+      shortDesc: 'short',
+      slug: null,
+      categories: [],
+      rawWordCount: 150,
+    };
+
+    render(
+      <MemoryRouter
+        initialEntries={[{ pathname: '/post', state: { post } }]}
+      >
+        <Route path="/post">
+          <PostPage />
+        </Route>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(getMeta('robots', 'name')).toBe('index,follow');
     });
   });
 });

@@ -28,6 +28,7 @@ const useStyles = makeStyles((theme) => ({
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
 const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/preview.png';
+const NOINDEX_WORD_THRESHOLD = 150;
 // allow optional FB App ID to be provided via environment variables
 let FB_APP_ID = '';
 try {
@@ -135,6 +136,11 @@ export default function ArticleSlugPage() {
 
     setMeta("name", "description", cleanDesc);
     setCanonical(pageUrl);
+
+    const robotsContent = (post.rawWordCount ?? post.wordCount ?? 0) < NOINDEX_WORD_THRESHOLD
+      ? "noindex,follow"
+      : "index,follow";
+    setMeta("name", "robots", robotsContent);
 
     setMeta("property", "og:type", "article");
     setMeta("property", "og:title", post.title || SITE_NAME);
@@ -292,6 +298,7 @@ export default function ArticleSlugPage() {
         "Kentucky News - local, state, and national updates for all 120 Kentucky counties.";
       setMeta("name", "description", genericDesc);
       setCanonical(SITE_URL);
+      setMeta("name", "robots", "index,follow");
       // restore default image tags as well; use the logo fallback here too so
       // we don't accidentally revert to the old preview graphic when leaving
       // an article.

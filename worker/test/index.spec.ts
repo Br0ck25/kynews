@@ -2972,6 +2972,7 @@ describe('ingestSingleUrl error handling', () => {
 			if (botResp.status === 200) {
 				const text = await botResp.text();
 				expect(text).toContain('<meta property="og:image" content="https://example.com/foo.jpg"');
+				expect(text).toContain('<meta name="robots" content="noindex,follow"/>');
 			}
 			// also ensure facebookbot UA (newer crawler) triggers same metadata
 			const botResp2 = await SELF.fetch(`https://example.com${previewPath}`, {
@@ -2981,6 +2982,17 @@ describe('ingestSingleUrl error handling', () => {
 			if (botResp2.status === 200) {
 				const text2 = await botResp2.text();
 				expect(text2).toContain('<meta property="og:image" content="https://example.com/foo.jpg"');
+				expect(text2).toContain('<meta name="robots" content="noindex,follow"/>');
+			}
+
+			// now update the article to a higher rawWordCount and verify bots receive index,follow
+			await env.ky_news_db.prepare('UPDATE articles SET raw_word_count = ? WHERE id = ?').bind(200, row?.id).run();
+			const botResp3 = await SELF.fetch(`https://example.com${previewPath}`, {
+				headers: { 'User-Agent': 'googlebot/2.1 (+https://www.google.com/bot.html)' },
+			});
+			if (botResp3.status === 200) {
+				const text3 = await botResp3.text();
+				expect(text3).toContain('<meta name="robots" content="index,follow"/>');
 			}
 			// simulate Facebook/Instagram in-app browser which cannot run the SPA
 			const iabResp = await SELF.fetch(`https://example.com${previewPath}`, {

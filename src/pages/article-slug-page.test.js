@@ -38,6 +38,7 @@ describe('ArticleSlugPage metadata', () => {
     await waitFor(() => {
       expect(getMeta('og:image')).toBe('https://localkynews.com/logo512.png');
       expect(getMeta('fb:app_id')).toBe('testid');
+      expect(getMeta('robots', 'name')).toBe('noindex,follow');
       // JSON-LD should include our site as publisher and retain original name
       const json = document.getElementById('json-ld-article')?.textContent || '';
       expect(json).toContain('"publisher":');
@@ -47,6 +48,31 @@ describe('ArticleSlugPage metadata', () => {
       const alt = document.querySelector('link[rel="alternate"][type="text/plain"]');
       expect(alt).toBeTruthy();
       expect(alt.getAttribute('href')).toContain('?format=text');
+    });
+  });
+
+  it('sets robots meta to index for articles with sufficient word count', async () => {
+    const post = {
+      title: 'High Word Count Title',
+      slug: 'high-word-count',
+      seoDescription: 'seo desc',
+      shortDesc: 'short',
+      categories: [],
+      rawWordCount: 150,
+    };
+
+    render(
+      <MemoryRouter
+        initialEntries={[{ pathname: '/news/kentucky/boone-county/high-word-count', state: { post } }]}
+      >
+        <Route path="/news/kentucky/:countySlug/:articleSlug">
+          <ArticleSlugPage />
+        </Route>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(getMeta('robots', 'name')).toBe('index,follow');
     });
   });
 });
