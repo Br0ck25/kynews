@@ -59,11 +59,22 @@ import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSumm
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
-// if an article has fewer than this many raw words (measured at ingest)
-// we serve a noindex directive to crawlers.  150 was chosen based on
-// Google guidance about thin content; it matches the client-side logic
-// in the React pages below.
-const NOINDEX_WORD_THRESHOLD = 150;
+// If an article has fewer than this many raw words (measured at ingest)
+// we serve a noindex directive to crawlers.
+// Thin but valid content is indexed but should be capped in the snippet.
+const NOINDEX_WORD_THRESHOLD = 40;
+const SNIPPET_LIMIT_THRESHOLD = 100;
+
+/**
+ * Decide the robots meta tag based on the word count.
+ */
+function getRobotsContent(wordCount: number | null | undefined): string {
+	const wc = wordCount ?? 0;
+	if (wc < NOINDEX_WORD_THRESHOLD) return 'noindex,follow';
+	if (wc < SNIPPET_LIMIT_THRESHOLD) return 'index,follow,max-snippet:160';
+	return 'index,follow';
+}
+
 const INGEST_METRICS_KEY = 'admin:ingest:latest';
 const INGEST_ROTATION_KEY_PREFIX = 'admin:ingest:rotation:';
 const FALLBACK_CRAWL_MAX_LINKS = 12;
@@ -2147,7 +2158,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  ${(article.rawWordCount ?? 0) < NOINDEX_WORD_THRESHOLD ? '<meta name="robots" content="noindex,follow"/>' : '<meta name="robots" content="index,follow"/>'}
+  <meta name="robots" content="${getRobotsContent(article.rawWordCount)}"/>
   <title>${escapeHtml(iabPageTitle)}</title>
   <meta name="description" content="${escapeHtml(desc)}"/>
   <meta property="og:type" content="article"/>
@@ -2302,7 +2313,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  ${(article.rawWordCount ?? 0) < NOINDEX_WORD_THRESHOLD ? '<meta name="robots" content="noindex,follow"/>' : '<meta name="robots" content="index,follow"/>'}
+  <meta name="robots" content="${getRobotsContent(article.rawWordCount)}"/>
   <title>${escapeHtml(metaPageTitle)}</title>
   ${metas.join('\n  ')}
   <style>
@@ -2481,7 +2492,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  ${(article.rawWordCount ?? 0) < NOINDEX_WORD_THRESHOLD ? '<meta name="robots" content="noindex,follow"/>' : '<meta name="robots" content="index,follow"/>'}
+  <meta name="robots" content="${getRobotsContent(article.rawWordCount)}"/>
   <title>${escapeHtml(iabPageTitle)}</title>
   <meta name="description" content="${escapeHtml(iabDesc)}"/>
   <meta property="og:type" content="article"/>
@@ -2667,7 +2678,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  ${(article.rawWordCount ?? 0) < NOINDEX_WORD_THRESHOLD ? '<meta name="robots" content="noindex,follow"/>' : '<meta name="robots" content="index,follow"/>'}
+  <meta name="robots" content="${getRobotsContent(article.rawWordCount)}"/>
   <title>${escapeHtml(metaPageTitle)}</title>
   ${metas.join('\n  ')}
   <style>

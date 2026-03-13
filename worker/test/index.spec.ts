@@ -2985,14 +2985,24 @@ describe('ingestSingleUrl error handling', () => {
 				expect(text2).toContain('<meta name="robots" content="noindex,follow"/>');
 			}
 
-			// now update the article to a higher rawWordCount and verify bots receive index,follow
-			await env.ky_news_db.prepare('UPDATE articles SET raw_word_count = ? WHERE id = ?').bind(200, row?.id).run();
+			// now update the article to an intermediate rawWordCount and verify bots receive max-snippet directive
+			await env.ky_news_db.prepare('UPDATE articles SET raw_word_count = ? WHERE id = ?').bind(50, row?.id).run();
 			const botResp3 = await SELF.fetch(`https://example.com${previewPath}`, {
 				headers: { 'User-Agent': 'googlebot/2.1 (+https://www.google.com/bot.html)' },
 			});
 			if (botResp3.status === 200) {
 				const text3 = await botResp3.text();
-				expect(text3).toContain('<meta name="robots" content="index,follow"/>');
+				expect(text3).toContain('<meta name="robots" content="index,follow,max-snippet:160"/>');
+			}
+
+			// now update the article to a higher rawWordCount and verify bots receive index,follow
+			await env.ky_news_db.prepare('UPDATE articles SET raw_word_count = ? WHERE id = ?').bind(200, row?.id).run();
+			const botResp4 = await SELF.fetch(`https://example.com${previewPath}`, {
+				headers: { 'User-Agent': 'googlebot/2.1 (+https://www.google.com/bot.html)' },
+			});
+			if (botResp4.status === 200) {
+				const text4 = await botResp4.text();
+				expect(text4).toContain('<meta name="robots" content="index,follow"/>');
 			}
 			// simulate Facebook/Instagram in-app browser which cannot run the SPA
 			const iabResp = await SELF.fetch(`https://example.com${previewPath}`, {

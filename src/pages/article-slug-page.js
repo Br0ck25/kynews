@@ -6,6 +6,7 @@ import { Button, Typography, Card, CardContent } from "@material-ui/core";
 import { useParams, useLocation, Link as RouterLink } from "react-router-dom";
 import SiteService from "../services/siteService";
 import { articleToUrl, buildPageTitle, countyToSlug } from "../utils/functions";
+import Constants from "../constants/constants";
 
 const useStyles = makeStyles((theme) => ({
   root: { marginTop: 15 },
@@ -28,17 +29,18 @@ const useStyles = makeStyles((theme) => ({
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
 const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/preview.png';
-const NOINDEX_WORD_THRESHOLD = 150;
-// allow optional FB App ID to be provided via environment variables
-let FB_APP_ID = '';
-try {
-  // `import.meta` is not parsable by Jest's Babel, so access via eval at runtime.
-  // eslint-disable-next-line no-eval
-  const env = eval(String.fromCharCode(105,109,112,111,114,116) + '.meta.env');
-  FB_APP_ID = (env.REACT_APP_FB_APP_ID || env.VITE_FB_APP_ID || '').trim();
-} catch (e) {
-  // import.meta not available or eval blocked
-  FB_APP_ID = '';
+const { NOINDEX_WORD_THRESHOLD, SNIPPET_LIMIT_THRESHOLD } = Constants;
+// Allow optional FB App ID to be provided via environment variables.
+// This reads from import.meta.env in Vite or falls back to process.env for tests.
+function getFbAppId() {
+  try {
+    // `import.meta` is not parsable by Jest's Babel, so access via eval at runtime.
+    // eslint-disable-next-line no-eval
+    const env = eval(String.fromCharCode(105,109,112,111,114,116) + '.meta.env');
+    return (env.REACT_APP_FB_APP_ID || env.VITE_FB_APP_ID || '').trim();
+  } catch {
+    return (process?.env?.REACT_APP_FB_APP_ID || process?.env?.VITE_FB_APP_ID || '').trim();
+  }
 }
 
 function setMeta(attr, value, content) {
@@ -70,6 +72,13 @@ function setJsonLd(id, data) {
     document.head.appendChild(el);
   }
   el.textContent = JSON.stringify(data);
+}
+
+function getRobotsContent(wordCount) {
+  const wc = wordCount ?? 0;
+  if (wc < NOINDEX_WORD_THRESHOLD) return "noindex,follow";
+  if (wc < SNIPPET_LIMIT_THRESHOLD) return "index,follow,max-snippet:160";
+  return "index,follow";
 }
 
 /**
@@ -159,9 +168,7 @@ export default function ArticleSlugPage() {
     setMeta("name", "description", cleanDesc);
     setCanonical(pageUrl);
 
-    const robotsContent = (post.rawWordCount ?? post.wordCount ?? 0) < NOINDEX_WORD_THRESHOLD
-      ? "noindex,follow"
-      : "index,follow";
+    const robotsContent = getRobotsContent(post.rawWordCount ?? post.wordCount);
     setMeta("name", "robots", robotsContent);
 
     setMeta("property", "og:type", "article");
@@ -212,7 +219,8 @@ export default function ArticleSlugPage() {
     setMeta("name", "twitter:description", cleanDesc);
     setMeta("name", "twitter:image", ogImage);
     setMeta('name', 'twitter:site', '@LocalKYNews');
-    if (FB_APP_ID) setMeta("property", "fb:app_id", FB_APP_ID);
+    const fbAppId = getFbAppId();
+    if (fbAppId) setMeta("property", "fb:app_id", fbAppId);
 
     // alternate plain-text version for AI crawlers
     const textUrl = `${pageUrl}?format=text`;
@@ -326,7 +334,7 @@ export default function ArticleSlugPage() {
       // an article.
       setMeta("property", "og:image", DEFAULT_OG_IMAGE);
       setMeta("name", "twitter:image", DEFAULT_OG_IMAGE);
-      setMeta("property", "fb:app_id", FB_APP_ID || "0");
+      setMeta("property", "fb:app_id", getFbAppId() || "0");
       document.getElementById("json-ld-article")?.remove();
       document.getElementById("json-ld-breadcrumb-post")?.remove();
     };
