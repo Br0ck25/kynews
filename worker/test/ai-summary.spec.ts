@@ -120,6 +120,54 @@ describe('summary sanitization', () => {
     expect(result.summary).toMatch(/women and the number has grown over time\.$/);
   });
 
+  it('uses a valid SEO_DESCRIPTION line from the AI output', async () => {
+    const env = makeEnv(
+      [
+        'The school board approved a plan to build a new park in Pike County.',
+        '',
+        'SEO_DESCRIPTION: Pike County leaders approved a new community park plan that could reshape local recreation—what residents need to know next.',
+      ].join('\n'),
+    );
+
+    const source = 'The school board approved a plan to build a new park in Pike County.';
+
+    const result = await summarizeArticle(
+      env,
+      'unit-seo-1',
+      'Park plan approved',
+      source,
+      new Date().toISOString(),
+    );
+
+    expect(result.summary).not.toContain('SEO_DESCRIPTION');
+    expect(result.seoDescription).toBe(
+      'Pike County leaders approved a new community park plan that could reshape local recreation—what residents need to know next.',
+    );
+  });
+
+  it('falls back to the first sentence when SEO_DESCRIPTION is invalid', async () => {
+    const env = makeEnv(
+      [
+        'The school board approved a plan to build a new park in Pike County.',
+        '',
+        'SEO_DESCRIPTION: Too short.',
+      ].join('\n'),
+    );
+
+    const source = 'The school board approved a plan to build a new park in Pike County.';
+
+    const result = await summarizeArticle(
+      env,
+      'unit-seo-2',
+      'Park plan approved',
+      source,
+      new Date().toISOString(),
+    );
+
+    expect(result.summary).not.toContain('SEO_DESCRIPTION');
+    expect(result.seoDescription).toBe('The school board approved a plan to build a new park in Pike County.');
+  });
+
   it('flags betting/odds content as unsummarizable via schedule detector', () => {
     const base = 'Kentucky vs Vanderbilt odds; spread, money line, sportsbook promo code our pick';
     expect(isScheduleOrScoresArticle(base)).toBe(true);

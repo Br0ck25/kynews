@@ -111,6 +111,8 @@ Your summary must never:
 - Split a direct quote across paragraphs — if a quote spans a line break in the source, keep it as a single uninterrupted sentence in your output.
 - Begin with a pronoun or article ("The board...", "Officials said...") when the subject has not been named. Always name the specific entity (board, person, organization) and its location in the first sentence.
 
+After the summary, output a separate line beginning with "SEO_DESCRIPTION:" followed by a 120–155 character meta description. This line should be a compelling teaser that includes the county when present (from the provided article metadata), reflects the primary news hook, and ends with a call to curiosity rather than cutting off mid-thought. Do not include HTML, URLs, or extra labels.
+
 Return clean, publication-ready paragraphs only. No headlines, labels,
 bullet points, subheadings, URLs, or commentary.`;
 
@@ -297,12 +299,18 @@ export async function summarizeArticle(
       if (validatedText) {
         validatedText = ensureCompleteLastSentence(validatedText);
         validatedText = fixLeadingParagraphPunctuation(validatedText);
-        // decode HTML entities before checking for malformed output so that
+        // Decode HTML entities before checking for malformed output so that
         // &amp; and similar tokens don't trigger unnecessary regeneration.
         const decoded = decodeHtmlEntities(validatedText);
-        if (!isMalformedSummary(decoded)) {
-          summary = decoded;
-          seo = enforceSeoLength(extractFirstSentence(decoded), decoded);
+        const { cleaned: decodedWithoutSeo, seo: extractedSeo } =
+          extractSeoDescriptionFromOutput(decoded);
+
+        if (!isMalformedSummary(decodedWithoutSeo)) {
+          summary = decodedWithoutSeo;
+          // Prefer an explicit SEO_DESCRIPTION line when it's present and valid.
+          seo = extractedSeo
+            ? extractedSeo
+            : enforceSeoLength(extractFirstSentence(decodedWithoutSeo), decodedWithoutSeo);
         }
       }
     }
@@ -645,6 +653,23 @@ function extractAiText(payload: AiResultLike): string {
     payload.choices?.[0]?.message?.content ??
     ''
   );
+}
+
+function extractSeoDescriptionFromOutput(text: string): { cleaned: string; seo: string | null } {
+  // Look for a dedicated SEO_DESCRIPTION line. If present, strip it from the
+  // summary text. If it's valid (length 120–155, no HTML), return it separately.
+  const match = text.match(/^SEO_DESCRIPTION:\s*(.+?)(?:\r?\n|$)/im);
+  if (!match) return { cleaned: text, seo: null };
+
+  const candidate = match[1].trim();
+  const hasHtmlTags = /<\/?[a-z][\s\S]*?>/i.test(candidate);
+  const isValid = candidate.length >= 120 && candidate.length <= 155 && !hasHtmlTags;
+
+  const cleaned = text
+    .replace(match[0], '')
+    .replace(/\n{2,}/g, '\n\n')
+    .trim();
+  return { cleaned, seo: isValid ? candidate : null };
 }
 
 function extractFirstSentence(text: string): string {
