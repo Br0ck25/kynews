@@ -2930,7 +2930,7 @@ if (url.pathname === '/robots.txt' && request.method === 'GET') {
 
 // --- Sitemap routes (Section 7: News Sitemap Strategy) ---
 if (url.pathname === '/sitemap-index.xml' && request.method === 'GET') {
-	return new Response(generateSitemapIndex(), {
+	return new Response(await generateSitemapIndex(env), {
 		headers: {
 			'content-type': 'application/xml; charset=utf-8',
 			'cache-control': 'public, max-age=3600, s-maxage=3600',
@@ -3083,33 +3083,16 @@ async function generateSitemap(env: Env): Promise<string> {
 		const iso = toIsoDateOrNull(row.updated_at || row.published_at || '');
 		const lastmod = iso ? iso.split('T')[0] : '';
 		const loc = buildArticleUrl(baseUrl, row.slug, row.county, row.category, Boolean(row.is_national), row.id);
-		// compute article age to decide changefreq/priority
-		const publishedDate = new Date(row.published_at || row.updated_at || Date.now());
-		const ageMs = Date.now() - publishedDate.getTime();
-		const ageDays = ageMs / (1000 * 60 * 60 * 24);
-		const changefreq = ageDays < 7 ? 'daily' : ageDays < 30 ? 'weekly' : 'monthly';
-		const priority = ageDays < 7 ? '0.8' : ageDays < 30 ? '0.7' : '0.5';
 		return `  <url>
     <loc>${loc}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}
-    <changefreq>${changefreq}</changefreq>
-    <priority>${priority}</priority>
   </url>`;
 	});
 
-	// Add static pages
-	const staticPages = [
-		{ path: '/', priority: '1.0', changefreq: 'hourly' },
-		{ path: '/today', priority: '1.0', changefreq: 'hourly' },
-		{ path: '/national', priority: '0.8', changefreq: 'hourly' },
-		{ path: '/sports', priority: '0.8', changefreq: 'hourly' },
-		{ path: '/weather', priority: '0.8', changefreq: 'hourly' },
-		{ path: '/schools', priority: '0.8', changefreq: 'hourly' },
-		{ path: '/local', priority: '1.0', changefreq: 'daily' },
-		{ path: '/about', priority: '0.6', changefreq: 'monthly' },
-		{ path: '/contact', priority: '0.5', changefreq: 'monthly' },
-		{ path: '/editorial-policy', priority: '0.6', changefreq: 'monthly' },
-		{ path: '/privacy-policy', priority: '0.5', changefreq: 'monthly' },
-	];
+	// Add static pages — no changefreq or priority (Google ignores them).
+	// Dynamic pages get today's date; truly static pages get a fixed release date.
+	const dynamicPaths = ['/', '/today', '/national', '/sports', '/weather', '/schools', '/local'];
+	const staticPaths = ['/about', '/contact', '/editorial-policy', '/privacy-policy'];
+	const SITE_STATIC_DATE = '2025-01-01';
 
 	const counties = [
 		'Adair','Allen','Anderson','Ballard','Barren','Bath','Bell','Boone','Bourbon','Boyd',
@@ -3130,14 +3113,16 @@ async function generateSitemap(env: Env): Promise<string> {
 
 	const today = new Date().toISOString().split('T')[0];
 	const staticXml = [
-		...staticPages.map(
-			(p) =>
-				`  <url>\n    <loc>${baseUrl}${p.path}</loc>\n    <changefreq>${p.changefreq}</changefreq>\n    <priority>${p.priority}</priority>\n  </url>`,
+		...dynamicPaths.map(
+			(p) => `  <url>\n    <loc>${baseUrl}${p}</loc>\n    <lastmod>${today}</lastmod>\n  </url>`,
+		),
+		...staticPaths.map(
+			(p) => `  <url>\n    <loc>${baseUrl}${p}</loc>\n    <lastmod>${SITE_STATIC_DATE}</lastmod>\n  </url>`,
 		),
 		...counties.map((c) => {
 			const slug = c.toLowerCase().replace(/\s/g, '-');
 			const last = countyLastmod[slug] || today;
-			return `  <url>\n    <loc>${baseUrl}/news/kentucky/${slug}-county</loc>\n    <lastmod>${last}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>`;
+			return `  <url>\n    <loc>${baseUrl}/news/kentucky/${slug}-county</loc>\n    <lastmod>${last}</lastmod>\n  </url>`;
 		}),
 	];
 
@@ -3332,15 +3317,31 @@ ${itemsXml}
 
 /**
  * Generate a sitemap index pointing to both sitemaps.
+ * Uses the most recently updated article date as the lastmod for the main
+ * sitemap so that crawlers have an accurate staleness signal.
  */
-function generateSitemapIndex(): string {
+async function generateSitemapIndex(env: Env): Promise<string> {
 	const baseUrl = BASE_URL;
 	const now = new Date().toISOString().split('T')[0];
+	let sitemapLastmod = now;
+	try {
+		const result = await env.ky_news_db
+			.prepare(
+				`SELECT MAX(COALESCE(updated_at, published_at)) as latest
+				 FROM articles
+				 WHERE (is_kentucky = 1 OR is_national = 1)`,
+			)
+			.first<{ latest: string | null }>();
+		const iso = result?.latest ? toIsoDateOrNull(result.latest) : null;
+		if (iso) sitemapLastmod = iso.split('T')[0];
+	} catch {
+		// fall back to today if the query fails
+	}
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <sitemap>
     <loc>${baseUrl}/sitemap.xml</loc>
-    <lastmod>${now}</lastmod>
+    <lastmod>${sitemapLastmod}</lastmod>
   </sitemap>
   <sitemap>
     <loc>${baseUrl}/sitemap-news.xml</loc>

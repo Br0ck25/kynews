@@ -448,8 +448,9 @@ async function ensureSchemaAndFixture() {
 					expect(xml).toMatch(/<lastmod>2025-12-15<\/lastmod>/);
 					const countySlug = 'fayette';
 					expect(xml).toMatch(new RegExp(`<loc>${BASE_URL}/news/kentucky/${countySlug}-county<\/loc>[\s\S]*?<lastmod>2025-12-15<\/lastmod>`));
-					expect(xml).toMatch(/<changefreq>(daily|weekly|monthly)<\/changefreq>/);
-					expect(xml).toMatch(/<priority>0\.[0-9]<\/priority>/);
+					expect(xml).not.toContain('<changefreq>');
+					expect(xml).not.toContain('<priority>');
+					expect(xml).toMatch(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
 				});
 
 				it('news sitemap includes keywords and respects cutoff', async () => {
