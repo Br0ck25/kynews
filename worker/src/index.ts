@@ -76,6 +76,16 @@ function getRobotsContent(wordCount: number | null | undefined): string {
 	return 'index,follow';
 }
 
+function escapeHtml(input: string | null | undefined): string {
+	const str = input ?? '';
+	return str
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+}
+
 const INGEST_METRICS_KEY = 'admin:ingest:latest';
 const INGEST_ROTATION_KEY_PREFIX = 'admin:ingest:rotation:';
 const FALLBACK_CRAWL_MAX_LINKS = 12;
@@ -2038,6 +2048,10 @@ if (countyPageMatch && request.method === 'GET') {
 <meta property="og:description" content="${escapeHtml(description)}"/>
 <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
 <meta property="og:image" content="${escapeHtml(image)}"/>
+<meta property="og:image:secure_url" content="${escapeHtml(image)}"/>
+<meta property="og:image:type" content="image/png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
 <meta property="og:site_name" content="Local KY News"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="${escapeHtml(title)}"/>
@@ -2200,6 +2214,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta property="og:title" content="${escapeHtml(iabPageTitle)}"/>
   <meta property="og:description" content="${escapeHtml(desc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
+  <meta property="og:image:secure_url" content="${escapeHtml(imageForMeta)}"/>
+  <meta property="og:image:type" content="${/\.png(\?|$)/i.test(imageForMeta) ? 'image/png' : 'image/jpeg'}"/>
   <meta property="og:image:width" content="1200"/>
   <meta property="og:image:height" content="630"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
@@ -2258,6 +2274,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 <meta property="og:title" content="Local KY News"/>
 <meta property="og:description" content="Kentucky News - local, state, and national updates for all 120 Kentucky counties."/>
 <meta property="og:image" content="${escapeHtml(fallbackImage)}"/>
+<meta property="og:image:secure_url" content="${escapeHtml(fallbackImage)}"/>
+<meta property="og:image:type" content="image/png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta property="og:url" content="${escapeHtml(fallbackPageUrl)}"/>
@@ -2283,6 +2301,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             metas.push(`<meta property="og:title" content="${escapeHtml(metaPageTitle)}"/>`);
             metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
             metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
+            metas.push(`<meta property="og:image:secure_url" content="${escapeHtml(imageForMeta)}"/>`);
+            metas.push(`<meta property="og:image:type" content="${/\.png(\?|$)/i.test(imageForMeta) ? 'image/png' : 'image/jpeg'}"/>`);
             metas.push(`<meta property="og:image:width" content="1200"/>`);
             metas.push(`<meta property="og:image:height" content="630"/>`);
             metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
@@ -2417,6 +2437,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 <meta property="og:title" content="Local KY News"/>
 <meta property="og:description" content="Kentucky News - local, state, and national updates for all 120 Kentucky counties."/>
 <meta property="og:image" content="${escapeHtml(fallbackImage)}"/>
+<meta property="og:image:secure_url" content="${escapeHtml(fallbackImage)}"/>
+<meta property="og:image:type" content="image/png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta property="og:url" content="${escapeHtml(fallbackPageUrl)}"/>
@@ -2576,6 +2598,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta property="og:title" content="${escapeHtml(iabPageTitle)}"/>
   <meta property="og:description" content="${escapeHtml(iabDesc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
+  <meta property="og:image:secure_url" content="${escapeHtml(imageForMeta)}"/>
+  <meta property="og:image:type" content="${/\.png(\?|$)/i.test(imageForMeta) ? 'image/png' : 'image/jpeg'}"/>
+  <meta property="og:image:width" content="1200"/>
+  <meta property="og:image:height" content="630"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
   <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
   <meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>
@@ -2718,6 +2744,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         };
 
         metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
+        metas.push(`<meta property="og:image:secure_url" content="${escapeHtml(imageForMeta)}"/>`);
+        metas.push(`<meta property="og:image:type" content="${/\.png(\?|$)/i.test(imageForMeta) ? 'image/png' : 'image/jpeg'}"/>`);
         metas.push(`<meta property="og:image:width" content="1200"/>`);
         metas.push(`<meta property="og:image:height" content="630"/>`);
         metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
@@ -2725,9 +2753,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 
         // Twitter uses its own tags and also wants the large image card.
         metas.push('<meta name="twitter:card" content="summary_large_image"/>');
-        metas.push(
-          `<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>
-        `);
+        metas.push(`<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>`);
 
         // always include the tag; use configured ID or fall back to '0'
         metas.push(
@@ -2884,6 +2910,10 @@ if (request.method === 'GET' && sectionMeta && isBotUserAgent(request.headers.ge
   <meta property="og:url" content="${baseUrl}${url.pathname}"/>
   <meta property="og:site_name" content="Local KY News"/>
   <meta property="og:image" content="${baseUrl}/img/preview.png"/>
+  <meta property="og:image:secure_url" content="${baseUrl}/img/preview.png"/>
+  <meta property="og:image:type" content="image/png"/>
+  <meta property="og:image:width" content="1200"/>
+  <meta property="og:image:height" content="630"/>
   <meta name="twitter:card" content="summary_large_image"/>
   <meta name="twitter:site" content="@LocalKYNews"/>
   <style>
@@ -4975,3 +5005,4 @@ function matchesRobotsPattern(pathname: string, pattern: string): boolean {
 ;(globalThis as any).BASE_URL = BASE_URL;
 ;(globalThis as any).buildArticleUrl = buildArticleUrl;
 ;(globalThis as any).TODAY_RSS_LIMIT = TODAY_RSS_LIMIT;
+}

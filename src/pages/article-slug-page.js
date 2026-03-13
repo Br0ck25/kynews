@@ -202,6 +202,9 @@ export default function ArticleSlugPage() {
       }
     }
     setMeta("property", "og:image", ogImage);
+    const ogImageType = /\.png(\?|$)/i.test(ogImage) ? 'image/png' : 'image/jpeg';
+    setMeta("property", "og:image:secure_url", ogImage);
+    setMeta("property", "og:image:type", ogImageType);
     setMeta("property", "og:image:width", "1200");
     setMeta("property", "og:image:height", "630");
 
@@ -335,6 +338,7 @@ export default function ArticleSlugPage() {
       // we don't accidentally revert to the old preview graphic when leaving
       // an article.
       setMeta("property", "og:image", DEFAULT_OG_IMAGE);
+      setMeta("property", "og:image:secure_url", DEFAULT_OG_IMAGE);
       setMeta("name", "twitter:image", DEFAULT_OG_IMAGE);
       setMeta("property", "fb:app_id", getFbAppId() || "0");
       document.getElementById("json-ld-article")?.remove();
