@@ -1,5 +1,5 @@
 import type { ArticleRecord } from '../types';
-import { BASE_URL } from '../index';
+import { BASE_URL } from './constants';
 
 /**
  * Clean up a headline for a Facebook post. Strips common trailing branding
