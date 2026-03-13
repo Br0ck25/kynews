@@ -182,9 +182,19 @@ export async function summarizeArticle(
   title: string,
   content: string,
   publishedAt: string,
+  meta?: { county?: string | null; city?: string | null; category?: string | null },
 ): Promise<SummaryResult> {
   const cleanedSourceContent = cleanContentForSummarization(content, title);
   const sourceForSummary = cleanedSourceContent || content;
+  const geoHint = meta
+    ? [
+        meta.county ? `County: ${meta.county} County, Kentucky` : null,
+        meta.city ? `City: ${meta.city}, Kentucky` : null,
+        meta.category ? `Category: ${meta.category}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : '';
 
   // Articles that are purely scores/schedule tables cannot be meaningfully summarized
   if (isScheduleOrScoresArticle(sourceForSummary)) {
@@ -248,7 +258,9 @@ export async function summarizeArticle(
       ? await buildSystemPrompt(env)
       : BASE_SYSTEM_PROMPT;
 
-    const userPrompt = `Article:\n${sourceForSummary.slice(0, 12_000)}`;
+    const userPrompt = geoHint
+      ? `Article metadata:\n${geoHint}\n\nArticle:\n${sourceForSummary.slice(0, 12_000)}`
+      : `Article:\n${sourceForSummary.slice(0, 12_000)}`;
 
     const aiRaw = (await env.AI.run(MODEL, {
       messages: [

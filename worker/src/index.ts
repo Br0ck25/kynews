@@ -1134,7 +1134,11 @@ if (url.pathname.startsWith('/api/admin/articles/') && url.pathname.endsWith('/r
     feedPublishedAt: article.publishedAt,
   });
 
-  const aiResult = await summarizeArticle(env, article.urlHash, article.title, extracted.contentText, article.publishedAt);
+  const aiResult = await summarizeArticle(env, article.urlHash, article.title, extracted.contentText, article.publishedAt, {
+    county: article.county,
+    city: article.city,
+    category: article.category,
+  });
   const newSummary = aiResult.summary;
   const newSeo = aiResult.seoDescription;
 

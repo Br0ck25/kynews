@@ -170,7 +170,11 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
-  const ai = await summarizeArticle(env, canonicalHash, extracted.title, extracted.contentText, extracted.publishedAt);
+  const ai = await summarizeArticle(env, canonicalHash, extracted.title, extracted.contentText, extracted.publishedAt, {
+    county: classification.county,
+    city: classification.city,
+    category: classification.category,
+  });
 
   // if this is just a preview request we stop after summarization/classification
   // and return the article fields without actually writing anything to the
