@@ -38,6 +38,7 @@ const ArticleSlugPage = lazy(() => import("./pages/article-slug-page"));
 // CountyInfoPage is rendered inside a dialog by CountyPage, 
 // so we no longer mount it directly via routes.
 const KentuckyNewsPage = lazy(() => import("./pages/kentucky-news-page"));
+import CountyPage from "./pages/county-page";
 
 /**
  * Redirects legacy /news/:countySlug URLs to the new canonical /news/kentucky/:countySlug.
@@ -46,6 +47,18 @@ const KentuckyNewsPage = lazy(() => import("./pages/kentucky-news-page"));
 function LegacyCountyRedirect() {
   const { countySlug } = useParams();
   return <Redirect to={`/news/kentucky/${countySlug}`} />;
+}
+
+/**
+ * Route helper that renders a county page when the slug ends in `-county`.
+ * Otherwise it renders an article page.
+ */
+function KentuckyCountyOrArticle() {
+  const { articleSlug } = useParams();
+  if (articleSlug && articleSlug.toLowerCase().endsWith("-county")) {
+    return <CountyPage countySlugProp={articleSlug} />;
+  }
+  return <ArticleSlugPage />;
 }
 
 function AppTagSync() {
@@ -152,12 +165,8 @@ function App() {
                       <ArticleSlugPage />
                     </Route>
                     {/* kentucky articles that are statewide (no county path segment) */}
-                    {/*
-                      Exclude county landing page URLs (e.g. `/news/kentucky/adair-county`)
-                      from this route so they are handled by the county dispatcher below.
-                    */}
-                    <Route exact path="/news/kentucky/:articleSlug((?!.*-county$)[a-z0-9-]+)">
-                      <ArticleSlugPage />
+                    <Route exact path="/news/kentucky/:articleSlug">
+                      <KentuckyCountyOrArticle />
                     </Route>
                     {/* Existing dispatcher for county homepage and info pages.  This must
                     come after the article routes so that `/news/kentucky/foo/bar` is
