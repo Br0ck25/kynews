@@ -5,7 +5,7 @@ import { Button, Typography } from "@material-ui/core";
 import { useLocation, Link as RouterLink } from "react-router-dom";
 import { useSelector } from "react-redux";
 import SiteService from "../services/siteService";
-import { articleToUrl } from "../utils/functions";
+import { articleToUrl, countyToSlug } from "../utils/functions";
 
 const useStyles = makeStyles({
   root: {
@@ -81,6 +81,27 @@ export default function PostPage() {
   const [resolvedPost, setResolvedPost] = React.useState(location?.state?.post || reduxPost || null);
   const [loading, setLoading] = React.useState(false);
   const service = React.useMemo(() => new SiteService(), []);
+
+  const [relatedPosts, setRelatedPosts] = React.useState([]);
+  const [relatedLoading, setRelatedLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    const county = resolvedPost?.county;
+    if (!county) {
+      setRelatedPosts([]);
+      return;
+    }
+
+    setRelatedLoading(true);
+    service
+      .fetchPage({ category: 'today', counties: [county], limit: 10 })
+      .then((result) => {
+        const posts = (result.posts || []).filter((p) => p.id !== resolvedPost?.id);
+        setRelatedPosts(posts.slice(0, 4));
+      })
+      .catch(() => {})
+      .finally(() => setRelatedLoading(false));
+  }, [resolvedPost, service]);
 
   // Resolve from ?articleId= query param if not already in state/redux
   React.useEffect(() => {
@@ -302,7 +323,33 @@ export default function PostPage() {
   return (
     <div className={classes.root}>
       {post ? (
-        <Post post={post} />
+        <>
+          <Post post={post} />
+          {relatedPosts.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <Typography variant="h6" gutterBottom>
+                More from {post.county} County
+              </Typography>
+              <ul style={{ paddingLeft: 16, marginTop: 8 }}>
+                {relatedPosts.map((related) => (
+                  <li key={related.id}>
+                    <RouterLink to={articleToUrl(related)}>
+                      {related.title}
+                    </RouterLink>
+                  </li>
+                ))}
+              </ul>
+              <Button
+                component={RouterLink}
+                to={`/news/kentucky/${countyToSlug(post.county)}`}
+                color="primary"
+                size="small"
+              >
+                View all {post.county} County news →
+              </Button>
+            </div>
+          )}
+        </>
       ) : loading ? (
         <div className={classes.emptyState}>
           <Typography variant="h6" gutterBottom>

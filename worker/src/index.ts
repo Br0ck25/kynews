@@ -123,6 +123,47 @@ const PUBLIC_ARTICLE_CACHE_HEADERS = {
 // domain ever moves.
 export const BASE_URL = 'https://localkynews.com';
 
+/**
+ * Return an HTML block listing up to 4 recent articles from the same county.
+ * This is used for the server-rendered bot HTML so crawlers see internal links.
+ */
+async function buildRelatedCountyArticlesHtml(env: Env, article: ArticleRecord): Promise<string> {
+	if (!article?.county) return '';
+
+	const rows = await prepare(env,
+		`SELECT title, slug, county, category, is_national, id
+		 FROM articles
+		 WHERE county = ? AND id != ? AND slug IS NOT NULL AND blocked = 0
+		 ORDER BY published_at DESC
+		 LIMIT 4`
+	).bind(article.county, article.id).all<any>();
+
+	const items = (rows.results || []).filter((r: any) => r && r.slug);
+	if (items.length === 0) return '';
+
+	const countySlug = countyNameToSlug(article.county);
+	const hubUrl = `${BASE_URL}/news/kentucky/${countySlug}`;
+
+	const listItems = items
+		.map((row: any) => {
+			const href = buildArticleUrl(
+				BASE_URL,
+				row.slug,
+				row.county,
+				row.category,
+				Boolean(row.is_national),
+				row.id,
+			);
+			return `<li><a href="${escapeHtml(href)}">${escapeHtml(row.title)}</a></li>`;
+		})
+		.join('\n');
+
+	return `<nav aria-label="Related articles">
+  <a href="${escapeHtml(hubUrl)}">All ${escapeHtml(article.county)} County news →</a>
+  <ul>${listItems}</ul>
+</nav>`;
+}
+
 // status object returned by ingestSeedSource; kept separate to avoid inlining a
 // huge anonymous type at the call site and to make test fixtures easier to
 // construct.
@@ -2242,6 +2283,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
           .filter((p: string) => p.length > 10)
           .join('\n');
+        const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
         const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
         const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
         const html = `<!doctype html>
@@ -2270,6 +2312,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
     ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
   </div>
   ${botSummaryParagraphs || `<p>${escapeHtml(desc)}</p>`}
+  ${botRelatedHtml}
   <a class="source" href="${escapeHtml(article.canonicalUrl)}" rel="noopener">Read full article at source →</a>
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
 </body>
@@ -2602,6 +2645,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
           .filter((p: string) => p.length > 10)
           .join('\n');
+        const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
         const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
         const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
         const html = `<!doctype html>
@@ -2630,6 +2674,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
     ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
   </div>
   ${botSummaryParagraphs || `<p>${escapeHtml(desc)}</p>`}
+  ${botRelatedHtml}
   <a class="source" href="${escapeHtml(article.canonicalUrl)}" rel="noopener">Read full article at source →</a>
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
 </body>
