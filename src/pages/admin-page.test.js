@@ -211,8 +211,8 @@ describe('AdminPage manual body formatting', () => {
     render(<AdminPage />);
     // go to Articles tab to render search box
     fireEvent.click(screen.getByRole('tab', { name: /Articles/i }));
-    // initial load should call once
-    await screen.findByText(/Articles/i);
+    // initial load should call once — wait for the Articles heading (not the tab) to appear
+    await screen.findByRole('heading', { name: 'Articles' });
     expect(listSpy).toHaveBeenCalledTimes(1);
 
     const search = await screen.findByLabelText(/Search/i);

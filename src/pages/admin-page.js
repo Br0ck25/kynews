@@ -1469,6 +1469,7 @@ export default function AdminPage() {
 
               {/* Title */}
               <TextField fullWidth variant="outlined" size="small"
+                id="manual-title"
                 label="Title *"
                 value={manualTitle}
                 onChange={(e) => setManualTitle(e.target.value)}
@@ -1494,6 +1495,7 @@ export default function AdminPage() {
                 </Button>
               </Box>
               <TextField fullWidth variant="outlined" size="small"
+                id="manual-body"
                 label="Body (optional)"
                 multiline rows={8}
                 value={manualBody}
@@ -1549,6 +1551,7 @@ export default function AdminPage() {
 
               {/* Image URL */}
               <TextField fullWidth variant="outlined" size="small"
+                id="manual-image-url"
                 label="Image URL (optional)"
                 value={manualImageUrl}
                 onChange={(e) => setManualImageUrl(e.target.value)}
@@ -1759,7 +1762,7 @@ export default function AdminPage() {
                 ))}
               </Select>
             </FormControl>
-            <TextField variant="outlined" size="small" label="Search"
+            <TextField variant="outlined" size="small" id="articles-search" label="Search"
               value={articleSearch}
               onChange={(e) => setArticleSearch(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') applyFilter(); }} />
@@ -2016,6 +2019,7 @@ export default function AdminPage() {
                                 />
                                 <TextField
                                   fullWidth
+                                  id={`edit-image-url-${row.id}`}
                                   label="Image URL"
                                   variant="outlined"
                                   size="small"

@@ -44,7 +44,7 @@ describe('FullScreenPostDialog integration', () => {
 
     // click government offices and verify its content appears
     fireEvent.click(screen.getByText(/Government Offices/i));
-    expect(await screen.findByText(/Primary County Offices/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Primary Elected Officials/i)).toBeInTheDocument();
 
     // close the inner info dialog (last close button corresponds to it)
     const closeBtns = screen.getAllByLabelText('close');

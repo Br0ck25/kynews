@@ -107,7 +107,7 @@ export default function FeaturedPost(props) {
               color="inherit"
               paragraph
               dangerouslySetInnerHTML={{
-                __html: post.description.split(" ").splice(0, 15).join(" ") + "...",
+                __html: (post.description || '').split(" ").splice(0, 15).join(" ") + "...",
               }}
             />
             <Typography variant="body2" color="inherit" style={{ opacity: 0.9 }}>

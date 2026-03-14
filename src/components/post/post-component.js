@@ -378,7 +378,6 @@ export default function FeaturedPost(props) {
                 key={`${post.title}-summary-${index}`}
                 variant="body1"
                 paragraph
-                component="div"
                 dangerouslySetInnerHTML={{ __html: para }}
               />
             ))}

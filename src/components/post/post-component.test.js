@@ -37,12 +37,12 @@ test('shows full-width <img> for radar.loop.gif headers', () => {
       <Post post={post} />
     </Provider>
   );
-  const wrapper = container.querySelector('div[style*="paddingTop: 56.25%"]');
+  const wrapper = container.querySelector('div[style*="padding-top: 56.25%"]');
   expect(wrapper).toBeTruthy();
   const img = wrapper.querySelector(`img[src="${radarUrl}"]`);
   expect(img).toBeTruthy();
   // check the inner img has object-fit:contain and fills the wrapper
-  expect(img.getAttribute('style')).toMatch(/objectFit:\s*"?contain"?/);
+  expect(img.getAttribute('style')).toMatch(/object-fit:\s*contain/);
   expect(img.getAttribute('style')).toMatch(/width:\s*"?100%"?/);
   expect(img.getAttribute('style')).toMatch(/height:\s*"?100%"?/);
 });
@@ -55,8 +55,9 @@ test('does not render visible <img> when header is not radar', () => {
       <Post post={post} />
     </Provider>
   );
-  const img = container.querySelector(`img[src="${url}"]`);
-  expect(img).toBeNull();
+  // component renders a hidden <img> for error-detection; only visible imgs are disallowed
+  const visibleImg = container.querySelector(`img[src="${url}"]:not([style*="display: none"])`);
+  expect(visibleImg).toBeNull();
   const paper = container.querySelector('[class*=mainFeaturedPost]');
   expect(paper).toBeTruthy();
   expect(paper.getAttribute('style')).toMatch(/background-image:\s*url\(/);
