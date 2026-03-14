@@ -3,7 +3,7 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE, isStatewideKyPoliticalStory, getSourceDefaultImage } from './classify';
-import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
+import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles, generateSeoSlug } from './db';
 import { browserFetch, cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, getImageDimensions, scrapeArticleHtml } from './scrape';
 
@@ -210,7 +210,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
       status: 'inserted',
       urlHash: canonicalHash,
       category: classification.category,
-      slug: generateArticleSlug(extracted.title, canonicalHash),
+      slug: generateSeoSlug(extracted.title, classification.county, extracted.publishedAt),
       title: extracted.title,
       summary: ai.summary,
       seoDescription: ai.seoDescription,
@@ -272,8 +272,8 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     imageHeight: imageDimensions?.height ?? null,
     rawR2Key,
     contentHash,
-    // SEO-friendly slug: title-slug + first 8 chars of urlHash for uniqueness (Section 4)
-    slug: generateArticleSlug(extracted.title, canonicalHash),
+    // NOTE: `insertArticle` will generate the SEO slug (county-title-year) so we
+    // don't need to set it here. This ensures all new inserts use the same logic.
     // TODO: the ingest AI pipeline should populate localIntro with a 150-250 word
     // Kentucky-focused context paragraph for each article (why this story matters
     // locally, relevant Kentucky background, regional impact, etc.).  Once set,
@@ -283,23 +283,6 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     localIntro: null,
   };
 
-  if (!newArticle.slug) {
-    console.warn('[ingest] Article saved without slug:', newArticle.title?.slice(0, 80));
-  }
-
-  // NOTE: Existing rows inserted before this classifier update may have stale
-  // Kentucky/county/or national tags. The `is_national` flag is stored separately
-  // so older articles will default to `0` until we run a reclassification pass.
-  //
-  // Backfill instructions: the admin API already exposes a `/api/admin/reclassify`
-  // endpoint which pages through articles and applies the current classification
-  // logic (category, is_kentucky, is_national, county, etc). Running that endpoint
-  // repeatedly until it returns `No more articles to reclassify` will refresh all
-  // historical rows. Execute this once before deploying the updated worker so the
-  // new feeds (weather, national) behave correctly.
-  //
-  // Previous TODO: "Run backfillReclassify() against all rows where created_at <
-  // [DEPLOYMENT_DATE]" has been satisfied by the reclassify endpoint above.
   let articleId: number;
   try {
     articleId = await insertArticle(env, newArticle);

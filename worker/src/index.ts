@@ -20,9 +20,12 @@ import {
 	getCountyCounts,
 	getArticlesByCounty,
 	getArticlesForUpdateCheck,
+	findSlugMigration,
+	migrateHashSlugs,
 	prependUpdateToSummary,
 	updateArticlePrimaryCounty,
 	prepare,
+	generateSeoSlug,
 	// push helpers
 	savePushSubscription,
 	sendPushNotification,
@@ -47,7 +50,7 @@ import {
 	wordCount,
 	toIsoDateOrNull,
 } from './lib/http';
-import { ingestSingleUrl, generateArticleSlug, findHighlySimilarTitle, fetchAndExtractArticle, generateImageAlt } from './lib/ingest';
+import { ingestSingleUrl, findHighlySimilarTitle, fetchAndExtractArticle, generateImageAlt } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
 import { KY_COUNTIES } from './data/ky-geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
@@ -1470,6 +1473,20 @@ await updateArticleLinks(env, id, { canonicalUrl, sourceUrl, urlHash });
 return json({ ok: true, id, canonicalUrl, sourceUrl, urlHash });
 }
 
+if (url.pathname === '/api/admin/migrate-hash-slugs' && request.method === 'POST') {
+  if (!isAdminAuthorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const result = await migrateHashSlugs(env);
+    return json({ migrated: result.migrated, skipped: result.skipped });
+  } catch (err) {
+    console.error('[MIGRATE HASH SLUGS ERROR]', err);
+    return json({ error: 'migration failed' }, 500);
+  }
+}
+
 if (url.pathname === '/api/admin/article/delete' && request.method === 'POST') {
 if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
@@ -2043,7 +2060,8 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		imageUrl,
 		imageAlt,
 		rawR2Key: null,
-		slug: generateArticleSlug(title, canonicalHash),
+		// Use SEO-friendly slugs for all manually-created articles.
+		slug: generateSeoSlug(title, classification.county, resolvedPublishedAt),
 	};
 
 	const articleId = await insertArticle(env, newArticle);
@@ -2831,6 +2849,23 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 
   if (!article && slug) {
     article = await getArticleBySlug(env, slug);
+
+    // If we didn't find an article for this slug, check whether it was migrated
+    // from an older hash-based slug.  This allows legacy shared links to still
+    // resolve to the current canonical URL.
+    if (!article) {
+      const migration = await findSlugMigration(env, slug);
+      if (migration) {
+        const migratedArticle = await getArticleBySlug(env, migration.newSlug);
+        if (migratedArticle) {
+          const redirectPath = buildArticlePath(migratedArticle);
+          return new Response(null, {
+            status: 301,
+            headers: { Location: redirectPath },
+          });
+        }
+      }
+    }
 
     // if the database somehow returned a row with no slug value we treat it
     // as if the article does not exist.  without this guard the later

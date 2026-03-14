@@ -2831,7 +2831,7 @@ describe('ingestSingleUrl error handling', () => {
 		});
 
 		// stub slug generator to predictable value so we can assert on it
-		const slugSpy = vi.spyOn(ingestModule, 'generateArticleSlug').mockReturnValue('preview-slug');
+		const slugSpy = vi.spyOn(dbModule, 'generateSeoSlug').mockReturnValue('preview-slug');
 		const res = await __testables.ingestSingleUrl(env, { url: 'https://example.com', preview: true });
 		expect(res.status).toBe('inserted');
 		expect(res.slug).toBe('preview-slug');
@@ -2907,7 +2907,7 @@ describe('ingestSingleUrl error handling', () => {
 		});
 
 		// stub slug generator so result.slug is deterministic
-		const slugSpy2 = vi.spyOn(ingestModule, 'generateArticleSlug').mockReturnValue('insert-slug');
+		const slugSpy2 = vi.spyOn(dbModule, 'generateSeoSlug').mockReturnValue('insert-slug');
 		const result = await __testables.ingestSingleUrl(env, { url: 'https://example.com' });
 		expect(result.status).toBe('inserted');
 		expect(result.slug).toBe('insert-slug');

@@ -1281,3 +1281,82 @@ async function ensureBlockedArticlesTable(env: Env): Promise<void> {
   await prepare(env, 'CREATE INDEX IF NOT EXISTS idx_blocked_articles_hash ON blocked_articles(url_hash)')
     .run();
 }
+
+async function ensureSlugMigrationsTable(env: Env): Promise<void> {
+  await prepare(env,
+      `CREATE TABLE IF NOT EXISTS slug_migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        old_slug TEXT NOT NULL,
+        new_slug TEXT NOT NULL,
+        article_id INTEGER,
+        migrated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    )
+    .run();
+
+  await prepare(env, 'CREATE INDEX IF NOT EXISTS idx_slug_migrations_old_slug ON slug_migrations(old_slug)')
+    .run();
+}
+
+/**
+ * Find a migration entry for an old slug.
+ */
+export async function findSlugMigration(env: Env, oldSlug: string): Promise<{ newSlug: string; articleId: number; migratedAt: string } | null> {
+  await ensureSlugMigrationsTable(env);
+  const row = await prepare(env, `SELECT new_slug, article_id, migrated_at FROM slug_migrations WHERE old_slug = ? LIMIT 1`)
+    .bind(oldSlug)
+    .first<{ new_slug: string; article_id: number; migrated_at: string }>();
+  if (!row) return null;
+  return { newSlug: row.new_slug, articleId: row.article_id, migratedAt: row.migrated_at };
+}
+
+/**
+ * Migrate old hash-based slugs to SEO-friendly slugs and log the mapping.
+ */
+export async function migrateHashSlugs(env: Env): Promise<{ migrated: number; skipped: number }> {
+  await ensureSlugMigrationsTable(env);
+
+  const rows = await prepare(env,
+      `SELECT id, slug, title, county, published_at FROM articles WHERE slug IS NOT NULL AND slug != ''`
+    )
+    .all<{ id: number; slug: string; title: string; county: string | null; published_at: string }>();
+
+  const re = /[a-f0-9]{8}$/;
+  let migrated = 0;
+  let skipped = 0;
+
+  for (const row of rows.results ?? []) {
+    if (!row.slug || !re.test(row.slug)) continue;
+
+    const existing = await prepare(env, `SELECT 1 FROM slug_migrations WHERE old_slug = ? LIMIT 1`)
+      .bind(row.slug)
+      .first<{ '1': number }>();
+    if (existing) {
+      skipped++;
+      continue;
+    }
+
+    const baseSlug = generateSeoSlug(row.title, row.county, row.published_at);
+    const newSlug = await ensureUniqueSlug(env, baseSlug);
+
+    if (newSlug === row.slug) {
+      skipped++;
+      continue;
+    }
+
+    await prepare(env, `UPDATE articles SET slug = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .bind(newSlug, row.id)
+      .run();
+
+    await prepare(env,
+        `INSERT INTO slug_migrations (old_slug, new_slug, article_id, migrated_at)
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`
+      )
+      .bind(row.slug, newSlug, row.id)
+      .run();
+
+    migrated++;
+  }
+
+  return { migrated, skipped };
+}
