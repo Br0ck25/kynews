@@ -256,3 +256,34 @@ describe('county hub bot page', () => {
 		expect(text).not.toContain('"@type":"FAQPage"');
 	});
 });
+describe('county hub SPA metadata', () => {
+  it('injects a canonical link on non-paginated county pages', async () => {
+    await ensureSchema();
+
+    const resp = await SELF.fetch('https://example.com/news/kentucky/perry-county', {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      },
+    });
+
+    const text = await resp.text();
+    expect(text).toContain('<link rel="canonical" href="https://localkynews.com/news/kentucky/perry-county"/>');
+    expect(text).not.toContain('<meta name="robots" content="noindex, follow"');
+  });
+
+  it('injects a noindex robots meta tag for paginated county pages', async () => {
+    await ensureSchema();
+
+    const resp = await SELF.fetch('https://example.com/news/kentucky/perry-county?cursor=abc', {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      },
+    });
+
+    const text = await resp.text();
+    expect(text).toContain('<meta name="robots" content="noindex, follow"');
+    expect(text).not.toContain('<link rel="canonical"');
+  });
+});

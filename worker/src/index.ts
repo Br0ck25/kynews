@@ -2186,6 +2186,10 @@ if (countyHubMatch && request.method === 'GET') {
     const image = DEFAULT_OG_IMAGE;
     const bodyDescription = `Local KY News covers government, schools, sports, weather, and community updates from ${countyDisplay}, Kentucky. Browse the latest headlines below and check back often for new stories as they publish.`;
 
+    const hasCursor = url.searchParams.has('cursor');
+    const robotsContent = hasCursor ? 'noindex, follow' : 'index, follow';
+    const canonicalLink = hasCursor ? '' : `<link rel="canonical" href="${escapeHtml(pageUrl)}"/>`;
+
     const recentArticles = await getArticlesByCounty(env, countyDisplay, 10);
     const listItems = recentArticles
       .filter((row) => row && row.slug)
@@ -2227,7 +2231,7 @@ if (countyHubMatch && request.method === 'GET') {
 <meta charset="utf-8"/>
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}"/>
-<meta name="robots" content="index, follow"/>
+<meta name="robots" content="${robotsContent}"/>
 <meta property="og:type" content="website"/>
 <meta property="og:title" content="${escapeHtml(title)}"/>
 <meta property="og:description" content="${escapeHtml(description)}"/>
@@ -2239,7 +2243,7 @@ if (countyHubMatch && request.method === 'GET') {
 <meta name="twitter:description" content="${escapeHtml(description)}"/>
 <meta name="twitter:image" content="${escapeHtml(image)}"/>
 <meta name="twitter:site" content="@LocalKYNews"/>
-<link rel="canonical" href="${escapeHtml(pageUrl)}"/>
+${canonicalLink}
 <script type="application/ld+json">${webPageSchema}</script>
 <script type="application/ld+json">${breadcrumbSchema}</script>
 </head><body>
@@ -3423,6 +3427,50 @@ if (request.method === 'GET' && sectionMeta && isSearchBot(request.headers.get('
 // request would fall through to the final 404 handler (which is what caused
 // all article links to break after the preview change).
 if (request.method === 'GET' && (url.pathname.startsWith('/news/') || url.pathname === '/post')) {
+    // A county hub page should include a canonical link (or a noindex robots
+    // tag on paginated variants) even when the request is served via the
+    // SPA shell. This ensures crawlers that don't run JS still see the proper
+    // metadata.
+    const countyHubMatch = url.pathname.match(/^\/news\/kentucky\/([a-z-]+)-county\/?$/);
+    if (countyHubMatch) {
+        const hasCursor = url.searchParams.has('cursor');
+        const canonicalUrl = `${BASE_URL}/news/kentucky/${countyHubMatch[1]}-county`;
+
+        const baseResponse = env.ASSETS
+            ? await env.ASSETS.fetch('/index.html')
+            : await fetch(`${BASE_URL}/index.html`);
+        let baseHtml = await baseResponse.text();
+
+        // Remove or replace any existing canonical tag to ensure the correct
+        // URL is used for county pages, and remove it entirely for paginated
+        // results to prevent search engines from indexing those pages.
+        baseHtml = baseHtml.replace(/<link rel="canonical"[^>]*>\s*/i, '');
+
+        if (hasCursor) {
+            // Paginated county pages should not be indexed.
+            if (/<meta name="robots"[^>]*>/i.test(baseHtml)) {
+                baseHtml = baseHtml.replace(/<meta name="robots"[^>]*>/i, '<meta name="robots" content="noindex, follow"/>');
+            } else {
+                baseHtml = baseHtml.replace('</head>', '<meta name="robots" content="noindex, follow"/>\n</head>');
+            }
+        } else {
+            // Non-paginated county pages need a canonical pointing to the hub.
+            const canonicalTag = `<link rel="canonical" href="${canonicalUrl}"/>`;
+            if (/<link rel="canonical"[^>]*>/i.test(baseHtml)) {
+                baseHtml = baseHtml.replace(/<link rel="canonical"[^>]*>/i, canonicalTag);
+            } else {
+                baseHtml = baseHtml.replace('</head>', `${canonicalTag}\n</head>`);
+            }
+        }
+
+        const headers = new Headers(baseResponse.headers);
+        headers.delete('content-length');
+        return new Response(baseHtml, {
+            status: baseResponse.status,
+            headers,
+        });
+    }
+
     // serve the React app shell so client JS can render the appropriate page
     if (env.ASSETS) {
         return env.ASSETS.fetch('/index.html');
