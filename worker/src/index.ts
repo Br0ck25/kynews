@@ -915,13 +915,16 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 	return json({ ok: true, message: 'Backfill queued', threshold, missingCount: totalJobs }, 202);
 }
 
+// Backfill missing SEO slugs for legacy articles.
+// This should be called once after deployment to clean up old rows;
+// it is safe to run multiple times (idempotent).
 if (url.pathname === '/api/admin/backfill-slugs' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
 		return json({ error: 'Unauthorized' }, 401);
 	}
 
-	const { updated } = await backfillMissingSlugs(env);
-	return json({ updated });
+	const result = await backfillMissingSlugs(env);
+	return json({ updated: result.updated, status: 'ok' });
 }
 
 if (url.pathname === '/api/admin/backfill-status' && request.method === 'GET') {
@@ -3748,6 +3751,24 @@ async function generateSitemap(env: Env): Promise<string> {
        ORDER BY id DESC LIMIT 50000`,
         )
         .all<{ id: number; slug: string | null; county: string | null; category: string; is_national: number; published_at: string; updated_at: string }>();
+
+	// Warn if there are still legacy articles with missing slugs. Those should
+	// be accessed via /post?articleId=N and must NOT be included in the sitemap.
+	const missingSlugCountRow = await env.ky_news_db
+		.prepare(
+            `SELECT COUNT(1) as count FROM articles
+       WHERE (is_kentucky = 1 OR is_national = 1)
+         AND raw_word_count > 50
+         AND (slug IS NULL OR slug = '')`,
+        )
+        .first<{ count: number }>();
+	const missingSlugCount = missingSlugCountRow?.count ?? 0;
+	if (missingSlugCount > 0) {
+		console.warn(
+			`[Sitemap] Skipping ${missingSlugCount} articles without slugs; they are still accessible via ${baseUrl}/post?articleId=<id>`,
+		);
+	}
+
 	// filter out any rows missing a usable slug (legacy /post? urls are not canonical)
 	const validRows = (rows.results || []).filter((row) => row.slug && row.slug.trim() !== '');
 	// compute latest update date per county slug for hub pages
@@ -3868,7 +3889,24 @@ const rows = await prepare(env,
 		.bind(cutoff)
 		.all<{ id: number; slug: string | null; county: string | null; category: string; is_national: number; title: string; published_at: string }>();
 
-	const items = (rows.results || []).map((row) => {
+	// Warn if there are any recent articles without a slug; they should be
+	// accessed via /post?articleId=N and excluded from the news sitemap.
+	const missingSlugCountRow = await prepare(env,
+			`SELECT COUNT(1) as count FROM articles
+       WHERE (is_kentucky = 1 OR is_national = 1) AND published_at >= ?
+         AND (slug IS NULL OR slug = '')`,
+		)
+		.bind(cutoff)
+		.first<{ count: number }>();
+	const missingSlugCount = missingSlugCountRow?.count ?? 0;
+	if (missingSlugCount > 0) {
+		console.warn(
+			`[News Sitemap] Skipping ${missingSlugCount} articles without slugs; they are still accessible via ${baseUrl}/post?articleId=<id>`,
+		);
+	}
+
+	const validRows = (rows.results || []).filter((row) => row.slug && row.slug.trim() !== '');
+	const items = validRows.map((row) => {
 		const pubDate = toIsoDateOrNull(row.published_at) || new Date().toISOString();
 		const safeTitle = (row.title || '')
 			.replace(/&/g, '&amp;')
