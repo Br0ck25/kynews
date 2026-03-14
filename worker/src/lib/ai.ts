@@ -75,10 +75,34 @@ Before summarizing, clean the input:
 - Remove social sharing labels (Facebook, Twitter, Threads, Flipboard, etc.)
 
 Structure the summary with:
-1. A 2–3 sentence lede paragraph that answers who, what, where, and when.
-2. A line containing exactly "Key points:" followed by 3–5 bullet points (one per line, each starting with "• ").
-3. An optional closing paragraph (1–2 sentences) with additional context or background.
-Keep the total summary under 250 words.
+Length target: write 70–80% of the source article's word count. The exact
+target range will be provided in the metadata block of every request. Never
+pad or repeat yourself to hit a length — stop when the story is fully
+covered. Hard maximum: 1000 words regardless of source length.
+
+Structure the summary with these four sections in order:
+
+1. Opening paragraph (2–3 sentences): Answer who, what, where, and when.
+   The county name and "Kentucky" or "KY" must appear naturally in the
+   first sentence. Do not start with "According to", "Officials say",
+   "The article states", or any attribution opener. Name the specific
+   person, board, agency, or institution directly.
+
+2. A line containing exactly "Key facts:" followed by 3–5 bullet points
+   (one per line, each starting with "• "). Each bullet must contain a
+   specific, verifiable detail: a number, a name, a date, a dollar amount,
+   a vote count, or a concrete decision. No vague bullets like
+   "• The situation is ongoing."
+
+3. A paragraph beginning with exactly "What this means for [County]
+   residents:" — substitute the actual county name from the metadata; if
+   county is unknown, use "Eastern Kentucky residents". Write 1–2 sentences
+   of plain local context or practical impact grounded in facts from the
+   source. Do not editorialize.
+
+4. Closing sentence (1 sentence): State what happens next, when, or where
+   readers can find more information. Do not use "Read more at" or include
+   URLs.
 
 Your summary must:
 - Begin with a single, fully self-contained sentence that states the core fact of the article: who did what, where, and when — without relying on the headline for context. This sentence must be quotable on its own as a complete answer to the question "what happened?" Example of correct first sentence: "The Harlan County School Board voted 4–1 on March 5 to close Harlan Middle School at the end of the 2025–26 school year." Example of incorrect first sentence: "The board voted to close the school after months of deliberation." (requires headline to understand who and where)
@@ -115,6 +139,9 @@ Your summary must never:
 - Exaggerate, soften, or reframe any statement.
 - Split a direct quote across paragraphs — if a quote spans a line break in the source, keep it as a single uninterrupted sentence in your output.
 - Begin with a pronoun or article ("The board...", "Officials said...") when the subject has not been named. Always name the specific entity (board, person, organization) and its location in the first sentence.
+- Start with "According to", "Officials say", "The article states", or any attribution opener. Always name the subject directly.
+- Omit the county name from the opening paragraph when county metadata is provided in the article metadata block.
+- Write the "What this means for residents:" section as opinion — it must be grounded in specific facts from the source article.
 
 After the summary, output a separate line beginning with "SEO_DESCRIPTION:" followed by a 120–155 character meta description. This line should be a compelling teaser that includes the county when present (from the provided article metadata), reflects the primary news hook, and ends with a call to curiosity rather than cutting off mid-thought. Do not include HTML, URLs, or extra labels.
 
@@ -265,9 +292,18 @@ export async function summarizeArticle(
       ? await buildSystemPrompt(env)
       : BASE_SYSTEM_PROMPT;
 
+    const targetMin = Math.max(Math.round(originalWords * 0.70), 100);
+    const targetMax = Math.min(
+      originalWords < 200
+        ? Math.round(originalWords * 0.85)
+        : Math.round(originalWords * 0.80),
+      600
+    );
+    const wordCountHint = `Source word count: ${originalWords} words. Target summary length: ${targetMin}–${targetMax} words.`;
+
     const userPrompt = geoHint
-      ? `Article metadata:\n${geoHint}\n\nArticle:\n${sourceForSummary.slice(0, 12_000)}`
-      : `Article:\n${sourceForSummary.slice(0, 12_000)}`;
+      ? `Article metadata:\n${geoHint}\n${wordCountHint}\n\nArticle:\n${sourceForSummary.slice(0, 12_000)}`
+      : `${wordCountHint}\n\nArticle:\n${sourceForSummary.slice(0, 12_000)}`;
 
     const aiRaw = (await env.AI.run(MODEL, {
       messages: [
@@ -284,10 +320,8 @@ export async function summarizeArticle(
       const cleaned = enforceparagraphBreaks(stripBoilerplateFromOutput(aiText, title));
 
       const aiWords = wordCount(cleaned);
-      const minWords = Math.round(originalWords * 0.60);
-      const maxWords = originalWords < 400
-        ? 350
-        : Math.round(originalWords * 0.80);
+      const minWords = targetMin;
+      const maxWords = targetMax;
 
       let validatedText = cleaned;
 

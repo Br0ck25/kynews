@@ -2688,66 +2688,55 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           for (let i = 0; i < paras.length; i++) {
             const t = paras[i];
 
-            // Convert a "Key points:" section into an HTML heading + list.
-            if (t === 'Key points:' || t.startsWith('Key points:\n')) {
-              const bullets: string[] = [];
-
-              const gatherBullets = (text: string) => {
-                const lines = text.split(/\n/).map((l) => l.trim());
-                for (const line of lines) {
-                  if (line.startsWith('• ')) bullets.push(line.slice(2).trim());
-                }
-              };
-
-              if (t !== 'Key points:') {
-                gatherBullets(t.slice('Key points:'.length));
-              }
-
-              let j = i + 1;
-              while (j < paras.length) {
-                const next = paras[j];
-                if (!next.startsWith('• ')) break;
-                gatherBullets(next);
-                j++;
-              }
-
-              if (bullets.length > 0) {
-                html.push('<h2 class="key-points-heading">Key points</h2>');
-                html.push('<ul class="key-points-list">');
-                for (const item of bullets) {
-                  html.push(`<li>${escapeHtml(item)}</li>`);
-                }
-                html.push('</ul>');
-                i = Math.max(i, j - 1);
-                continue;
-              }
-              // Fall through to normal paragraph rendering if no bullets were found.
-            }
-
-            // Pass through already-rendered heading HTML
-            if (t.startsWith('<h2>') || t.startsWith('<h3>')) {
-              html.push(t);
+            // "## Heading" → <h2> (existing subheading support — keep)
+            if (/^##\s+/.test(t)) {
+              html.push(`<h2 class="article-section-heading">${escapeHtml(t.replace(/^##\s+/, ''))}</h2>`);
               continue;
             }
 
-            // Convert ## markdown headings to <h2>
-            const h2Match = t.match(/^##\s+(.+)$/);
-            if (h2Match) {
-              html.push(`<h2>${escapeHtml(h2Match[1].trim())}</h2>`);
+            // "Key facts:" as a standalone heading line
+            if (/^Key facts:\s*$/i.test(t)) {
+              html.push(`<h3 class="article-key-facts-heading">Key facts</h3>`);
               continue;
             }
 
-            // Convert standalone **Bold:** blocks to <h3>
-            const h3Match = t.match(/^\*\*(.+?)\*\*:?$/);
-            if (h3Match) {
-              html.push(`<h3>${escapeHtml(h3Match[1].trim())}</h3>`);
+            // "Key facts:" with bullets in the same block
+            if (/^Key facts:/i.test(t)) {
+              const lines = t.split('\n');
+              html.push(`<h3 class="article-key-facts-heading">Key facts</h3>`);
+              const items = lines
+                .filter((l) => /^[•\-\*]/.test(l.trim()))
+                .map((l) => `<li>${escapeHtml(l.replace(/^[•\-\*]\s*/, '').trim())}</li>`)
+                .join('');
+              if (items) html.push(`<ul class="article-key-points">${items}</ul>`);
               continue;
             }
 
+            // Standalone bullet block (every line starts with •, -, or *)
+            if (t.split('\n').every((l) => /^[•\-\*]/.test(l.trim()))) {
+              const items = t
+                .split('\n')
+                .map((l) => `<li>${escapeHtml(l.replace(/^[•\-\*]\s*/, '').trim())}</li>`)
+                .join('');
+              html.push(`<ul class="article-key-points">${items}</ul>`);
+              continue;
+            }
+
+            // "What this means for X residents:" → <h3> + <p>
+            if (/^What this means for .+ residents:/i.test(t)) {
+              const colonIdx = t.indexOf(':');
+              const heading = t.slice(0, colonIdx + 1);
+              const body = t.slice(colonIdx + 1).trim();
+              html.push(`<h3 class="article-local-impact-heading">${escapeHtml(heading)}</h3>`);
+              if (body) html.push(`<p>${escapeHtml(body)}</p>`);
+              continue;
+            }
+
+            // Default: paragraph
             html.push(`<p>${escapeHtml(t)}</p>`);
           }
 
-          return html.join('\n');
+          return `<div class="article-summary">${html.join('\n')}</div>`;
         };
 
         let botSummaryParagraphs = renderSummaryHtml(article.summary || '');
@@ -3226,66 +3215,55 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           for (let i = 0; i < paras.length; i++) {
             const t = paras[i];
 
-            // Convert a "Key points:" section into an HTML heading + list.
-            if (t === 'Key points:' || t.startsWith('Key points:\n')) {
-              const bullets: string[] = [];
-
-              const gatherBullets = (text: string) => {
-                const lines = text.split(/\n/).map((l) => l.trim());
-                for (const line of lines) {
-                  if (line.startsWith('• ')) bullets.push(line.slice(2).trim());
-                }
-              };
-
-              if (t !== 'Key points:') {
-                gatherBullets(t.slice('Key points:'.length));
-              }
-
-              let j = i + 1;
-              while (j < paras.length) {
-                const next = paras[j];
-                if (!next.startsWith('• ')) break;
-                gatherBullets(next);
-                j++;
-              }
-
-              if (bullets.length > 0) {
-                html.push('<h2 class="key-points-heading">Key points</h2>');
-                html.push('<ul class="key-points-list">');
-                for (const item of bullets) {
-                  html.push(`<li>${escapeHtml(item)}</li>`);
-                }
-                html.push('</ul>');
-                i = Math.max(i, j - 1);
-                continue;
-              }
-              // Fall through to normal paragraph rendering if no bullets were found.
-            }
-
-            // Pass through already-rendered heading HTML
-            if (t.startsWith('<h2>') || t.startsWith('<h3>')) {
-              html.push(t);
+            // "## Heading" → <h2> (existing subheading support — keep)
+            if (/^##\s+/.test(t)) {
+              html.push(`<h2 class="article-section-heading">${escapeHtml(t.replace(/^##\s+/, ''))}</h2>`);
               continue;
             }
 
-            // Convert ## markdown headings to <h2>
-            const h2Match = t.match(/^##\s+(.+)$/);
-            if (h2Match) {
-              html.push(`<h2>${escapeHtml(h2Match[1].trim())}</h2>`);
+            // "Key facts:" as a standalone heading line
+            if (/^Key facts:\s*$/i.test(t)) {
+              html.push(`<h3 class="article-key-facts-heading">Key facts</h3>`);
               continue;
             }
 
-            // Convert standalone **Bold:** blocks to <h3>
-            const h3Match = t.match(/^\*\*(.+?)\*\*:?$/);
-            if (h3Match) {
-              html.push(`<h3>${escapeHtml(h3Match[1].trim())}</h3>`);
+            // "Key facts:" with bullets in the same block
+            if (/^Key facts:/i.test(t)) {
+              const lines = t.split('\n');
+              html.push(`<h3 class="article-key-facts-heading">Key facts</h3>`);
+              const items = lines
+                .filter((l) => /^[•\-\*]/.test(l.trim()))
+                .map((l) => `<li>${escapeHtml(l.replace(/^[•\-\*]\s*/, '').trim())}</li>`)
+                .join('');
+              if (items) html.push(`<ul class="article-key-points">${items}</ul>`);
               continue;
             }
 
+            // Standalone bullet block (every line starts with •, -, or *)
+            if (t.split('\n').every((l) => /^[•\-\*]/.test(l.trim()))) {
+              const items = t
+                .split('\n')
+                .map((l) => `<li>${escapeHtml(l.replace(/^[•\-\*]\s*/, '').trim())}</li>`)
+                .join('');
+              html.push(`<ul class="article-key-points">${items}</ul>`);
+              continue;
+            }
+
+            // "What this means for X residents:" → <h3> + <p>
+            if (/^What this means for .+ residents:/i.test(t)) {
+              const colonIdx = t.indexOf(':');
+              const heading = t.slice(0, colonIdx + 1);
+              const body = t.slice(colonIdx + 1).trim();
+              html.push(`<h3 class="article-local-impact-heading">${escapeHtml(heading)}</h3>`);
+              if (body) html.push(`<p>${escapeHtml(body)}</p>`);
+              continue;
+            }
+
+            // Default: paragraph
             html.push(`<p>${escapeHtml(t)}</p>`);
           }
 
-          return html.join('\n');
+          return `<div class="article-summary">${html.join('\n')}</div>`;
         };
 
         let botSummaryParagraphs = renderSummaryHtml(article.summary || '');
