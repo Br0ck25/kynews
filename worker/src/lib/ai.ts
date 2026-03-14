@@ -75,11 +75,10 @@ Before summarizing, clean the input:
 - Remove social sharing labels (Facebook, Twitter, Threads, Flipboard, etc.)
 
 Structure the summary with:
-1. A 2–3 sentence opening paragraph answering who, what, when, where.
-2. An H2 sub-heading (using ## markdown) for any key sub-topic, such as
-   '## What this means for residents' or '## Background'.
-3. A final 1–2 sentence paragraph with context or next steps.
-Keep the total summary under 250 words. Do not use bullet points.
+1. A 2–3 sentence lede paragraph that answers who, what, where, and when.
+2. A line containing exactly "Key points:" followed by 3–5 bullet points (one per line, each starting with "• ").
+3. An optional closing paragraph (1–2 sentences) with additional context or background.
+Keep the total summary under 250 words.
 
 Your summary must:
 - Begin with a single, fully self-contained sentence that states the core fact of the article: who did what, where, and when — without relying on the headline for context. This sentence must be quotable on its own as a complete answer to the question "what happened?" Example of correct first sentence: "The Harlan County School Board voted 4–1 on March 5 to close Harlan Middle School at the end of the 2025–26 school year." Example of incorrect first sentence: "The board voted to close the school after months of deliberation." (requires headline to understand who and where)
@@ -106,7 +105,7 @@ Your summary must never:
 - Repeat, restate, or begin with the article title. Start directly with the first sentence of your summary.
 - End mid-sentence under any circumstances. If you are approaching the
   word limit, finish the current sentence and stop cleanly.
-- Output bolded titles, bullet points, or formatting other than the optional \`##\` headings described above.
+- Output bolded titles or formatting other than the required "Key points:" list and the optional `##` headings described above.
 - Output text as one unbroken paragraph. Use blank lines (\n\n) between every 2–3 sentences.
 - Include copyright notices, bylines, legal text, or publication footers.
 - Include any "click here" text, "read more" links, or URLs of any kind.

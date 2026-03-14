@@ -2553,29 +2553,79 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         };
 
         // Build article body so Googlebot can index the actual text content
-        const botParas = (article.summary || '')
-          .split(/\n\n+/)
-          .map((p: string) => {
-            const t = p.trim();
+        const renderSummaryHtml = (summary: string): string => {
+          const paras = (summary || '').split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+          const html: string[] = [];
+
+          for (let i = 0; i < paras.length; i++) {
+            const t = paras[i];
+
+            // Convert a "Key points:" section into an HTML heading + list.
+            if (t === 'Key points:' || t.startsWith('Key points:\n')) {
+              const bullets: string[] = [];
+
+              const gatherBullets = (text: string) => {
+                const lines = text.split(/\n/).map((l) => l.trim());
+                for (const line of lines) {
+                  if (line.startsWith('• ')) bullets.push(line.slice(2).trim());
+                }
+              };
+
+              if (t !== 'Key points:') {
+                gatherBullets(t.slice('Key points:'.length));
+              }
+
+              let j = i + 1;
+              while (j < paras.length) {
+                const next = paras[j];
+                if (!next.startsWith('• ')) break;
+                gatherBullets(next);
+                j++;
+              }
+
+              if (bullets.length > 0) {
+                html.push('<h2 class="key-points-heading">Key points</h2>');
+                html.push('<ul class="key-points-list">');
+                for (const item of bullets) {
+                  html.push(`<li>${escapeHtml(item)}</li>`);
+                }
+                html.push('</ul>');
+                i = Math.max(i, j - 1);
+                continue;
+              }
+              // Fall through to normal paragraph rendering if no bullets were found.
+            }
+
             // Pass through already-rendered heading HTML
-            if (t.startsWith('<h2>') || t.startsWith('<h3>')) return t;
+            if (t.startsWith('<h2>') || t.startsWith('<h3>')) {
+              html.push(t);
+              continue;
+            }
+
             // Convert ## markdown headings to <h2>
             const h2Match = t.match(/^##\s+(.+)$/);
-            if (h2Match) return `<h2>${escapeHtml(h2Match[1].trim())}</h2>`;
+            if (h2Match) {
+              html.push(`<h2>${escapeHtml(h2Match[1].trim())}</h2>`);
+              continue;
+            }
+
             // Convert standalone **Bold:** blocks to <h3>
             const h3Match = t.match(/^\*\*(.+?)\*\*:?$/);
-            if (h3Match) return `<h3>${escapeHtml(h3Match[1].trim())}</h3>`;
-            return `<p>${escapeHtml(t)}</p>`;
-          })
-          .filter((p: string) => p.length > 10);
-        let firstPDone = false;
-        const botSummaryParagraphs = botParas.map((p: string) => {
-          if (!firstPDone && p.startsWith('<p>')) {
-            firstPDone = true;
-            return `<p class="article-summary">${p.slice(3)}`;
+            if (h3Match) {
+              html.push(`<h3>${escapeHtml(h3Match[1].trim())}</h3>`);
+              continue;
+            }
+
+            html.push(`<p>${escapeHtml(t)}</p>`);
           }
-          return p;
-        }).join('\n');
+
+          return html.join('\n');
+        };
+
+        let botSummaryParagraphs = renderSummaryHtml(article.summary || '');
+        if (botSummaryParagraphs.includes('<p>')) {
+          botSummaryParagraphs = botSummaryParagraphs.replace('<p>', '<p class="article-summary">');
+        }
         const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
         const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
         const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
@@ -3018,29 +3068,79 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         metas.push(`<meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>`);
         metas.push(`<meta property="article:modified_time" content="${escapeHtml(article.updatedAt || article.publishedAt)}"/>`);
         // Build article body so Googlebot can index the actual text content
-        const botParas = (article.summary || '')
-          .split(/\n\n+/)
-          .map((p: string) => {
-            const t = p.trim();
+        const renderSummaryHtml = (summary: string): string => {
+          const paras = (summary || '').split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+          const html: string[] = [];
+
+          for (let i = 0; i < paras.length; i++) {
+            const t = paras[i];
+
+            // Convert a "Key points:" section into an HTML heading + list.
+            if (t === 'Key points:' || t.startsWith('Key points:\n')) {
+              const bullets: string[] = [];
+
+              const gatherBullets = (text: string) => {
+                const lines = text.split(/\n/).map((l) => l.trim());
+                for (const line of lines) {
+                  if (line.startsWith('• ')) bullets.push(line.slice(2).trim());
+                }
+              };
+
+              if (t !== 'Key points:') {
+                gatherBullets(t.slice('Key points:'.length));
+              }
+
+              let j = i + 1;
+              while (j < paras.length) {
+                const next = paras[j];
+                if (!next.startsWith('• ')) break;
+                gatherBullets(next);
+                j++;
+              }
+
+              if (bullets.length > 0) {
+                html.push('<h2 class="key-points-heading">Key points</h2>');
+                html.push('<ul class="key-points-list">');
+                for (const item of bullets) {
+                  html.push(`<li>${escapeHtml(item)}</li>`);
+                }
+                html.push('</ul>');
+                i = Math.max(i, j - 1);
+                continue;
+              }
+              // Fall through to normal paragraph rendering if no bullets were found.
+            }
+
             // Pass through already-rendered heading HTML
-            if (t.startsWith('<h2>') || t.startsWith('<h3>')) return t;
+            if (t.startsWith('<h2>') || t.startsWith('<h3>')) {
+              html.push(t);
+              continue;
+            }
+
             // Convert ## markdown headings to <h2>
             const h2Match = t.match(/^##\s+(.+)$/);
-            if (h2Match) return `<h2>${escapeHtml(h2Match[1].trim())}</h2>`;
+            if (h2Match) {
+              html.push(`<h2>${escapeHtml(h2Match[1].trim())}</h2>`);
+              continue;
+            }
+
             // Convert standalone **Bold:** blocks to <h3>
             const h3Match = t.match(/^\*\*(.+?)\*\*:?$/);
-            if (h3Match) return `<h3>${escapeHtml(h3Match[1].trim())}</h3>`;
-            return `<p>${escapeHtml(t)}</p>`;
-          })
-          .filter((p: string) => p.length > 10);
-        let firstPDone = false;
-        const botSummaryParagraphs = botParas.map((p: string) => {
-          if (!firstPDone && p.startsWith('<p>')) {
-            firstPDone = true;
-            return `<p class="article-summary">${p.slice(3)}`;
+            if (h3Match) {
+              html.push(`<h3>${escapeHtml(h3Match[1].trim())}</h3>`);
+              continue;
+            }
+
+            html.push(`<p>${escapeHtml(t)}</p>`);
           }
-          return p;
-        }).join('\n');
+
+          return html.join('\n');
+        };
+
+        let botSummaryParagraphs = renderSummaryHtml(article.summary || '');
+        if (botSummaryParagraphs.includes('<p>')) {
+          botSummaryParagraphs = botSummaryParagraphs.replace('<p>', '<p class="article-summary">');
+        }
         const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
         const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
         const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
