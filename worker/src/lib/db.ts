@@ -260,6 +260,38 @@ export async function ensureUniqueSlug(env: Env, baseSlug: string): Promise<stri
   return `${baseSlug}-${Date.now()}`;
 }
 
+/**
+ * Generate SEO slugs for any articles that are missing one.
+ * Used by admin tooling when migrating older rows that were created before
+ * slugs were required.
+ */
+export async function backfillMissingSlugs(env: Env): Promise<{ updated: number }> {
+  const rows = await prepare(env,
+      `SELECT id, title, county, published_at FROM articles WHERE slug IS NULL OR slug = ''`
+    )
+    .all<{ id: number; title: string; county: string | null; published_at: string }>();
+
+  const list = rows.results ?? [];
+  let updated = 0;
+
+  for (const row of list) {
+    const baseSlug = generateSeoSlug(row.title, row.county, row.published_at);
+    const slug = await ensureUniqueSlug(env, baseSlug);
+
+    const result = await prepare(env,
+        `UPDATE articles SET slug = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+      )
+      .bind(slug, row.id)
+      .run();
+
+    if (Number(result.meta.changes ?? 0) > 0) {
+      updated++;
+    }
+  }
+
+  return { updated };
+}
+
 // when new articles are added or existing ones are modified we need to
 // keep the RSS feed cache fresh.  The feed generator includes a small
 // version string in the cache key; bumping that value causes every cache

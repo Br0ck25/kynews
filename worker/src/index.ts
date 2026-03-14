@@ -15,6 +15,7 @@ import {
 	updateArticleClassification,
 	updateArticleContent,
 	updateArticleLinks,
+	backfillMissingSlugs,
 	getCountyCounts,
 	getArticlesByCounty,
 	getArticlesForUpdateCheck,
@@ -864,6 +865,15 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 	}
 
 	return json({ ok: true, message: 'Backfill queued', threshold, missingCount: totalJobs }, 202);
+}
+
+if (url.pathname === '/api/admin/backfill-slugs' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+
+	const { updated } = await backfillMissingSlugs(env);
+	return json({ updated });
 }
 
 if (url.pathname === '/api/admin/backfill-status' && request.method === 'GET') {
@@ -2316,10 +2326,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           canonicalPath = `/post?articleId=${idNum}`;
         }
 
-        // If a crawler hits the legacy /post?articleId= URL and the article
-        // already has a slug, redirect them to the canonical /news/... URL.
-        // For non-bots (normal browsers), we keep the existing behavior.
-        if (isBot && article.slug) {
+        // If the legacy /post?articleId= URL is used and the article already
+        // has a slug, always redirect to the canonical /news/... URL.
+        // This applies to bots and human visitors alike.
+        if (article.slug) {
           return new Response(null, {
             status: 301,
             headers: {
