@@ -109,6 +109,62 @@ function deriveSourceOrganization(canonicalUrl: string): {
 	}
 }
 
+function extractEventDateFromContent(contentText: string | null | undefined, publishedAt: string | null | undefined): string | null {
+	if (!contentText || !publishedAt) return null;
+	const publishedDate = new Date(publishedAt);
+	if (Number.isNaN(publishedDate.getTime())) return null;
+	const publishedMs = publishedDate.getTime();
+
+	const monthMap: Record<string, number> = {
+		January: 0,
+		February: 1,
+		March: 2,
+		April: 3,
+		May: 4,
+		June: 5,
+		July: 6,
+		August: 7,
+		September: 8,
+		October: 9,
+		November: 10,
+		December: 11,
+	};
+
+	const pad = (n: number) => n.toString().padStart(2, '0');
+	const toIso = (year: number, month0: number, day: number) => {
+		const dt = Date.UTC(year, month0, day);
+		if (dt <= publishedMs) return null;
+		return `${year}-${pad(month0 + 1)}-${pad(day)}`;
+	};
+
+	// Look for Month DD, YYYY (e.g. "January 5, 2026")
+	const monthRegex = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s*(\d{4})\b/g;
+	let match: RegExpExecArray | null;
+	while ((match = monthRegex.exec(contentText)) !== null) {
+		const month0 = monthMap[match[1]];
+		const day = Number(match[2]);
+		const year = Number(match[3]);
+		if (!Number.isFinite(day) || !Number.isFinite(year)) continue;
+		const iso = toIso(year, month0, day);
+		if (iso) return iso;
+	}
+
+	// Look for MM/DD/YYYY
+	const slashRegex = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g;
+	while ((match = slashRegex.exec(contentText)) !== null) {
+		const month = Number(match[1]);
+		const day = Number(match[2]);
+		const year = Number(match[3]);
+		if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(year)) continue;
+		if (month < 1 || month > 12) continue;
+		if (day < 1 || day > 31) continue;
+		const iso = toIso(year, month - 1, day);
+		if (iso) return iso;
+	}
+
+	return null;
+}
+
 const INGEST_METRICS_KEY = 'admin:ingest:latest';
 const INGEST_ROTATION_KEY_PREFIX = 'admin:ingest:rotation:';
 const FALLBACK_CRAWL_MAX_LINKS = 12;
@@ -2419,31 +2475,34 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 </body>
 </html>`;
 
-          const eventSchema = (article.category === 'events' || article.category === 'sports')
-            ? {
-                "@context": "https://schema.org",
-                "@type": "Event",
-                name: article.title,
-                description: desc,
-                url: pageUrl,
-                startDate: article.publishedAt,
-                location: article.county
-                  ? {
-                      "@type": "Place",
-                      name: `${article.county} County, Kentucky`,
-                      address: {
-                        "@type": "PostalAddress",
-                        addressLocality: article.city || article.county,
-                        addressRegion: "KY",
-                        addressCountry: "US",
-                      },
-                    }
-                  : { "@type": "Place", name: "Kentucky" },
-                organizer: deriveSourceOrganization(article.canonicalUrl),
-                eventStatus: "https://schema.org/EventScheduled",
-                eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
-              }
-            : null;
+          const eventDate = extractEventDateFromContent(article.contentText, article.publishedAt);
+          const eventSchema =
+            (eventDate && (article.category === 'events' || article.category === 'sports'))
+              ? {
+                  "@context": "https://schema.org",
+                  "@type": "Event",
+                  name: article.title,
+                  description: desc,
+                  url: pageUrl,
+                  startDate: eventDate,
+                  endDate: eventDate,
+                  location: article.county
+                    ? {
+                        "@type": "Place",
+                        name: `${article.county} County, Kentucky`,
+                        address: {
+                          "@type": "PostalAddress",
+                          addressLocality: article.city || article.county,
+                          addressRegion: "KY",
+                          addressCountry: "US",
+                        },
+                      }
+                    : { "@type": "Place", name: "Kentucky" },
+                  organizer: deriveSourceOrganization(article.canonicalUrl),
+                  eventStatus: "https://schema.org/EventScheduled",
+                  eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+                }
+              : null;
           const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>\n<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`
             + (eventSchema ? `\n<script type="application/ld+json" id="json-ld-event">${JSON.stringify(eventSchema)}</script>` : '');
           const finalHtml = iabHtml.replace('</head>', `${schemaScripts}\n</head>`);
@@ -2669,31 +2728,34 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 </body>
 </html>`;
         // insert JSON-LD before sending
-        const eventSchema = (article.category === 'events' || article.category === 'sports')
-          ? {
-              "@context": "https://schema.org",
-              "@type": "Event",
-              name: article.title,
-              description: desc,
-              url: pageUrl,
-              startDate: article.publishedAt,
-              location: article.county
-                ? {
-                    "@type": "Place",
-                    name: `${article.county} County, Kentucky`,
-                    address: {
-                      "@type": "PostalAddress",
-                      addressLocality: article.city || article.county,
-                      addressRegion: "KY",
-                      addressCountry: "US",
-                    },
-                  }
-                : { "@type": "Place", name: "Kentucky" },
-              organizer: deriveSourceOrganization(article.canonicalUrl),
-              eventStatus: "https://schema.org/EventScheduled",
-              eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
-            }
-          : null;
+        const eventDate = extractEventDateFromContent(article.contentText, article.publishedAt);
+        const eventSchema =
+          (eventDate && (article.category === 'events' || article.category === 'sports'))
+            ? {
+                "@context": "https://schema.org",
+                "@type": "Event",
+                name: article.title,
+                description: desc,
+                url: pageUrl,
+                startDate: eventDate,
+                endDate: eventDate,
+                location: article.county
+                  ? {
+                      "@type": "Place",
+                      name: `${article.county} County, Kentucky`,
+                      address: {
+                        "@type": "PostalAddress",
+                        addressLocality: article.city || article.county,
+                        addressRegion: "KY",
+                        addressCountry: "US",
+                      },
+                    }
+                  : { "@type": "Place", name: "Kentucky" },
+                organizer: deriveSourceOrganization(article.canonicalUrl),
+                eventStatus: "https://schema.org/EventScheduled",
+                eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+              }
+            : null;
         const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>\n<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`
           + (eventSchema ? `\n<script type="application/ld+json" id="json-ld-event">${JSON.stringify(eventSchema)}</script>` : '');
         const finalHtml = html.replace('</head>', `${schemaScripts}\n</head>`);
@@ -2902,31 +2964,34 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
 </body>
 </html>`;
-        const eventSchema = (article.category === 'events' || article.category === 'sports')
-          ? {
-              "@context": "https://schema.org",
-              "@type": "Event",
-              name: article.title,
-              description: desc,
-              url: pageUrl,
-              startDate: article.publishedAt,
-              location: article.county
-                ? {
-                    "@type": "Place",
-                    name: `${article.county} County, Kentucky`,
-                    address: {
-                      "@type": "PostalAddress",
-                      addressLocality: article.city || article.county,
-                      addressRegion: "KY",
-                      addressCountry: "US",
-                    },
-                  }
-                : { "@type": "Place", name: "Kentucky" },
-              organizer: deriveSourceOrganization(article.canonicalUrl),
-              eventStatus: "https://schema.org/EventScheduled",
-              eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
-            }
-          : null;
+        const eventDate = extractEventDateFromContent(article.contentText, article.publishedAt);
+        const eventSchema =
+          (eventDate && (article.category === 'events' || article.category === 'sports'))
+            ? {
+                "@context": "https://schema.org",
+                "@type": "Event",
+                name: article.title,
+                description: desc,
+                url: pageUrl,
+                startDate: eventDate,
+                endDate: eventDate,
+                location: article.county
+                  ? {
+                      "@type": "Place",
+                      name: `${article.county} County, Kentucky`,
+                      address: {
+                        "@type": "PostalAddress",
+                        addressLocality: article.city || article.county,
+                        addressRegion: "KY",
+                        addressCountry: "US",
+                      },
+                    }
+                  : { "@type": "Place", name: "Kentucky" },
+                organizer: deriveSourceOrganization(article.canonicalUrl),
+                eventStatus: "https://schema.org/EventScheduled",
+                eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+              }
+            : null;
         const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>\n<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`
           + (eventSchema ? `\n<script type="application/ld+json" id="json-ld-event">${JSON.stringify(eventSchema)}</script>` : '');
         const finalHtml = iabHtml.replace('</head>', `${schemaScripts}\n</head>`);
@@ -3184,31 +3249,34 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 </body>
 </html>`;
         // insert JSON-LD scripts
-        const eventSchema = (article.category === 'events' || article.category === 'sports')
-          ? {
-              "@context": "https://schema.org",
-              "@type": "Event",
-              name: article.title,
-              description: desc,
-              url: pageUrl,
-              startDate: article.publishedAt,
-              location: article.county
-                ? {
-                    "@type": "Place",
-                    name: `${article.county} County, Kentucky`,
-                    address: {
-                      "@type": "PostalAddress",
-                      addressLocality: article.city || article.county,
-                      addressRegion: "KY",
-                      addressCountry: "US",
-                    },
-                  }
-                : { "@type": "Place", name: "Kentucky" },
-              organizer: deriveSourceOrganization(article.canonicalUrl),
-              eventStatus: "https://schema.org/EventScheduled",
-              eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
-            }
-          : null;
+        const eventDate = extractEventDateFromContent(article.contentText, article.publishedAt);
+        const eventSchema =
+          (eventDate && (article.category === 'events' || article.category === 'sports'))
+            ? {
+                "@context": "https://schema.org",
+                "@type": "Event",
+                name: article.title,
+                description: desc,
+                url: pageUrl,
+                startDate: eventDate,
+                endDate: eventDate,
+                location: article.county
+                  ? {
+                      "@type": "Place",
+                      name: `${article.county} County, Kentucky`,
+                      address: {
+                        "@type": "PostalAddress",
+                        addressLocality: article.city || article.county,
+                        addressRegion: "KY",
+                        addressCountry: "US",
+                      },
+                    }
+                  : { "@type": "Place", name: "Kentucky" },
+                organizer: deriveSourceOrganization(article.canonicalUrl),
+                eventStatus: "https://schema.org/EventScheduled",
+                eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+              }
+            : null;
         const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>\n<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`
           + (eventSchema ? `\n<script type="application/ld+json" id="json-ld-event">${JSON.stringify(eventSchema)}</script>` : '');
         const finalHtml = html.replace('</head>', `${schemaScripts}\n</head>`);

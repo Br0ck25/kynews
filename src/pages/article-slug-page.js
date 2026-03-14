@@ -57,6 +57,60 @@ function deriveSourceUrl(url) {
   try { return new URL(url).origin; } catch { return 'https://localkynews.com'; }
 }
 
+function extractEventDateFromContent(contentText, publishedAt) {
+  if (!contentText || !publishedAt) return null;
+  const published = new Date(publishedAt);
+  if (!Number.isFinite(published.getTime())) return null;
+  const publishedMs = published.getTime();
+
+  const monthMap = {
+    January: 0,
+    February: 1,
+    March: 2,
+    April: 3,
+    May: 4,
+    June: 5,
+    July: 6,
+    August: 7,
+    September: 8,
+    October: 9,
+    November: 10,
+    December: 11,
+  };
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const toIso = (year, month0, day) => {
+    const ms = Date.UTC(year, month0, day);
+    if (ms <= publishedMs) return null;
+    return `${year}-${pad(month0 + 1)}-${pad(day)}`;
+  };
+
+  const monthRegex = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s*(\d{4})\b/g;
+  let match;
+  while ((match = monthRegex.exec(contentText)) !== null) {
+    const month0 = monthMap[match[1]];
+    const day = Number(match[2]);
+    const year = Number(match[3]);
+    if (!Number.isFinite(day) || !Number.isFinite(year)) continue;
+    const iso = toIso(year, month0, day);
+    if (iso) return iso;
+  }
+
+  const slashRegex = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g;
+  while ((match = slashRegex.exec(contentText)) !== null) {
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const year = Number(match[3]);
+    if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(year)) continue;
+    if (month < 1 || month > 12) continue;
+    if (day < 1 || day > 31) continue;
+    const iso = toIso(year, month - 1, day);
+    if (iso) return iso;
+  }
+
+  return null;
+}
+
 function setMeta(attr, value, content) {
   let el = document.querySelector(`meta[${attr}="${value}"]`);
   if (!el) {
@@ -431,33 +485,37 @@ export default function ArticleSlugPage() {
     setJsonLd("json-ld-breadcrumb-post", breadcrumbSchema);
 
     if (post.category === 'events' || post.category === 'sports') {
-      const eventSchema = {
-        "@context": "https://schema.org",
-        "@type": "Event",
-        name: post.title,
-        description: cleanDesc,
-        url: pageUrl,
-        startDate: post.date || post.publishedAt,
-        location: post.county
-          ? {
-              "@type": "Place",
-              name: `${post.county} County, Kentucky`,
-              address: {
-                "@type": "PostalAddress",
-                addressLocality: post.city || post.county,
-                addressRegion: "KY",
-                addressCountry: "US",
-              },
-            }
-          : { "@type": "Place", name: "Kentucky" },
-        organizer: {
-          "@type": "Organization",
-          name: deriveSourceName(post.canonicalUrl || post.sourceUrl || ''),
-        },
-        eventStatus: "https://schema.org/EventScheduled",
-        eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
-      };
-      setJsonLd("json-ld-event", eventSchema);
+      const eventDate = extractEventDateFromContent(post.contentText, post.publishedAt || post.date);
+      if (eventDate) {
+        const eventSchema = {
+          "@context": "https://schema.org",
+          "@type": "Event",
+          name: post.title,
+          description: cleanDesc,
+          url: pageUrl,
+          startDate: eventDate,
+          endDate: eventDate,
+          location: post.county
+            ? {
+                "@type": "Place",
+                name: `${post.county} County, Kentucky`,
+                address: {
+                  "@type": "PostalAddress",
+                  addressLocality: post.city || post.county,
+                  addressRegion: "KY",
+                  addressCountry: "US",
+                },
+              }
+            : { "@type": "Place", name: "Kentucky" },
+          organizer: {
+            "@type": "Organization",
+            name: deriveSourceName(post.canonicalUrl || post.sourceUrl || ''),
+          },
+          eventStatus: "https://schema.org/EventScheduled",
+          eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+        };
+        setJsonLd("json-ld-event", eventSchema);
+      }
     }
 
     return () => {
