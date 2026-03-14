@@ -320,28 +320,36 @@ export function generateFacebookCaption(post = {}) {
  */
 export function buildPageTitle(title, county, isKentucky) {
   const base = (title || '').trim();
-  if (!base) return 'Local KY News';
-
+  const normalizedTitle = base || 'Local KY News';
   const countyName = county ? String(county).trim() : '';
-  if (countyName) {
-    const full = `${base} | ${countyName} County, KY — Local KY News`;
-    if (full.length <= 70) return full;
+  const siteSuffix = 'Local KY News';
+  const maxLength = 60;
 
-    const shorter = `${base} — ${countyName} County, KY`;
-    if (shorter.length <= 70) return shorter;
+  const countyLabel = countyName
+    ? (/county$/i.test(countyName) ? countyName : `${countyName} County`)
+    : '';
 
-    return shorter;
+  const hasCounty = Boolean(countyLabel);
+  const hasKentucky = Boolean(isKentucky) && !hasCounty;
+
+  const suffix = hasCounty
+    ? `${countyLabel}, KY | ${siteSuffix}`
+    : hasKentucky
+    ? `Kentucky | ${siteSuffix}`
+    : `| ${siteSuffix}`;
+  const separator = hasCounty || hasKentucky ? ' — ' : ' ';
+
+  const maxTitleLength = maxLength - separator.length - suffix.length;
+  let titlePart = normalizedTitle.replace(/\s+/g, ' ').trim();
+
+  if (maxTitleLength > 0 && titlePart.length > maxTitleLength) {
+    if (maxTitleLength <= 3) {
+      titlePart = '.'.repeat(maxTitleLength);
+    } else {
+      const truncated = titlePart.slice(0, maxTitleLength - 3).trimEnd();
+      titlePart = `${truncated || titlePart.slice(0, maxTitleLength - 3)}...`;
+    }
   }
 
-  if (isKentucky) {
-    const full = `${base} | Kentucky — Local KY News`;
-    if (full.length <= 70) return full;
-
-    const shorter = `${base} — Kentucky`;
-    if (shorter.length <= 70) return shorter;
-
-    return full;
-  }
-
-  return `${base} — Local KY News`;
+  return `${titlePart}${separator}${suffix}`;
 }

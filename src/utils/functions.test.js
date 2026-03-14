@@ -179,25 +179,24 @@ describe('category helper functions', () => {
 describe('buildPageTitle helper', () => {
   it('adds county context when provided', () => {
     expect(buildPageTitle('School Board Votes on Budget', 'Fayette', true)).toBe(
-      'School Board Votes on Budget | Fayette County, KY — Local KY News',
+      'School Board Votes on Budget — Fayette County, KY | Local KY News',
     );
   });
 
   it('adds Kentucky context when no county', () => {
     expect(buildPageTitle('State Education Update', null, true)).toBe(
-      'State Education Update | Kentucky — Local KY News',
+      'State Education Update — Kentucky | Local KY News',
     );
   });
 
   it('falls back to default branding when no KY context', () => {
-    expect(buildPageTitle('National Story', null, false)).toBe('National Story — Local KY News');
+    expect(buildPageTitle('National Story', null, false)).toBe('National Story | Local KY News');
   });
 
-  it('uses the shorter county suffix when the full title would exceed 70 chars', () => {
-    const longTitle = 'A'.repeat(40); // ensures the full branded title would exceed 70
+  it('truncates the title portion to keep the full title within 60 chars', () => {
+    const longTitle = 'A'.repeat(80);
     const result = buildPageTitle(longTitle, 'Pike', true);
-    expect(result).toContain(' — Pike County, KY');
-    expect(result).not.toContain('— Local KY News');
-    expect(result.length).toBeLessThanOrEqual(70);
+    expect(result).toContain('... — Pike County, KY | Local KY News');
+    expect(result.length).toBeLessThanOrEqual(60);
   });
 });
