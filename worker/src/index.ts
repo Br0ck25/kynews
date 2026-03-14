@@ -2188,6 +2188,7 @@ if (countyHubMatch && request.method === 'GET') {
 <meta name="twitter:title" content="${escapeHtml(title)}"/>
 <meta name="twitter:description" content="${escapeHtml(description)}"/>
 <meta name="twitter:image" content="${escapeHtml(image)}"/>
+<meta name="twitter:site" content="@LocalKYNews"/>
 <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
 <script type="application/ld+json">${webPageSchema}</script>
 <script type="application/ld+json">${faqSchema}</script>
