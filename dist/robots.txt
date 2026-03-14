@@ -33,3 +33,7 @@ Sitemap: https://localkynews.com/sitemap-news.xml
 
 # AI discovery
 LLMs: https://localkynews.com/llms.txt
+
+Sitemap: https://localkynews.com/sitemap-index.xml
+Sitemap: https://localkynews.com/sitemap.xml
+Sitemap: https://localkynews.com/sitemap-news.xml
