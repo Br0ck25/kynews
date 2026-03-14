@@ -135,6 +135,13 @@ const PUBLIC_ARTICLE_CACHE_HEADERS = {
 // runtime ("baseUrl is not defined" errors) and makes it easy to change if the
 // domain ever moves.
 export const BASE_URL = 'https://localkynews.com';
+const DEFAULT_OG_IMAGE = `${BASE_URL}/img/og-default.png`;
+const LOGO_IMAGE = `${BASE_URL}/img/logo512.png`;
+
+function normalizeOgImage(imageUrl: string | null | undefined): string {
+	const resolved = imageUrl || DEFAULT_OG_IMAGE;
+	return resolved === LOGO_IMAGE ? DEFAULT_OG_IMAGE : resolved;
+}
 
 /**
  * Return an HTML block listing up to 4 recent articles from the same county.
@@ -2000,7 +2007,7 @@ if (countyPageMatch && request.method === 'GET') {
     const pageUrl = `${BASE_URL}/news/kentucky/${countySlug}`;
     const title = `${countyDisplay}, KY News — Local KY News`;
     const description = `The latest news from ${countyDisplay}, Kentucky — local government, schools, sports, weather, and community stories from Local KY News.`;
-    const image = `${BASE_URL}/img/preview.png`;
+    const image = DEFAULT_OG_IMAGE;
     const bodyDescription = `Local KY News covers government, schools, sports, weather, and community updates from ${countyDisplay}, Kentucky. Browse the latest headlines below and check back often for new stories as they publish.`;
 
     const recentArticles = await getArticlesByCounty(env, countyDisplay, 5);
@@ -2101,8 +2108,15 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 300);
-          const fallbackImage = 'https://localkynews.com/img/preview.png';
-          const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+          const fallbackImage = DEFAULT_OG_IMAGE;
+          const imageForMeta = normalizeOgImage((await selectPreviewImage(article)) || fallbackImage);
+          const imageObject = imageForMeta
+            ? {
+                "@type": "ImageObject",
+                url: imageForMeta,
+                ...(imageForMeta === DEFAULT_OG_IMAGE ? { width: 1200, height: 630 } : {}),
+              }
+            : null;
 
           // Render the summary as paragraphs
           const summaryParagraphs = (article.summary || '')
@@ -2138,9 +2152,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
                 height: 512,
               },
             },
-            ...(imageForMeta
-              ? { image: { "@type": "ImageObject", url: imageForMeta } }
-              : {}),
+            ...(imageObject ? { image: imageObject } : {}),
             ...(article.county
               ? {
                   contentLocation: {
@@ -2243,11 +2255,18 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           const pageUrl = `https://localkynews.com${canonicalPath}`;
           const metas: string[] = [];
           const metaPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
-          const fallbackImage = 'https://localkynews.com/img/preview.png';
+          const fallbackImage = DEFAULT_OG_IMAGE;
           metas.push('<meta property="og:type" content="article"/>');
           metas.push(`<meta property="og:title" content="${escapeHtml(metaPageTitle)}"/>`);
           metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-          const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+          const imageForMeta = normalizeOgImage((await selectPreviewImage(article)) || fallbackImage);
+          const imageObject = imageForMeta
+            ? {
+                "@type": "ImageObject",
+                url: imageForMeta,
+                ...(imageForMeta === DEFAULT_OG_IMAGE ? { width: 1200, height: 630 } : {}),
+              }
+            : null;
           metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
           metas.push(`<meta property="og:image:width" content="1200"/>`);
           metas.push(`<meta property="og:image:height" content="630"/>`);
@@ -2286,9 +2305,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
               height: 512,
             },
           },
-          ...(imageForMeta
-            ? { image: { "@type": "ImageObject", url: imageForMeta } }
-            : {}),
+          ...(imageObject ? { image: imageObject } : {}),
           ...(article.county
             ? {
                 contentLocation: {
@@ -2442,8 +2459,15 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           .replace(/\s+/g, ' ')
           .trim()
           .slice(0, 300);
-        const fallbackImage = 'https://localkynews.com/img/preview.png';
-        const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+        const fallbackImage = DEFAULT_OG_IMAGE;
+        const imageForMeta = normalizeOgImage((await selectPreviewImage(article)) || fallbackImage);
+        const imageObject = imageForMeta
+          ? {
+              "@type": "ImageObject",
+              url: imageForMeta,
+              ...(imageForMeta === DEFAULT_OG_IMAGE ? { width: 1200, height: 630 } : {}),
+            }
+          : null;
         const summaryParagraphs = (article.summary || '')
           .split(/\n\n+/)
           .map((p: string) => `<p>${escapeHtml(p.trim())}</p>`)
@@ -2476,9 +2500,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
               height: 512,
             },
           },
-          ...(imageForMeta
-            ? { image: { "@type": "ImageObject", url: imageForMeta } }
-            : {}),
+          ...(imageObject ? { image: imageObject } : {}),
           ...(article.county
             ? {
                 contentLocation: {
@@ -2593,7 +2615,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         // match the client‑side default so bots see the same preview image
         // that appears in the SPA shell.  Previously this URL was wrong and
         // caused Facebook to fall back to the site logo when scraping.
-        const fallbackImage = 'https://localkynews.com/img/preview.png';
+        const fallbackImage = DEFAULT_OG_IMAGE;
 
         // determine which image to use. priority:
         // 1. explicit article.imageUrl
@@ -2605,7 +2627,14 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         metas.push('<meta property="og:type" content="article"/>');
         metas.push(`<meta property="og:title" content="${escapeHtml(metaPageTitle)}"/>`);
         metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);
-        const imageForMeta = (await selectPreviewImage(article)) || fallbackImage;
+        const imageForMeta = normalizeOgImage((await selectPreviewImage(article)) || fallbackImage);
+        const imageObject = imageForMeta
+          ? {
+              "@type": "ImageObject",
+              url: imageForMeta,
+              ...(imageForMeta === DEFAULT_OG_IMAGE ? { width: 1200, height: 630 } : {}),
+            }
+          : null;
 
         // build JSON-LD schemas for bots
         const newsArticleSchema = {
@@ -2631,9 +2660,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
               height: 512,
             },
           },
-          ...(imageForMeta
-            ? { image: { "@type": "ImageObject", url: imageForMeta } }
-            : {}),
+          ...(imageObject ? { image: imageObject } : {}),
           ...(article.county
             ? {
                 contentLocation: {
@@ -2841,7 +2868,7 @@ if (request.method === 'GET' && sectionMeta && isBotUserAgent(request.headers.ge
   <meta property="og:description" content="${escapeHtml(sectionMeta.description)}"/>
   <meta property="og:url" content="${baseUrl}${url.pathname}"/>
   <meta property="og:site_name" content="Local KY News"/>
-  <meta property="og:image" content="${baseUrl}/img/preview.png"/>
+  <meta property="og:image" content="${DEFAULT_OG_IMAGE}"/>
   <meta name="twitter:card" content="summary_large_image"/>
   <meta name="twitter:site" content="@LocalKYNews"/>
   <style>

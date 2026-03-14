@@ -28,7 +28,8 @@ const useStyles = makeStyles((theme) => ({
 
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
-const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/preview.png';
+const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/og-default.png';
+const LOGO_IMAGE = 'https://localkynews.com/img/logo512.png';
 const { NOINDEX_WORD_THRESHOLD, SNIPPET_LIMIT_THRESHOLD } = Constants;
 // Allow optional FB App ID to be provided via environment variables.
 // This reads from import.meta.env in Vite or falls back to process.env for tests.
@@ -185,9 +186,8 @@ export default function ArticleSlugPage() {
     if (modifiedTime) {
       setMeta("property", "article:modified_time", modifiedTime);
     }
-    // ensure OG image is always absolute; fall back to our site logo when the
-    // article itself doesnt provide an image.  Facebook will then display the
-    // logo instead of the generic preview thumbnail.
+    // ensure OG image is always absolute; fall back to the default 1200x630
+    // preview image when the article itself doesn't provide an image.
     const defaultImage = DEFAULT_OG_IMAGE;
     // post.image may be a relative path so coerce to a full URL like the
     // server-side preview logic does.  this only affects clients, but it
@@ -201,18 +201,19 @@ export default function ArticleSlugPage() {
         // ignore and keep whatever value we already had
       }
     }
-    setMeta("property", "og:image", ogImage);
-
-    // for schema.org we deliberately declare fixed dimensions; Google
-    // allows declared values rather than seeking the actual image.  the
-    // standard Open Graph size is 1200x630, but the logo fallback is
-    // 512x512 so adjust accordingly.
-    let schemaImageWidth = 1200;
-    let schemaImageHeight = 630;
-    if (ogImage === "https://localkynews.com/img/logo512.png") {
-      schemaImageWidth = 512;
-      schemaImageHeight = 512;
+    if (ogImage === LOGO_IMAGE) {
+      ogImage = DEFAULT_OG_IMAGE;
     }
+    setMeta("property", "og:image", ogImage);
+    setMeta("property", "og:image:width", "1200");
+    setMeta("property", "og:image:height", "630");
+
+    // For schema.org, declare fixed dimensions only for the default image.
+    const imageObject = {
+      "@type": "ImageObject",
+      url: ogImage,
+      ...(ogImage === DEFAULT_OG_IMAGE ? { width: 1200, height: 630 } : {}),
+    };
 
     setMeta("name", "twitter:card", "summary_large_image");
     setMeta("name", "twitter:title", pageTitle);
@@ -270,16 +271,7 @@ export default function ArticleSlugPage() {
         "@type": "Organization",
         name: publisherName,
       },
-      ...(post.image
-        ? {
-            image: {
-              "@type": "ImageObject",
-              url: ogImage,
-              width: schemaImageWidth,
-              height: schemaImageHeight,
-            },
-          }
-        : {}),
+      image: imageObject,
       ...(post.county
         ? {
             contentLocation: {
@@ -329,10 +321,10 @@ export default function ArticleSlugPage() {
       setMeta("name", "description", genericDesc);
       setCanonical(SITE_URL);
       setMeta("name", "robots", "index,follow");
-      // restore default image tags as well; use the logo fallback here too so
-      // we don't accidentally revert to the old preview graphic when leaving
-      // an article.
+      // restore default image tags as well.
       setMeta("property", "og:image", DEFAULT_OG_IMAGE);
+      setMeta("property", "og:image:width", "1200");
+      setMeta("property", "og:image:height", "630");
       setMeta("name", "twitter:image", DEFAULT_OG_IMAGE);
       setMeta("property", "fb:app_id", getFbAppId() || "0");
       document.getElementById("json-ld-article")?.remove();

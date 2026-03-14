@@ -3092,7 +3092,7 @@ describe('ingestSingleUrl error handling', () => {
         expect(text).toContain('<meta property="og:title" content="Pike County, KY News — Local KY News"');
         expect(text).toContain('<meta property="og:description" content="The latest news from Pike County, Kentucky');
         expect(text).toContain('<meta property="og:url" content="https://localkynews.com/news/kentucky/pike-county"');
-        expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/preview.png"');
+        expect(text).toContain('<meta property="og:image" content="https://localkynews.com/img/og-default.png"');
     });
 
 		it('returns rejected status when insertArticle throws on ingest', async () => {

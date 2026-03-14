@@ -51,7 +51,7 @@ describe('ArticleSlugPage metadata', () => {
     renderArticleSlugPage(post);
 
     await waitFor(() => {
-      expect(getMeta('og:image')).toBe('https://localkynews.com/img/preview.png');
+      expect(getMeta('og:image')).toBe('https://localkynews.com/img/og-default.png');
       expect(getMeta('fb:app_id')).toBe('testid');
       expect(getMeta('robots', 'name')).toBe('noindex,follow');
       // JSON-LD should include our site as publisher and retain original name

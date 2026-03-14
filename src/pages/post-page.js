@@ -23,7 +23,8 @@ const useStyles = makeStyles({
 
 const SITE_URL = "https://localkynews.com";
 const SITE_NAME = "Local KY News";
-const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/preview.png';
+const DEFAULT_OG_IMAGE = 'https://localkynews.com/img/og-default.png';
+const LOGO_IMAGE = 'https://localkynews.com/img/logo512.png';
 const { NOINDEX_WORD_THRESHOLD, SNIPPET_LIMIT_THRESHOLD } = Constants;
 function getFbAppId() {
   try {
@@ -174,7 +175,7 @@ export default function PostPage() {
     }
     const defaultImage = DEFAULT_OG_IMAGE;
     // similar to ArticleSlugPage we normalize an absolute URL and declare
-    // fixed dimensions for schema use.  this mirrors the logic on the
+    // fixed dimensions for schema use. this mirrors the logic on the
     // client-side page so failures are consistent.
     let ogImage = post.image || defaultImage;
     if (ogImage && !/^https?:\/\//i.test(ogImage)) {
@@ -184,7 +185,12 @@ export default function PostPage() {
         // leave it alone
       }
     }
+    if (ogImage === LOGO_IMAGE) {
+      ogImage = DEFAULT_OG_IMAGE;
+    }
     setMeta("property", "og:image", ogImage);
+    setMeta("property", "og:image:width", "1200");
+    setMeta("property", "og:image:height", "630");
 
     // Twitter card
     setMeta("name", "twitter:card", "summary_large_image");
@@ -193,12 +199,11 @@ export default function PostPage() {
     setMeta("name", "twitter:image", ogImage);
 
     // dimensions for schema.org image object (see ArticleSlugPage)
-    let schemaImageWidth = 1200;
-    let schemaImageHeight = 630;
-    if (ogImage === "https://localkynews.com/img/logo512.png") {
-      schemaImageWidth = 512;
-      schemaImageHeight = 512;
-    }
+    const imageObject = {
+      "@type": "ImageObject",
+      url: ogImage,
+      ...(ogImage === DEFAULT_OG_IMAGE ? { width: 1200, height: 630 } : {}),
+    };
     const fbAppId = getFbAppId();
     if (fbAppId) setMeta("property", "fb:app_id", fbAppId);
 
@@ -251,16 +256,7 @@ export default function PostPage() {
         "@type": "Organization",
         name: publisherName,
       },
-      ...(post.image
-        ? {
-            image: {
-              "@type": "ImageObject",
-              url: ogImage,
-              width: schemaImageWidth,
-              height: schemaImageHeight,
-            },
-          }
-        : {}),
+      image: imageObject,
       ...(post.county
         ? {
             contentLocation: {
@@ -317,8 +313,10 @@ export default function PostPage() {
       setMeta("name", "description", genericDesc);
       setCanonical(SITE_URL);
       setMeta("name", "robots", "index,follow");
-      setMeta("property", "og:image", `${SITE_URL}/img/preview.png`);
-      setMeta("name", "twitter:image", `${SITE_URL}/img/preview.png`);
+      setMeta("property", "og:image", DEFAULT_OG_IMAGE);
+      setMeta("property", "og:image:width", "1200");
+      setMeta("property", "og:image:height", "630");
+      setMeta("name", "twitter:image", DEFAULT_OG_IMAGE);
       setMeta("property", "fb:app_id", getFbAppId() || "0");
       const ldScript = document.getElementById("json-ld-article");
       if (ldScript) ldScript.remove();
@@ -387,4 +385,3 @@ export default function PostPage() {
     </div>
   );
 }
-
