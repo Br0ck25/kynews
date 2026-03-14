@@ -3368,9 +3368,9 @@ if (url.pathname === '/sitemap-news.xml' && request.method === 'GET') {
 	return new Response(xml, {
 		headers: {
 			'content-type': 'application/xml; charset=utf-8',
-			// Google News Sitemap covers only the last 48 h — keep TTL short (5 min) so newly
+			// Google News Sitemap covers only the last 48 h — keep TTL short (1 min) so newly
 			// ingested articles surface in news search as quickly as possible.
-			'cache-control': 'public, max-age=300, s-maxage=300',
+			'cache-control': 'public, max-age=60, s-maxage=60, stale-while-revalidate=300',
 		},
 	});
 }
