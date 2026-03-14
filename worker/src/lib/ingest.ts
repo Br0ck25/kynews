@@ -27,6 +27,29 @@ function firstMeaningfulWord(title: string): string {
   return words[0] ?? '';
 }
 
+function deriveAuthorFromHostname(sourceUrl: string): string | null {
+  try {
+    const hostname = new URL(sourceUrl).hostname.replace(/^www\./, '');
+    const knownSources: Record<string, string> = {
+      'wymt.com': 'WYMT News',
+      'kentucky.com': 'Kentucky.com',
+      'wkyt.com': 'WKYT News',
+      'wlex.com': 'WLEX News',
+      'wdrb.com': 'WDRB News',
+      'whas11.com': 'WHAS11',
+      'courier-journal.com': 'Courier Journal',
+      'herald-leader.com': 'Lexington Herald-Leader',
+      'wkdz.com': 'WKDZ Radio',
+      'wbko.com': 'WBKO News',
+    };
+    if (knownSources[hostname]) return knownSources[hostname];
+    const firstToken = hostname.split('.')[0];
+    return firstToken ? firstToken.toUpperCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<IngestResult> {
   // Pre-flight duplicate check using the normalized source URL.  This allows
   // queue-sourced messages to short-circuit before performing any network
@@ -330,11 +353,12 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
     const resolvedPublishedAt = toIsoDateOrNull(source.feedPublishedAt) ?? new Date().toISOString();
     const normalizedCanonical = normalizeCanonicalUrl(source.url);
     const normalizedSource = normalizeCanonicalUrl(source.sourceUrl ?? source.url);
+    const derivedAuthor = deriveAuthorFromHostname(normalizedSource);
     return {
       canonicalUrl: normalizedCanonical,
       sourceUrl: normalizedSource,
       title,
-      author: null,
+      author: derivedAuthor,
       publishedAt: resolvedPublishedAt,
       contentHtml: description,
       contentText: description,
@@ -385,11 +409,12 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
     const resolvedPublishedAt = toIsoDateOrNull(source.feedPublishedAt) ?? new Date().toISOString();
     const normalizedCanonical = normalizeCanonicalUrl(source.url);
     const normalizedSource = normalizeCanonicalUrl(source.sourceUrl ?? source.url);
+    const derivedAuthor = deriveAuthorFromHostname(normalizedSource);
     return {
       canonicalUrl: normalizedCanonical,
       sourceUrl: normalizedSource,
       title,
-      author: null,
+      author: derivedAuthor,
       publishedAt: resolvedPublishedAt,
       contentHtml: description,
       contentText: description,
@@ -425,6 +450,10 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
     new Date().toISOString();
   const normalizedCanonical = normalizeCanonicalUrl(scraped.canonicalUrl);
   const normalizedSource = normalizeCanonicalUrl(source.sourceUrl ?? source.url);
+
+  const derivedAuthor = deriveAuthorFromHostname(normalizedSource);
+  const scrapedAuthor = scraped.author?.trim();
+  const author = scrapedAuthor || derivedAuthor;
 
   // For government/agency sites where the page <title> is the site name
   // rather than the article title, prefer the RSS-provided title.
@@ -471,7 +500,7 @@ export async function fetchAndExtractArticle(env: Env, source: IngestSource): Pr
     canonicalUrl: normalizedCanonical,
     sourceUrl: normalizedSource,
     title: cleanedTitle,
-    author: scraped.author,
+    author,
     publishedAt: resolvedPublishedAt,
     contentHtml: readableHtml || scraped.contentHtml,
     contentText: synthesizedText,
