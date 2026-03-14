@@ -44,6 +44,19 @@ function getFbAppId() {
   }
 }
 
+function deriveSourceName(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    return host.split('.')[0]
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  } catch { return 'Local Kentucky News Source'; }
+}
+
+function deriveSourceUrl(url) {
+  try { return new URL(url).origin; } catch { return 'https://localkynews.com'; }
+}
+
 function setMeta(attr, value, content) {
   let el = document.querySelector(`meta[${attr}="${value}"]`);
   if (!el) {
@@ -349,7 +362,11 @@ export default function ArticleSlugPage() {
       dateModified: post.updatedAt || post.date || post.publishedAt,
       author: post.author
         ? { "@type": "Person", name: post.author }
-        : { "@type": "Organization", name: publisherName },
+        : {
+            "@type": "NewsMediaOrganization",
+            name: deriveSourceName(post.canonicalUrl || post.sourceUrl || ''),
+            url: deriveSourceUrl(post.canonicalUrl || post.sourceUrl || '')
+          },
       publisher: {
         "@type": "Organization",
         name: "Local KY News",
@@ -434,6 +451,14 @@ export default function ArticleSlugPage() {
           {resolvedPost ? (
             <>
               <Post post={resolvedPost} />
+              {!resolvedPost.author && resolvedPost.canonicalUrl && (
+                <p className="source-credit">
+                  Via{' '}
+                  <a href={deriveSourceUrl(resolvedPost.canonicalUrl)} rel="noopener noreferrer">
+                    {deriveSourceName(resolvedPost.canonicalUrl)}
+                  </a>
+                </p>
+              )}
               {resolvedPost.alertGeojson && (
                 <AlertPolygonMap geojson={resolvedPost.alertGeojson} />
               )}

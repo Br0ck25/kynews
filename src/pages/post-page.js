@@ -42,6 +42,19 @@ function getFbAppId() {
  * Injects/updates a <meta> tag in <head> by name or property.
  * Creates the element if it doesn't exist.
  */
+function deriveSourceName(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    return host.split('.')[0]
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  } catch { return 'Local Kentucky News Source'; }
+}
+
+function deriveSourceUrl(url) {
+  try { return new URL(url).origin; } catch { return 'https://localkynews.com'; }
+}
+
 function setMeta(attr, value, content) {
   let el = document.querySelector(`meta[${attr}="${value}"]`);
   if (!el) {
@@ -334,7 +347,11 @@ export default function PostPage() {
       dateModified: post.updatedAt || post.date || post.publishedAt,
       author: post.author
         ? { "@type": "Person", name: post.author }
-        : { "@type": "Organization", name: publisherName },
+        : {
+            "@type": "NewsMediaOrganization",
+            name: deriveSourceName(post.canonicalUrl || post.sourceUrl || ''),
+            url: deriveSourceUrl(post.canonicalUrl || post.sourceUrl || '')
+          },
       publisher: {
         "@type": "Organization",
         name: "Local KY News",
@@ -427,6 +444,14 @@ export default function PostPage() {
       {post ? (
         <>
           <Post post={post} />
+          {!post.author && post.canonicalUrl && (
+            <p className="source-credit">
+              Via{' '}
+              <a href={deriveSourceUrl(post.canonicalUrl)} rel="noopener noreferrer">
+                {deriveSourceName(post.canonicalUrl)}
+              </a>
+            </p>
+          )}
           {relatedPosts.length > 0 && (
             <div style={{ marginTop: 24 }}>
               <Typography variant="h6" gutterBottom>
