@@ -57,6 +57,7 @@ import { buildPageTitle } from './lib/pageTitle';
 import { processNwsAlerts, processNwsProducts } from './lib/nws';
 import { processSpcFeed } from './lib/spc';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
+import { isSearchBot } from './lib/isSearchBot';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -248,7 +249,7 @@ const url = new URL(request.url);
 
 // Homepage bot handling – serve JSON-LD structured data for search crawlers.
 // Regular browsers and the /health probe still get the JSON ping below.
-if (url.pathname === '/' && request.method === 'GET' && isBotUserAgent(request.headers.get('user-agent') || '')) {
+if (url.pathname === '/' && request.method === 'GET' && isSearchBot(request.headers.get('user-agent') || '')) {
   const websiteSchema = {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
@@ -2063,7 +2064,7 @@ return json(
 const countyPageMatch = url.pathname.match(/^\/news\/kentucky\/([a-z0-9-]+-county)\/?$/i);
 if (countyPageMatch && request.method === 'GET') {
   const ua = request.headers.get('user-agent') || '';
-  const isSocialBot = /facebookexternalhit|facebookbot|twitterbot|linkedinbot|slackbot|whatsapp|telegram|googlebot|google-inspectiontool|adsbot-google/i.test(ua);
+  const isSocialBot = isSearchBot(ua);
 
   if (isSocialBot) {
     const countySlug = countyPageMatch[1]; // e.g. "pike-county"
@@ -2137,7 +2138,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   // the React SPA reliably. Detected separately so we can serve server-rendered
   // HTML with article content directly in the body.
   const isFacebookIab = /\bFBAN\/|FB_IAB|\bFBAV\/|\bFBIOS\b|\bFBMD\b|\bFBSV\/|Instagram/i.test(userAgent);
-  const isBot = /facebookexternalhit|facebookbot|facebot|fb_iab|fbav|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot|discordbot|googlebot|google-inspectiontool|adsbot-google|bingbot|applebot|pinterest|vkshare|xing-contenttabreceiver|w3c_validator|curl|wget|python-requests|java\/|go-http|okhttp/i.test(userAgent);
+  const isBot = isSearchBot(userAgent);
 
   // look up the article either by slug (normal path) or by ID using the
   // legacy /post?articleId= query parameter.  canonicalPath will later be
@@ -2897,7 +2898,7 @@ const SECTION_PATHS: Record<string, { title: string; description: string; catego
 };
 
 const sectionMeta = SECTION_PATHS[url.pathname];
-if (request.method === 'GET' && sectionMeta && isBotUserAgent(request.headers.get('user-agent') || '')) {
+if (request.method === 'GET' && sectionMeta && isSearchBot(request.headers.get('user-agent') || '')) {
   // Fetch recent articles for this section from D1
   const rows = await prepare(env,
     `SELECT title, slug, county, category, published_at, seo_description, summary
@@ -3706,10 +3707,7 @@ function isHttpUrl(input: string): boolean {
   }
 }
 
-// detect well-known bots by user-agent string
-function isBotUserAgent(ua: string): boolean {
-  return /googlebot|google-inspectiontool|adsbot-google|bingbot|slurp|duckduckbot|baiduspider|yandex|sogou|facebookexternalhit|twitterbot|linkedinbot|whatsapp|applebot|ia_archiver/i.test(ua);
-}
+// isSearchBot is imported from ./lib/isSearchBot
 
 function safeError(error: unknown): string {
 if (error instanceof Error) return error.message;
