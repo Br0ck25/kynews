@@ -182,6 +182,82 @@ export async function getArticleBySlug(env: Env, slug: string): Promise<ArticleR
   return article;
 }
 
+// ---------------------------------------------------------------------------
+// SEO slug generation
+// ---------------------------------------------------------------------------
+
+const SLUG_STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+]);
+
+/**
+ * Generate an SEO-friendly URL slug from an article's title, county, and publish date.
+ *
+ * Format: [county-slug-]title-words-year
+ * Example: county="Pike", title="School Board Approves New Budget", year=2026
+ *   → "pike-school-board-approves-new-budget-2026"
+ *
+ * Rules:
+ *  - County slug prepended if present
+ *  - Stop words removed from title
+ *  - Non-alphanumeric characters (except hyphens) stripped
+ *  - Year from publishedAt appended
+ *  - Truncated to 80 characters at a hyphen boundary
+ */
+export function generateSeoSlug(
+  title: string,
+  county: string | null | undefined,
+  publishedAt: string,
+): string {
+  const year = new Date(publishedAt).getFullYear().toString();
+
+  const countyPrefix = county
+    ? county
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .trim()
+        .replace(/\s+/g, '-') + '-'
+    : '';
+
+  const titleSlug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter((word) => word.length > 0 && !SLUG_STOP_WORDS.has(word))
+    .join('-');
+
+  const base = `${countyPrefix}${titleSlug}-${year}`;
+
+  if (base.length <= 80) return base;
+
+  const truncated = base.slice(0, 80);
+  const lastHyphen = truncated.lastIndexOf('-');
+  return lastHyphen > 0 ? truncated.slice(0, lastHyphen) : truncated;
+}
+
+/**
+ * Ensure a slug is unique in the articles table.
+ * If the base slug already exists, appends -2, -3, etc. until a free slot is found.
+ */
+export async function ensureUniqueSlug(env: Env, baseSlug: string): Promise<string> {
+  const exists = await prepare(env, `SELECT id FROM articles WHERE slug = ? LIMIT 1`)
+    .bind(baseSlug)
+    .first<{ id: number }>();
+
+  if (!exists) return baseSlug;
+
+  for (let n = 2; n <= 100; n++) {
+    const candidate = `${baseSlug}-${n}`;
+    const row = await prepare(env, `SELECT id FROM articles WHERE slug = ? LIMIT 1`)
+      .bind(candidate)
+      .first<{ id: number }>();
+    if (!row) return candidate;
+  }
+
+  // Safety fallback: timestamp suffix guarantees uniqueness
+  return `${baseSlug}-${Date.now()}`;
+}
+
 // when new articles are added or existing ones are modified we need to
 // keep the RSS feed cache fresh.  The feed generator includes a small
 // version string in the cache key; bumping that value causes every cache
@@ -202,6 +278,13 @@ async function bumpRssVersion(env: Env): Promise<void> {
 
 export async function insertArticle(env: Env, article: NewArticle): Promise<number> {
   const normalizedCounty = normalizeCountyName(article.county);
+
+  // Generate a structured SEO slug for every new insertion.
+  // This overwrites any slug set by the caller so all new articles use the
+  // county + title + year format.  Existing rows in the database are NOT
+  // touched (no UPDATE), so published URLs are preserved.
+  const baseSlug = generateSeoSlug(article.title, article.county, article.publishedAt);
+  article.slug = await ensureUniqueSlug(env, baseSlug);
 
   try {
     const result = await prepare(env,
