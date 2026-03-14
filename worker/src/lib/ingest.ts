@@ -242,6 +242,13 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     contentHash,
     // SEO-friendly slug: title-slug + first 8 chars of urlHash for uniqueness (Section 4)
     slug: generateArticleSlug(extracted.title, canonicalHash),
+    // TODO: the ingest AI pipeline should populate localIntro with a 150-250 word
+    // Kentucky-focused context paragraph for each article (why this story matters
+    // locally, relevant Kentucky background, regional impact, etc.).  Once set,
+    // the article's canonical URL is automatically redirected to
+    // https://localkynews.com/news/[slug] instead of the original external source,
+    // signalling to search engines that the content has been enhanced and lives here.
+    localIntro: null,
   };
 
   // NOTE: Existing rows inserted before this classifier update may have stale

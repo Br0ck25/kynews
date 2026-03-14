@@ -35,6 +35,7 @@ interface ArticleRow {
   slug: string | null;
   content_hash: string | null;
   alert_geojson: string | null;
+  local_intro: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -227,8 +228,9 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           raw_r2_key,
           slug,
           content_hash,
-          alert_geojson
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          alert_geojson,
+          local_intro
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         article.canonicalUrl,
@@ -254,6 +256,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
         article.slug ?? null,
         article.contentHash ?? null,
         article.alertGeojson ?? null,
+        article.localIntro ?? null,
       )
       .run();
 
@@ -800,11 +803,14 @@ export async function queryArticles(env: Env, options: {
   const imageAltSelect = supportsImageAlt ? 'image_alt,' : 'NULL AS image_alt,';
 
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1';
+  const supportsLocalIntro = await columnExists(env, 'articles', 'local_intro');
+  const localIntroSelect = supportsLocalIntro ? 'local_intro,' : 'NULL AS local_intro,';
+
   const query = `
     SELECT id, canonical_url, source_url, url_hash, title, author,
            published_at, category, is_kentucky, is_national, county, city,
            summary, seo_description, raw_word_count, summary_word_count,
-           image_url, ${imageAltSelect} raw_r2_key, slug, content_hash, created_at, updated_at
+           image_url, ${imageAltSelect} raw_r2_key, slug, content_hash, ${localIntroSelect} created_at, updated_at
     FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?
   `;
 
@@ -840,10 +846,20 @@ export async function queryArticles(env: Env, options: {
   };
 }
 
+const LOCAL_KY_BASE = 'https://localkynews.com/news';
+
 function mapArticleRow(row: ArticleRow): ArticleRecord {
+  // If the article has AI-generated local content, the canonical URL resolves
+  // to our own domain rather than the original external source.  This signals
+  // to search engines that the content lives on localkynews.com.
+  const hasLocalContent = Boolean(row.local_intro && row.local_intro.trim());
+  const canonicalUrl = hasLocalContent && row.slug
+    ? `${LOCAL_KY_BASE}/${row.slug}`
+    : row.canonical_url;
+
   return {
     id: row.id,
-    canonicalUrl: row.canonical_url,
+    canonicalUrl,
     sourceUrl: row.source_url,
     urlHash: row.url_hash,
     title: row.title,
@@ -867,6 +883,7 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     contentHash: row.content_hash ?? null,
     slug: row.slug ?? null,
     alertGeojson: row.alert_geojson ?? null,
+    localIntro: row.local_intro ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

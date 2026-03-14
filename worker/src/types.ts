@@ -43,6 +43,12 @@ export interface ArticleRecord {
   slug: string | null;
   /** GeoJSON string of the NWS alert polygon geometry. Null for non-alert articles. */
   alertGeojson: string | null;
+  /**
+   * AI-generated Kentucky-focused context paragraph (150-250 words).
+   * Null until the ingest AI pipeline populates it.
+   * When non-empty, the article's canonical URL resolves to localkynews.com.
+   */
+  localIntro: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -79,6 +85,12 @@ export interface NewArticle {
   contentHash?: string;
   /** GeoJSON string of the NWS alert polygon geometry. Null or omitted for non-alert articles. */
   alertGeojson?: string | null;
+  /**
+   * AI-generated Kentucky-focused context paragraph (150-250 words).
+   * When non-empty the stored canonical_url is overridden to
+   * https://localkynews.com/news/[slug] at read time.
+   */
+  localIntro?: string | null;
 }
 
 export interface IngestSource {
