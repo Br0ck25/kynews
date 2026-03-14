@@ -270,7 +270,14 @@ if (url.pathname === '/' && request.method === 'GET' && isBotUserAgent(request.h
     url: 'https://localkynews.com',
     logo: {
       '@type': 'ImageObject',
-      url: DEFAULT_OG_IMAGE,
+      url: 'https://localkynews.com/img/logo512.png',
+      width: 512,
+      height: 512,
+    },
+    sameAs: [],
+    areaServed: {
+      '@type': 'State',
+      name: 'Kentucky',
     },
   };
   const homepageHtml = `<!doctype html>
