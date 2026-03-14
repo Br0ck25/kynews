@@ -2374,8 +2374,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
               }
             : null;
           metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
-          metas.push(`<meta property="og:image:width" content="1200"/>`);
-          metas.push(`<meta property="og:image:height" content="630"/>`);
+          metas.push(`<meta property="og:image:width" content="${article.imageWidth ?? 1200}"/>`);
+          metas.push(`<meta property="og:image:height" content="${article.imageHeight ?? 630}"/>`);
           metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
           metas.push('<meta property="og:site_name" content="Local KY News"/>');
           metas.push('<meta name="twitter:card" content="summary_large_image"/>');
@@ -2824,8 +2824,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         };
 
         metas.push(`<meta property="og:image" content="${escapeHtml(imageForMeta)}"/>`);
-        metas.push(`<meta property="og:image:width" content="1200"/>`);
-        metas.push(`<meta property="og:image:height" content="630"/>`);
+        metas.push(`<meta property="og:image:width" content="${article.imageWidth ?? 1200}"/>`);
+        metas.push(`<meta property="og:image:height" content="${article.imageHeight ?? 630}"/>`);
         metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
         metas.push('<meta property="og:site_name" content="Local KY News"/>');
 

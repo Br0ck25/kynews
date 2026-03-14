@@ -31,6 +31,8 @@ interface ArticleRow {
   content_html: string;
   image_url: string | null;
   image_alt: string | null;
+  image_width: number | null;
+  image_height: number | null;
   raw_r2_key: string | null;
   slug: string | null;
   content_hash: string | null;
@@ -308,12 +310,14 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           content_html,
           image_url,
           image_alt,
+          image_width,
+          image_height,
           raw_r2_key,
           slug,
           content_hash,
           alert_geojson,
           local_intro
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         article.canonicalUrl,
@@ -335,6 +339,8 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
         article.contentHtml,
         article.imageUrl,
         article.imageAlt ?? null,
+        article.imageWidth ?? null,
+        article.imageHeight ?? null,
         article.rawR2Key,
         article.slug ?? null,
         article.contentHash ?? null,
@@ -888,12 +894,16 @@ export async function queryArticles(env: Env, options: {
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1';
   const supportsLocalIntro = await columnExists(env, 'articles', 'local_intro');
   const localIntroSelect = supportsLocalIntro ? 'local_intro,' : 'NULL AS local_intro,';
+  const supportsImageDims = await columnExists(env, 'articles', 'image_width');
+  const imageDimsSelect = supportsImageDims
+    ? 'image_width, image_height,'
+    : 'NULL AS image_width, NULL AS image_height,';
 
   const query = `
     SELECT id, canonical_url, source_url, url_hash, title, author,
            published_at, category, is_kentucky, is_national, county, city,
            summary, seo_description, raw_word_count, summary_word_count,
-           image_url, ${imageAltSelect} raw_r2_key, slug, content_hash, ${localIntroSelect} created_at, updated_at
+           image_url, ${imageAltSelect} ${imageDimsSelect} raw_r2_key, slug, content_hash, ${localIntroSelect} created_at, updated_at
     FROM articles ${whereClause} ORDER BY published_at DESC, id DESC LIMIT ?
   `;
 
@@ -962,6 +972,8 @@ function mapArticleRow(row: ArticleRow): ArticleRecord {
     contentHtml: row.content_html ?? '',
     imageUrl: row.image_url,
     imageAlt: row.image_alt ?? null,
+    imageWidth: row.image_width ?? null,
+    imageHeight: row.image_height ?? null,
     rawR2Key: row.raw_r2_key,
     contentHash: row.content_hash ?? null,
     slug: row.slug ?? null,

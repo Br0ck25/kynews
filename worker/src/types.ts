@@ -36,6 +36,10 @@ export interface ArticleRecord {
   contentHtml: string;
   imageUrl: string | null;
   imageAlt: string | null;
+  /** Pixel width of the og:image. Null when dimensions could not be determined. */
+  imageWidth: number | null;
+  /** Pixel height of the og:image. Null when dimensions could not be determined. */
+  imageHeight: number | null;
   rawR2Key: string | null;
   /** SHA256 hash of scraped content used for update detection (nullable). */
   contentHash: string | null;
@@ -78,6 +82,10 @@ export interface NewArticle {
   contentHtml: string;
   imageUrl: string | null;
   imageAlt: string | null;
+  /** Pixel width of the og:image. Null or omitted when dimensions could not be determined. */
+  imageWidth?: number | null;
+  /** Pixel height of the og:image. Null or omitted when dimensions could not be determined. */
+  imageHeight?: number | null;
   rawR2Key: string | null;
   /** SEO-friendly URL slug derived from title + id. Optional — added in migration 0004. */
   slug?: string | null;

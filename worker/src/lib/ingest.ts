@@ -5,7 +5,7 @@ import { summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE, isStatewideKyPoliticalStory, getSourceDefaultImage } from './classify';
 import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles } from './db';
 import { browserFetch, cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
-import { decodeHtmlEntities, scrapeArticleHtml } from './scrape';
+import { decodeHtmlEntities, getImageDimensions, scrapeArticleHtml } from './scrape';
 
 const TITLE_SIMILARITY_REJECT_THRESHOLD = 0.85; // lowered from 0.9 to catch more cross-outlet duplicates
 const RECENT_TITLE_SCAN_LIMIT = 300; // reduced scan limit for performance (formerly 700)
@@ -217,6 +217,13 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
         .join(' — ')
     : null;
 
+  // Attempt to read the actual pixel dimensions of the article image so that
+  // og:image:width / og:image:height meta tags can serve accurate values.
+  // getImageDimensions() is best-effort and returns null on any error.
+  const imageDimensions = extracted.imageUrl
+    ? await getImageDimensions(extracted.imageUrl)
+    : null;
+
   const newArticle: NewArticle = {
     canonicalUrl: extracted.canonicalUrl,
     sourceUrl: extracted.sourceUrl,
@@ -238,6 +245,8 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     contentHtml: extracted.contentHtml,
     imageUrl: extracted.imageUrl,
     imageAlt,
+    imageWidth: imageDimensions?.width ?? null,
+    imageHeight: imageDimensions?.height ?? null,
     rawR2Key,
     contentHash,
     // SEO-friendly slug: title-slug + first 8 chars of urlHash for uniqueness (Section 4)

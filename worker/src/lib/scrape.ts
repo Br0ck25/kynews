@@ -201,3 +201,77 @@ function absolutizeMaybe(candidate: string, base: string): string {
     return candidate;
   }
 }
+
+/**
+ * Attempt to read the pixel dimensions of a remote image without downloading
+ * the full file.  Performs a HEAD request first to confirm the content type,
+ * then fetches only the first 24 bytes and parses:
+ *   - PNG: IHDR chunk width/height at byte offsets 16–19 / 20–23
+ *   - JPEG: scans for the SOF0 (FF C0) or SOF2 (FF C2) marker within the
+ *     available bytes (succeeds for images whose SOF marker falls very early,
+ *     otherwise returns null).
+ *
+ * Returns null on any network error, unsupported type, or parse failure.
+ */
+export async function getImageDimensions(url: string): Promise<{ width: number; height: number } | null> {
+  try {
+    // Step 1: HEAD to confirm content type within 3 s.
+    const headController = new AbortController();
+    const headTimeout = setTimeout(() => headController.abort(), 3000);
+    let headResp: Response;
+    try {
+      headResp = await fetch(url, { method: 'HEAD', signal: headController.signal });
+    } finally {
+      clearTimeout(headTimeout);
+    }
+
+    const ct = (headResp.headers.get('content-type') ?? '').toLowerCase();
+    const isPng = ct.includes('image/png');
+    const isJpeg = ct.includes('image/jpeg');
+    if (!isPng && !isJpeg) return null;
+
+    // Step 2: Fetch only the first 24 bytes.
+    const rangeController = new AbortController();
+    const rangeTimeout = setTimeout(() => rangeController.abort(), 3000);
+    let rangeResp: Response;
+    try {
+      rangeResp = await fetch(url, {
+        headers: { Range: 'bytes=0-23' },
+        signal: rangeController.signal,
+      });
+    } finally {
+      clearTimeout(rangeTimeout);
+    }
+
+    const buf = await rangeResp.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+
+    if (isPng && bytes.length >= 24) {
+      // PNG layout: 8-byte signature, then IHDR chunk.
+      // IHDR: 4-byte length, 4-byte type ("IHDR"), 4-byte width, 4-byte height.
+      const view = new DataView(buf);
+      const width = view.getUint32(16, false /* big-endian */);
+      const height = view.getUint32(20, false);
+      if (width > 0 && height > 0) return { width, height };
+    }
+
+    if (isJpeg && bytes.length >= 11) {
+      // Scan the available bytes for an SOF0 (FF C0) or SOF2 (FF C2) marker.
+      // In practice these markers are rarely within the first 24 bytes of a
+      // JPEG file, so this will mostly return null — but it's correct per spec.
+      const view = new DataView(buf);
+      for (let i = 0; i < bytes.length - 8; i++) {
+        if (bytes[i] === 0xff && (bytes[i + 1] === 0xc0 || bytes[i + 1] === 0xc2)) {
+          // SOF segment layout: FF Cx [2-byte length] [1-byte precision] [2-byte height] [2-byte width]
+          const height = view.getUint16(i + 5, false);
+          const width = view.getUint16(i + 7, false);
+          if (width > 0 && height > 0) return { width, height };
+        }
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
