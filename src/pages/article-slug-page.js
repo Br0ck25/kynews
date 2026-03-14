@@ -2,7 +2,7 @@ import React from "react";
 import { makeStyles } from "@material-ui/core/styles";
 import Post from "../components/post/post-component";
 import AlertPolygonMap from "../components/weather/alert-polygon-map";
-import { Button, Typography, Card, CardContent } from "@material-ui/core";
+import { Button, Typography, Card, CardContent, Breadcrumbs, Link } from "@material-ui/core";
 import { useParams, useLocation, Link as RouterLink } from "react-router-dom";
 import SiteService from "../services/siteService";
 import { articleToUrl, buildPageTitle, countyToSlug } from "../utils/functions";
@@ -21,6 +21,11 @@ const useStyles = makeStyles((theme) => ({
       transform: "translateY(-1px)",
       boxShadow: theme.shadows[3],
     },
+  },
+  breadcrumbs: {
+    fontSize: "0.75rem",
+    color: theme.palette.text.secondary,
+    marginBottom: theme.spacing(1),
   },
   emptyState: { textAlign: "center", padding: "24px 16px" },
   emptyAction: { marginTop: 16 },
@@ -206,6 +211,12 @@ function truncateAtWordBoundary(text, maxLength) {
   const lastSpace = sliced.lastIndexOf(" ");
   const truncated = lastSpace > 0 ? sliced.slice(0, lastSpace) : sliced;
   return `${truncated.trim()}...`;
+}
+
+function truncateWithEllipsis(text, maxLength) {
+  if (!text || text.length <= maxLength) return text || "";
+  const available = Math.max(0, maxLength - 3);
+  return `${text.slice(0, available).trim()}...`;
 }
 
 function formatCountyLabel(county) {
@@ -543,6 +554,25 @@ export default function ArticleSlugPage() {
         <CardContent>
           {resolvedPost ? (
             <>
+              <nav aria-label="breadcrumb">
+                <Breadcrumbs aria-label="breadcrumb" className={classes.breadcrumbs}>
+                  <Link component={RouterLink} color="inherit" to="/">
+                    Home
+                  </Link>
+                  {resolvedPost.county && (
+                    <Link
+                      component={RouterLink}
+                      color="inherit"
+                      to={`/news/kentucky/${countyToSlug(resolvedPost.county)}-county`}
+                    >
+                      {formatCountyLabel(resolvedPost.county)}
+                    </Link>
+                  )}
+                  <Typography color="textSecondary">
+                    {truncateWithEllipsis(resolvedPost.title, 40)}
+                  </Typography>
+                </Breadcrumbs>
+              </nav>
               <Post post={resolvedPost} showAuthorByline />
               {!resolvedPost.author && resolvedPost.canonicalUrl && (
                 <p className="source-credit">
