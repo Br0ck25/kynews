@@ -777,5 +777,25 @@ export function parseSpcOutlooks(xml: string): SpcOutlook[] {
     outlooks.push({ day: c.day, title: cleanTitle, description, segments, link: c.link, imageUrl, publishedAt: c.publishedAt });
   }
 
+  // Ensure Day 1/2/3 are always present, even if the feed doesn't include them.
+  const existingDays = new Set(outlooks.map((o) => o.day));
+  for (const day of [1, 2, 3] as const) {
+    if (existingDays.has(day)) continue;
+    outlooks.push({
+      day,
+      title: `Day ${day} Convective Outlook (unavailable)`,
+      description: 'The SPC outlook is not currently available. Check back soon for updates.',
+      segments: [
+        { type: 'paragraph', text: 'The Storm Prediction Center has not released this outlook yet. Please check back later for the latest convective outlooks.' },
+      ],
+      link: 'https://www.spc.noaa.gov/products/outlook/',
+      imageUrl: SPC_DAY1_RISK_MAP,
+      publishedAt: new Date().toISOString(),
+    });
+  }
+
+  // Sort to keep Day 1/2/3 order
+  outlooks.sort((a, b) => a.day - b.day);
+
   return outlooks;
 }

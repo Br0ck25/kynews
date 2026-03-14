@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useTheme, fade } from "@material-ui/core/styles";
-import { Typography, Grid } from "@material-ui/core";
+import { Typography, Grid, useMediaQuery } from "@material-ui/core";
 import CategoryFeedPage from "../pages/category-feed-page";
 import SiteService from "../services/siteService";
 
@@ -50,6 +50,7 @@ function getAlertStyle(event = "") {
 
 export default function KYWeatherHub() {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const bgDefault = theme.palette.background.default;
   const paperBg = theme.palette.background.paper;
   const textColor = theme.palette.text.primary;
@@ -277,15 +278,17 @@ export default function KYWeatherHub() {
         </div>
 
         {/* Tabs */}
-        <div className="weather-tabs" style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", padding: "10px 0", marginBottom: 16 }}>
+        <div className="weather-tabs" style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", alignItems: "center", padding: "10px 0", marginBottom: 16 }}>
           {[{ id: "forecast", label: "📅 7-Day Forecast" }, { id: "outlooks", label: "🌩️ SPC Outlooks" }, { id: "nws", label: "📡 NWS Briefings" }, { id: "alerts", label: `🚨 Alerts (${alerts.length})` }, { id: "radar", label: "🗺️ Live Radar" }].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+              flex: isMobile ? "0 0 calc(33.333% - 12px)" : "initial",
               padding: "8px 16px", borderRadius: 999, cursor: "pointer", fontSize: 12,
               border: "1px solid #1e3a5f",
               background: activeTab === tab.id ? "rgba(100,181,246,0.18)" : "rgba(255,255,255,0.03)",
               color: activeTab === tab.id ? primary : "#607d8b",
               fontWeight: activeTab === tab.id ? "bold" : "normal",
               boxShadow: activeTab === tab.id ? `0 0 0 2px ${fade(primary, 0.25)}` : "none",
+              minWidth: isMobile ? 110 : "auto",
             }}>{tab.label}</button>
           ))}
         </div>
