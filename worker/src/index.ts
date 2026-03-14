@@ -246,6 +246,66 @@ interface IngestRunOptions {
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 const url = new URL(request.url);
 
+// Homepage bot handling – serve JSON-LD structured data for search crawlers.
+// Regular browsers and the /health probe still get the JSON ping below.
+if (url.pathname === '/' && request.method === 'GET' && isBotUserAgent(request.headers.get('user-agent') || '')) {
+  const websiteSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'Local KY News',
+    url: 'https://localkynews.com',
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: {
+        '@type': 'EntryPoint',
+        urlTemplate: 'https://localkynews.com/search?q={search_term_string}',
+      },
+      'query-input': 'required name=search_term_string',
+    },
+  };
+  const orgSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'NewsMediaOrganization',
+    name: 'Local KY News',
+    url: 'https://localkynews.com',
+    logo: {
+      '@type': 'ImageObject',
+      url: DEFAULT_OG_IMAGE,
+    },
+  };
+  const homepageHtml = `<!doctype html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Local KY News — Kentucky&#x27;s Local News Source</title>
+  <meta name="description" content="Local KY News covers the latest headlines from all 120 Kentucky counties — local government, schools, sports, weather, and community stories."/>
+  <link rel="canonical" href="https://localkynews.com/"/>
+  <meta property="og:type" content="website"/>
+  <meta property="og:title" content="Local KY News — Kentucky&#x27;s Local News Source"/>
+  <meta property="og:description" content="Local KY News covers the latest headlines from all 120 Kentucky counties — local government, schools, sports, weather, and community stories."/>
+  <meta property="og:url" content="https://localkynews.com/"/>
+  <meta property="og:site_name" content="Local KY News"/>
+  <meta property="og:image" content="${DEFAULT_OG_IMAGE}"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <meta name="twitter:site" content="@LocalKYNews"/>
+  <script type="application/ld+json">${JSON.stringify(websiteSchema)}</script>
+  <script type="application/ld+json">${JSON.stringify(orgSchema)}</script>
+</head>
+<body>
+  <h1>Local KY News</h1>
+  <p>Kentucky&#x27;s local news source — covering all 120 counties.</p>
+  <script>window.location.href="https://localkynews.com/";</script>
+</body>
+</html>`;
+  return new Response(homepageHtml, {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'public, max-age=3600, s-maxage=3600',
+    },
+  });
+}
+
 if ((url.pathname === '/' || url.pathname === '/health') && request.method === 'GET') {
 return json({
 ok: true,
