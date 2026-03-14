@@ -96,10 +96,9 @@ Your summary must:
 - Treat every multi-sentence quote as a single indivisible unit — never
   paraphrase part of it and quote the rest, and never let a paragraph
   break fall inside a quoted passage.
-- If the article is longer than 400 words and covers multiple distinct topics or
-  timeline phases, structure your summary with 2–3 short H2 subheadings using
-  Markdown \`##\` syntax. Each section should be 2–4 sentences. If the article is
-  short or single-topic, output plain paragraphs with no headings.
+- If the article covers two or more distinct story beats — for example, "what happened" and "what happens next", or "the incident" and "the response" —
+  include exactly two \`##\` subheadings to separate them, regardless of word count.
+  Markdown \`##\` syntax. Subheadings should be short (3–6 words), descriptive, and written in sentence case. Subheadings improve featured snippet eligibility in search engines and should always be included when the article naturally has a two-part or three-part narrative arc. For single-beat articles (one event, one announcement), use no subheadings. For articles longer than 400 words covering three or more distinct phases or topics, use up to three \`##\` subheadings.
 
 Your summary must never:
 - Repeat, restate, or begin with the article title. Start directly with the first sentence of your summary.
