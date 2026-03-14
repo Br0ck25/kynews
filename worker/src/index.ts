@@ -2021,24 +2021,50 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 	// SEO description should still be sentence-safe rather than cutting mid-word.
 	const manualSummary = postBody;
 
-	function buildSeoDescription(text: string, maxLen = 160): string {
+	function buildSeoDescription(text: string, county?: string | null, maxLen = 160): string {
 		if (!text) return '';
 		const clean = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-		if (clean.length <= maxLen) return clean;
+		if (!clean) return '';
 
-		// Try to end at a sentence boundary within the limit
-		const withinLimit = clean.slice(0, maxLen + 50); // look slightly past limit
-		const sentenceMatch = withinLimit.match(/^(.{80,}?[.!?])\s/);
-		if (sentenceMatch && sentenceMatch[1].length <= maxLen) {
-			return sentenceMatch[1].trim();
+		const strippingRegex = /^(according to [^,]+,\s*|officials (?:say|said|announced)\s+that\s*|(?:a |the )?[a-z]+ (?:said|says|announced)\s+that\s*)/i;
+		let result = clean.replace(strippingRegex, '').trim();
+
+		// Prepend county when it isn't included in the first 60 characters.
+		const countyName = county?.trim();
+		if (countyName && countyName.length > 0) {
+			const prefixWindow = result.slice(0, 60).toLowerCase();
+			if (!prefixWindow.includes(countyName.toLowerCase())) {
+				result = `${countyName} County, KY — ${result}`;
+			}
 		}
 
-		// Fall back to word boundary
-		const wordBoundary = clean.slice(0, maxLen).replace(/\s+\S*$/, '');
-		return wordBoundary + '…';
+		const targetMax = Math.min(maxLen, 158);
+		if (result.length <= targetMax) {
+			if (result.length < 120 && !result.trim().endsWith('.')) {
+				result = `${result} Read the full story.`;
+			}
+			return result;
+		}
+
+		// Try to end at a sentence boundary within the limit
+		const withinLimit = result.slice(0, targetMax + 50); // look slightly past limit
+		const sentenceMatch = withinLimit.match(/^(.{80,}?[.!?])\s/);
+		if (sentenceMatch && sentenceMatch[1].length <= targetMax) {
+			result = sentenceMatch[1].trim();
+		} else {
+			// Fall back to word boundary
+			const wordBoundary = result.slice(0, targetMax).replace(/\s+\S*$/, '');
+			result = `${wordBoundary}…`;
+		}
+
+		if (result.length < 120 && !result.trim().endsWith('.')) {
+			result = `${result} Read the full story.`;
+		}
+
+		return result;
 	}
 
-	const manualSeoDescription = buildSeoDescription(postBody);
+	const manualSeoDescription = buildSeoDescription(postBody, classification.county);
 
 	const imageAlt = imageUrl
 		? generateImageAlt(title, classification.county ?? null, classification.category)
