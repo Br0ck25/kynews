@@ -207,9 +207,9 @@ function absolutizeMaybe(candidate: string, base: string): string {
  * the full file.  Performs a HEAD request first to confirm the content type,
  * then fetches only the first 24 bytes and parses:
  *   - PNG: IHDR chunk width/height at byte offsets 16–19 / 20–23
- *   - JPEG: scans for the SOF0 (FF C0) or SOF2 (FF C2) marker within the
- *     available bytes (succeeds for images whose SOF marker falls very early,
- *     otherwise returns null).
+ *   - JPEG: performs a HEAD request and reads a few KB of the file to locate
+ *     a Start Of Frame (SOF) marker (which contains the image width/height).
+ *     Returns null if the marker cannot be found in the fetched range.
  *
  * Returns null on any network error, unsupported type, or parse failure.
  */
@@ -227,16 +227,18 @@ export async function getImageDimensions(url: string): Promise<{ width: number; 
 
     const ct = (headResp.headers.get('content-type') ?? '').toLowerCase();
     const isPng = ct.includes('image/png');
-    const isJpeg = ct.includes('image/jpeg');
+    const isJpeg = ct.includes('image/jpeg') || ct.includes('image/jpg');
     if (!isPng && !isJpeg) return null;
 
-    // Step 2: Fetch only the first 24 bytes.
+    // Step 2: Fetch only the first few bytes required to parse the header.
+    // PNG needs just 24 bytes; JPEG often requires a few KB to find the SOF marker.
+    const rangeEnd = isPng ? 23 : 4095;
     const rangeController = new AbortController();
     const rangeTimeout = setTimeout(() => rangeController.abort(), 3000);
     let rangeResp: Response;
     try {
       rangeResp = await fetch(url, {
-        headers: { Range: 'bytes=0-23' },
+        headers: { Range: `bytes=0-${rangeEnd}` },
         signal: rangeController.signal,
       });
     } finally {
@@ -256,12 +258,13 @@ export async function getImageDimensions(url: string): Promise<{ width: number; 
     }
 
     if (isJpeg && bytes.length >= 11) {
-      // Scan the available bytes for an SOF0 (FF C0) or SOF2 (FF C2) marker.
-      // In practice these markers are rarely within the first 24 bytes of a
-      // JPEG file, so this will mostly return null — but it's correct per spec.
+      // Scan the available bytes for an SOF marker (JPEG start-of-frame).
+      // SOF segments contain the image dimensions.
       const view = new DataView(buf);
+      const isSofMarker = (b: number) =>
+        b >= 0xc0 && b <= 0xcf && b !== 0xc4 && b !== 0xc8 && b !== 0xcc;
       for (let i = 0; i < bytes.length - 8; i++) {
-        if (bytes[i] === 0xff && (bytes[i + 1] === 0xc0 || bytes[i + 1] === 0xc2)) {
+        if (bytes[i] === 0xff && isSofMarker(bytes[i + 1])) {
           // SOF segment layout: FF Cx [2-byte length] [1-byte precision] [2-byte height] [2-byte width]
           const height = view.getUint16(i + 5, false);
           const width = view.getUint16(i + 7, false);

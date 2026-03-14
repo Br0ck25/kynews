@@ -2436,6 +2436,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <meta property="og:title" content="${escapeHtml(iabPageTitle)}"/>
   <meta property="og:description" content="${escapeHtml(desc)}"/>
   <meta property="og:image" content="${escapeHtml(imageForMeta)}"/>
+  <meta property="og:image:width" content="${article.imageWidth ?? 1200}"/>
+  <meta property="og:image:height" content="${article.imageHeight ?? 630}"/>
   <meta property="og:url" content="${escapeHtml(pageUrl)}"/>
   <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
   <meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>
