@@ -3519,16 +3519,17 @@ async function generateSitemap(env: Env): Promise<string> {
 		...staticPaths.map(
 			(p) => `  <url>\n    <loc>${baseUrl}${p}</loc>\n    <lastmod>${SITE_STATIC_DATE}</lastmod>\n  </url>`,
 		),
-		...counties.map((c) => {
-			const slug = c.toLowerCase().replace(/\s/g, '-');
-			const last = countyLastmod[slug] || today;
-			return `  <url>\n    <loc>${baseUrl}/news/kentucky/${slug}-county</loc>\n    <lastmod>${last}</lastmod>\n  </url>`;
-		}),
 	];
+
+	// County hub pages — one entry per Kentucky county, placed after article URLs.
+	const countyXml = counties.map((c) => {
+		const slug = c.toLowerCase().replace(/\s/g, '-');
+		return `  <url>\n    <loc>${baseUrl}/news/kentucky/${slug}-county</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>`;
+	});
 
 	const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${[...staticXml, ...urls].join('\n')}
+${[...staticXml, ...urls, ...countyXml].join('\n')}
 </urlset>`;
 
 	if (env.CACHE) {
