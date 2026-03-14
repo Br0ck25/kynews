@@ -2349,7 +2349,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           return new Response(finalHtml, {
             headers: {
               'content-type': 'text/html; charset=utf-8',
-              'cache-control': 'public, max-age=300, s-maxage=300',
+              // Bot-rendered article HTML: browsers and CDN cache for 1 h; Cloudflare edge
+              // serves stale content for up to 24 h while revalidating in the background,
+              // eliminating cold-cache latency spikes.
+              'cache-control': 'public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400',
             },
           });
         }
@@ -2507,7 +2510,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         return new Response(finalHtml, {
           headers: {
             'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'public, max-age=300, s-maxage=300',
+            // Bot-rendered article HTML: browsers and CDN cache for 1 h; Cloudflare edge
+            // serves stale content for up to 24 h while revalidating in the background,
+            // eliminating cold-cache latency spikes.
+            'cache-control': 'public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400',
           },
         });
         }
@@ -2708,7 +2714,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         return new Response(finalHtml, {
           headers: {
             'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'public, max-age=300, s-maxage=300',
+            // Bot-rendered article HTML: browsers and CDN cache for 1 h; Cloudflare edge
+            // serves stale content for up to 24 h while revalidating in the background,
+            // eliminating cold-cache latency spikes.
+            'cache-control': 'public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400',
           },
         });
       }
@@ -2898,7 +2907,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         return new Response(finalHtml, {
           headers: {
             'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'public, max-age=300, s-maxage=300',
+            // Bot-rendered article HTML: browsers and CDN cache for 1 h; Cloudflare edge
+            // serves stale content for up to 24 h while revalidating in the background,
+            // eliminating cold-cache latency spikes.
+            'cache-control': 'public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400',
           },
         });
       }
@@ -3141,7 +3153,9 @@ if (url.pathname === '/sitemap-index.xml' && request.method === 'GET') {
 	return new Response(await generateSitemapIndex(env), {
 		headers: {
 			'content-type': 'application/xml; charset=utf-8',
-			'cache-control': 'public, max-age=3600, s-maxage=3600',
+			// Sitemap index changes rarely; 2 h browser/CDN TTL with 24 h stale-while-revalidate
+			// prevents cold-cache latency while still reflecting updates within two hours.
+			'cache-control': 'public, max-age=7200, s-maxage=7200, stale-while-revalidate=86400',
 		},
 	});
 }
@@ -3151,7 +3165,9 @@ if (url.pathname === '/sitemap.xml' && request.method === 'GET') {
 	return new Response(xml, {
 		headers: {
 			'content-type': 'application/xml; charset=utf-8',
-			'cache-control': 'public, max-age=3600, s-maxage=3600',
+			// Main sitemap changes rarely; 2 h browser/CDN TTL with 24 h stale-while-revalidate
+			// prevents cold-cache latency while still reflecting updates within two hours.
+			'cache-control': 'public, max-age=7200, s-maxage=7200, stale-while-revalidate=86400',
 		},
 	});
 }
@@ -3161,7 +3177,9 @@ if (url.pathname === '/sitemap-news.xml' && request.method === 'GET') {
 	return new Response(xml, {
 		headers: {
 			'content-type': 'application/xml; charset=utf-8',
-			'cache-control': 'public, max-age=3600, s-maxage=3600',
+			// Google News Sitemap covers only the last 48 h — keep TTL short (5 min) so newly
+			// ingested articles surface in news search as quickly as possible.
+			'cache-control': 'public, max-age=300, s-maxage=300',
 		},
 	});
 }
