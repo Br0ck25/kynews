@@ -64,7 +64,7 @@ const MAX_SEED_LIMIT_PER_SOURCE = 10000;
 // If an article has fewer than this many raw words (measured at ingest)
 // we serve a noindex directive to crawlers.
 // Thin but valid content is indexed but should be capped in the snippet.
-const NOINDEX_WORD_THRESHOLD = 40;
+const NOINDEX_WORD_THRESHOLD = 150;
 const SNIPPET_LIMIT_THRESHOLD = 100;
 
 /**

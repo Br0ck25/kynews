@@ -1,7 +1,7 @@
 const Constants = {
     appName: 'Local KY News',
     localStoragePrefix: 'kentucky_news_app_',
-    NOINDEX_WORD_THRESHOLD: 40,
+    NOINDEX_WORD_THRESHOLD: 150,
     SNIPPET_LIMIT_THRESHOLD: 100,
 }
 
