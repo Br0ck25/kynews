@@ -2182,7 +2182,7 @@ if (countyHubMatch && request.method === 'GET') {
 
     const pageUrl = `${BASE_URL}/news/kentucky/${fullSlug}`;
     const title = `${countyDisplay}, KY News — Local KY News`;
-    const description = `The latest news from ${countyDisplay}, Kentucky — local government, schools, sports, weather, and community stories from Local KY News.`;
+    const description = `${countyDisplay} County, KY — local government, schools, sports, and community news. Updated continuously.`;
     const image = DEFAULT_OG_IMAGE;
     const bodyDescription = `Local KY News covers government, schools, sports, weather, and community updates from ${countyDisplay}, Kentucky. Browse the latest headlines below and check back often for new stories as they publish.`;
 
@@ -2209,44 +2209,17 @@ if (countyHubMatch && request.method === 'GET') {
     const webPageSchema = JSON.stringify({
       '@context': 'https://schema.org',
       '@type': 'WebPage',
-      name: title,
+      name: `${countyDisplay} County KY News`,
       url: pageUrl,
       description,
-      publisher: {
-        '@type': 'Organization',
-        name: 'Local KY News',
-        url: BASE_URL,
-      },
     });
 
-    const faqSchema = JSON.stringify({
+    const breadcrumbSchema = JSON.stringify({
       '@context': 'https://schema.org',
-      '@type': 'FAQPage',
-      mainEntity: [
-        {
-          '@type': 'Question',
-          name: `What is the latest news from ${countyDisplay}, Kentucky?`,
-          acceptedAnswer: {
-            '@type': 'Answer',
-            text: `Local KY News covers the latest news from ${countyDisplay}, Kentucky, including local government, schools, sports, weather, and community stories. Visit localkynews.com for up-to-date headlines.`,
-          },
-        },
-        {
-          '@type': 'Question',
-          name: `Where can I find local government news for ${countyDisplay}?`,
-          acceptedAnswer: {
-            '@type': 'Answer',
-            text: `Local KY News tracks ${countyDisplay} government news including county commission meetings, fiscal court decisions, and other local government activities. Browse the latest articles above.`,
-          },
-        },
-        {
-          '@type': 'Question',
-          name: `Does Local KY News cover schools in ${countyDisplay}?`,
-          acceptedAnswer: {
-            '@type': 'Answer',
-            text: `Yes. Local KY News covers school news from ${countyDisplay}, Kentucky including board meetings, sports results, and school events.`,
-          },
-        },
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: BASE_URL },
+        { '@type': 'ListItem', position: 2, name: countyDisplay, item: pageUrl },
       ],
     });
 
@@ -2254,6 +2227,7 @@ if (countyHubMatch && request.method === 'GET') {
 <meta charset="utf-8"/>
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}"/>
+<meta name="robots" content="index, follow"/>
 <meta property="og:type" content="website"/>
 <meta property="og:title" content="${escapeHtml(title)}"/>
 <meta property="og:description" content="${escapeHtml(description)}"/>
@@ -2267,7 +2241,7 @@ if (countyHubMatch && request.method === 'GET') {
 <meta name="twitter:site" content="@LocalKYNews"/>
 <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
 <script type="application/ld+json">${webPageSchema}</script>
-<script type="application/ld+json">${faqSchema}</script>
+<script type="application/ld+json">${breadcrumbSchema}</script>
 </head><body>
 <main>
   <h1>${escapeHtml(`${countyDisplay}, KY — Local News & Community Information`)}</h1>
