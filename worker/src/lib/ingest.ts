@@ -639,6 +639,30 @@ async function storeRawPayloadBestEffort(
   }
 }
 
+const IMAGE_ALT_SUBJECT_MAP: Record<string, string> = {
+  sports: 'Athletes competing',
+  schools: 'Students and educators',
+  government: 'Government officials',
+  weather: 'Weather conditions',
+  public_safety: 'Emergency responders',
+  obituaries: 'Memorial photo',
+};
+
+/**
+ * Produce a descriptive alt-text for an article hero image.
+ * Describes the subject and location rather than repeating the headline verbatim.
+ */
+export function generateImageAlt(
+  title: string,
+  county: string | null,
+  category: string,
+): string {
+  const place = county ? `in ${county} County, Kentucky` : 'in Kentucky';
+  const subject = IMAGE_ALT_SUBJECT_MAP[category] ?? 'News scene';
+  const shortTitle = title.length > 60 ? title.slice(0, 57) + '…' : title;
+  return `${subject} ${place} — ${shortTitle}`;
+}
+
 /**
  * Generate an SEO-friendly URL slug from an article title + hash suffix for uniqueness.
  * e.g. "School Board Meeting Feb 2026" + "ab12cd34..." → "school-board-meeting-feb-2026-ab12cd34"

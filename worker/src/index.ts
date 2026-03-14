@@ -45,7 +45,7 @@ import {
 	wordCount,
 	toIsoDateOrNull,
 } from './lib/http';
-import { ingestSingleUrl, generateArticleSlug, findHighlySimilarTitle, fetchAndExtractArticle } from './lib/ingest';
+import { ingestSingleUrl, generateArticleSlug, findHighlySimilarTitle, fetchAndExtractArticle, generateImageAlt } from './lib/ingest';
 import { normalizeCountyList } from './lib/geo';
 import { KY_COUNTIES } from './data/ky-geo';
 import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
@@ -1897,11 +1897,8 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 			: seoRaw.slice(0, 157).replace(/[\s,;:.!?-]+$/g, '') + '...';
 	}
 
-	// TODO: Auto-generate imageAlt via AI at ingest time and persist it to the articles table.
 	const imageAlt = imageUrl
-		? [title, classification.county ? `${classification.county} County, Kentucky` : null]
-			.filter(Boolean)
-			.join(' — ')
+		? generateImageAlt(title, classification.county ?? null, classification.category)
 		: null;
 
 	const newArticle: NewArticle = {
