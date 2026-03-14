@@ -2459,6 +2459,12 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
               ? article.category.charAt(0).toUpperCase() + article.category.slice(1)
               : undefined,
             description: desc,
+            isAccessibleForFree: true,
+            hasPart: {
+              "@type": "WebPageElement",
+              isAccessibleForFree: true,
+              cssSelector: ".article-summary",
+            },
             url: pageUrl,
             mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
             datePublished: article.publishedAt,
@@ -3623,7 +3629,8 @@ if (url.pathname === '/robots.txt' && request.method === 'GET') {
     '# https://www.robotstxt.org/robotstxt.html',
     '# robots.txt — Local KY News',
     'User-agent: *',
-    'Disallow:',
+    'Allow: /',
+    'Disallow: /api/',
     '',
     '# AI crawlers — explicitly welcomed for citation and retrieval',
     'User-agent: GPTBot',
