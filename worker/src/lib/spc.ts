@@ -47,11 +47,15 @@ function deriveOutlookImageUrl(link: string, day: number): string {
 
   const lc = link.toLowerCase();
   if (lc.includes('day1otlk')) return `${base}/day1otlk.gif`;
-  if (lc.includes('day2otlk')) return `${base}/day2otlk.gif`;
-  if (lc.includes('day3otlk')) return `${base}/day3otlk.gif`;
+  if (lc.includes('day2otlk')) return `${base}/day2otlk_1730.png`;
+  if (lc.includes('day3otlk')) return `${base}/day3otlk_1930.png`;
 
-  // Fall back to the common pattern of replacing .html with .gif
-  return link.replace(/\.html?$/i, '.gif');
+  // Fallback defaults if the product link doesn't match expected patterns.
+  if (day === 1) return `${base}/day1otlk.gif`;
+  if (day === 2) return `${base}/day2otlk_1730.png`;
+  if (day === 3) return `${base}/day3otlk_1930.png`;
+
+  return SPC_DAY1_RISK_MAP;
 }
 
 export interface SpcItem {
