@@ -2288,6 +2288,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             "@context": "https://schema.org",
             "@type": "NewsArticle",
             headline: article.title,
+            wordCount: article.rawWordCount ?? article.summaryWordCount ?? undefined,
+            articleSection: article.category
+              ? article.category.charAt(0).toUpperCase() + article.category.slice(1)
+              : undefined,
             description: desc,
             url: pageUrl,
             mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
@@ -2473,6 +2477,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           "@context": "https://schema.org",
           "@type": "NewsArticle",
           headline: article.title,
+          wordCount: article.rawWordCount ?? article.summaryWordCount ?? undefined,
+          articleSection: article.category
+            ? article.category.charAt(0).toUpperCase() + article.category.slice(1)
+            : undefined,
           description: desc,
           url: pageUrl,
           mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
@@ -2714,6 +2722,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           "@context": "https://schema.org",
           "@type": "NewsArticle",
           headline: article.title,
+          wordCount: article.rawWordCount ?? article.summaryWordCount ?? undefined,
+          articleSection: article.category
+            ? article.category.charAt(0).toUpperCase() + article.category.slice(1)
+            : undefined,
           description: desc,
           url: pageUrl,
           mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
@@ -2903,6 +2915,10 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           "@context": "https://schema.org",
           "@type": "NewsArticle",
           headline: article.title,
+          wordCount: article.rawWordCount ?? article.summaryWordCount ?? undefined,
+          articleSection: article.category
+            ? article.category.charAt(0).toUpperCase() + article.category.slice(1)
+            : undefined,
           description: desc,
           url: pageUrl,
           mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },

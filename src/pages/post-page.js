@@ -340,6 +340,10 @@ export default function PostPage() {
       "@context": "https://schema.org",
       "@type": "NewsArticle",
       headline: post.title,
+      wordCount: post.wordCount,
+      articleSection: post.category
+        ? post.category.charAt(0).toUpperCase() + post.category.slice(1)
+        : undefined,
       description: cleanDesc,
       url: pageUrl,
       mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
