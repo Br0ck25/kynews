@@ -4,7 +4,7 @@
 // The article is written by the Workers AI model from those live data sources.
 
 import { fetchActiveKyAlerts, fetchHwoProducts } from './nws';
-import { insertArticle, findArticleByHash } from './db';
+import { insertArticle, prepare } from './db';
 import { sha256Hex, normalizeCanonicalUrl } from './http';
 import type { NewArticle } from '../types';
 import type { NwsAlert } from './nws';
@@ -649,8 +649,38 @@ export async function buildDailyWeatherArticle(
 
 export async function publishWeatherSummary(env: Env, when: 'morning' | 'evening'): Promise<void> {
   const article = await buildDailyWeatherArticle(env, when);
-  const existing = await findArticleByHash(env, article.urlHash);
-  if (existing) return;
+  const dateStr = getEasternDateString();
+  const slugPattern = `kentucky-weather-%-${dateStr}`;
+  const countyValue = article.county ? article.county.trim() : null;
+  const countyClause = countyValue ? 'county = ?' : 'county IS NULL';
+  const binds = countyValue ? [slugPattern, dateStr, countyValue] : [slugPattern, dateStr];
+
+  const existing = await prepare(
+    env,
+    `SELECT id
+     FROM articles
+     WHERE category = 'weather'
+       AND slug LIKE ?
+       AND substr(published_at, 1, 10) = ?
+       AND ${countyClause}
+     ORDER BY published_at DESC
+     LIMIT 1`
+  )
+    .bind(...binds)
+    .first<{ id: number }>();
+
+  if (existing?.id) {
+    await prepare(
+      env,
+      `UPDATE articles
+       SET title = ?, content_text = ?, content_html = ?, updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(article.title, article.contentText, article.contentHtml, new Date().toISOString(), existing.id)
+      .run();
+    return;
+  }
+
   await insertArticle(env, article);
 }
 
