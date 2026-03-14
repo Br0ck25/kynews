@@ -366,9 +366,19 @@ export default function KYWeatherHub() {
                         )}
                         {/* Article body */}
                         <div style={{ padding: "14px 18px 18px" }}>
-                          {outlook.body.split("\n\n").map((para, i) => (
-                            <p key={i} style={{ margin: "0 0 12px", fontSize: 14, color: textColor, lineHeight: 1.7 }}>{para}</p>
-                          ))}
+                          {(outlook.segments || []).map((seg, i) => {
+                            if (seg.type === "callout") return (
+                              <div key={i} style={{ background: "rgba(255,152,0,0.12)", border: "1px solid #e65100", borderLeft: "4px solid #e65100", borderRadius: 6, padding: "10px 14px", margin: "4px 0 14px", fontSize: 14, fontWeight: "bold", color: textColor, lineHeight: 1.5 }}>
+                                ⚠️ {seg.text}
+                              </div>
+                            );
+                            if (seg.type === "heading") return (
+                              <div key={i} style={{ fontWeight: "bold", fontSize: 15, color: textColor, margin: "18px 0 4px", fontFamily: "Georgia, serif", borderBottom: `1px solid ${divider}`, paddingBottom: 4 }}>
+                                {seg.text}
+                              </div>
+                            );
+                            return <p key={i} style={{ margin: "0 0 12px", fontSize: 14, color: textColor, lineHeight: 1.7 }}>{seg.text}</p>;
+                          })}
                           <a
                             href={outlook.link}
                             target="_blank"

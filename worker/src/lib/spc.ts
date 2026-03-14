@@ -527,13 +527,22 @@ export async function processSpcFeed(
 // ─── Public outlook article helpers ──────────────────────────────────────────
 
 /**
+ * A single formatted block in a convective outlook article.
+ */
+export interface SpcSegment {
+  /** callout = risk/alert statement; heading = section label; paragraph = body text */
+  type: 'callout' | 'heading' | 'paragraph';
+  text: string;
+}
+
+/**
  * Shape returned by parseSpcOutlooks() for display on the weather page.
  */
 export interface SpcOutlook {
   day: 1 | 2 | 3;
   title: string;
   description: string;
-  body: string;
+  segments: SpcSegment[];
   link: string;
   imageUrl: string;
   publishedAt: string;
@@ -736,9 +745,9 @@ export function parseSpcOutlooks(xml: string): SpcOutlook[] {
     const imageUrl = embeddedImageUrl ?? (c.link ? c.link.replace(/\.html?$/, '.png') : '');
 
     const dayLabel = ['First', 'Second', 'Third'][day - 1];
-    const { description, body } = buildSpcArticleBody(preText, dayLabel);
+    const { description, segments } = buildSpcArticleBody(preText, dayLabel);
 
-    outlooks.push({ day, title: cleanTitle, description, body, link: c.link, imageUrl, publishedAt: c.publishedAt });
+    outlooks.push({ day, title: cleanTitle, description, segments, link: c.link, imageUrl, publishedAt: c.publishedAt });
   }
 
   return outlooks;

@@ -126,6 +126,19 @@ function toReadableCase(text: string): string {
     .replace(/\b(mph|am|pm|utc|est|cst|edt|cdt)\b/gi, (m) => m.toUpperCase());
 }
 
+/**
+ * Ensure a link from the NWS RSS feed is an absolute URL.
+ * Some items are emitted as "www.weather.gov/..." (no protocol) or as
+ * root-relative paths, both of which break when used as <a href> values.
+ */
+function normalizeNwsLink(link: string): string {
+  if (!link) return '';
+  if (link.startsWith('http://') || link.startsWith('https://')) return link;
+  if (link.startsWith('www.')) return `https://${link}`;
+  if (link.startsWith('/')) return `https://www.weather.gov${link}`;
+  return `https://www.weather.gov/${link}`;
+}
+
 function parseRssStories(xml: string): NwsStory[] {
   const stories: NwsStory[] = [];
   const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
@@ -143,8 +156,9 @@ function parseRssStories(xml: string): NwsStory[] {
 
     const description = toReadableCase(stripHtml(rawDesc));
     const title = toReadableCase(rawTitle);
+    const safeLink = normalizeNwsLink(link);
 
-    stories.push({ title, description, link, publishedAt });
+    stories.push({ title, description, link: safeLink, publishedAt });
   }
 
   return stories;
