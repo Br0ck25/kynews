@@ -313,17 +313,19 @@ export function generateFacebookCaption(post = {}) {
  * Build an SEO-friendly <title> / og:title string for an article.
  *
  * If a county is provided, the title includes the county and site name.
- * If only isKentucky is true, it includes "Kentucky" and the site name.
+ * If no county is provided but isKentucky is true, it includes the city (if available)
+ * or falls back to "Kentucky" and the site name.
  * Otherwise it falls back to the standard "| Local KY News" suffix.
  *
  * The result is kept under 70 characters where possible to avoid truncation in search results.
  * For the county case, two fallback tiers reduce the suffix when the article title
  * would otherwise be cut too short.
  */
-export function buildPageTitle(title, county, isKentucky) {
+export function buildPageTitle(title, county, isKentucky, city) {
   const base = (title || '').trim();
   const normalizedTitle = base || 'Local KY News';
   const countyName = county ? String(county).trim() : '';
+  const cityName = city ? String(city).trim() : '';
   const siteSuffix = 'Local KY News';
   const maxLength = 70;
 
@@ -332,7 +334,8 @@ export function buildPageTitle(title, county, isKentucky) {
     : '';
 
   const hasCounty = Boolean(countyLabel);
-  const hasKentucky = Boolean(isKentucky) && !hasCounty;
+  const hasCity = Boolean(cityName) && Boolean(isKentucky) && !hasCounty;
+  const hasKentucky = Boolean(isKentucky) && !hasCounty && !hasCity;
 
   let titlePart = normalizedTitle.replace(/\s+/g, ' ').trim();
 
@@ -361,10 +364,12 @@ export function buildPageTitle(title, county, isKentucky) {
   }
 
   // Non-county paths keep the separator/suffix split for simpler logic.
-  const suffix = hasKentucky
+  const suffix = hasCity
+    ? `${cityName}, KY | ${siteSuffix}`
+    : hasKentucky
     ? `Kentucky | ${siteSuffix}`
     : `| ${siteSuffix}`;
-  const separator = hasKentucky ? ' — ' : ' ';
+  const separator = hasCity || hasKentucky ? ' — ' : ' ';
 
   const maxTitleLength = maxLength - separator.length - suffix.length;
 

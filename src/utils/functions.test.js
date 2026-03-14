@@ -189,6 +189,12 @@ describe('buildPageTitle helper', () => {
     );
   });
 
+  it('uses city when no county and isKentucky', () => {
+    expect(buildPageTitle('City Event', null, true, 'Lexington')).toBe(
+      'City Event — Lexington, KY | Local KY News',
+    );
+  });
+
   it('falls back to default branding when no KY context', () => {
     expect(buildPageTitle('National Story', null, false)).toBe('National Story | Local KY News');
   });

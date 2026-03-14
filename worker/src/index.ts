@@ -2422,7 +2422,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             ],
           };
 
-          const iabPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
+          const iabPageTitle = buildPageTitle(article.title, article.county, article.isKentucky, article.city);
 
           const iabHtml = `<!doctype html>
 <html lang="en">
@@ -2519,7 +2519,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         if (isBot) {
           const pageUrl = `https://localkynews.com${canonicalPath}`;
           const metas: string[] = [];
-          const metaPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
+          const metaPageTitle = buildPageTitle(article.title, article.county, article.isKentucky, article.city);
           const fallbackImage = DEFAULT_OG_IMAGE;
           metas.push('<meta property="og:type" content="article"/>');
           metas.push(`<meta property="og:title" content="${escapeHtml(metaPageTitle)}"/>`);
@@ -2914,7 +2914,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           ],
         };
 
-        const iabPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
+        const iabPageTitle = buildPageTitle(article.title, article.county, article.isKentucky, article.city);
 
         const iabHtml = `<!doctype html>
 <html lang="en">
@@ -3030,7 +3030,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         // 3. attempt external fetch+scrape (useful for third-party sources)
         // use the shared preview-image logic so bots and Graph posts agree
         const metas = [];
-        const metaPageTitle = buildPageTitle(article.title, article.county, article.isKentucky);
+        const metaPageTitle = buildPageTitle(article.title, article.county, article.isKentucky, article.city);
         metas.push('<meta property="og:type" content="article"/>');
         metas.push(`<meta property="og:title" content="${escapeHtml(metaPageTitle)}"/>`);
         metas.push(`<meta property="og:description" content="${escapeHtml(desc)}"/>`);

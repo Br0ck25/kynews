@@ -243,7 +243,7 @@ export default function PostPage() {
       : `${SITE_URL}${cleanPath}`;
 
     // Page title
-    const pageTitle = buildPageTitle(post.title, post.county, post.isKentucky);
+    const pageTitle = buildPageTitle(post.title, post.county, post.isKentucky, post.city);
     document.title = pageTitle;
 
     // Meta description

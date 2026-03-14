@@ -1,5 +1,5 @@
 // Helper for constructing SEO-friendly page titles.
-// The title is enriched with county or Kentucky context when available,
+// The title is enriched with county, city, or Kentucky context when available,
 // while attempting to keep the result under 70 characters when possible.
 //
 // For the county case two fallback tiers reduce the suffix when the article
@@ -12,10 +12,12 @@ export function buildPageTitle(
   title: string,
   county: string | null | undefined,
   isKentucky: boolean | null | undefined,
+  city?: string | null,
 ): string {
   const base = (title || '').trim();
   const normalizedTitle = base || 'Local KY News';
   const countyName = county ? county.trim() : '';
+  const cityName = city ? city.trim() : '';
   const siteSuffix = 'Local KY News';
   const maxLength = 70;
 
@@ -24,7 +26,8 @@ export function buildPageTitle(
     : '';
 
   const hasCounty = Boolean(countyLabel);
-  const hasKentucky = Boolean(isKentucky) && !hasCounty;
+  const hasCity = Boolean(cityName) && Boolean(isKentucky) && !hasCounty;
+  const hasKentucky = Boolean(isKentucky) && !hasCounty && !hasCity;
 
   let titlePart = normalizedTitle.replace(/\s+/g, ' ').trim();
 
@@ -53,10 +56,12 @@ export function buildPageTitle(
   }
 
   // Non-county paths keep the separator/suffix split for simpler logic.
-  const suffix = hasKentucky
+  const suffix = hasCity
+    ? `${cityName}, KY | ${siteSuffix}`
+    : hasKentucky
     ? `Kentucky | ${siteSuffix}`
     : `| ${siteSuffix}`;
-  const separator = hasKentucky ? ' \u2014 ' : ' ';
+  const separator = hasCity || hasKentucky ? ' \u2014 ' : ' ';
 
   const maxTitleLength = maxLength - separator.length - suffix.length;
 

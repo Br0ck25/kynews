@@ -313,7 +313,7 @@ export default function ArticleSlugPage() {
 
     const pageUrl = `${SITE_URL}${articleToUrl(post)}`;
 
-    const pageTitle = buildPageTitle(post.title, post.county, post.isKentucky);
+    const pageTitle = buildPageTitle(post.title, post.county, post.isKentucky, post.city);
     document.title = pageTitle;
 
     const cleanDesc = buildMetaDescription(post);
