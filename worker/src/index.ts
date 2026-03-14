@@ -145,8 +145,9 @@ function normalizeOgImage(imageUrl: string | null | undefined): string {
 }
 
 /**
- * Return an HTML block listing up to 4 recent articles from the same county.
- * This is used for the server-rendered bot HTML so crawlers see internal links.
+ * Return an HTML <section class="related"> block listing up to 5 recent published
+ * articles from the same county, for crawler-visible internal links.
+ * Returns an empty string when fewer than 2 related articles exist.
  */
 async function buildRelatedCountyArticlesHtml(env: Env, article: ArticleRecord): Promise<string> {
 	if (!article?.county) return '';
@@ -154,16 +155,13 @@ async function buildRelatedCountyArticlesHtml(env: Env, article: ArticleRecord):
 	const rows = await prepare(env,
 		`SELECT title, slug, county, category, is_national, id
 		 FROM articles
-		 WHERE county = ? AND id != ? AND slug IS NOT NULL
+		 WHERE county = ? AND id != ? AND slug IS NOT NULL AND published_at IS NOT NULL
 		 ORDER BY published_at DESC
-		 LIMIT 4`
+		 LIMIT 5`
 	).bind(article.county, article.id).all<any>();
 
 	const items = (rows.results || []).filter((r: any) => r && r.slug);
-	if (items.length === 0) return '';
-
-	const countySlug = countyNameToSlug(article.county);
-	const hubUrl = `${BASE_URL}/news/kentucky/${countySlug}`;
+	if (items.length < 2) return '';
 
 	const listItems = items
 		.map((row: any) => {
@@ -175,14 +173,16 @@ async function buildRelatedCountyArticlesHtml(env: Env, article: ArticleRecord):
 				Boolean(row.is_national),
 				row.id,
 			);
-			return `<li><a href="${escapeHtml(href)}">${escapeHtml(row.title)}</a></li>`;
+			return `    <li><a href="${escapeHtml(href)}">${escapeHtml(row.title)}</a></li>`;
 		})
 		.join('\n');
 
-	return `<nav aria-label="Related articles">
-  <a href="${escapeHtml(hubUrl)}">All ${escapeHtml(article.county)} County news →</a>
-  <ul>${listItems}</ul>
-</nav>`;
+	return `<section class="related">
+  <h2>More from ${escapeHtml(article.county)} County</h2>
+  <ul>
+${listItems}
+  </ul>
+</section>`;
 }
 
 // status object returned by ingestSeedSource; kept separate to avoid inlining a
@@ -2448,6 +2448,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
     p{margin:0 0 14px;}
     a.source{display:block;margin:20px 0;padding:12px;background:#f0f4ff;border-radius:8px;text-decoration:none;color:#1a56db;font-weight:600;text-align:center;}
     footer{border-top:1px solid #eee;margin-top:24px;padding-top:12px;font-size:0.78rem;color:#999;text-align:center;}
+    .related{margin:24px 0;} .related h2{font-size:1rem;margin-bottom:8px;}
+    .related ul{padding-left:1.2rem;margin:0;} .related li{margin:4px 0;}
+    .related a{color:#1a56db;}
   </style>
 </head>
 <body>
@@ -2834,6 +2837,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
     p{margin:0 0 14px;}
     a.source{display:block;margin:20px 0;padding:12px;background:#f0f4ff;border-radius:8px;text-decoration:none;color:#1a56db;font-weight:600;text-align:center;}
     footer{border-top:1px solid #eee;margin-top:24px;padding-top:12px;font-size:0.78rem;color:#999;text-align:center;}
+    .related{margin:24px 0;} .related h2{font-size:1rem;margin-bottom:8px;}
+    .related ul{padding-left:1.2rem;margin:0;} .related li{margin:4px 0;}
+    .related a{color:#1a56db;}
   </style>
 </head>
 <body>
@@ -4575,6 +4581,7 @@ export const __testables = {
 	rebalanceSchoolHeavyRunSources,
 	// expose internal helpers for unit tests
 	buildArticlePath,
+	buildRelatedCountyArticlesHtml,
 	scrapeFacebookPostPublic,
 	deriveFacebookTitleAndBody,
 	// exposing runIngest allows tests to stub the heavy ingestion routine
