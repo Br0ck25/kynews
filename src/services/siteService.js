@@ -894,4 +894,17 @@ export default class SiteService {
       return [];
     }
   }
+
+  /**
+   * Fetch weather briefings from NWS Louisville (LMK), Jackson (JKL), and Paducah (PAH).
+   * Returns an array of office objects, each with officeName, officeArea, stories, and images.
+   */
+  async getNwsStories() {
+    try {
+      const data = await this.request("/api/nws-stories");
+      return Array.isArray(data?.offices) ? data.offices : [];
+    } catch {
+      return [];
+    }
+  }
 }

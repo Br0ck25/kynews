@@ -62,6 +62,7 @@ import { generateFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
 import { processNwsAlerts, processNwsProducts } from './lib/nws';
 import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
+import { fetchNwsStories } from './lib/nwsStories';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
 import { isSearchBot } from './lib/isSearchBot';
 
@@ -1832,6 +1833,16 @@ if (url.pathname === '/api/spc-outlooks' && request.method === 'GET') {
 		return json({ outlooks }, 200, { 'Cache-Control': 'public, max-age=900, s-maxage=900' });
 	} catch {
 		return json({ outlooks: [] });
+	}
+}
+
+// GET /api/nws-stories — public: fetch latest briefings from NWS LMK, JKL, PAH offices
+if (url.pathname === '/api/nws-stories' && request.method === 'GET') {
+	try {
+		const offices = await fetchNwsStories();
+		return json({ offices }, 200, { 'Cache-Control': 'public, max-age=600, s-maxage=600' });
+	} catch {
+		return json({ offices: [] });
 	}
 }
 

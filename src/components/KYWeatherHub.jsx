@@ -70,6 +70,8 @@ export default function KYWeatherHub() {
   const [activeTab, setActiveTab] = useState("forecast");
   const [outlooks, setOutlooks] = useState([]);
   const [outlooksLoading, setOutlooksLoading] = useState(true);
+  const [nwsOffices, setNwsOffices] = useState([]);
+  const [nwsLoading, setNwsLoading] = useState(true);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -117,6 +119,14 @@ export default function KYWeatherHub() {
       setOutlooks(data);
       setOutlooksLoading(false);
     }).catch(() => setOutlooksLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const svc = new SiteService();
+    svc.getNwsStories().then((data) => {
+      setNwsOffices(data);
+      setNwsLoading(false);
+    }).catch(() => setNwsLoading(false));
   }, []);
 
   const tempC = currentObs?.temperature?.value;
@@ -210,7 +220,7 @@ export default function KYWeatherHub() {
 
         {/* Tabs */}
         <div className="weather-tabs" style={{ display: "flex", gap: 4, marginBottom: 0 }}>
-          {[{ id: "forecast", label: "📅 7-Day Forecast" }, { id: "outlooks", label: "🌩️ SPC Outlooks" }, { id: "alerts", label: `🚨 Alerts (${alerts.length})` }, { id: "radar", label: "🗺️ Live Radar" }].map(tab => (
+          {[{ id: "forecast", label: "📅 7-Day Forecast" }, { id: "outlooks", label: "🌩️ SPC Outlooks" }, { id: "nws", label: "📡 NWS Briefings" }, { id: "alerts", label: `🚨 Alerts (${alerts.length})` }, { id: "radar", label: "🗺️ Live Radar" }].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               padding: "9px 16px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: 12,
               border: "1px solid #1e3a5f",
@@ -326,6 +336,75 @@ export default function KYWeatherHub() {
                             Read Full Outlook on SPC →
                           </a>
                         </div>
+                      </div>
+                    ))}
+                  </div>
+          )}
+
+          {/* NWS Briefings Tab */}
+          {activeTab === "nws" && (
+            nwsLoading
+              ? <div style={{ textAlign: "center", color: primary, padding: 40 }}>⏳ Loading NWS briefings...</div>
+              : nwsOffices.length === 0
+                ? <div style={{ textAlign: "center", padding: 40, color: theme.palette.text.secondary }}>NWS briefing data is currently unavailable. Check back shortly.</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+                    <div style={{ fontSize: 12, color: theme.palette.text.secondary, marginBottom: 4 }}>
+                      Weather briefings and forecast graphics directly from the National Weather Service offices serving Kentucky.
+                    </div>
+                    {nwsOffices.map((office) => (
+                      <div key={office.officeId} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${divider}`, borderRadius: 14, overflow: "hidden" }}>
+                        {/* Office header */}
+                        <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${divider}`, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                          <span style={{ display: "inline-block", background: "#0d47a1", color: "#fff", fontSize: 10, fontWeight: "bold", letterSpacing: 1, textTransform: "uppercase", padding: "2px 9px", borderRadius: 10 }}>NWS</span>
+                          <div style={{ fontSize: 17, fontWeight: "bold", color: textColor, fontFamily: "Georgia, serif" }}>{office.officeName}</div>
+                          <div style={{ fontSize: 12, color: theme.palette.text.secondary }}>{office.officeArea}</div>
+                        </div>
+
+                        {/* Forecast graphics — scrollable row */}
+                        {office.images && office.images.length > 0 && (
+                          <div style={{ padding: "14px 18px", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                            {office.images.map((img, i) => (
+                              <div key={i} style={{ flex: "1 1 220px", maxWidth: 440 }}>
+                                <img
+                                  src={img.url}
+                                  alt={img.alt}
+                                  style={{ width: "100%", borderRadius: 8, border: `1px solid ${divider}`, display: "block" }}
+                                  onError={(e) => { e.target.parentElement.style.display = "none"; }}
+                                />
+                                <div style={{ fontSize: 10, color: theme.palette.text.secondary, marginTop: 4, textAlign: "center" }}>{img.alt}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Stories */}
+                        {office.stories && office.stories.length > 0 && (
+                          <div style={{ padding: "0 18px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
+                            {office.stories.map((story, i) => (
+                              <div key={i} style={{ borderTop: `1px solid ${divider}`, paddingTop: 14 }}>
+                                <div style={{ fontSize: 15, fontWeight: "bold", color: textColor, marginBottom: 4, fontFamily: "Georgia, serif" }}>
+                                  {story.title}
+                                </div>
+                                <div style={{ fontSize: 11, color: theme.palette.text.secondary, marginBottom: 8 }}>
+                                  {new Date(story.publishedAt).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                                </div>
+                                {story.description && story.description.split("\n\n").slice(0, 4).map((para, j) => (
+                                  <p key={j} style={{ margin: "0 0 10px", fontSize: 13, color: textColor, lineHeight: 1.7 }}>{para.replace(/\n/g, " ")}</p>
+                                ))}
+                                {story.link && (
+                                  <a
+                                    href={story.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ display: "inline-block", fontSize: 12, color: primary, textDecoration: "none", border: `1px solid ${primary}`, borderRadius: 6, padding: "4px 12px" }}
+                                  >
+                                    Read full briefing on weather.gov →
+                                  </a>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
