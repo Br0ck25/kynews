@@ -3543,9 +3543,19 @@ async function generateSitemap(env: Env): Promise<string> {
 		return `  <url>\n    <loc>${baseUrl}/news/kentucky/${slug}-county</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>`;
 	});
 
+	// Hardcoded static page entries with explicit changefreq and priority.
+	const requestedStaticXml = [
+		`  <url>\n    <loc>${baseUrl}/</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.9</priority>\n  </url>`,
+		`  <url>\n    <loc>${baseUrl}/about</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.5</priority>\n  </url>`,
+		`  <url>\n    <loc>${baseUrl}/editorial-policy</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.5</priority>\n  </url>`,
+		`  <url>\n    <loc>${baseUrl}/local</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.5</priority>\n  </url>`,
+		`  <url>\n    <loc>${baseUrl}/news/national</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.5</priority>\n  </url>`,
+		`  <url>\n    <loc>${baseUrl}/search</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.5</priority>\n  </url>`,
+	];
+
 	const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${[...staticXml, ...urls, ...countyXml].join('\n')}
+${[...staticXml, ...urls, ...countyXml, ...requestedStaticXml].join('\n')}
 </urlset>`;
 
 	if (env.CACHE) {
