@@ -287,7 +287,8 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
 
   // wtvq.com — Lexington ABC affiliate; heavily syndicates national wire
   // (AP/ABC); genuine KY stories are infrequent.
-  'wtvq.com',
+  // (moved to COUNTY_REQUIRES_EXPLICIT_EVIDENCE so we only assign a county when
+  // it is explicitly mentioned in the article text.)
 ]);
 
 // Wire/national sources where county should only be assigned when
@@ -302,6 +303,9 @@ const COUNTY_REQUIRES_EXPLICIT_EVIDENCE = new Set<string>([
   // explicitly named in the article text (e.g. "Fayette County" or "Lexington, Ky.")
   // This prevents AP wire stories published on lex18 from being tagged Fayette.
   'lex18.com',
+  // wtvq.com publishes local KY stories but also injects national wire content.
+  // Only assign a county when the article explicitly mentions a county.
+  'wtvq.com',
 ]);
 
 

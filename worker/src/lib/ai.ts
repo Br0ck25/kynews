@@ -97,11 +97,11 @@ Structure the summary with these four sections in order:
    "The article states", or any attribution opener. Name the specific
    person, board, agency, or institution directly.
 
-2. A line containing exactly "Key facts:" followed by 3–5 bullet points
-   (one per line, each starting with "• "). Each bullet must contain a
-   specific, verifiable detail: a number, a name, a date, a dollar amount,
-   a vote count, or a concrete decision. No vague bullets like
-   "• The situation is ongoing."
+2. A supporting paragraph (2–3 sentences): Provide the key supporting
+   details — charges, names, dates, dollar amounts, vote counts, or
+   concrete decisions — woven into natural prose. Do not use bullet points,
+   dashes, or list formatting of any kind. Every detail should read as part of
+   a flowing narrative sentence.
 
 3. A paragraph beginning with exactly "What this means for [County]
    residents:" — substitute the actual county name from the metadata; if
@@ -137,7 +137,7 @@ Your summary must never:
 - Repeat, restate, or begin with the article title. Start directly with the first sentence of your summary.
 - End mid-sentence under any circumstances. If you are approaching the
   word limit, finish the current sentence and stop cleanly.
-- Output bolded titles or formatting other than the required "Key points:" list and the optional \`##\` headings described above.
+- Output bolded titles, bullet points, dashes used as list items, or any formatting other than the optional \`##\` subheadings described above.
 - Output text as one unbroken paragraph. Use blank lines (\n\n) between every 2–3 sentences.
 - Include copyright notices, bylines, legal text, or publication footers.
 - Include any "click here" text, "read more" links, or URLs of any kind.
@@ -155,7 +155,7 @@ Your summary must never:
 After the summary, output a separate line beginning with "SEO_DESCRIPTION:" followed by a 120–155 character meta description. This line should be a compelling teaser that includes the county when present (from the provided article metadata), reflects the primary news hook, and ends with a call to curiosity rather than cutting off mid-thought. Do not include HTML, URLs, or extra labels.
 
 Return clean, publication-ready text only. No headlines, labels, bullet points,
-URLs, or commentary. Use \`##\` subheadings only when the conditional rule above applies.`;
+dashes used as list items, URLs, or commentary. Use \`##\` subheadings only when the conditional rule above applies.`;
 
 // ---------------------------------------------------------------------------
 // Dynamic system prompt builder

@@ -1505,17 +1505,17 @@ describe('classification utilities', () => {
 			expect(classification.county).toBeNull();
 		});
 
-		it('applies Fayette default for wtvq.com and null county for statewide weather', async () => {
-			// generic non-weather story should fall back to Fayette via site default
+		it('assigns a county for wtvq.com only when the article explicitly mentions a county, and drops it for statewide weather', async () => {
+			// explicit county mention should allow a local classification.
 			let classification = await classifyArticleWithAi(env, {
 				url: 'https://wtvq.com/some-local-news',
 				title: 'Local ribbon cutting in downtown Lexington',
-				content: 'City officials held a ribbon cutting ceremony today.',
+				content: 'Fayette County, Ky. officials held a ribbon cutting ceremony today.',
 			});
 			expect(classification.isKentucky).toBe(true);
 			expect(classification.county).toBe('Fayette');
 
-			// statewide forecast language wipes out default
+			// statewide forecast language wipes out any county assignment.
 			classification = await classifyArticleWithAi(env, {
 				url: 'https://wtvq.com/weather-forecast',
 				title: 'Statewide Weather Alert',

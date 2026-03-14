@@ -111,13 +111,20 @@ export function scrapeArticleHtml(sourceUrl: string, html: string): ScrapedDocum
     )
     .trim();
 
+  const contentTextClean3 = contentTextClean2
+    .replace(/(?:LIKE WHAT YOU['']RE READING\??\s*)?CLICK HERE\s+(?:FOR|TO)[^\n]{0,120}/gi, '')
+    .replace(/CLICK HERE TO (?:SIGN UP FOR|DOWNLOAD)[^\n]{0,120}/gi, '')
+    .replace(/CLICK HERE FOR MORE[^\n]{0,80}/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
   return {
     canonicalUrl: normalizeCanonicalUrl(absolutizeMaybe(canonical, sourceUrl)),
     title: normalizeText(title),
     author: author ? normalizeText(author) : null,
     publishedAt,
     contentHtml: cleanedHtml,
-    contentText: contentTextClean2,
+    contentText: contentTextClean3,
     imageUrl: imageUrl ? absolutizeMaybe(imageUrl, sourceUrl) : null,
   };
 }
