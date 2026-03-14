@@ -170,6 +170,7 @@ const PUBLIC_ARTICLE_CACHE_HEADERS = {
 export const BASE_URL = 'https://localkynews.com';
 const DEFAULT_OG_IMAGE = `${BASE_URL}/img/og-default.png`;
 const LOGO_IMAGE = `${BASE_URL}/img/logo512.png`;
+/* TODO: export a 600×60px PNG of the site wordmark to public/img/logo-wide.png */
 
 function normalizeOgImage(imageUrl: string | null | undefined): string {
 	const resolved = imageUrl || DEFAULT_OG_IMAGE;
@@ -303,9 +304,9 @@ if (url.pathname === '/' && request.method === 'GET' && isSearchBot(request.head
     url: 'https://localkynews.com',
     logo: {
       '@type': 'ImageObject',
-      url: 'https://localkynews.com/img/logo512.png',
-      width: 512,
-      height: 512,
+      url: 'https://localkynews.com/img/logo-wide.png',
+      width: 600,
+      height: 60,
     },
     sameAs: [],
     areaServed: {
@@ -2248,9 +2249,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
               url: "https://localkynews.com",
               logo: {
                 "@type": "ImageObject",
-                url: "https://localkynews.com/img/logo512.png",
-                width: 512,
-                height: 512,
+                url: "https://localkynews.com/img/logo-wide.png",
+                width: 600,
+                height: 60,
               },
             },
             ...(imageObject ? { image: imageObject } : {}),
@@ -2405,9 +2406,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             url: "https://localkynews.com",
             logo: {
               "@type": "ImageObject",
-              url: "https://localkynews.com/img/logo512.png",
-              width: 512,
-              height: 512,
+              url: "https://localkynews.com/img/logo-wide.png",
+              width: 600,
+              height: 60,
             },
           },
           ...(imageObject ? { image: imageObject } : {}),
@@ -2614,9 +2615,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             url: "https://localkynews.com",
             logo: {
               "@type": "ImageObject",
-              url: "https://localkynews.com/img/logo512.png",
-              width: 512,
-              height: 512,
+              url: "https://localkynews.com/img/logo-wide.png",
+              width: 600,
+              height: 60,
             },
           },
           ...(imageObject ? { image: imageObject } : {}),
@@ -2778,9 +2779,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             url: "https://localkynews.com",
             logo: {
               "@type": "ImageObject",
-              url: "https://localkynews.com/img/logo512.png",
-              width: 512,
-              height: 512,
+              url: "https://localkynews.com/img/logo-wide.png",
+              width: 600,
+              height: 60,
             },
           },
           ...(imageObject ? { image: imageObject } : {}),
