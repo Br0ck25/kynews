@@ -72,11 +72,19 @@ export default function KYWeatherHub() {
   const [outlooksLoading, setOutlooksLoading] = useState(true);
   const [nwsOffices, setNwsOffices] = useState([]);
   const [nwsLoading, setNwsLoading] = useState(true);
+  const [lightboxImg, setLightboxImg] = useState(null);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if (!lightboxImg) return;
+    const onKey = (e) => { if (e.key === "Escape") setLightboxImg(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxImg]);
 
   const fetchAlerts = useCallback(async () => {
     setAlertsLoading(true);
@@ -140,6 +148,40 @@ export default function KYWeatherHub() {
 
   return (
     <div style={{ fontFamily: "Georgia, serif", background: bgDefault, color: textColor }}>
+
+      {/* Lightbox overlay */}
+      {lightboxImg && (
+        <div
+          onClick={() => setLightboxImg(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Enlarged forecast image"
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.88)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "zoom-out", padding: 16,
+          }}
+        >
+          <img
+            src={lightboxImg.src}
+            alt={lightboxImg.alt}
+            style={{ maxWidth: "95vw", maxHeight: "90vh", objectFit: "contain", borderRadius: 8, boxShadow: "0 8px 40px rgba(0,0,0,0.8)" }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightboxImg(null)}
+            aria-label="Close"
+            style={{
+              position: "fixed", top: 16, right: 20,
+              background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)",
+              color: "#fff", borderRadius: "50%", width: 36, height: 36,
+              fontSize: 20, lineHeight: "1", cursor: "pointer", display: "flex",
+              alignItems: "center", justifyContent: "center",
+            }}
+          >×</button>
+        </div>
+      )}
 
 
       {/* page title above banner */}
@@ -342,8 +384,11 @@ export default function KYWeatherHub() {
           )}
 
           {/* NWS Briefings Tab */}
-          {activeTab === "nws" && (
-            nwsLoading
+          {activeTab === "nws" && (() => {
+            // Round to the nearest 15-minute window so the browser re-fetches
+            // after each forecast update cycle without hammering NWS on every render.
+            const imgTs = Math.floor(Date.now() / (15 * 60 * 1000));
+            return nwsLoading
               ? <div style={{ textAlign: "center", color: primary, padding: 40 }}>⏳ Loading NWS briefings...</div>
               : nwsOffices.length === 0
                 ? <div style={{ textAlign: "center", padding: 40, color: theme.palette.text.secondary }}>NWS briefing data is currently unavailable. Check back shortly.</div>
@@ -366,12 +411,13 @@ export default function KYWeatherHub() {
                             {office.images.map((img, i) => (
                               <div key={i} style={{ flex: "1 1 220px", maxWidth: 440 }}>
                                 <img
-                                  src={img.url}
+                                  src={`${img.url}?t=${imgTs}`}
                                   alt={img.alt}
-                                  style={{ width: "100%", borderRadius: 8, border: `1px solid ${divider}`, display: "block" }}
+                                  style={{ width: "100%", borderRadius: 8, border: `1px solid ${divider}`, display: "block", cursor: "zoom-in" }}
+                                  onClick={() => setLightboxImg({ src: `${img.url}?t=${imgTs}`, alt: img.alt })}
                                   onError={(e) => { e.target.parentElement.style.display = "none"; }}
                                 />
-                                <div style={{ fontSize: 10, color: theme.palette.text.secondary, marginTop: 4, textAlign: "center" }}>{img.alt}</div>
+                                <div style={{ fontSize: 10, color: theme.palette.text.secondary, marginTop: 4, textAlign: "center" }}>{img.alt} <span style={{ opacity: 0.5 }}>— click to enlarge</span></div>
                               </div>
                             ))}
                           </div>
@@ -407,8 +453,8 @@ export default function KYWeatherHub() {
                         )}
                       </div>
                     ))}
-                  </div>
-          )}
+                  </div>;
+          })()}
 
           {/* Radar Tab */}
           {activeTab === "radar" && (
