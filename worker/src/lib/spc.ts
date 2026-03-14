@@ -635,7 +635,7 @@ function extractSpcDescText(rawHtml: string): { text: string; embeddedImageUrl: 
 function buildSpcArticleBody(
   preText: string,
   dayLabel: string,
-): { description: string; body: string } {
+): { description: string; segments: SpcSegment[] } {
   let text = preText;
 
   // Drop the NWS header block — everything up to and including the "Valid XXXXZ - XXXXZ" line
@@ -646,36 +646,55 @@ function buildSpcArticleBody(
   if (prevIdx > 0) text = text.slice(0, prevIdx).trim();
 
   // Drop forecaster signature lines e.g. "..Smith.. 03/14/2026"
-  text = text.replace(/^\.\.[A-Za-z]+\.\.\s+\d{2}\/\d{2}\/\d{4}\s*$/gm, '').trim();
+  text = text.replace(/^\.\.([A-Za-z/]+)\.\.\.?\s+\d{2}\/\d{2}\/\d{4}\s*$/gm, '').trim();
 
   // Convert from all-caps NWS style to sentence case
   text = toArticleCase(text);
 
   // Split into paragraphs; collapse any intra-paragraph newlines to spaces
-  const paragraphs = text
+  const rawParagraphs = text
     .split('\n\n')
     .map((p) => p.replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').trim())
     .filter(Boolean);
 
-  // Short description: use the ...Summary... paragraph when available
+  const segments: SpcSegment[] = [];
+
+  // Introductory sentence
+  segments.push({
+    type: 'paragraph',
+    text: `The Storm Prediction Center has issued the ${dayLabel}-Day Convective Outlook for the contiguous United States, including Kentucky.`,
+  });
+
+  for (const para of rawParagraphs) {
+    const m = /^\.{3}([^]+?)\.{3}\s*(.*)$/.exec(para);
+    if (m) {
+      const label = toArticleCase(m[1].trim());
+      const rest = m[2].trim();
+      const isCallout = /\brisk\b/i.test(label) || /^there is/i.test(label);
+      segments.push({ type: isCallout ? 'callout' : 'heading', text: label });
+      if (rest) segments.push({ type: 'paragraph', text: toArticleCase(rest) });
+    } else {
+      segments.push({ type: 'paragraph', text: toArticleCase(para) });
+    }
+  }
+
+  // KY guidance clause at the end
+  segments.push({
+    type: 'paragraph',
+    text: 'Kentucky residents should follow local National Weather Service offices for area-specific guidance. Have multiple ways to receive weather warnings and know your action plan.',
+  });
+
+  // Short description: prefer the paragraph immediately after a Summary heading
   let description = '';
-  const summaryPara = paragraphs.find((p) => /\bsummary\b/i.test(p));
-  if (summaryPara) {
-    description = summaryPara.replace(/^\.{3}summary\.{3}\s*/i, '').trim();
+  const summaryIndex = segments.findIndex((s) => s.type === 'heading' && /\bsummary\b/i.test(s.text));
+  if (summaryIndex >= 0 && segments[summaryIndex + 1]?.type === 'paragraph') {
+    description = segments[summaryIndex + 1].text;
   } else {
-    description = paragraphs[0] ?? '';
+    description = segments.find((s, i) => i > 0 && s.type === 'paragraph')?.text ?? '';
   }
   if (description.length > 320) description = `${description.slice(0, 317)}...`;
 
-  // Full body: introductory sentence + all content paragraphs + KY guidance
-  const intro = `The Storm Prediction Center has issued the ${dayLabel}-Day Convective Outlook for the contiguous United States, including Kentucky.`;
-  const body = [
-    intro,
-    ...paragraphs,
-    'Kentucky residents should follow local National Weather Service offices for area-specific guidance. Have multiple ways to receive weather warnings and know your action plan.',
-  ].join('\n\n');
-
-  return { description, body };
+  return { description, segments };
 }
 
 /**
@@ -718,25 +737,33 @@ export function parseSpcOutlooks(xml: string): SpcOutlook[] {
     });
   }
 
-  // Keep the most-recent item per day
-  const byDay = new Map<number, (typeof candidates)[0]>();
+  // Keep the most recent item for each day+type (outlook vs discussion).
+  const bestByDayType = new Map<string, (typeof candidates)[0]>();
   for (const c of candidates) {
-    const existing = byDay.get(c.day);
+    const isDiscussion = /discussion/i.test(c.rawTitle);
+    const key = `${c.day}-${isDiscussion ? 'discussion' : 'outlook'}`;
+    const existing = bestByDayType.get(key);
     if (!existing || new Date(c.publishedAt) > new Date(existing.publishedAt)) {
-      byDay.set(c.day, c);
+      bestByDayType.set(key, c);
     }
   }
 
+  const sorted = Array.from(bestByDayType.values()).sort((a, b) => {
+    if (a.day !== b.day) return a.day - b.day;
+    const aIsDiscussion = /discussion/i.test(a.rawTitle) ? 1 : 0;
+    const bIsDiscussion = /discussion/i.test(b.rawTitle) ? 1 : 0;
+    if (aIsDiscussion !== bIsDiscussion) return aIsDiscussion - bIsDiscussion;
+    return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+  });
+
   const outlooks: SpcOutlook[] = [];
-  for (const day of [1, 2, 3] as const) {
-    const c = byDay.get(day);
-    if (!c) continue;
+  for (const c of sorted) {
 
     // Strip the "Issued: HHMM UTC Www Mon DD YYYY" timestamp appended to some titles
     const cleanTitle = c.rawTitle
       .replace(/\s+Issued:.*$/i, '')
       .replace(/^\s*SPC\s+/i, '')
-      .trim() || `Day ${day} Convective Outlook`;
+      .trim() || `Day ${c.day} Convective Outlook`;
 
     // Extract clean text and the embedded image URL from the HTML description
     const { text: preText, embeddedImageUrl } = extractSpcDescText(c.rawDesc);
@@ -744,10 +771,10 @@ export function parseSpcOutlooks(xml: string): SpcOutlook[] {
     // Prefer the image that SPC embeds directly in the RSS; fall back to link derivation
     const imageUrl = embeddedImageUrl ?? (c.link ? c.link.replace(/\.html?$/, '.png') : '');
 
-    const dayLabel = ['First', 'Second', 'Third'][day - 1];
+    const dayLabel = ['First', 'Second', 'Third'][c.day - 1];
     const { description, segments } = buildSpcArticleBody(preText, dayLabel);
 
-    outlooks.push({ day, title: cleanTitle, description, segments, link: c.link, imageUrl, publishedAt: c.publishedAt });
+    outlooks.push({ day: c.day, title: cleanTitle, description, segments, link: c.link, imageUrl, publishedAt: c.publishedAt });
   }
 
   return outlooks;

@@ -63,7 +63,15 @@ export default function KYWeatherHub() {
   const [alerts, setAlerts] = useState([]);
   const [forecast, setForecast] = useState(null);
   const [currentObs, setCurrentObs] = useState(null);
-  const [selectedCounty, setSelectedCounty] = useState(KY_COUNTIES[0]);
+  const [selectedCounty, setSelectedCounty] = useState(() => {
+    try {
+      const stored = localStorage.getItem("kyWeather.selectedCounty");
+      if (stored) return JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+    return KY_COUNTIES[0];
+  });
   const [loading, setLoading] = useState(true);
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [time, setTime] = useState(new Date());
@@ -85,6 +93,14 @@ export default function KYWeatherHub() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [lightboxImg]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("kyWeather.selectedCounty", JSON.stringify(selectedCounty));
+    } catch {
+      // ignore
+    }
+  }, [selectedCounty]);
 
   const fetchAlerts = useCallback(async () => {
     setAlertsLoading(true);
@@ -144,7 +160,7 @@ export default function KYWeatherHub() {
   const humidity = currentObs?.relativeHumidity?.value;
   const visM = currentObs?.visibility?.value;
   const visMi = visM != null ? (visM / 1609).toFixed(1) : null;
-  const activeWarnings = alerts.filter(a => a.properties?.event?.match(/Warning|Watch/));
+  const activeAlerts = alerts;
 
   return (
     <div style={{ fontFamily: "Georgia, serif", background: bgDefault, color: textColor }}>
@@ -190,22 +206,22 @@ export default function KYWeatherHub() {
       </Typography>
 
       {/* Alert Banner */}
-      {!alertsLoading && activeWarnings.length > 0 && (
+      {!alertsLoading && activeAlerts.length > 0 && (
         <div style={{ background: "linear-gradient(90deg,#7b0000,#c62828,#7b0000)", padding: "10px 20px", display: "flex", alignItems: "center", gap: 10, borderBottom: "2px solid #ef9a9a", borderRadius: 8 }}>
           <span style={{ fontSize: 18 }}>{"🚨"}</span>
           <div style={{ flex: 1 }}>
             <span style={{ fontWeight: "bold", fontSize: 12, color: textColor, letterSpacing: 1, textTransform: "uppercase" }}>
-              {activeWarnings.length} ACTIVE ALERT{activeWarnings.length > 1 ? "S" : ""} FOR KENTUCKY: &nbsp;
+              {activeAlerts.length} ACTIVE ALERT{activeAlerts.length > 1 ? "S" : ""} FOR KENTUCKY: &nbsp;
             </span>
             <span style={{ fontSize: 12, color: theme.palette.text.secondary }}>
-              {activeWarnings.slice(0, 3).map(a => a.properties?.event).join(" • ")}
-              {activeWarnings.length > 3 && ` • +${activeWarnings.length - 3} more`}
+              {activeAlerts.slice(0, 3).map(a => a.properties?.event).join(" • ")}
+              {activeAlerts.length > 3 && ` • +${activeAlerts.length - 3} more`}
             </span>
           </div>
           <button onClick={fetchAlerts} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: textColor, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontSize: 11 }}>Refresh</button>
         </div>
       )}
-      {!alertsLoading && activeWarnings.length === 0 && (
+      {!alertsLoading && activeAlerts.length === 0 && (
         <div style={{ background: "linear-gradient(90deg,#1a3a1a,#2e7d32,#1a3a1a)", padding: "8px 20px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #4caf50" }}>
           <span>{"✅"}</span>
           <span style={{ fontSize: 12, color: successLight }}>No active weather alerts for Kentucky</span>
@@ -261,15 +277,15 @@ export default function KYWeatherHub() {
         </div>
 
         {/* Tabs */}
-        <div className="weather-tabs" style={{ display: "flex", gap: 4, marginBottom: 0 }}>
+        <div className="weather-tabs" style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", padding: "10px 0", marginBottom: 16 }}>
           {[{ id: "forecast", label: "📅 7-Day Forecast" }, { id: "outlooks", label: "🌩️ SPC Outlooks" }, { id: "nws", label: "📡 NWS Briefings" }, { id: "alerts", label: `🚨 Alerts (${alerts.length})` }, { id: "radar", label: "🗺️ Live Radar" }].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-              padding: "9px 16px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: 12,
+              padding: "8px 16px", borderRadius: 999, cursor: "pointer", fontSize: 12,
               border: "1px solid #1e3a5f",
-              borderBottom: activeTab === tab.id ? "1px solid rgba(13,27,60,0.9)" : "1px solid #1e3a5f",
-              background: activeTab === tab.id ? "rgba(100,181,246,0.15)" : "rgba(255,255,255,0.03)",
+              background: activeTab === tab.id ? "rgba(100,181,246,0.18)" : "rgba(255,255,255,0.03)",
               color: activeTab === tab.id ? primary : "#607d8b",
               fontWeight: activeTab === tab.id ? "bold" : "normal",
+              boxShadow: activeTab === tab.id ? `0 0 0 2px ${fade(primary, 0.25)}` : "none",
             }}>{tab.label}</button>
           ))}
         </div>
@@ -340,7 +356,7 @@ export default function KYWeatherHub() {
                       Storm Prediction Center convective outlooks for the United States, including Kentucky. Issued daily by NOAA/SPC.
                     </div>
                     {outlooks.map((outlook) => (
-                      <div key={outlook.day} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${divider}`, borderRadius: 14, overflow: "hidden" }}>
+                      <div key={outlook.link} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${divider}`, borderRadius: 14, overflow: "hidden" }}>
                         {/* Article header */}
                         <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${divider}` }}>
                           <span style={{ display: "inline-block", background: "#1565c0", color: "#fff", fontSize: 10, fontWeight: "bold", letterSpacing: 1, textTransform: "uppercase", padding: "2px 9px", borderRadius: 10, marginBottom: 8 }}>
