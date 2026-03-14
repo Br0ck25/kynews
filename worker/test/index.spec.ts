@@ -37,6 +37,24 @@ import { articleToUrl } from '../src/utils/functions';
 // simplified alias for testing; avoid TypeScript generics to keep Vitest happy
 const IncomingRequest = Request;
 
+describe('optimizeTitleForSeo', () => {
+	it('appends county suffix and truncates at word boundaries', () => {
+		const out = ingestModule.optimizeTitleForSeo(
+			'This is a long headline that should be shortened for SEO purposes',
+			'Fayette',
+		);
+		expect(out).toContain('— Fayette County, KY');
+		expect(out.length).toBeLessThanOrEqual(60);
+	});
+
+	it('does not append suffix when title already mentions Kentucky or KY', () => {
+		const out1 = ingestModule.optimizeTitleForSeo('News from Kentucky today', 'Fayette');
+		expect(out1).toBe('News from Kentucky today');
+		const out2 = ingestModule.optimizeTitleForSeo('Breaking: something, KY', 'Fayette');
+		expect(out2).toBe('Breaking: something, KY');
+	});
+});
+
 async function ensureSchemaAndFixture() {
 	await env.ky_news_db.prepare(`
 		CREATE TABLE IF NOT EXISTS articles (
@@ -2876,6 +2894,48 @@ describe('ingestSingleUrl error handling', () => {
 		expect(res.contentText).toBe(text);
 
 		global.fetch = originalFetch;
+		vi.restoreAllMocks();
+	});
+
+	it('does not optimize title for manual ingests', async () => {
+		await ensureSchemaAndFixture();
+
+		vi.spyOn(ingestModule, 'fetchAndExtractArticle').mockResolvedValue({
+			canonicalUrl: 'https://example.com/manual',
+			sourceUrl: 'https://example.com/manual',
+			title: 'Manual entry title',
+			author: null,
+			publishedAt: new Date().toISOString(),
+			contentHtml: '<p>manual</p>',
+			contentText: 'manual',
+			classificationText: 'manual',
+			imageUrl: null,
+		});
+
+		vi.spyOn(classifyModule, 'classifyArticleWithAi').mockResolvedValue({
+			category: 'today',
+			isKentucky: true,
+			isNational: false,
+			county: 'Fayette',
+			counties: ['Fayette'],
+			city: null,
+		});
+		vi.spyOn(aiModule, 'summarizeArticle').mockResolvedValue({
+			summary: 'foo',
+			seoDescription: 'bar',
+			summaryWordCount: 2,
+		});
+
+		const res = await __testables.ingestSingleUrl(env, {
+			url: 'https://example.com/manual',
+			allowShortContent: true,
+			providedDescription: 'manual',
+		});
+
+		expect(res.status).toBe('inserted');
+		const row = await env.ky_news_db.prepare('SELECT title FROM articles WHERE id = ?').bind(res.id).first<{ title: string }>();
+		expect(row?.title).toBe('Manual entry title');
+
 		vi.restoreAllMocks();
 	});
 

@@ -27,6 +27,46 @@ function firstMeaningfulWord(title: string): string {
   return words[0] ?? '';
 }
 
+export function optimizeTitleForSeo(title: string, county: string | null): string {
+  const trimmed = title.trim();
+  if (!trimmed) return trimmed;
+
+  const lower = trimmed.toLowerCase();
+  const hasCounty = county ? lower.includes(county.toLowerCase()) : false;
+  const hasKentucky = lower.includes('kentucky');
+  const hasKy = /,\s*ky\b/i.test(trimmed);
+
+  const truncateAtWordBoundary = (text: string, max: number): string => {
+    if (text.length <= max) return text;
+    const truncated = text.slice(0, max);
+    const lastSpace = truncated.lastIndexOf(' ');
+    if (lastSpace > 0) {
+      return truncated.slice(0, lastSpace);
+    }
+    return truncated;
+  };
+
+  // If the title already mentions the county or Kentucky, just enforce the max
+  // length. Otherwise append a county/KY suffix and ensure it fits.
+  if (hasCounty || hasKentucky || hasKy) {
+    return truncateAtWordBoundary(trimmed, 60);
+  }
+
+  if (!county) {
+    return truncateAtWordBoundary(trimmed, 60);
+  }
+
+  const suffix = ` — ${county} County, KY`;
+  const maxLength = 60;
+  const available = maxLength - suffix.length;
+  if (available <= 0) {
+    return truncateAtWordBoundary(suffix, maxLength);
+  }
+
+  const titlePart = truncateAtWordBoundary(trimmed, available);
+  return `${titlePart}${suffix}`;
+}
+
 function deriveAuthorFromHostname(sourceUrl: string): string | null {
   try {
     const hostname = new URL(sourceUrl).hostname.replace(/^www\./, '');
@@ -193,6 +233,12 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
+  const isManualIngest = source.allowShortContent === true;
+  let title = extracted.title;
+  if (!isManualIngest) {
+    title = optimizeTitleForSeo(title, classification.county);
+  }
+
   const ai = await summarizeArticle(env, canonicalHash, extracted.title, extracted.contentText, extracted.publishedAt, {
     county: classification.county,
     city: classification.city,
@@ -211,7 +257,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
       urlHash: canonicalHash,
       category: classification.category,
       slug: generateSeoSlug(extracted.title, classification.county, extracted.publishedAt),
-      title: extracted.title,
+      title,
       summary: ai.summary,
       seoDescription: ai.seoDescription,
       imageUrl: extracted.imageUrl,
@@ -251,7 +297,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     canonicalUrl: extracted.canonicalUrl,
     sourceUrl: extracted.sourceUrl,
     urlHash: canonicalHash,
-    title: extracted.title,
+    title,
     author: extracted.author,
     publishedAt: extracted.publishedAt,
     category: classification.category,
