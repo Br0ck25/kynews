@@ -2344,8 +2344,33 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 </body>
 </html>`;
 
-          const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
-<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`;
+          const eventSchema = (article.category === 'events' || article.category === 'sports')
+            ? {
+                "@context": "https://schema.org",
+                "@type": "Event",
+                name: article.title,
+                description: desc,
+                url: pageUrl,
+                startDate: article.publishedAt,
+                location: article.county
+                  ? {
+                      "@type": "Place",
+                      name: `${article.county} County, Kentucky`,
+                      address: {
+                        "@type": "PostalAddress",
+                        addressLocality: article.city || article.county,
+                        addressRegion: "KY",
+                        addressCountry: "US",
+                      },
+                    }
+                  : { "@type": "Place", name: "Kentucky" },
+                organizer: deriveSourceOrganization(article.canonicalUrl),
+                eventStatus: "https://schema.org/EventScheduled",
+                eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+              }
+            : null;
+          const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>\n<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`
+            + (eventSchema ? `\n<script type="application/ld+json" id="json-ld-event">${JSON.stringify(eventSchema)}</script>` : '');
           const finalHtml = iabHtml.replace('</head>', `${schemaScripts}\n</head>`);
           return new Response(finalHtml, {
             headers: {
@@ -2515,8 +2540,33 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 </body>
 </html>`;
         // insert JSON-LD before sending
-        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
-<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`;
+        const eventSchema = (article.category === 'events' || article.category === 'sports')
+          ? {
+              "@context": "https://schema.org",
+              "@type": "Event",
+              name: article.title,
+              description: desc,
+              url: pageUrl,
+              startDate: article.publishedAt,
+              location: article.county
+                ? {
+                    "@type": "Place",
+                    name: `${article.county} County, Kentucky`,
+                    address: {
+                      "@type": "PostalAddress",
+                      addressLocality: article.city || article.county,
+                      addressRegion: "KY",
+                      addressCountry: "US",
+                    },
+                  }
+                : { "@type": "Place", name: "Kentucky" },
+              organizer: deriveSourceOrganization(article.canonicalUrl),
+              eventStatus: "https://schema.org/EventScheduled",
+              eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+            }
+          : null;
+        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>\n<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`
+          + (eventSchema ? `\n<script type="application/ld+json" id="json-ld-event">${JSON.stringify(eventSchema)}</script>` : '');
         const finalHtml = html.replace('</head>', `${schemaScripts}\n</head>`);
         return new Response(finalHtml, {
           headers: {
@@ -2719,8 +2769,33 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
 </body>
 </html>`;
-        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
-<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`;
+        const eventSchema = (article.category === 'events' || article.category === 'sports')
+          ? {
+              "@context": "https://schema.org",
+              "@type": "Event",
+              name: article.title,
+              description: desc,
+              url: pageUrl,
+              startDate: article.publishedAt,
+              location: article.county
+                ? {
+                    "@type": "Place",
+                    name: `${article.county} County, Kentucky`,
+                    address: {
+                      "@type": "PostalAddress",
+                      addressLocality: article.city || article.county,
+                      addressRegion: "KY",
+                      addressCountry: "US",
+                    },
+                  }
+                : { "@type": "Place", name: "Kentucky" },
+              organizer: deriveSourceOrganization(article.canonicalUrl),
+              eventStatus: "https://schema.org/EventScheduled",
+              eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+            }
+          : null;
+        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>\n<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`
+          + (eventSchema ? `\n<script type="application/ld+json" id="json-ld-event">${JSON.stringify(eventSchema)}</script>` : '');
         const finalHtml = iabHtml.replace('</head>', `${schemaScripts}\n</head>`);
         return new Response(finalHtml, {
           headers: {
@@ -2922,8 +2997,33 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 </body>
 </html>`;
         // insert JSON-LD scripts
-        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>
-<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`;
+        const eventSchema = (article.category === 'events' || article.category === 'sports')
+          ? {
+              "@context": "https://schema.org",
+              "@type": "Event",
+              name: article.title,
+              description: desc,
+              url: pageUrl,
+              startDate: article.publishedAt,
+              location: article.county
+                ? {
+                    "@type": "Place",
+                    name: `${article.county} County, Kentucky`,
+                    address: {
+                      "@type": "PostalAddress",
+                      addressLocality: article.city || article.county,
+                      addressRegion: "KY",
+                      addressCountry: "US",
+                    },
+                  }
+                : { "@type": "Place", name: "Kentucky" },
+              organizer: deriveSourceOrganization(article.canonicalUrl),
+              eventStatus: "https://schema.org/EventScheduled",
+              eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+            }
+          : null;
+        const schemaScripts = `<script type="application/ld+json" id="json-ld-article">${JSON.stringify(newsArticleSchema)}</script>\n<script type="application/ld+json" id="json-ld-breadcrumb">${JSON.stringify(breadcrumbSchema)}</script>`
+          + (eventSchema ? `\n<script type="application/ld+json" id="json-ld-event">${JSON.stringify(eventSchema)}</script>` : '');
         const finalHtml = html.replace('</head>', `${schemaScripts}\n</head>`);
         return new Response(finalHtml, {
           headers: {

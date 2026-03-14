@@ -426,6 +426,36 @@ export default function ArticleSlugPage() {
     setJsonLd("json-ld-article", newsArticleSchema);
     setJsonLd("json-ld-breadcrumb-post", breadcrumbSchema);
 
+    if (post.category === 'events' || post.category === 'sports') {
+      const eventSchema = {
+        "@context": "https://schema.org",
+        "@type": "Event",
+        name: post.title,
+        description: cleanDesc,
+        url: pageUrl,
+        startDate: post.date || post.publishedAt,
+        location: post.county
+          ? {
+              "@type": "Place",
+              name: `${post.county} County, Kentucky`,
+              address: {
+                "@type": "PostalAddress",
+                addressLocality: post.city || post.county,
+                addressRegion: "KY",
+                addressCountry: "US",
+              },
+            }
+          : { "@type": "Place", name: "Kentucky" },
+        organizer: {
+          "@type": "Organization",
+          name: deriveSourceName(post.canonicalUrl || post.sourceUrl || ''),
+        },
+        eventStatus: "https://schema.org/EventScheduled",
+        eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+      };
+      setJsonLd("json-ld-event", eventSchema);
+    }
+
     return () => {
       document.title = SITE_NAME;
       const genericDesc =
@@ -441,6 +471,7 @@ export default function ArticleSlugPage() {
       setMeta("property", "fb:app_id", getFbAppId() || "0");
       document.getElementById("json-ld-article")?.remove();
       document.getElementById("json-ld-breadcrumb-post")?.remove();
+      document.getElementById("json-ld-event")?.remove();
     };
   }, [resolvedPost]);
 

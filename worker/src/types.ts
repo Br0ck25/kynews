@@ -2,6 +2,7 @@ export const ALLOWED_CATEGORIES = [
   'today',
   'national',
   'sports',
+  'events',
   'weather',
   'schools',
   'obituaries',
