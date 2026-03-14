@@ -1,7 +1,7 @@
 import type { ExtractedArticle, IngestResult, IngestSource, NewArticle } from '../types';
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
-import { summarizeArticle } from './ai';
+import { generateImageAltText, summarizeArticle } from './ai';
 import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE, isStatewideKyPoliticalStory, getSourceDefaultImage } from './classify';
 import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles, generateSeoSlug } from './db';
 import { browserFetch, cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
@@ -280,11 +280,42 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     wordCount: words,
   });
 
-  const imageAlt = extracted.imageUrl
-    ? [extracted.title, classification.county ? `${classification.county} County, Kentucky` : null]
-        .filter(Boolean)
-        .join(' — ')
-    : null;
+  let imageAlt: string | null = null;
+  if (extracted.imageUrl) {
+    const cacheKey = `imgalt:${canonicalHash}`;
+    if (env.CACHE) {
+      try {
+        const cached = await env.CACHE.get<string>(cacheKey);
+        if (cached?.trim()) {
+          imageAlt = cached.trim();
+        }
+      } catch {
+        // best effort
+      }
+    }
+
+    if (!imageAlt) {
+      imageAlt = await generateImageAltText(
+        env,
+        extracted.title,
+        classification.county,
+        classification.category,
+        extracted.imageUrl,
+      );
+
+      if (!imageAlt) {
+        imageAlt = generateImageAlt(extracted.title, classification.county, classification.category);
+      }
+
+      if (env.CACHE && imageAlt) {
+        try {
+          await env.CACHE.put(cacheKey, imageAlt, { expirationTtl: 60 * 60 * 24 });
+        } catch {
+          // best effort
+        }
+      }
+    }
+  }
 
   // Attempt to read the actual pixel dimensions of the article image so that
   // og:image:width / og:image:height meta tags can serve accurate values.

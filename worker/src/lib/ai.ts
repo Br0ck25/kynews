@@ -4,6 +4,15 @@ import { decodeHtmlEntities } from './scrape';
 
 const MODEL = '@cf/zai-org/glm-4.7-flash' as keyof AiModels;
 
+const IMAGE_ALT_SUBJECT_MAP: Record<string, string> = {
+  sports: 'Athletes competing',
+  schools: 'Students and educators',
+  government: 'Government officials',
+  weather: 'Weather conditions',
+  public_safety: 'Emergency responders',
+  obituaries: 'Memorial photo',
+};
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -468,9 +477,54 @@ ${newContent.slice(0, 8000)}`;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public API — feedback loop (thumbs up / down)
-// ---------------------------------------------------------------------------
+export async function generateImageAltText(
+  env: Env,
+  title: string,
+  county: string | null,
+  category: string,
+  imageUrl: string,
+): Promise<string> {
+  const fallback = (() => {
+    const place = county ? `in ${county} County, Kentucky` : 'in Kentucky';
+    const subject = IMAGE_ALT_SUBJECT_MAP[category] ?? 'News scene';
+    const shortTitle = title.length > 60 ? title.slice(0, 57) + '…' : title;
+    return `${subject} ${place} — ${shortTitle}`;
+  })();
+
+  if (!env.AI) return fallback;
+
+  try {
+    const systemPrompt =
+      "You write concise image alt text for news articles. Max 120 characters. Include the subject, location (county/KY if known), and context. No quotes. No trailing period.";
+    const userPrompt =
+      `Article title: ${title}. County: ${county ?? 'Kentucky'}. Category: ${category}. Write alt text for the article's lead image.`;
+
+    const aiRaw = (await env.AI.run(MODEL, {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0,
+      seed: 42,
+      max_completion_tokens: 120,
+    })) as AiResultLike;
+
+    let text = extractAiText(aiRaw).trim();
+    if (!text) return fallback;
+
+    // Remove quotes and trailing periods, limit to 120 chars.
+    text = text.replace(/['"]/g, '').trim();
+    text = text.replace(/\.+$/, '').trim();
+    if (text.length > 120) {
+      text = text.slice(0, 120).trim();
+      text = text.replace(/\.+$/, '').trim();
+    }
+
+    return text || fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Record user feedback on a summary.

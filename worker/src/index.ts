@@ -2469,9 +2469,30 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             mainEntityOfPage: { "@type": "WebPage", "@id": pageUrl },
             datePublished: article.publishedAt,
             dateModified: article.updatedAt || article.publishedAt,
-            ...(article.author
-              ? { author: { "@type": "Person", name: article.author } }
-              : {}),
+            ...(article.author ? {
+              author: (() => {
+                // Known media organization names derived from hostname
+                const mediaOrgs = new Set([
+                  'WYMT News', 'WKYT News', 'WLEX News', 'WDRB News', 'WHAS11',
+                  'Courier Journal', 'Lexington Herald-Leader', 'WKDZ Radio',
+                  'WBKO News', 'Kentucky.com'
+                ]);
+                // If author looks like an org (all caps, known outlet, or no spaces)
+                const looksLikeOrg = mediaOrgs.has(article.author) ||
+                  /^[A-Z0-9\s]+$/.test(article.author) ||
+                  !article.author.includes(' ');
+                if (looksLikeOrg) {
+                  return {
+                    "@type": "NewsMediaOrganization",
+                    name: article.author,
+                    url: article.canonicalUrl
+                      ? new URL(article.canonicalUrl).origin
+                      : undefined
+                  };
+                }
+                return { "@type": "Person", name: article.author };
+              })()
+            } : {}),
             publisher: {
               "@type": "Organization",
               name: "Local KY News",
