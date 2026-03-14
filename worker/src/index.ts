@@ -1943,15 +1943,25 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 	// We do *not* run AI summarization; the content should appear verbatim.
 	// SEO description should still be sentence-safe rather than cutting mid-word.
 	const manualSummary = postBody;
-	// Truncate at the nearest sentence boundary within 160 chars
-	let manualSeoDescription = '';
-	if (postBody) {
-		const seoRaw = postBody.slice(0, 220);
-		const sentenceEnd = seoRaw.search(/[.!?]\s/);
-		manualSeoDescription = sentenceEnd > 0 && sentenceEnd < 160
-			? seoRaw.slice(0, sentenceEnd + 1).trim()
-			: seoRaw.slice(0, 157).replace(/[\s,;:.!?-]+$/g, '') + '...';
+
+	function buildSeoDescription(text: string, maxLen = 160): string {
+		if (!text) return '';
+		const clean = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+		if (clean.length <= maxLen) return clean;
+
+		// Try to end at a sentence boundary within the limit
+		const withinLimit = clean.slice(0, maxLen + 50); // look slightly past limit
+		const sentenceMatch = withinLimit.match(/^(.{80,}?[.!?])\s/);
+		if (sentenceMatch && sentenceMatch[1].length <= maxLen) {
+			return sentenceMatch[1].trim();
+		}
+
+		// Fall back to word boundary
+		const wordBoundary = clean.slice(0, maxLen).replace(/\s+\S*$/, '');
+		return wordBoundary + '…';
 	}
+
+	const manualSeoDescription = buildSeoDescription(postBody);
 
 	const imageAlt = imageUrl
 		? generateImageAlt(title, classification.county ?? null, classification.category)
