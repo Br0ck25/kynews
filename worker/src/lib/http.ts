@@ -58,8 +58,7 @@ export function isAllowedCategory(value: string): value is Category {
     value === 'national' ||
     value === 'sports' ||
     value === 'weather' ||
-    value === 'schools' ||
-    value === 'obituaries'
+    value === 'schools'
   );
 }
 

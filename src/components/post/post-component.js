@@ -481,7 +481,6 @@ function categoryDisplayName(category, isNational = false) {
     sports: "Sports",
     weather: "Weather",
     schools: "Schools",
-    obituaries: "Obituaries",
   };
   if ((!category || category === '') && isNational) {
     return "National News";
@@ -497,7 +496,6 @@ function categoryRoute(category, isNational = false) {
     weather: "/weather",
     schools: "/schools",
     today: "/local",
-    obituaries: "/local",
   };
   if ((!category || category === '') && isNational) {
     return "/national";

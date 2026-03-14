@@ -2199,11 +2199,10 @@ if (categoryMatch && request.method === 'GET') {
 //   sports      - Kentucky sports stories (is_kentucky=1 AND category='sports')
 //   weather     - weather stories, KY or national (see db.queryArticles logic)
 //   schools     - Kentucky school stories (is_kentucky=1 AND category='schools')
-//   obituaries  - Kentucky obituaries only (is_kentucky=1 AND category='obituaries')
 const category = categoryMatch[1]?.toLowerCase();
 if (!category || (category !== 'all' && !isAllowedCategory(category))) {
   return badRequest(
-    'Invalid category. Allowed: today|national|sports|weather|schools|obituaries|all',
+    'Invalid category. Allowed: today|national|sports|weather|schools|all',
   );
 }
 
@@ -3514,7 +3513,6 @@ const SECTION_PATHS: Record<string, { title: string; description: string; catego
   '/sports':        { title: 'Kentucky Sports News — Local KY News', description: 'High school, college, and local sports coverage across Kentucky.', category: 'sports' },
   '/weather':       { title: 'Kentucky Weather — Local KY News', description: 'Weather alerts, forecasts, and updates across Kentucky.', category: 'weather' },
   '/schools':       { title: 'Kentucky Schools News — Local KY News', description: 'Education news, school events, and district updates across Kentucky.', category: 'schools' },
-  '/obituaries':    { title: 'Kentucky Obituaries — Local KY News', description: 'Recent Kentucky obituaries and memorial notices.', category: 'obituaries' },
   '/local':         { title: 'Local Kentucky News — Local KY News', description: 'Community news and local stories from Kentucky counties.', category: 'local' },
 };
 
@@ -4902,8 +4900,6 @@ function isLikelySectionUrl(value: string): boolean {
 		'/weather',
 		'/school',
 		'/schools',
-		'/obituaries',
-		'/obituary',
 		'/local',
 	].some((segment) => path === segment || path.startsWith(`${segment}/`));
 }

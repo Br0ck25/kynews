@@ -80,9 +80,6 @@ export function generateFacebookHook(summary: string = '', county?: string): str
  * Adds a county tag, a category/topic tag, and optionally a region tag.
  */
 export function generateFacebookHashtags(article: ArticleRecord): string {
-  // obituaries get no hashtags
-  if (article.category === 'obituaries') return '';
-
   const tags: string[] = [];
 
   // 1. County tag (most specific)

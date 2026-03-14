@@ -32,7 +32,7 @@ type AiResultLike = {
   choices?: Array<{ message?: { content?: string | null } }>;
 };
 
-const VALID_AI_CATEGORIES = new Set<string>(['sports', 'weather', 'schools', 'obituaries', 'today', 'national']);
+const VALID_AI_CATEGORIES = new Set<string>(['sports', 'weather', 'schools', 'today', 'national']);
 
 const KY_REGION_TERMS = [
   'eastern kentucky',
@@ -860,11 +860,11 @@ export async function classifyArticleWithAi(
       'Important: Ignore publisher/site branding (e.g. "Kentucky Lantern", "Kentucky Today") when deciding Kentucky relevance.',
       '',
       'Task: Return a JSON object with three fields:',
-      '  "category" - one of: "sports", "weather", "schools", "obituaries", "today", "national"',
+      '  "category" - one of: "sports", "weather", "schools", "today", "national"',
       '    sports     = article is PRIMARILY about sports games, teams, athletes, or tournaments',
       '    weather    = article is PRIMARILY about weather forecasts, storms, floods, or temperatures',
       '    schools    = article is PRIMARILY about schools, education, school boards, or campus events',
-      '    today      = article mentions Kentucky or KY but does not fit sports/weather/schools/obituaries.  This includes stories about Kentucky legislation or government action (state bills, county government decisions, courts, jails, law enforcement funding, etc.).',
+      '    today      = article mentions Kentucky or KY but does not fit sports/weather/schools.  This includes stories about Kentucky legislation or government action (state bills, county government decisions, courts, jails, law enforcement funding, etc.).',
       '    national   = article does NOT primarily concern Kentucky AND does not fit the above categories',
       '  "isKentucky" - true ONLY if the article is primarily about events, people, or places IN Kentucky.',
       '    Return false if:',
@@ -1252,18 +1252,6 @@ const CATEGORY_PATTERNS: Record<Exclude<Category, 'today' | 'national'>, RegExp[
     /\bcampus lockdown\b/i,
     /\bschool shooting\b/i,
     /\bschool budget\b/i,
-  ],
-  obituaries: [
-    /\bobituar(y|ies)\b/i,
-    /\bfuneral home\b/i,
-    /\bmemorial service\b/i,
-    /\bpassed away\b/i,
-    /\bvisitation\s+(hours?|will be)\b/i,
-    /\bsurvived by\b/i,
-    /\binterment\b/i,
-    /\bin lieu of flowers\b/i,
-    /\bservices will be held\b/i,
-    /\bwas born.*died\b/i,
   ],
 };
 

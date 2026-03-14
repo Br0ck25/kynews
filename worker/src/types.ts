@@ -5,7 +5,6 @@ export const ALLOWED_CATEGORIES = [
   'events',
   'weather',
   'schools',
-  'obituaries',
 ] as const;
 
 export type Category = (typeof ALLOWED_CATEGORIES)[number] | '';

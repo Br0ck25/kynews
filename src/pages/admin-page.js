@@ -40,7 +40,7 @@ import { articleToUrl } from "../utils/functions";
 
 // `SiteService` already handles environment configuration internally.
 const service = new SiteService();
-const CATEGORIES = ["today", "national", "sports", "weather", "schools", "obituaries"];
+const CATEGORIES = ["today", "national", "sports", "weather", "schools"];
 // categories usable by admins when manually overriding; exclude national since scope is controlled separately
 const ADMIN_CATEGORIES = CATEGORIES.filter((c) => c !== 'national');
 
@@ -1574,7 +1574,7 @@ export default function AdminPage() {
                   label="Category (optional)"
                 >
                   <MenuItem value=""><em>Auto (AI)</em></MenuItem>
-                  {['today', 'sports', 'weather', 'schools', 'obituaries'].map((c) => (
+                  {['today', 'sports', 'weather', 'schools'].map((c) => (
                     <MenuItem key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</MenuItem>
                   ))}
                 </Select>

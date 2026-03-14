@@ -2,8 +2,6 @@ import React, { lazy, Suspense } from "react";
 import "./App.css";
 import { BrowserRouter as Router, Switch, Route, Link as RouterLink, Redirect, useParams } from "react-router-dom";
 
-// ObituariesPage and LostFoundPage kept for future use
-// import ObituariesPage from "./pages/obituaries-page";
 // import LostFoundPage from "./pages/lost-found-page";
 import LabelBottomNavigation from "./components/bottom-navigation";
 import AppHeader from "./components/app-header";
@@ -94,7 +92,6 @@ const SECTIONS = [
   { title: "Sports", url: "/sports" },
   { title: "Weather", url: "/weather" },
   { title: "Schools", url: "/schools" },
-  // Obituaries and Lost & Found hidden — may be re-enabled later
 ];
 
 function App() {
@@ -139,10 +136,6 @@ function App() {
                     <Route path="/schools">
                       <SchoolsPage />
                     </Route>
-                    {/* Obituaries and Lost & Found routes disabled — pages kept for future use
-                    <Route path="/obituaries"><ObituariesPage /></Route>
-                    <Route path="/lost-found"><LostFoundPage /></Route>
-                    */}
                     <Route path="/search">
                       <SearchPage />
                     </Route>

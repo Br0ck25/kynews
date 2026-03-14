@@ -194,16 +194,6 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     rssDescription,
   });
 
-  // ISSUE #2: reject obituary articles immediately to avoid wasting tokens
-  if (classification.category === 'obituaries') {
-    console.log(`[REJECTED] obituary article skipped: ${extracted.title}`);
-    return {
-      status: 'rejected',
-      reason: 'obituaries not published',
-      urlHash: canonicalHash,
-    };
-  }
-
   // For statewide Kentucky political roundups we intentionally clear any
   // primary county even if our classifier returned one.  The `counties`
   // array may still contain secondary tags for filtering purposes.
@@ -738,7 +728,6 @@ const IMAGE_ALT_SUBJECT_MAP: Record<string, string> = {
   government: 'Government officials',
   weather: 'Weather conditions',
   public_safety: 'Emergency responders',
-  obituaries: 'Memorial photo',
 };
 
 /**

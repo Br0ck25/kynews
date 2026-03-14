@@ -16,7 +16,6 @@ const ALLOWED_CATEGORIES = [
   "events",
   "weather",
   "schools",
-  "obituaries",
 ];
 
 const COUNTY_ALIASES = {
@@ -427,7 +426,6 @@ export default class SiteService {
       { id: "sports", name: "Sports" },
       { id: "weather", name: "Weather" },
       { id: "schools", name: "Schools" },
-      { id: "obituaries", name: "Obituaries" },
     ]);
   }
 

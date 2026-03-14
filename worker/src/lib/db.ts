@@ -221,7 +221,7 @@ export async function getTopArticlesByCategory(env: Env, category: string, limit
       where.push('category = ?');
       binds.push('weather');
     }
-  } else if (category === 'sports' || category === 'schools' || category === 'obituaries') {
+  } else if (category === 'sports' || category === 'schools') {
     where.push('category = ?');
     binds.push(category);
     where.push('is_kentucky = 1');
@@ -935,10 +935,6 @@ export async function queryArticles(env: Env, options: {
   } else if (options.category === 'schools') {
     where.push('category = ?');
     binds.push('schools');
-    where.push('is_kentucky = 1');
-  } else if (options.category === 'obituaries') {
-    where.push('category = ?');
-    binds.push('obituaries');
     where.push('is_kentucky = 1');
   } else if (options.category === 'weather') {
     const supportsIsNational = await columnExists(env, 'articles', 'is_national');

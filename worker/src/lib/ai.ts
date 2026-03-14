@@ -10,7 +10,6 @@ const IMAGE_ALT_SUBJECT_MAP: Record<string, string> = {
   government: 'Government officials',
   weather: 'Weather conditions',
   public_safety: 'Emergency responders',
-  obituaries: 'Memorial photo',
 };
 
 // ---------------------------------------------------------------------------
