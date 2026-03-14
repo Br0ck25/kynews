@@ -11,6 +11,7 @@ import {
 	listArticlesForReclassify,
 	queryArticles,
 	getLatestArticlesForLlms,
+	getTopArticlesByCategory,
 	unblockArticleByBlockedId,
 	updateArticlePublishedAt,
 	updateArticleClassification,
@@ -3392,81 +3393,61 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 // Bots that don't execute JavaScript need real content to index; normal
 // browsers will fall through to the SPA shell below.
 const SECTION_PATHS: Record<string, { title: string; description: string; category: string }> = {
-  '/today':    { title: 'Kentucky News Today — Local KY News', description: 'The latest local news from across all 120 Kentucky counties.', category: 'today' },
-  '/national': { title: 'National News — Local KY News', description: 'National headlines curated for Kentucky readers.', category: 'national' },
-  '/sports':   { title: 'Kentucky Sports News — Local KY News', description: 'High school, college, and local sports coverage across Kentucky.', category: 'sports' },
-  '/weather':  { title: 'Kentucky Weather — Local KY News', description: 'Weather alerts, forecasts, and updates across Kentucky.', category: 'weather' },
-  '/schools':  { title: 'Kentucky Schools News — Local KY News', description: 'Education news, school events, and district updates across Kentucky.', category: 'schools' },
-  '/local':    { title: 'Local Kentucky News — Local KY News', description: 'Community news and local stories from Kentucky counties.', category: 'local' },
+  '/today':         { title: 'Kentucky News Today — Local KY News', description: 'The latest local news from across all 120 Kentucky counties.', category: 'today' },
+  '/national':      { title: 'National News — Local KY News', description: 'National headlines curated for Kentucky readers.', category: 'national' },
+  '/news/national': { title: 'National News — Local KY News', description: 'National headlines curated for Kentucky readers.', category: 'national' },
+  '/sports':        { title: 'Kentucky Sports News — Local KY News', description: 'High school, college, and local sports coverage across Kentucky.', category: 'sports' },
+  '/weather':       { title: 'Kentucky Weather — Local KY News', description: 'Weather alerts, forecasts, and updates across Kentucky.', category: 'weather' },
+  '/schools':       { title: 'Kentucky Schools News — Local KY News', description: 'Education news, school events, and district updates across Kentucky.', category: 'schools' },
+  '/obituaries':    { title: 'Kentucky Obituaries — Local KY News', description: 'Recent Kentucky obituaries and memorial notices.', category: 'obituaries' },
+  '/local':         { title: 'Local Kentucky News — Local KY News', description: 'Community news and local stories from Kentucky counties.', category: 'local' },
 };
 
-const sectionMeta = SECTION_PATHS[url.pathname];
+const sectionMeta = SECTION_PATHS[url.pathname.replace(/\/$/, '')];
 if (request.method === 'GET' && sectionMeta && isSearchBot(request.headers.get('user-agent') || '')) {
-  // Fetch recent articles for this section from D1
-  const rows = await prepare(env,
-    `SELECT title, slug, county, category, published_at, seo_description, summary
-     FROM articles
-     WHERE category = ?
-     ORDER BY published_at DESC
-     LIMIT 10`
-  ).bind(sectionMeta.category).all();
+  const categoryHeading = sectionMeta.title.replace(/\s*—\s*Local KY News$/, '').trim();
+  const canonicalUrl = `${BASE_URL}${url.pathname}`;
 
-  const baseUrl = 'https://localkynews.com';
-  const articles = (rows.results || []) as Array<{
-    title: string; slug: string; county: string | null;
-    category: string; published_at: string | null;
-    seo_description: string | null; summary: string | null;
-  }>;
+  const articles = await getTopArticlesByCategory(env, sectionMeta.category, 10);
+  const listItems = articles
+    .filter((a) => a.slug)
+    .map((a) => {
+      const href = buildArticleUrl(BASE_URL, a.slug, a.county, a.category, a.is_national === 1, a.id);
+      const dateStr = a.published_at
+        ? new Date(a.published_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+        : '';
+      return `<li><a href="${escapeHtml(href)}">${escapeHtml(a.title)}</a>${dateStr ? ` - ${escapeHtml(dateStr)}` : ''}</li>`;
+    })
+    .join('\n');
 
-  const listItems = articles.map((a) => {
-    const path = a.slug
-      ? (a.county ? `/news/kentucky/${a.county.toLowerCase().replace(/\s+/g, '-')}-county/${a.slug}` : `/news/kentucky/${a.slug}`)
-      : '';
-    const href = path ? `${baseUrl}${path}` : baseUrl;
-    const desc = (a.seo_description || a.summary || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 120);
-    return `<li><a href="${href}">${escapeHtml(a.title)}</a>${desc ? `<p>${escapeHtml(desc)}</p>` : ''}</li>`;
-  }).join('\n');
+  const baseResponse = env.ASSETS
+    ? await env.ASSETS.fetch('/index.html')
+    : await fetch(`${BASE_URL}/index.html`);
+  let baseHtml = await baseResponse.text();
 
-  const html = `<!doctype html>
-<html lang="en-US">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>${escapeHtml(sectionMeta.title)}</title>
-  <meta name="description" content="${escapeHtml(sectionMeta.description)}"/>
-  <link rel="canonical" href="${baseUrl}${url.pathname}"/>
-  <meta property="og:type" content="website"/>
-  <meta property="og:title" content="${escapeHtml(sectionMeta.title)}"/>
-  <meta property="og:description" content="${escapeHtml(sectionMeta.description)}"/>
-  <meta property="og:url" content="${baseUrl}${url.pathname}"/>
-  <meta property="og:site_name" content="Local KY News"/>
-  <meta property="og:image" content="${DEFAULT_OG_IMAGE}"/>
-  <meta name="twitter:card" content="summary_large_image"/>
-  <meta name="twitter:site" content="@LocalKYNews"/>
-  <style>
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:700px;margin:0 auto;padding:16px;color:#111;line-height:1.6;}
-    h1{font-size:1.4rem;margin-bottom:8px;}
-    ul{list-style:none;padding:0;}
-    li{border-bottom:1px solid #eee;padding:12px 0;}
-    li p{font-size:.87rem;color:#555;margin:4px 0 0;}
-    a{color:#1a56db;text-decoration:none;font-weight:600;}
-    footer{margin-top:24px;font-size:.78rem;color:#999;text-align:center;}
-  </style>
-</head>
-<body>
-  <h1>${escapeHtml(sectionMeta.title)}</h1>
-  <p>${escapeHtml(sectionMeta.description)}</p>
-  <ul>${listItems}</ul>
-  <footer>Local KY News · <a href="${baseUrl}" style="color:#999">${baseUrl.replace('https://', '')}</a></footer>
-  <script>window.location.href="${baseUrl}${url.pathname}";</script>
-</body>
-</html>`;
+  // Ensure our SEO metadata is present and not duplicated.
+  baseHtml = baseHtml.replace(/<link rel="canonical"[^>]*>\s*/i, '');
+  baseHtml = baseHtml.replace(/<meta name="description"[^>]*>\s*/i, '');
 
-  return new Response(html, {
-    headers: {
-      'content-type': 'text/html; charset=utf-8',
-      'cache-control': 'public, max-age=300, s-maxage=300',
-    },
+  const metaBlock =
+    `<meta name="description" content="${escapeHtml(sectionMeta.description)}"/>\n` +
+    `<link rel="canonical" href="${canonicalUrl}"/>\n`;
+  baseHtml = baseHtml.replace('</head>', `${metaBlock}</head>`);
+
+  const prerenderBlock =
+    `<div id="seo-prerender" style="display:none">` +
+    `<h1>${escapeHtml(categoryHeading)}</h1>` +
+    `<ul>${listItems}</ul>` +
+    `</div>`;
+  baseHtml = baseHtml.replace('</body>', `${prerenderBlock}</body>`);
+
+  const headers = new Headers(baseResponse.headers);
+  headers.delete('content-length');
+  headers.set('cache-control', 'public, max-age=300, s-maxage=300');
+
+  return new Response(baseHtml, {
+    status: baseResponse.status,
+    headers,
   });
 }
 

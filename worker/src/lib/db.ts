@@ -185,6 +185,63 @@ export async function getLatestArticlesForLlms(env: Env, limit = 200): Promise<L
   return rows.results ?? [];
 }
 
+interface TopArticlesRow {
+  id: number;
+  title: string;
+  slug: string | null;
+  county: string | null;
+  summary: string;
+  published_at: string | null;
+  image_url: string | null;
+  category: string;
+  is_national: number;
+}
+
+export async function getTopArticlesByCategory(env: Env, category: string, limit = 10): Promise<TopArticlesRow[]> {
+  const safeLimit = Math.min(Math.max(Math.floor(limit || 0), 1), 200);
+  const nowIso = new Date().toISOString();
+  const where: string[] = ['published_at <= ?'];
+  const binds: unknown[] = [nowIso];
+
+  if (category === 'national') {
+    const supportsIsNational = await columnExists(env, 'articles', 'is_national');
+    if (supportsIsNational) {
+      where.push('((category = ?) OR (is_national = 1))');
+      binds.push('national');
+    } else {
+      where.push('category = ?');
+      binds.push('national');
+    }
+  } else if (category === 'weather') {
+    const supportsIsNational = await columnExists(env, 'articles', 'is_national');
+    if (supportsIsNational) {
+      where.push('((is_kentucky = 1 AND category = ?) OR (is_national = 1 AND category = ?))');
+      binds.push('weather', 'weather');
+    } else {
+      where.push('category = ?');
+      binds.push('weather');
+    }
+  } else if (category === 'sports' || category === 'schools' || category === 'obituaries') {
+    where.push('category = ?');
+    binds.push(category);
+    where.push('is_kentucky = 1');
+  } else {
+    where.push('category = ?');
+    binds.push(category);
+  }
+
+  const query = `
+    SELECT id, title, slug, county, summary, published_at, image_url, category, is_national
+    FROM articles
+    WHERE ${where.join(' AND ')}
+    ORDER BY published_at DESC, id DESC
+    LIMIT ?
+  `;
+
+  const rows = await prepare(env, query).bind(...binds, safeLimit).all<TopArticlesRow>();
+  return rows.results ?? [];
+}
+
 export async function getArticleById(env: Env, id: number): Promise<ArticleRecord | null> {
   const result = await prepare(env, `SELECT * FROM articles WHERE id = ? LIMIT 1`)
     .bind(id)
