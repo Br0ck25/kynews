@@ -37,6 +37,23 @@ export type SpcProductType =
   | 'fire_weather'
   | 'other';
 
+/**
+ * Derive a fallback image URL for SPC convective outlook links.
+ * Day 1/2/3 convective outlooks typically have well-known GIF names.
+ */
+function deriveOutlookImageUrl(link: string, day: number): string {
+  const base = 'https://www.spc.noaa.gov/products/outlook';
+  if (!link) return SPC_DAY1_RISK_MAP;
+
+  const lc = link.toLowerCase();
+  if (lc.includes('day1otlk')) return `${base}/day1otlk.gif`;
+  if (lc.includes('day2otlk')) return `${base}/day2otlk.gif`;
+  if (lc.includes('day3otlk')) return `${base}/day3otlk.gif`;
+
+  // Fall back to the common pattern of replacing .html with .gif
+  return link.replace(/\.html?$/i, '.gif');
+}
+
 export interface SpcItem {
   /** Human-readable title from the RSS feed */
   title: string;
@@ -768,8 +785,8 @@ export function parseSpcOutlooks(xml: string): SpcOutlook[] {
     // Extract clean text and the embedded image URL from the HTML description
     const { text: preText, embeddedImageUrl } = extractSpcDescText(c.rawDesc);
 
-    // Prefer the image that SPC embeds directly in the RSS; fall back to link derivation
-    const imageUrl = embeddedImageUrl ?? (c.link ? c.link.replace(/\.html?$/, '.png') : '');
+    // Prefer the image that SPC embeds directly in the RSS; fall back to stable outlook GIF patterns
+    const imageUrl = embeddedImageUrl ?? deriveOutlookImageUrl(c.link, c.day);
 
     const dayLabel = ['First', 'Second', 'Third'][c.day - 1];
     const { description, segments } = buildSpcArticleBody(preText, dayLabel);

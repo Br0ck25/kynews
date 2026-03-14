@@ -374,7 +374,7 @@ export default function KYWeatherHub() {
                         </div>
                         {/* Outlook map image */}
                         {outlook.imageUrl && (
-                          <div style={{ background: "#000", textAlign: "center" }}>
+                          <div style={{ background: "#fff", textAlign: "center" }}>
                             <img
                               src={outlook.imageUrl}
                               alt={`SPC Day ${outlook.day} Convective Outlook map`}
