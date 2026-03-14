@@ -2413,15 +2413,22 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         };
 
         // Build article body so Googlebot can index the actual text content
-        const botSummaryParagraphs = (article.summary || '')
+        const botParas = (article.summary || '')
           .split(/\n\n+/)
           .map((p: string) => {
             const t = p.trim();
             if (t.startsWith('<h2>') || t.startsWith('<h3>')) return t;
             return `<p>${escapeHtml(t)}</p>`;
           })
-          .filter((p: string) => p.length > 10)
-          .join('\n');
+          .filter((p: string) => p.length > 10);
+        let firstPDone = false;
+        const botSummaryParagraphs = botParas.map((p: string) => {
+          if (!firstPDone && p.startsWith('<p>')) {
+            firstPDone = true;
+            return `<p class="article-summary">${p.slice(3)}`;
+          }
+          return p;
+        }).join('\n');
         const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
         const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
         const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
@@ -2450,7 +2457,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
     ${botCategoryLabel ? `<span>${escapeHtml(botCategoryLabel)}</span>` : ''}
     ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
   </div>
-  ${botSummaryParagraphs || `<p>${escapeHtml(desc)}</p>`}
+  ${botSummaryParagraphs || `<p class="article-summary">${escapeHtml(article.seoDescription || article.title)}</p>`}
   ${botRelatedHtml}
   <a class="source" href="${escapeHtml(article.canonicalUrl)}" rel="noopener">Read full article at source →</a>
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>
@@ -2792,15 +2799,22 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
         metas.push(`<meta property="article:published_time" content="${escapeHtml(article.publishedAt)}"/>`);
         metas.push(`<meta property="article:modified_time" content="${escapeHtml(article.updatedAt || article.publishedAt)}"/>`);
         // Build article body so Googlebot can index the actual text content
-        const botSummaryParagraphs = (article.summary || '')
+        const botParas = (article.summary || '')
           .split(/\n\n+/)
           .map((p: string) => {
             const t = p.trim();
             if (t.startsWith('<h2>') || t.startsWith('<h3>')) return t;
             return `<p>${escapeHtml(t)}</p>`;
           })
-          .filter((p: string) => p.length > 10)
-          .join('\n');
+          .filter((p: string) => p.length > 10);
+        let firstPDone = false;
+        const botSummaryParagraphs = botParas.map((p: string) => {
+          if (!firstPDone && p.startsWith('<p>')) {
+            firstPDone = true;
+            return `<p class="article-summary">${p.slice(3)}`;
+          }
+          return p;
+        }).join('\n');
         const botRelatedHtml = await buildRelatedCountyArticlesHtml(env, article);
         const botCountyLabel = article.county ? `${article.county} County` : (article.isKentucky ? 'Kentucky' : '');
         const botCategoryLabel = article.category ? article.category.charAt(0).toUpperCase() + article.category.slice(1) : '';
@@ -2829,7 +2843,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
     ${botCategoryLabel ? `<span>${escapeHtml(botCategoryLabel)}</span>` : ''}
     ${article.publishedAt ? `<span>${new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
   </div>
-  ${botSummaryParagraphs || `<p>${escapeHtml(desc)}</p>`}
+  ${botSummaryParagraphs || `<p class="article-summary">${escapeHtml(article.seoDescription || article.title)}</p>`}
   ${botRelatedHtml}
   <a class="source" href="${escapeHtml(article.canonicalUrl)}" rel="noopener">Read full article at source →</a>
   <footer>Local KY News · <a href="https://localkynews.com" style="color:#999;">localkynews.com</a></footer>

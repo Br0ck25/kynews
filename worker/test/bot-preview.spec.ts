@@ -97,4 +97,46 @@ describe('bot preview HTML', () => {
 		const text = await resp.text();
 		expect(text).toContain('<meta property="og:image" content="https://example.com/photo.jpg"');
 	});
+
+	it('adds article-summary class to first paragraph when summary is present', async () => {
+		await ensureSchema();
+		const now = new Date().toISOString();
+		await insertArticle([
+			'https://example.com/test-summary',
+			'https://example.com/test-summary',
+			'hash-summary-class',
+			'Test Story With Summary',
+			null,
+			now,
+			'today',
+			1,
+			0,
+			'Fayette',
+			'lexington',
+			'This is the first paragraph of the article summary text here.\n\nThis is the second paragraph of the summary.',
+			'SEO description for summary test',
+			250,
+			50,
+			'Content text here',
+			'<p>Content</p>',
+			null,
+			null,
+			null,
+			'test-article-summary',
+			null,
+		]);
+
+		const resp = await SELF.fetch(
+			'https://example.com/news/kentucky/fayette-county/test-article-summary',
+			{
+				headers: {
+					'User-Agent':
+						'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+				},
+			},
+		);
+		expect(resp.status).toBe(200);
+		const text = await resp.text();
+		expect(text).toContain('class="article-summary"');
+	});
 });
