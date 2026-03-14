@@ -148,6 +148,9 @@ async function fetchSpcFeed(
   const items = parseRssItems(xml, feedUrl, productHint);
 
   return items.filter((item) => {
+    // Always include convective outlooks (day 1/2/3) even if they don't mention Kentucky.
+    if (item.productType === 'convective_outlook') return true;
+
     const haystack = `${item.title} ${item.description}`.toLowerCase();
     return KY_FILTER_TERMS.some((term) => haystack.includes(term));
   });
@@ -765,10 +768,10 @@ export async function parseSpcOutlooks(xml: string): Promise<SpcOutlook[]> {
     const pubRaw   = tagValue(block, 'pubDate') ?? '';
     const publishedAt = pubRaw ? new Date(pubRaw).toISOString() : new Date().toISOString();
 
-    // Only convective outlook items for Day 1, 2, or 3
+    // Only Outlook items for Day 1, 2, or 3 (convective, severe thunderstorm, fire weather, etc.)
     const dayMatch = /\bday\s*([123])\b/i.exec(rawTitle);
     if (!dayMatch) continue;
-    if (!/convective\s+outlook/i.test(rawTitle)) continue;
+    if (!/outlook/i.test(rawTitle)) continue;
 
     candidates.push({
       day: parseInt(dayMatch[1], 10) as 1 | 2 | 3,
