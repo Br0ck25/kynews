@@ -359,9 +359,11 @@ export default function KYWeatherHub() {
                             <img
                               src={outlook.imageUrl}
                               alt={`SPC Day ${outlook.day} Convective Outlook map`}
-                              style={{ maxWidth: "100%", maxHeight: 340, objectFit: "contain", display: "block", margin: "0 auto" }}
+                              style={{ maxWidth: "100%", maxHeight: 340, objectFit: "contain", display: "block", margin: "0 auto", cursor: "zoom-in" }}
+                              onClick={() => setLightboxImg({ src: outlook.imageUrl, alt: `SPC Day ${outlook.day} Convective Outlook map` })}
                               onError={(e) => { e.target.style.display = "none"; }}
                             />
+                            <div style={{ fontSize: 11, color: "#aaa", padding: "4px 0 6px", fontStyle: "italic" }}>— click to enlarge</div>
                           </div>
                         )}
                         {/* Article body */}
