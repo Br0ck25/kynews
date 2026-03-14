@@ -2195,6 +2195,11 @@ if (countyHubMatch && request.method === 'GET') {
 </head><body>
 <main>
   <h1>${escapeHtml(`${countyDisplay}, KY — Local News & Community Information`)}</h1>
+  <section class="county-intro">
+    <p>${escapeHtml(countyDisplay)} County is located in [region] Kentucky, a place defined by small towns, rural landscapes, and a strong sense of community. The county is home to a mix of farming families, local businesses, and public servants who work together to keep daily life running smoothly. While each town within the county has its own character, they share common interests in school activities, county government, public safety, and outdoor recreation. Over the years, the county has seen its fair share of change, but it still holds onto traditions like community fairs, high school sports rivalries, and town hall meetings that draw neighbors together.</p>
+    <p>Residents of ${escapeHtml(countyDisplay)} County rely on Local KY News for coverage of local government, school board decisions, sports, weather alerts, and community events.</p>
+    <p>The county seat is [seat]. Major topics covered include the ${escapeHtml(countyDisplay)} County school district, county court proceedings, local elections, and emergency services.</p>
+  </section>
   <p>${escapeHtml(bodyDescription)}</p>
   ${recentListHtml}
   <section>

@@ -105,7 +105,7 @@ Your summary must never:
 - Repeat, restate, or begin with the article title. Start directly with the first sentence of your summary.
 - End mid-sentence under any circumstances. If you are approaching the
   word limit, finish the current sentence and stop cleanly.
-- Output bolded titles or formatting other than the required "Key points:" list and the optional `##` headings described above.
+- Output bolded titles or formatting other than the required "Key points:" list and the optional \`##\` headings described above.
 - Output text as one unbroken paragraph. Use blank lines (\n\n) between every 2–3 sentences.
 - Include copyright notices, bylines, legal text, or publication footers.
 - Include any "click here" text, "read more" links, or URLs of any kind.
