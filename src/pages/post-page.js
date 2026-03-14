@@ -86,6 +86,92 @@ function getRobotsContent(wordCount) {
   return "index,follow";
 }
 
+const DESCRIPTION_MIN_LENGTH = 50;
+const DESCRIPTION_MAX_LENGTH = 155;
+
+function decodeHtmlEntities(input) {
+  if (!input) return "";
+  const withNamedEntities = input
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, "/")
+    .replace(/&#x3D;/g, "=");
+
+  return withNamedEntities
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/&#([0-9]+);/g, (_, num) => {
+      const code = parseInt(num, 10);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    });
+}
+
+function stripHtmlTags(input) {
+  return (input || "").replace(/<[^>]*>/g, " ");
+}
+
+function trimLeadingSentenceFragment(text) {
+  const trimmed = (text || "").trim();
+  if (!trimmed) return trimmed;
+
+  const firstLetterMatch = trimmed.match(/[A-Za-z]/);
+  if (!firstLetterMatch) return trimmed;
+  const idx = firstLetterMatch.index ?? 0;
+  const firstLetter = trimmed[idx];
+  if (firstLetter && firstLetter === firstLetter.toUpperCase()) return trimmed;
+
+  const boundaryRegex = /[.!?](?:["')\]]+)?\s+/g;
+  let match;
+  while ((match = boundaryRegex.exec(trimmed))) {
+    if (match.index >= idx) {
+      return trimmed.slice(match.index + match[0].length).trim();
+    }
+  }
+  return trimmed;
+}
+
+function truncateAtWordBoundary(text, maxLength) {
+  if (!text || text.length <= maxLength) return text;
+  const sliced = text.slice(0, maxLength);
+  const lastSpace = sliced.lastIndexOf(" ");
+  const truncated = lastSpace > 0 ? sliced.slice(0, lastSpace) : sliced;
+  return `${truncated.trim()}...`;
+}
+
+function formatCountyLabel(county) {
+  if (!county) return "Kentucky";
+  const trimmed = county.trim();
+  return /county$/i.test(trimmed) ? trimmed : `${trimmed} County`;
+}
+
+function buildShortDescription(shortDesc) {
+  let text = decodeHtmlEntities(stripHtmlTags(shortDesc || ""));
+  text = text.replace(/\s+/g, " ").trim();
+  text = trimLeadingSentenceFragment(text);
+  text = text.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return truncateAtWordBoundary(text, DESCRIPTION_MAX_LENGTH);
+}
+
+function buildMetaDescription(post) {
+  const seoDescription = (post?.seoDescription || "").trim();
+  if (seoDescription) return seoDescription;
+
+  const shortDesc = buildShortDescription(post?.shortDesc || "");
+  if (shortDesc && shortDesc.length >= DESCRIPTION_MIN_LENGTH) return shortDesc;
+
+  const countyLabel = formatCountyLabel(post?.county);
+  const title = (post?.title || "Local KY News").trim() || "Local KY News";
+  return `${countyLabel}, KY — ${title} | Local KY News`;
+}
+
 export default function PostPage() {
   const classes = useStyles();
   const location = useLocation();
@@ -148,8 +234,7 @@ export default function PostPage() {
     document.title = pageTitle;
 
     // Meta description
-    const desc = post.seoDescription || post.shortDesc || "";
-    const cleanDesc = desc.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+    const cleanDesc = buildMetaDescription(post);
     setMeta("name", "description", cleanDesc);
 
     // Canonical (self-referencing — section 5.2)
