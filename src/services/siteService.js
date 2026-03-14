@@ -880,4 +880,18 @@ export default class SiteService {
       })
       .catch((err) => err);
   }
+
+  /**
+   * Fetch Day 1/2/3 SPC convective outlook articles for the weather page.
+   * Returns { outlooks: SpcOutlook[] } where each outlook has:
+   *   day, title, description, body, link, imageUrl, publishedAt
+   */
+  async getSpcOutlooks() {
+    try {
+      const data = await this.request("/api/spc-outlooks");
+      return Array.isArray(data?.outlooks) ? data.outlooks : [];
+    } catch {
+      return [];
+    }
+  }
 }

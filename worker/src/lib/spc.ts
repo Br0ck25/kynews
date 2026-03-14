@@ -523,3 +523,130 @@ export async function processSpcFeed(
 
   return { published, skipped };
 }
+
+// ─── Public outlook article helpers ──────────────────────────────────────────
+
+/**
+ * Shape returned by parseSpcOutlooks() for display on the weather page.
+ */
+export interface SpcOutlook {
+  day: 1 | 2 | 3;
+  title: string;
+  description: string;
+  body: string;
+  link: string;
+  imageUrl: string;
+  publishedAt: string;
+}
+
+/**
+ * Convert a mostly-uppercase NWS/SPC text block to readable sentence case.
+ * Leaves text that is already mixed-case untouched.
+ */
+export function toArticleCase(text: string): string {
+  if (!text) return text;
+  const letters = text.replace(/[^a-zA-Z]/g, '');
+  if (!letters.length) return text;
+  // Count letters that are uppercase (ignoring digits/symbols)
+  const upperCount = letters
+    .split('')
+    .filter((c) => c >= 'A' && c <= 'Z').length;
+  // Only transform if >60 % of letter characters are uppercase
+  if (upperCount / letters.length < 0.6) return text;
+
+  return text
+    .toLowerCase()
+    // Capitalise the first letter of each sentence
+    .replace(/(^|[.!?]\s+)([a-z])/g, (_, lead, char) => lead + char.toUpperCase())
+    // Standalone "I"
+    .replace(/\bi\b/g, 'I')
+    // Common proper nouns / acronyms that should stay upper
+    .replace(/\bkentucky\b/gi, 'Kentucky')
+    .replace(/\bnational weather service\b/gi, 'National Weather Service')
+    .replace(/\bstorm prediction center\b/gi, 'Storm Prediction Center')
+    .replace(/\bnws\b/gi, 'NWS')
+    .replace(/\bspc\b/gi, 'SPC')
+    .replace(/\bef[0-5]\b/gi, (m) => m.toUpperCase())
+    .replace(/\b(mph|knots|mb|hpa|utc|est|cst|edt|cdt|am|pm)\b/gi, (m) =>
+      m.toUpperCase(),
+    );
+}
+
+/**
+ * Parse an SPC spcrss.xml document and return the most-recent Day 1, 2, and 3
+ * convective outlook items as display-ready article objects.
+ *
+ * Image URL is derived directly from the product link (`.html` → `.png`) to
+ * match the outlook map images the SPC publishes alongside each product.
+ */
+export function parseSpcOutlooks(xml: string): SpcOutlook[] {
+  const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
+  let match: RegExpExecArray | null;
+  const candidates: Array<{
+    day: 1 | 2 | 3;
+    rawTitle: string;
+    rawDesc: string;
+    link: string;
+    publishedAt: string;
+  }> = [];
+
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const block = match[1];
+    const rawTitle = decodeXml(tagValue(block, 'title') ?? '').trim();
+    const rawDesc  = decodeXml(tagValue(block, 'description') ?? '').trim();
+    const link     = decodeXml(tagValue(block, 'link') ?? '').trim();
+    const pubRaw   = tagValue(block, 'pubDate') ?? '';
+    const publishedAt = pubRaw ? new Date(pubRaw).toISOString() : new Date().toISOString();
+
+    // Only convective outlook items for Day 1, 2, or 3
+    const dayMatch = /\bday\s*([123])\b/i.exec(rawTitle);
+    if (!dayMatch) continue;
+    if (!/convective\s+outlook/i.test(rawTitle)) continue;
+
+    candidates.push({
+      day: parseInt(dayMatch[1], 10) as 1 | 2 | 3,
+      rawTitle,
+      rawDesc,
+      link,
+      publishedAt,
+    });
+  }
+
+  // Keep the most-recent item per day
+  const byDay = new Map<number, (typeof candidates)[0]>();
+  for (const c of candidates) {
+    const existing = byDay.get(c.day);
+    if (!existing || new Date(c.publishedAt) > new Date(existing.publishedAt)) {
+      byDay.set(c.day, c);
+    }
+  }
+
+  const outlooks: SpcOutlook[] = [];
+  for (const day of [1, 2, 3] as const) {
+    const c = byDay.get(day);
+    if (!c) continue;
+
+    // Strip the "Issued: HHMM UTC Www Mon DD YYYY" timestamp from the title
+    const cleanTitle = c.rawTitle
+      .replace(/\s+Issued:.*$/i, '')
+      .replace(/^\s*SPC\s+/i, '')
+      .trim() || `Day ${day} Convective Outlook`;
+
+    // Derive image URL: .html → .png  (matches the outlook map published by SPC)
+    const imageUrl = c.link ? c.link.replace(/\.html?$/, '.png') : '';
+
+    const description = toArticleCase(c.rawDesc);
+
+    // Build a brief readable article body
+    const dayLabel = ['First', 'Second', 'Third'][day - 1];
+    const body = [
+      `The Storm Prediction Center has issued the ${dayLabel}-Day Convective Outlook for the contiguous United States, including Kentucky.`,
+      description || 'Severe weather potential exists across portions of the region. Residents should monitor local forecasts and stay weather-aware.',
+      'Kentucky residents should follow local National Weather Service offices for area-specific guidance. Have multiple ways to receive weather warnings and know your action plan.',
+    ].join('\n\n');
+
+    outlooks.push({ day, title: cleanTitle, description, body, link: c.link, imageUrl, publishedAt: c.publishedAt });
+  }
+
+  return outlooks;
+}

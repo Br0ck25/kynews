@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useTheme, fade } from "@material-ui/core/styles";
 import { Typography, Grid } from "@material-ui/core";
 import CategoryFeedPage from "../pages/category-feed-page";
+import SiteService from "../services/siteService";
 
 const KY_COUNTIES = [
   { name: "McCracken (Paducah)", lat: 37.0834, lon: -88.6001 },
@@ -67,6 +68,8 @@ export default function KYWeatherHub() {
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [time, setTime] = useState(new Date());
   const [activeTab, setActiveTab] = useState("forecast");
+  const [outlooks, setOutlooks] = useState([]);
+  const [outlooksLoading, setOutlooksLoading] = useState(true);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -107,6 +110,14 @@ export default function KYWeatherHub() {
 
   useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
   useEffect(() => { fetchWeather(selectedCounty); }, [selectedCounty, fetchWeather]);
+
+  useEffect(() => {
+    const svc = new SiteService();
+    svc.getSpcOutlooks().then((data) => {
+      setOutlooks(data);
+      setOutlooksLoading(false);
+    }).catch(() => setOutlooksLoading(false));
+  }, []);
 
   const tempC = currentObs?.temperature?.value;
   const tempF = tempC != null ? Math.round(tempC * 9 / 5 + 32) : null;
@@ -199,7 +210,7 @@ export default function KYWeatherHub() {
 
         {/* Tabs */}
         <div className="weather-tabs" style={{ display: "flex", gap: 4, marginBottom: 0 }}>
-          {[{ id: "forecast", label: "📅 7-Day Forecast" }, { id: "alerts", label: `🚨 Alerts (${alerts.length})` }, { id: "radar", label: "🗺️ Live Radar" }].map(tab => (
+          {[{ id: "forecast", label: "📅 7-Day Forecast" }, { id: "outlooks", label: "🌩️ SPC Outlooks" }, { id: "alerts", label: `🚨 Alerts (${alerts.length})` }, { id: "radar", label: "🗺️ Live Radar" }].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               padding: "9px 16px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: 12,
               border: "1px solid #1e3a5f",
@@ -263,6 +274,60 @@ export default function KYWeatherHub() {
                         </div>
                       );
                     })}
+                  </div>
+          )}
+
+          {/* SPC Outlooks Tab */}
+          {activeTab === "outlooks" && (
+            outlooksLoading
+              ? <div style={{ textAlign: "center", color: primary, padding: 40 }}>⏳ Loading SPC outlooks...</div>
+              : outlooks.length === 0
+                ? <div style={{ textAlign: "center", padding: 40, color: theme.palette.text.secondary }}>SPC outlook data is currently unavailable. Check back shortly.</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+                    <div style={{ fontSize: 12, color: theme.palette.text.secondary, marginBottom: 4 }}>
+                      Storm Prediction Center convective outlooks for the United States, including Kentucky. Issued daily by NOAA/SPC.
+                    </div>
+                    {outlooks.map((outlook) => (
+                      <div key={outlook.day} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${divider}`, borderRadius: 14, overflow: "hidden" }}>
+                        {/* Article header */}
+                        <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${divider}` }}>
+                          <span style={{ display: "inline-block", background: "#1565c0", color: "#fff", fontSize: 10, fontWeight: "bold", letterSpacing: 1, textTransform: "uppercase", padding: "2px 9px", borderRadius: 10, marginBottom: 8 }}>
+                            Day {outlook.day} Outlook
+                          </span>
+                          <div style={{ fontSize: 17, fontWeight: "bold", color: textColor, lineHeight: 1.3, fontFamily: "Georgia, serif" }}>
+                            {outlook.title}
+                          </div>
+                          <div style={{ fontSize: 11, color: theme.palette.text.secondary, marginTop: 4 }}>
+                            Storm Prediction Center · {new Date(outlook.publishedAt).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                          </div>
+                        </div>
+                        {/* Outlook map image */}
+                        {outlook.imageUrl && (
+                          <div style={{ background: "#000", textAlign: "center" }}>
+                            <img
+                              src={outlook.imageUrl}
+                              alt={`SPC Day ${outlook.day} Convective Outlook map`}
+                              style={{ maxWidth: "100%", maxHeight: 340, objectFit: "contain", display: "block", margin: "0 auto" }}
+                              onError={(e) => { e.target.style.display = "none"; }}
+                            />
+                          </div>
+                        )}
+                        {/* Article body */}
+                        <div style={{ padding: "14px 18px 18px" }}>
+                          {outlook.body.split("\n\n").map((para, i) => (
+                            <p key={i} style={{ margin: "0 0 12px", fontSize: 14, color: textColor, lineHeight: 1.7 }}>{para}</p>
+                          ))}
+                          <a
+                            href={outlook.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: "inline-block", marginTop: 4, fontSize: 12, color: primary, textDecoration: "none", border: `1px solid ${primary}`, borderRadius: 6, padding: "5px 14px" }}
+                          >
+                            Read Full Outlook on SPC →
+                          </a>
+                        </div>
+                      </div>
+                    ))}
                   </div>
           )}
 

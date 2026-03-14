@@ -61,7 +61,7 @@ import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
 import { processNwsAlerts, processNwsProducts } from './lib/nws';
-import { processSpcFeed } from './lib/spc';
+import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
 import { isSearchBot } from './lib/isSearchBot';
 
@@ -1814,6 +1814,24 @@ if (url.pathname === '/api/admin/spc/run' && request.method === 'POST') {
 		return json({ ok: true, ...result });
 	} catch (err: any) {
 		return json({ error: String(err) }, 500);
+	}
+}
+
+// GET /api/spc-outlooks — public: return Day 1/2/3 SPC convective outlook articles for the weather page
+if (url.pathname === '/api/spc-outlooks' && request.method === 'GET') {
+	try {
+		const res = await fetch('https://www.spc.noaa.gov/products/spcrss.xml', {
+			headers: {
+				'User-Agent': 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)',
+				Accept: 'application/rss+xml, application/xml',
+			},
+		});
+		if (!res.ok) return json({ outlooks: [] });
+		const xml = await res.text();
+		const outlooks = parseSpcOutlooks(xml);
+		return json({ outlooks }, 200, { 'Cache-Control': 'public, max-age=900, s-maxage=900' });
+	} catch {
+		return json({ outlooks: [] });
 	}
 }
 
