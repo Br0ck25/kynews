@@ -2597,6 +2597,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 </html>`;
 
           const eventDate = extractEventDateFromContent(article.contentText, article.publishedAt);
+          const toEventDateTime = (d: string) =>
+            /T\d{2}:\d{2}/.test(d) ? d : `${d}T00:00:00-05:00`;
           const eventSchema =
             (eventDate && (article.category === 'events' || article.category === 'sports'))
               ? {
@@ -2605,8 +2607,8 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
                   name: article.title,
                   description: desc,
                   url: pageUrl,
-                  startDate: eventDate,
-                  endDate: eventDate,
+                  startDate: toEventDateTime(eventDate),
+                  endDate: toEventDateTime(eventDate),
                   location: article.county
                     ? {
                         "@type": "Place",
