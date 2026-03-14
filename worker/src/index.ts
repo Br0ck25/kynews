@@ -77,6 +77,38 @@ function getRobotsContent(wordCount: number | null | undefined): string {
 	return 'index,follow';
 }
 
+/**
+ * Derive a sourceOrganization object for JSON-LD from an article's canonicalUrl.
+ * Strips www., removes the TLD, splits on hyphens/dots, and title-cases each
+ * word to produce a human-readable organization name.
+ */
+function deriveSourceOrganization(canonicalUrl: string): {
+	'@type': string;
+	name: string;
+	url: string;
+} {
+	try {
+		const hostname = new URL(canonicalUrl).hostname.replace(/^www\./, '');
+		const withoutTld = hostname.replace(/\.[^.]+$/, '');
+		const name = withoutTld
+			.split(/[-.]/ )
+			.filter(Boolean)
+			.map(w => w.charAt(0).toUpperCase() + w.slice(1))
+			.join(' ');
+		return {
+			'@type': 'NewsMediaOrganization',
+			name: name || hostname,
+			url: `https://${hostname}`,
+		};
+	} catch {
+		return {
+			'@type': 'NewsMediaOrganization',
+			name: 'Local Kentucky News Source',
+			url: 'https://localkynews.com',
+		};
+	}
+}
+
 const INGEST_METRICS_KEY = 'admin:ingest:latest';
 const INGEST_ROTATION_KEY_PREFIX = 'admin:ingest:rotation:';
 const FALLBACK_CRAWL_MAX_LINKS = 12;
@@ -2241,6 +2273,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
               "@type": "SpeakableSpecification",
               cssSelector: ["h1", ".article-summary"],
             },
+            sourceOrganization: deriveSourceOrganization(article.canonicalUrl),
           };
           const countyUrl = article.county
             ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`
@@ -2394,6 +2427,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             "@type": "SpeakableSpecification",
             cssSelector: ["h1", ".article-summary"],
           },
+          sourceOrganization: deriveSourceOrganization(article.canonicalUrl),
         };
         const countyUrl = article.county
           ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`
@@ -2599,6 +2633,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             "@type": "SpeakableSpecification",
             cssSelector: ["h1", ".article-summary"],
           },
+          sourceOrganization: deriveSourceOrganization(article.canonicalUrl),
         };
         const countyUrl = article.county
           ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`
@@ -2759,6 +2794,7 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
             "@type": "SpeakableSpecification",
             cssSelector: ["h1", ".article-summary"],
           },
+          sourceOrganization: deriveSourceOrganization(article.canonicalUrl),
         };
         const countyUrl = article.county
           ? `https://localkynews.com/news/kentucky/${article.county.toLowerCase().replace(/\s+/g, "-")}-county`

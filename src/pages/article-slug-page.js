@@ -329,6 +329,15 @@ export default function ArticleSlugPage() {
         }
       })();
 
+    const publisherUrl = (() => {
+      try {
+        const hostname = new URL(post.canonicalUrl || post.originalLink || "").hostname.replace(/^www\./, "");
+        return hostname ? `https://${hostname}` : "https://localkynews.com";
+      } catch {
+        return "https://localkynews.com";
+      }
+    })();
+
     const newsArticleSchema = {
       "@context": "https://schema.org",
       "@type": "NewsArticle",
@@ -353,8 +362,9 @@ export default function ArticleSlugPage() {
         },
       },
       sourceOrganization: {
-        "@type": "Organization",
+        "@type": "NewsMediaOrganization",
         name: publisherName,
+        url: publisherUrl,
       },
       image: imageObject,
       ...(post.county

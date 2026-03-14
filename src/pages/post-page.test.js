@@ -57,6 +57,7 @@ describe('PostPage metadata', () => {
       expect(json).toContain('"SpeakableSpecification"');
       const parsed = JSON.parse(json);
       expect(parsed.speakable.cssSelector).toEqual(['h1', '.article-summary']);
+      expect(parsed.sourceOrganization.url).toBeDefined();
     });
   });
 
