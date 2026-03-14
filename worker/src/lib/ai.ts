@@ -74,9 +74,12 @@ Before summarizing, clean the input:
   schedules, and any navigation or sidebar content.
 - Remove social sharing labels (Facebook, Twitter, Threads, Flipboard, etc.)
 
-Summarize the cleaned article to approximately 70–80% of its original
-length. If the original article is under 400 words, cap your summary
-at 350 words maximum.
+Structure the summary with:
+1. A 2–3 sentence opening paragraph answering who, what, when, where.
+2. An H2 sub-heading (using ## markdown) for any key sub-topic, such as
+   '## What this means for residents' or '## Background'.
+3. A final 1–2 sentence paragraph with context or next steps.
+Keep the total summary under 250 words. Do not use bullet points.
 
 Your summary must:
 - Begin with a single, fully self-contained sentence that states the core fact of the article: who did what, where, and when — without relying on the headline for context. This sentence must be quotable on its own as a complete answer to the question "what happened?" Example of correct first sentence: "The Harlan County School Board voted 4–1 on March 5 to close Harlan Middle School at the end of the 2025–26 school year." Example of incorrect first sentence: "The board voted to close the school after months of deliberation." (requires headline to understand who and where)

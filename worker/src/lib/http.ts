@@ -116,7 +116,7 @@ export function normalizeCanonicalUrl(input: string): string {
 }
 
 export function wordCount(input: string): number {
-  const normalized = input.trim();
+  const normalized = input.trim().replace(/^#+\s*/gm, '');
   if (!normalized) return 0;
   return normalized.split(/\s+/u).filter(Boolean).length;
 }

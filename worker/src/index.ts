@@ -2458,7 +2458,14 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           .split(/\n\n+/)
           .map((p: string) => {
             const t = p.trim();
+            // Pass through already-rendered heading HTML
             if (t.startsWith('<h2>') || t.startsWith('<h3>')) return t;
+            // Convert ## markdown headings to <h2>
+            const h2Match = t.match(/^##\s+(.+)$/);
+            if (h2Match) return `<h2>${escapeHtml(h2Match[1].trim())}</h2>`;
+            // Convert standalone **Bold:** blocks to <h3>
+            const h3Match = t.match(/^\*\*(.+?)\*\*:?$/);
+            if (h3Match) return `<h3>${escapeHtml(h3Match[1].trim())}</h3>`;
             return `<p>${escapeHtml(t)}</p>`;
           })
           .filter((p: string) => p.length > 10);
@@ -2858,7 +2865,14 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           .split(/\n\n+/)
           .map((p: string) => {
             const t = p.trim();
+            // Pass through already-rendered heading HTML
             if (t.startsWith('<h2>') || t.startsWith('<h3>')) return t;
+            // Convert ## markdown headings to <h2>
+            const h2Match = t.match(/^##\s+(.+)$/);
+            if (h2Match) return `<h2>${escapeHtml(h2Match[1].trim())}</h2>`;
+            // Convert standalone **Bold:** blocks to <h3>
+            const h3Match = t.match(/^\*\*(.+?)\*\*:?$/);
+            if (h3Match) return `<h3>${escapeHtml(h3Match[1].trim())}</h3>`;
             return `<p>${escapeHtml(t)}</p>`;
           })
           .filter((p: string) => p.length > 10);

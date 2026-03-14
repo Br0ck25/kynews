@@ -139,4 +139,47 @@ describe('bot preview HTML', () => {
 		const text = await resp.text();
 		expect(text).toContain('class="article-summary"');
 	});
+
+	it('renders ## markdown heading as <h2> in bot HTML output', async () => {
+		await ensureSchema();
+		const now = new Date().toISOString();
+		await insertArticle([
+			'https://example.com/test-heading',
+			'https://example.com/test-heading',
+			'hash-heading-h2',
+			'Test Story With Heading',
+			null,
+			now,
+			'today',
+			1,
+			0,
+			'Fayette',
+			'lexington',
+			'First paragraph introduces the story.\n\n## Key details\n\nSecond paragraph provides the details.',
+			'SEO description for heading test',
+			250,
+			50,
+			'Content text here',
+			'<p>Content</p>',
+			null,
+			null,
+			null,
+			'test-article-heading',
+			null,
+		]);
+
+		const resp = await SELF.fetch(
+			'https://example.com/news/kentucky/fayette-county/test-article-heading',
+			{
+				headers: {
+					'User-Agent':
+						'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+				},
+			},
+		);
+		expect(resp.status).toBe(200);
+		const text = await resp.text();
+		expect(text).toContain('<h2>Key details</h2>');
+		expect(text).not.toContain('## Key details');
+	});
 });
