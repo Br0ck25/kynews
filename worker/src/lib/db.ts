@@ -662,6 +662,7 @@ export async function getArticlesByCounty(
   county: string | null;
   category: Category;
   isNational: boolean;
+  publishedAt: string;
 }>> {
   const normalizedCounty = normalizeCountyName(county);
   if (!normalizedCounty) return [];
@@ -688,7 +689,7 @@ export async function getArticlesByCounty(
        LIMIT ?`
     )
     .bind(new Date().toISOString(), normalizedCounty, normalizedCounty, safeLimit)
-    .all<{ id: number; title: string; slug: string; county: string | null; category: Category; is_national: number }>();
+    .all<{ id: number; title: string; slug: string; county: string | null; category: Category; is_national: number; published_at: string }>();
 
   return (rows.results ?? []).map((row) => ({
     id: row.id,
@@ -697,6 +698,7 @@ export async function getArticlesByCounty(
     county: row.county,
     category: row.category,
     isNational: row.is_national === 1,
+    publishedAt: row.published_at,
   }));
 }
 

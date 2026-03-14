@@ -2091,25 +2091,26 @@ return json(
 // `/post*` to the worker (see `worker/wrangler.jsonc`); otherwise crawlers
 // and browsers will receive the static shell with the generic logo image.
 // FIRST: social bot preview support for county hub pages
-const countyPageMatch = url.pathname.match(/^\/news\/kentucky\/([a-z0-9-]+-county)\/?$/i);
-if (countyPageMatch && request.method === 'GET') {
+const countyHubMatch = url.pathname.match(/^\/news\/kentucky\/([a-z-]+)-county\/?$/);
+if (countyHubMatch && request.method === 'GET') {
   const ua = request.headers.get('user-agent') || '';
   const isSocialBot = isSearchBot(ua);
 
   if (isSocialBot) {
-    const countySlug = countyPageMatch[1]; // e.g. "pike-county"
-    const countyDisplay = countySlug
-      .replace(/-county$/, '')
+    const countySlug = countyHubMatch[1]; // e.g. "perry"
+    const countyName = countySlug
       .replace(/-/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase()) + ' County';
+      .replace(/\b\w/g, (c) => c.toUpperCase()); // "Perry"
+    const countyDisplay = `${countyName} County`; // "Perry County"
+    const fullSlug = `${countySlug}-county`; // "perry-county"
 
-    const pageUrl = `${BASE_URL}/news/kentucky/${countySlug}`;
+    const pageUrl = `${BASE_URL}/news/kentucky/${fullSlug}`;
     const title = `${countyDisplay}, KY News — Local KY News`;
     const description = `The latest news from ${countyDisplay}, Kentucky — local government, schools, sports, weather, and community stories from Local KY News.`;
     const image = DEFAULT_OG_IMAGE;
     const bodyDescription = `Local KY News covers government, schools, sports, weather, and community updates from ${countyDisplay}, Kentucky. Browse the latest headlines below and check back often for new stories as they publish.`;
 
-    const recentArticles = await getArticlesByCounty(env, countyDisplay, 5);
+    const recentArticles = await getArticlesByCounty(env, countyDisplay, 10);
     const listItems = recentArticles
       .filter((row) => row && row.slug)
       .map((row) => {
@@ -2121,13 +2122,60 @@ if (countyPageMatch && request.method === 'GET') {
           row.isNational,
           row.id,
         );
-        return `<li><a href="${escapeHtml(href)}">${escapeHtml(row.title)}</a></li>`;
+        const dateStr = row.publishedAt
+          ? new Date(row.publishedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+          : '';
+        return `<li><a href="${escapeHtml(href)}">${escapeHtml(row.title)}</a>${dateStr ? ` <span class="article-date">${escapeHtml(dateStr)}</span>` : ''}</li>`;
       })
       .join('\n');
-    const recentListHtml = `<ul>${listItems}</ul>`;
-    const h1Title = `${countyDisplay}, KY News`;
+    const recentListHtml = `<ul>\n${listItems}\n</ul>`;
+
+    const webPageSchema = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: title,
+      url: pageUrl,
+      description,
+      publisher: {
+        '@type': 'Organization',
+        name: 'Local KY News',
+        url: BASE_URL,
+      },
+    });
+
+    const faqSchema = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: `What is the latest news from ${countyDisplay}, Kentucky?`,
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: `Local KY News covers the latest news from ${countyDisplay}, Kentucky, including local government, schools, sports, weather, and community stories. Visit localkynews.com for up-to-date headlines.`,
+          },
+        },
+        {
+          '@type': 'Question',
+          name: `Where can I find local government news for ${countyDisplay}?`,
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: `Local KY News tracks ${countyDisplay} government news including county commission meetings, fiscal court decisions, and other local government activities. Browse the latest articles above.`,
+          },
+        },
+        {
+          '@type': 'Question',
+          name: `Does Local KY News cover schools in ${countyDisplay}?`,
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: `Yes. Local KY News covers school news from ${countyDisplay}, Kentucky including board meetings, sports results, and school events.`,
+          },
+        },
+      ],
+    });
 
     const html = `<!doctype html><html lang="en-US"><head>
+<meta charset="utf-8"/>
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}"/>
 <meta property="og:type" content="website"/>
@@ -2141,17 +2189,25 @@ if (countyPageMatch && request.method === 'GET') {
 <meta name="twitter:description" content="${escapeHtml(description)}"/>
 <meta name="twitter:image" content="${escapeHtml(image)}"/>
 <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
+<script type="application/ld+json">${webPageSchema}</script>
+<script type="application/ld+json">${faqSchema}</script>
 </head><body>
 <main>
-  <h1>${escapeHtml(h1Title)}</h1>
+  <h1>${escapeHtml(`${countyDisplay}, KY — Local News & Community Information`)}</h1>
   <p>${escapeHtml(bodyDescription)}</p>
   ${recentListHtml}
+  <section>
+    <h2>${escapeHtml(`More news from ${countyDisplay}`)}</h2>
+    <p><a href="${escapeHtml(pageUrl)}">Browse all ${escapeHtml(countyDisplay)} news on Local KY News</a></p>
+  </section>
 </main>
-<script>window.location.href='${pageUrl}';</script>
 </body></html>`;
 
     return new Response(html, {
-      headers: { 'content-type': 'text/html; charset=utf-8' },
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'public, max-age=1800, s-maxage=1800, stale-while-revalidate=86400',
+      },
     });
   }
 }

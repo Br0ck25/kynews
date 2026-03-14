@@ -183,3 +183,76 @@ describe('bot preview HTML', () => {
 		expect(text).not.toContain('## Key details');
 	});
 });
+
+describe('county hub bot page', () => {
+	it('returns text/html with h1, article link, and JSON-LD for a search bot', async () => {
+		await ensureSchema();
+		const now = new Date().toISOString();
+		await insertArticle([
+			'https://example.com/perry-hub-test',
+			'https://example.com/perry-hub-test',
+			'hash-perry-hub-1',
+			'Perry County School Board Approves Budget',
+			null,
+			now,
+			'today',
+			1,
+			0,
+			'Perry',
+			'hazard',
+			'Summary of the Perry County school board meeting.',
+			'SEO description for Perry County school board article.',
+			120,
+			70,
+			'Content text here',
+			'<p>Content text here</p>',
+			null,
+			null,
+			null,
+			'perry-county-school-board-budget',
+			null,
+		]);
+
+		const resp = await SELF.fetch('https://example.com/news/kentucky/perry-county', {
+			headers: {
+				'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+			},
+		});
+
+		expect(resp.status).toBe(200);
+		expect(resp.headers.get('content-type')).toContain('text/html');
+
+		const text = await resp.text();
+		expect(text).toContain('<h1>Perry County, KY — Local News &amp; Community Information</h1>');
+		expect(text).toMatch(/href="https:\/\/localkynews\.com\//);
+		expect(text).toContain('application/ld+json');
+	});
+
+	it('includes cache-control header for 30 minutes', async () => {
+		await ensureSchema();
+
+		const resp = await SELF.fetch('https://example.com/news/kentucky/perry-county', {
+			headers: {
+				'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+			},
+		});
+
+		expect(resp.headers.get('cache-control')).toBe(
+			'public, max-age=1800, s-maxage=1800, stale-while-revalidate=86400',
+		);
+	});
+
+	it('does not return county hub page for a regular browser', async () => {
+		await ensureSchema();
+
+		const resp = await SELF.fetch('https://example.com/news/kentucky/perry-county', {
+			headers: {
+				'User-Agent':
+					'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+			},
+		});
+
+		const text = await resp.text();
+		expect(text).not.toContain('"@type":"FAQPage"');
+	});
+});
