@@ -41,21 +41,42 @@ export type SpcProductType =
  * Derive a fallback image URL for SPC convective outlook links.
  * Day 1/2/3 convective outlooks typically have well-known GIF names.
  */
-function deriveOutlookImageUrl(link: string, day: number): string {
-  const base = 'https://www.spc.noaa.gov/products/outlook';
-  if (!link) return SPC_DAY1_RISK_MAP;
+const imageUrlCache = new Map<string, string>();
 
-  const lc = link.toLowerCase();
-  if (lc.includes('day1otlk')) return `${base}/day1otlk.gif`;
-  if (lc.includes('day2otlk')) return `${base}/day2otlk_1730.png`;
-  if (lc.includes('day3otlk')) return `${base}/day3otlk_1930.png`;
-
-  // Fallback defaults if the product link doesn't match expected patterns.
-  if (day === 1) return `${base}/day1otlk.gif`;
-  if (day === 2) return `${base}/day2otlk_1730.png`;
-  if (day === 3) return `${base}/day3otlk_1930.png`;
-
+async function resolveImageUrl(candidates: string[]): Promise<string> {
+  for (const url of candidates) {
+    if (imageUrlCache.has(url)) return imageUrlCache.get(url)!;
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      if (res.ok) {
+        imageUrlCache.set(url, url);
+        return url;
+      }
+    } catch {
+      // ignore bad URLs
+    }
+  }
   return SPC_DAY1_RISK_MAP;
+}
+
+function deriveOutlookImageUrl(link: string, day: number): string[] {
+  const base = 'https://www.spc.noaa.gov/products/outlook';
+  const candidates: string[] = [];
+
+  // If the RSS link includes a known outlook pattern, prefer that naming.
+  if (link) {
+    const lc = link.toLowerCase();
+    if (lc.includes('day1otlk')) candidates.push(`${base}/day1otlk.gif`);
+    if (lc.includes('day2otlk')) candidates.push(`${base}/day2otlk_1730.png`, `${base}/day2otlk.png`);
+    if (lc.includes('day3otlk')) candidates.push(`${base}/day3otlk_1930.png`, `${base}/day3otlk.png`);
+  }
+
+  // Always include the expected day-specific filenames as fallbacks.
+  if (day === 1) candidates.push(`${base}/day1otlk.gif`);
+  if (day === 2) candidates.push(`${base}/day2otlk_1730.png`, `${base}/day2otlk.png`);
+  if (day === 3) candidates.push(`${base}/day3otlk_1930.png`, `${base}/day3otlk.png`);
+
+  return candidates;
 }
 
 export interface SpcItem {
@@ -725,7 +746,7 @@ function buildSpcArticleBody(
  * Image URL is extracted from the <img> tag embedded in the RSS description (most
  * accurate) with a .html → .png link derivation as a fallback.
  */
-export function parseSpcOutlooks(xml: string): SpcOutlook[] {
+export async function parseSpcOutlooks(xml: string): Promise<SpcOutlook[]> {
   const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
   let match: RegExpExecArray | null;
   const candidates: Array<{
@@ -789,8 +810,8 @@ export function parseSpcOutlooks(xml: string): SpcOutlook[] {
     // Extract clean text and the embedded image URL from the HTML description
     const { text: preText, embeddedImageUrl } = extractSpcDescText(c.rawDesc);
 
-    // Prefer the image that SPC embeds directly in the RSS; fall back to stable outlook GIF patterns
-    const imageUrl = embeddedImageUrl ?? deriveOutlookImageUrl(c.link, c.day);
+    // Prefer the image that SPC embeds directly in the RSS; otherwise resolve from known SPC filename patterns
+    const imageUrl = embeddedImageUrl ?? await resolveImageUrl(deriveOutlookImageUrl(c.link, c.day));
 
     const dayLabel = ['First', 'Second', 'Third'][c.day - 1];
     const { description, segments } = buildSpcArticleBody(preText, dayLabel);
@@ -802,6 +823,7 @@ export function parseSpcOutlooks(xml: string): SpcOutlook[] {
   const existingDays = new Set(outlooks.map((o) => o.day));
   for (const day of [1, 2, 3] as const) {
     if (existingDays.has(day)) continue;
+    const imageUrl = await resolveImageUrl(deriveOutlookImageUrl('', day));
     outlooks.push({
       day,
       title: `Day ${day} Convective Outlook (unavailable)`,
@@ -810,7 +832,7 @@ export function parseSpcOutlooks(xml: string): SpcOutlook[] {
         { type: 'paragraph', text: 'The Storm Prediction Center has not released this outlook yet. Please check back later for the latest convective outlooks.' },
       ],
       link: 'https://www.spc.noaa.gov/products/outlook/',
-      imageUrl: SPC_DAY1_RISK_MAP,
+      imageUrl,
       publishedAt: new Date().toISOString(),
     });
   }

@@ -359,7 +359,7 @@ export default function KYWeatherHub() {
                       Storm Prediction Center convective outlooks for the United States, including Kentucky. Issued daily by NOAA/SPC.
                     </div>
                     {outlooks.map((outlook) => (
-                      <div key={outlook.link} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${divider}`, borderRadius: 14, overflow: "hidden" }}>
+                      <div key={`${outlook.day}-${outlook.link}`} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${divider}`, borderRadius: 14, overflow: "hidden" }}>
                         {/* Article header */}
                         <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${divider}` }}>
                           <span style={{ display: "inline-block", background: "#1565c0", color: "#fff", fontSize: 10, fontWeight: "bold", letterSpacing: 1, textTransform: "uppercase", padding: "2px 9px", borderRadius: 10, marginBottom: 8 }}>

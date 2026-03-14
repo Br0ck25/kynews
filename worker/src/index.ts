@@ -1829,7 +1829,7 @@ if (url.pathname === '/api/spc-outlooks' && request.method === 'GET') {
 		});
 		if (!res.ok) return json({ outlooks: [] });
 		const xml = await res.text();
-		const outlooks = parseSpcOutlooks(xml);
+		const outlooks = await parseSpcOutlooks(xml);
 		return json({ outlooks }, 200, { 'Cache-Control': 'public, max-age=900, s-maxage=900' });
 	} catch {
 		return json({ outlooks: [] });
