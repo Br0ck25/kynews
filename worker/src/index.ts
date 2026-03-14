@@ -1905,6 +1905,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 
 	const body = await parseJsonBody<{
 		title?: string;
+		author?: string;
 		body?: string;
 		imageUrl?: string;
 		sourceUrl?: string;
@@ -1920,6 +1921,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 
 	// extract/enforce trimmed strings for the fields we use repeatedly
 	const title = (body?.title || '').trim();
+	const author = (body?.author || '').trim() || null;
 	const postBody = (body?.body || '').trim();
 	const imageUrl = (body?.imageUrl || '').trim() || null;
 	const sourceUrl = (body?.sourceUrl || '').trim();
@@ -2043,7 +2045,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 		sourceUrl: normalizedSourceUrl || canonicalUrl,
 		urlHash: canonicalHash,
 		title,
-		author: null,
+		author,
 		publishedAt: resolvedPublishedAt,
 		category: classification.category,
 		isKentucky: classification.isKentucky,

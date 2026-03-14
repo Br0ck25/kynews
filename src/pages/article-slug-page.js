@@ -543,7 +543,7 @@ export default function ArticleSlugPage() {
         <CardContent>
           {resolvedPost ? (
             <>
-              <Post post={resolvedPost} />
+              <Post post={resolvedPost} showAuthorByline />
               {!resolvedPost.author && resolvedPost.canonicalUrl && (
                 <p className="source-credit">
                   Via{' '}

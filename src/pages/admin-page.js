@@ -95,6 +95,7 @@ export default function AdminPage() {
   // --- Manual Article Form state ---
   const [fbPostUrl, setFbPostUrl] = useState("");
   const [manualTitle, setManualTitle] = useState("");
+  const [manualAuthor, setManualAuthor] = useState("");
   const [manualBody, setManualBody] = useState("");
   const manualBodyRef = useRef(null);
 
@@ -723,6 +724,7 @@ export default function AdminPage() {
       const result = await service.previewFacebookPost(fbPostUrl.trim());
       if (result?.ok) {
         if (result.title) setManualTitle(result.title);
+        if (result.author) setManualAuthor(result.author);
         if (result.body) setManualBody(result.body);
         if (result.imageUrl) setManualImageUrl(result.imageUrl);
         if (result.publishedAt && !manualPublishedAt)
@@ -757,6 +759,7 @@ export default function AdminPage() {
 
       const result = await service.createManualArticle({
         title: manualTitle.trim(),
+        author: manualAuthor.trim() || null,
         body: bodyToSend,
         imageUrl: manualImageUrl.trim() || null,
         sourceUrl: fbPostUrl.trim() || null,
@@ -782,7 +785,7 @@ export default function AdminPage() {
               result.county ? ' (' + result.county + ')' : ''
             }`
         );
-        setFbPostUrl(""); setManualTitle(""); setManualBody("");
+        setFbPostUrl(""); setManualTitle(""); setManualAuthor(""); setManualBody("");
         setManualImageUrl(""); setManualImageFile(null); setManualCounty(""); setManualCategory(""); setManualIsKentucky(true);
         setManualIsDraft(false); setManualPublishedAt("");
         applyFilter();
@@ -1469,6 +1472,15 @@ export default function AdminPage() {
                 label="Title *"
                 value={manualTitle}
                 onChange={(e) => setManualTitle(e.target.value)}
+                style={{ marginBottom: 12 }}
+              />
+
+              {/* Author (optional) */}
+              <TextField fullWidth variant="outlined" size="small"
+                label="Author (optional)"
+                placeholder="e.g. Jane Smith"
+                value={manualAuthor}
+                onChange={(e) => setManualAuthor(e.target.value)}
                 style={{ marginBottom: 12 }}
               />
 

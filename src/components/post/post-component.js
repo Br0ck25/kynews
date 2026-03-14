@@ -90,7 +90,7 @@ function buildImageAlt(post, countyOverride) {
 
 export default function FeaturedPost(props) {
   const classes = useStyles();
-  const { post } = props;
+  const { post, showAuthorByline } = props;
   const dispatch = useDispatch();
   // determine whether we're rendered inside a Router; __RouterContext is
   // the internal context used by react-router.  When the post is shown via
@@ -280,6 +280,14 @@ export default function FeaturedPost(props) {
         <Typography variant="h5" gutterBottom style={{ padding: 10 }}>
           {post.title}
         </Typography>
+        {showAuthorByline && post.author && (
+          <Typography
+            variant="body2"
+            style={{ padding: "0 10px 4px", color: "#555", fontSize: 13 }}
+          >
+            By {post.author}
+          </Typography>
+        )}
         <Typography
           component="time"
           dateTime={post.publishedAt || post.date}
