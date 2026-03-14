@@ -559,6 +559,55 @@ export async function getCountyCounts(env: Env): Promise<Map<string, number>> {
   return map;
 }
 
+export async function getArticlesByCounty(
+  env: Env,
+  county: string,
+  limit = 5,
+): Promise<Array<{
+  id: number;
+  title: string;
+  slug: string;
+  county: string | null;
+  category: Category;
+  isNational: boolean;
+}>> {
+  const normalizedCounty = normalizeCountyName(county);
+  if (!normalizedCounty) return [];
+  const safeLimit = Math.min(Math.max(Math.floor(limit || 0), 1), 25);
+
+  const supportsIsNational = await columnExists(env, 'articles', 'is_national');
+  const isNationalSelect = supportsIsNational ? 'is_national' : '0 as is_national';
+
+  const rows = await prepare(env,
+      `SELECT id, title, slug, county, category, ${isNationalSelect}, published_at
+       FROM articles
+       WHERE slug IS NOT NULL
+         AND slug != ''
+         AND published_at <= ?
+         AND (
+           EXISTS (
+             SELECT 1 FROM article_counties ac
+             WHERE ac.article_id = articles.id
+               AND ac.county = ?
+           )
+           OR articles.county = ?
+         )
+       ORDER BY published_at DESC, id DESC
+       LIMIT ?`
+    )
+    .bind(new Date().toISOString(), normalizedCounty, normalizedCounty, safeLimit)
+    .all<{ id: number; title: string; slug: string; county: string | null; category: Category; is_national: number }>();
+
+  return (rows.results ?? []).map((row) => ({
+    id: row.id,
+    title: row.title,
+    slug: row.slug,
+    county: row.county,
+    category: row.category,
+    isNational: row.is_national === 1,
+  }));
+}
+
 export async function getArticleCounties(env: Env, articleId: number): Promise<string[]> {
   const rows = await prepare(env, 'SELECT county FROM article_counties WHERE article_id = ? ORDER BY is_primary DESC, id ASC')
     .bind(articleId)

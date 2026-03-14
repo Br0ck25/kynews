@@ -16,6 +16,7 @@ import {
 	updateArticleContent,
 	updateArticleLinks,
 	getCountyCounts,
+	getArticlesByCounty,
 	getArticlesForUpdateCheck,
 	prependUpdateToSummary,
 	updateArticlePrimaryCounty,
@@ -2000,6 +2001,25 @@ if (countyPageMatch && request.method === 'GET') {
     const title = `${countyDisplay}, KY News — Local KY News`;
     const description = `The latest news from ${countyDisplay}, Kentucky — local government, schools, sports, weather, and community stories from Local KY News.`;
     const image = `${BASE_URL}/img/preview.png`;
+    const bodyDescription = `Local KY News covers government, schools, sports, weather, and community updates from ${countyDisplay}, Kentucky. Browse the latest headlines below and check back often for new stories as they publish.`;
+
+    const recentArticles = await getArticlesByCounty(env, countyDisplay, 5);
+    const listItems = recentArticles
+      .filter((row) => row && row.slug)
+      .map((row) => {
+        const href = buildArticleUrl(
+          BASE_URL,
+          row.slug,
+          row.county,
+          row.category,
+          row.isNational,
+          row.id,
+        );
+        return `<li><a href="${escapeHtml(href)}">${escapeHtml(row.title)}</a></li>`;
+      })
+      .join('\n');
+    const recentListHtml = `<ul>${listItems}</ul>`;
+    const h1Title = `${countyDisplay}, KY News`;
 
     const html = `<!doctype html><html lang="en-US"><head>
 <title>${escapeHtml(title)}</title>
@@ -2015,7 +2035,14 @@ if (countyPageMatch && request.method === 'GET') {
 <meta name="twitter:description" content="${escapeHtml(description)}"/>
 <meta name="twitter:image" content="${escapeHtml(image)}"/>
 <link rel="canonical" href="${escapeHtml(pageUrl)}"/>
-</head><body><script>window.location.href='${pageUrl}';</script></body></html>`;
+</head><body>
+<main>
+  <h1>${escapeHtml(h1Title)}</h1>
+  <p>${escapeHtml(bodyDescription)}</p>
+  ${recentListHtml}
+</main>
+<script>window.location.href='${pageUrl}';</script>
+</body></html>`;
 
     return new Response(html, {
       headers: { 'content-type': 'text/html; charset=utf-8' },
