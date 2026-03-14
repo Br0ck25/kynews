@@ -50,6 +50,45 @@ const useStyles = makeStyles({
   },
 });
 
+const ALT_TITLE_MAX = 80;
+const ALT_COUNTY_TITLE_MAX = 60;
+
+function truncateTitleForAlt(title, maxLength) {
+  const clean = String(title || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  if (clean.length <= maxLength) return clean;
+  const sliceLength = Math.max(maxLength - 3, 0);
+  let truncated = clean.slice(0, sliceLength);
+  const lastSpace = truncated.lastIndexOf(" ");
+  if (lastSpace > 20) truncated = truncated.slice(0, lastSpace);
+  return `${truncated.trim()}...`;
+}
+
+function formatCountyForAlt(county) {
+  const trimmed = String(county || "").trim();
+  if (!trimmed) return "";
+  return /county$/i.test(trimmed) ? trimmed : `${trimmed} County`;
+}
+
+function buildImageAlt(post) {
+  const explicitAlt = String(post?.imageAlt || "").trim();
+  if (explicitAlt) return explicitAlt;
+
+  const title = post?.title || "";
+  const countyRaw = post?.county ? String(post.county).split(",")[0].trim() : "";
+  const countyLabel = formatCountyForAlt(countyRaw);
+
+  if (countyLabel) {
+    const titlePart = truncateTitleForAlt(title, ALT_COUNTY_TITLE_MAX);
+    return titlePart
+      ? `News photo from ${countyLabel} — ${titlePart}`
+      : `News photo from ${countyLabel}`;
+  }
+
+  const titlePart = truncateTitleForAlt(title, ALT_TITLE_MAX);
+  return titlePart ? `News photo for: ${titlePart}` : "News photo";
+}
+
 export default function SinglePost(props) {
   const classes = useStyles();
   const { post, showDelete, handleDelete } = props;
@@ -129,7 +168,7 @@ export default function SinglePost(props) {
                 loading="lazy" defers off-screen images to reduce initial payload. */}
             <CardMedia
               component="img"
-              alt={post.imageAlt || post.title || post.imageText || "Article image"}
+              alt={buildImageAlt(post)}
               className={classes.media}
               image={post.image && post.image.trim() ? post.image.trim() : "/logo.png"}
               title={post.title}

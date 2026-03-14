@@ -1796,6 +1796,7 @@ if (url.pathname === '/api/admin/manual-article' && request.method === 'POST') {
 			: seoRaw.slice(0, 157).replace(/[\s,;:.!?-]+$/g, '') + '...';
 	}
 
+	// TODO: Auto-generate imageAlt via AI at ingest time and persist it to the articles table.
 	const imageAlt = imageUrl
 		? [title, classification.county ? `${classification.county} County, Kentucky` : null]
 			.filter(Boolean)

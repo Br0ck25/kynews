@@ -50,6 +50,44 @@ const useStyles = makeStyles((theme) => ({
   },
 }));
 
+const ALT_TITLE_MAX = 80;
+const ALT_COUNTY_TITLE_MAX = 60;
+
+function truncateTitleForAlt(title, maxLength) {
+  const clean = String(title || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  if (clean.length <= maxLength) return clean;
+  const sliceLength = Math.max(maxLength - 3, 0);
+  let truncated = clean.slice(0, sliceLength);
+  const lastSpace = truncated.lastIndexOf(" ");
+  if (lastSpace > 20) truncated = truncated.slice(0, lastSpace);
+  return `${truncated.trim()}...`;
+}
+
+function formatCountyForAlt(county) {
+  const trimmed = String(county || "").trim();
+  if (!trimmed) return "";
+  return /county$/i.test(trimmed) ? trimmed : `${trimmed} County`;
+}
+
+function buildImageAlt(post, countyOverride) {
+  const explicitAlt = String(post?.imageAlt || "").trim();
+  if (explicitAlt) return explicitAlt;
+
+  const title = post?.title || "";
+  const countyLabel = formatCountyForAlt(countyOverride || post?.county);
+
+  if (countyLabel) {
+    const titlePart = truncateTitleForAlt(title, ALT_COUNTY_TITLE_MAX);
+    return titlePart
+      ? `News photo from ${countyLabel} — ${titlePart}`
+      : `News photo from ${countyLabel}`;
+  }
+
+  const titlePart = truncateTitleForAlt(title, ALT_TITLE_MAX);
+  return titlePart ? `News photo for: ${titlePart}` : "News photo";
+}
+
 export default function FeaturedPost(props) {
   const classes = useStyles();
   const { post } = props;
@@ -144,6 +182,7 @@ export default function FeaturedPost(props) {
 
   const primaryCounty = countyList.length > 0 ? countyList[0] : null;
   const primarySlug = primaryCounty ? countyToSlug(primaryCounty) : null;
+  const heroAlt = buildImageAlt(post, primaryCounty);
   const categoryLabel = categoryDisplayName(post.categories?.[0], post.isNational);
 
   const video = React.useMemo(() => findPlayableVideo(post), [post]);
@@ -190,7 +229,7 @@ export default function FeaturedPost(props) {
         <div style={{ position: "relative", width: "100%", paddingTop: "56.25%" }}>
           <img
             src={headerImage}
-            alt=""
+            alt={heroAlt}
             style={{
               position: "absolute",
               top: 0,
@@ -211,7 +250,7 @@ export default function FeaturedPost(props) {
           <img
             style={{ display: "none" }}
             src={headerImage}
-            alt=""
+            alt={heroAlt}
             onError={() => setHeaderImgFailed(true)}
           />
         </Paper>
