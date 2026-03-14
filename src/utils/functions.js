@@ -314,16 +314,18 @@ export function generateFacebookCaption(post = {}) {
  *
  * If a county is provided, the title includes the county and site name.
  * If only isKentucky is true, it includes "Kentucky" and the site name.
- * Otherwise it falls back to the standard "— Local KY News" suffix.
+ * Otherwise it falls back to the standard "| Local KY News" suffix.
  *
  * The result is kept under 70 characters where possible to avoid truncation in search results.
+ * For the county case, two fallback tiers reduce the suffix when the article title
+ * would otherwise be cut too short.
  */
 export function buildPageTitle(title, county, isKentucky) {
   const base = (title || '').trim();
   const normalizedTitle = base || 'Local KY News';
   const countyName = county ? String(county).trim() : '';
   const siteSuffix = 'Local KY News';
-  const maxLength = 60;
+  const maxLength = 70;
 
   const countyLabel = countyName
     ? (/county$/i.test(countyName) ? countyName : `${countyName} County`)
@@ -332,15 +334,39 @@ export function buildPageTitle(title, county, isKentucky) {
   const hasCounty = Boolean(countyLabel);
   const hasKentucky = Boolean(isKentucky) && !hasCounty;
 
-  const suffix = hasCounty
-    ? `${countyLabel}, KY | ${siteSuffix}`
-    : hasKentucky
+  let titlePart = normalizedTitle.replace(/\s+/g, ' ').trim();
+
+  if (hasCounty) {
+    // Suffix includes the separator so maxTitleLength = maxLength - suffix.length.
+    let suffix = ` — ${countyLabel}, KY | ${siteSuffix}`;
+    let maxTitleLength = maxLength - suffix.length;
+
+    if (maxTitleLength < 20) {
+      // County label makes the suffix too long — drop it and use just the site name.
+      suffix = ` | ${siteSuffix}`;
+      maxTitleLength = maxLength - suffix.length;
+    }
+
+    if (maxTitleLength < 15) {
+      // No room for a meaningful title — omit site name, keep county geo.
+      return `${titlePart.slice(0, 55)}… — ${countyLabel}, KY`;
+    }
+
+    if (titlePart.length > maxTitleLength) {
+      const truncated = titlePart.slice(0, maxTitleLength - 3).trimEnd();
+      titlePart = `${truncated || titlePart.slice(0, maxTitleLength - 3)}...`;
+    }
+
+    return `${titlePart}${suffix}`;
+  }
+
+  // Non-county paths keep the separator/suffix split for simpler logic.
+  const suffix = hasKentucky
     ? `Kentucky | ${siteSuffix}`
     : `| ${siteSuffix}`;
-  const separator = hasCounty || hasKentucky ? ' — ' : ' ';
+  const separator = hasKentucky ? ' — ' : ' ';
 
   const maxTitleLength = maxLength - separator.length - suffix.length;
-  let titlePart = normalizedTitle.replace(/\s+/g, ' ').trim();
 
   if (maxTitleLength > 0 && titlePart.length > maxTitleLength) {
     if (maxTitleLength <= 3) {

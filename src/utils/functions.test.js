@@ -193,10 +193,10 @@ describe('buildPageTitle helper', () => {
     expect(buildPageTitle('National Story', null, false)).toBe('National Story | Local KY News');
   });
 
-  it('truncates the title portion to keep the full title within 60 chars', () => {
+  it('truncates the title portion to keep the full title within 70 chars', () => {
     const longTitle = 'A'.repeat(80);
     const result = buildPageTitle(longTitle, 'Pike', true);
     expect(result).toContain('... — Pike County, KY | Local KY News');
-    expect(result.length).toBeLessThanOrEqual(60);
+    expect(result.length).toBeLessThanOrEqual(70);
   });
 });
