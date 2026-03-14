@@ -573,11 +573,108 @@ export function toArticleCase(text: string): string {
 }
 
 /**
+ * Strip HTML tags from an SPC RSS description block and return:
+ *  - The text content (preferring what's inside <pre>…</pre>)
+ *  - The first image URL found in the description (for the article image)
+ */
+function extractSpcDescText(rawHtml: string): { text: string; embeddedImageUrl: string | null } {
+  // Capture the embedded image URL from <img src="…"> before we strip tags
+  const imgMatch = /src=["']([^"']+\.(?:png|gif|jpg|jpeg))["']/i.exec(rawHtml);
+  let embeddedImageUrl: string | null = null;
+  if (imgMatch) {
+    const src = imgMatch[1];
+    embeddedImageUrl = src.startsWith('http')
+      ? src
+      : `https://www.spc.noaa.gov${src.startsWith('/') ? '' : '/'}${src}`;
+  }
+
+  // The actual NWS text lives inside a <pre> block — prefer that over the full HTML
+  const preMatch = /<pre[^>]*>([\s\S]*?)<\/pre>/i.exec(rawHtml);
+  let raw = preMatch ? preMatch[1] : rawHtml;
+
+  // Strip any remaining HTML tags
+  raw = raw.replace(/<[^>]+>/g, ' ');
+
+  // Decode entities
+  raw = raw
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+
+  // Normalise line endings and collapse runs of spaces/tabs while keeping paragraph breaks
+  raw = raw
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return { text: raw, embeddedImageUrl };
+}
+
+/**
+ * Turn the raw NWS <pre> text into clean article-ready content.
+ *  - Removes the header block (product name, NWS office, time, valid period)
+ *  - Strips forecaster signature lines ("..Smith.. 03/14/2026")
+ *  - Trims the repeated .PREV DISCUSSION section
+ *  - Applies toArticleCase so all-caps text reads normally
+ *  - Returns a short description (from the SUMMARY paragraph) and the full body
+ */
+function buildSpcArticleBody(
+  preText: string,
+  dayLabel: string,
+): { description: string; body: string } {
+  let text = preText;
+
+  // Drop the NWS header block — everything up to and including the "Valid XXXXZ - XXXXZ" line
+  text = text.replace(/^[\s\S]*?Valid\s+\d{6}Z\s*[-–]\s*\d{6}Z[^\n]*/i, '').trim();
+
+  // Drop .PREV DISCUSSION section — it restates the earlier forecast verbatim
+  const prevIdx = text.search(/^\.PREV DISCUSSION/m);
+  if (prevIdx > 0) text = text.slice(0, prevIdx).trim();
+
+  // Drop forecaster signature lines e.g. "..Smith.. 03/14/2026"
+  text = text.replace(/^\.\.[A-Za-z]+\.\.\s+\d{2}\/\d{2}\/\d{4}\s*$/gm, '').trim();
+
+  // Convert from all-caps NWS style to sentence case
+  text = toArticleCase(text);
+
+  // Split into paragraphs; collapse any intra-paragraph newlines to spaces
+  const paragraphs = text
+    .split('\n\n')
+    .map((p) => p.replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean);
+
+  // Short description: use the ...Summary... paragraph when available
+  let description = '';
+  const summaryPara = paragraphs.find((p) => /\bsummary\b/i.test(p));
+  if (summaryPara) {
+    description = summaryPara.replace(/^\.{3}summary\.{3}\s*/i, '').trim();
+  } else {
+    description = paragraphs[0] ?? '';
+  }
+  if (description.length > 320) description = `${description.slice(0, 317)}...`;
+
+  // Full body: introductory sentence + all content paragraphs + KY guidance
+  const intro = `The Storm Prediction Center has issued the ${dayLabel}-Day Convective Outlook for the contiguous United States, including Kentucky.`;
+  const body = [
+    intro,
+    ...paragraphs,
+    'Kentucky residents should follow local National Weather Service offices for area-specific guidance. Have multiple ways to receive weather warnings and know your action plan.',
+  ].join('\n\n');
+
+  return { description, body };
+}
+
+/**
  * Parse an SPC spcrss.xml document and return the most-recent Day 1, 2, and 3
  * convective outlook items as display-ready article objects.
  *
- * Image URL is derived directly from the product link (`.html` → `.png`) to
- * match the outlook map images the SPC publishes alongside each product.
+ * Image URL is extracted from the <img> tag embedded in the RSS description (most
+ * accurate) with a .html → .png link derivation as a fallback.
  */
 export function parseSpcOutlooks(xml: string): SpcOutlook[] {
   const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
@@ -626,24 +723,20 @@ export function parseSpcOutlooks(xml: string): SpcOutlook[] {
     const c = byDay.get(day);
     if (!c) continue;
 
-    // Strip the "Issued: HHMM UTC Www Mon DD YYYY" timestamp from the title
+    // Strip the "Issued: HHMM UTC Www Mon DD YYYY" timestamp appended to some titles
     const cleanTitle = c.rawTitle
       .replace(/\s+Issued:.*$/i, '')
       .replace(/^\s*SPC\s+/i, '')
       .trim() || `Day ${day} Convective Outlook`;
 
-    // Derive image URL: .html → .png  (matches the outlook map published by SPC)
-    const imageUrl = c.link ? c.link.replace(/\.html?$/, '.png') : '';
+    // Extract clean text and the embedded image URL from the HTML description
+    const { text: preText, embeddedImageUrl } = extractSpcDescText(c.rawDesc);
 
-    const description = toArticleCase(c.rawDesc);
+    // Prefer the image that SPC embeds directly in the RSS; fall back to link derivation
+    const imageUrl = embeddedImageUrl ?? (c.link ? c.link.replace(/\.html?$/, '.png') : '');
 
-    // Build a brief readable article body
     const dayLabel = ['First', 'Second', 'Third'][day - 1];
-    const body = [
-      `The Storm Prediction Center has issued the ${dayLabel}-Day Convective Outlook for the contiguous United States, including Kentucky.`,
-      description || 'Severe weather potential exists across portions of the region. Residents should monitor local forecasts and stay weather-aware.',
-      'Kentucky residents should follow local National Weather Service offices for area-specific guidance. Have multiple ways to receive weather warnings and know your action plan.',
-    ].join('\n\n');
+    const { description, body } = buildSpcArticleBody(preText, dayLabel);
 
     outlooks.push({ day, title: cleanTitle, description, body, link: c.link, imageUrl, publishedAt: c.publishedAt });
   }
