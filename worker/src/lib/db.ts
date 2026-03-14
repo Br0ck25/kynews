@@ -158,6 +158,33 @@ export async function listRecentArticleTitles(env: Env, limit = 600): Promise<Ar
   }));
 }
 
+interface LlmsArticleRow {
+  id: number;
+  title: string;
+  slug: string | null;
+  county: string | null;
+  category: string;
+  is_national: number;
+  published_at: string;
+  seo_description: string | null;
+}
+
+export async function getLatestArticlesForLlms(env: Env, limit = 200): Promise<LlmsArticleRow[]> {
+  const safeLimit = Math.min(Math.max(Math.floor(limit || 0), 1), 2000);
+  const nowIso = new Date().toISOString();
+  const rows = await prepare(env, `
+    SELECT id, title, slug, county, category, is_national, published_at, seo_description
+    FROM articles
+    WHERE published_at <= ?
+    ORDER BY published_at DESC, id DESC
+    LIMIT ?
+  `)
+    .bind(nowIso, safeLimit)
+    .all<LlmsArticleRow>();
+
+  return rows.results ?? [];
+}
+
 export async function getArticleById(env: Env, id: number): Promise<ArticleRecord | null> {
   const result = await prepare(env, `SELECT * FROM articles WHERE id = ? LIMIT 1`)
     .bind(id)

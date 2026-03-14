@@ -10,6 +10,7 @@ import {
 	listAdminArticles,
 	listArticlesForReclassify,
 	queryArticles,
+	getLatestArticlesForLlms,
 	unblockArticleByBlockedId,
 	updateArticlePublishedAt,
 	updateArticleClassification,
@@ -412,9 +413,52 @@ date: new Date().toISOString(),
 });
 }
 
-// serve llms.txt from public assets
+// serve llms.txt as a dynamically generated index for LLMs
 if (url.pathname === '/llms.txt' && request.method === 'GET') {
-  return fetch(`${BASE_URL}/llms.txt`);
+  try {
+    const articles = await getLatestArticlesForLlms(env, 200);
+    const updated = new Date().toISOString();
+
+    const preamble = `# Local KY News — AI-readable article index\n` +
+      `# Site: https://localkynews.com\n` +
+      `# Updated: ${updated}\n` +
+      `# Coverage: Kentucky local news, all 120 counties\n\n`;
+
+    const entries = articles
+      .map((article) => {
+        const title = article.title || '';
+        const href = buildArticleUrl(
+          BASE_URL,
+          article.slug,
+          article.county,
+          article.category,
+          Boolean(article.is_national),
+          article.id,
+        );
+        const isoDate = toIsoDateOrNull(article.published_at) || '';
+        const date = isoDate.split('T')[0] || '';
+        const county = article.county || 'Kentucky';
+        const summary = (article.seo_description || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+
+        return `# ${title}\n` +
+          `URL: ${href}\n` +
+          `Date: ${date}\n` +
+          `County: ${county}\n` +
+          `Summary: ${summary}`;
+      })
+      .join('\n\n');
+
+    const body = `${preamble}${entries}${entries ? '\n' : ''}`;
+
+    return new Response(body, {
+      headers: {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'public, max-age=3600, s-maxage=3600',
+      },
+    });
+  } catch (error) {
+    return badRequest('Failed to generate llms.txt');
+  }
 }
 
 // push subscription endpoint used by the SPA settings page

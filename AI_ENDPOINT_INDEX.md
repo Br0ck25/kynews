@@ -79,6 +79,15 @@ Database: getArticleBySlug(env, slug)
 
 --------------------------------------------------
 
+GET /llms.txt
+
+Returns a plaintext index of the 200 most recently published articles, formatted for LLM consumption.
+
+Handler: worker/src/index.ts (near the top of the fetch handler)
+Database: getLatestArticlesForLlms(env, 200)
+
+--------------------------------------------------
+
 ADMIN ENDPOINTS
 
 All admin routes require isAdminAuthorized() to be called before any database operation.
