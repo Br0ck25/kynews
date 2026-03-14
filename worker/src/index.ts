@@ -2245,6 +2245,18 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           canonicalPath = `/post?articleId=${idNum}`;
         }
 
+        // If a crawler hits the legacy /post?articleId= URL and the article
+        // already has a slug, redirect them to the canonical /news/... URL.
+        // For non-bots (normal browsers), we keep the existing behavior.
+        if (isBot && article.slug) {
+          return new Response(null, {
+            status: 301,
+            headers: {
+              Location: canonicalPath,
+            },
+          });
+        }
+
         // if we found an article via the legacy ID route, we can respond
         // immediately just like the `/news/...` branch would have later.
         const desc = (article.seoDescription || article.summary || '')

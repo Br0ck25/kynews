@@ -283,6 +283,10 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     localIntro: null,
   };
 
+  if (!newArticle.slug) {
+    console.warn('[ingest] Article saved without slug:', newArticle.title?.slice(0, 80));
+  }
+
   // NOTE: Existing rows inserted before this classifier update may have stale
   // Kentucky/county/or national tags. The `is_national` flag is stored separately
   // so older articles will default to `0` until we run a reclassification pass.
