@@ -2379,6 +2379,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
           metas.push(`<meta property="og:url" content="${escapeHtml(pageUrl)}"/>`);
           metas.push('<meta property="og:site_name" content="Local KY News"/>');
           metas.push('<meta name="twitter:card" content="summary_large_image"/>');
+          metas.push('<meta name="twitter:site" content="@LocalKYNews"/>');
+          metas.push(`<meta name="twitter:title" content="${escapeHtml(metaPageTitle)}"/>`);
+          metas.push(`<meta name="twitter:description" content="${escapeHtml(desc)}"/>`);
           metas.push(`<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>`);
           metas.push(`<meta property="fb:app_id" content="${escapeHtml(env.FB_APP_ID || '0')}"/>`);
         // add description, canonical link, and article timestamps
@@ -2831,6 +2834,9 @@ if ((request.method === 'GET' || request.method === 'HEAD') && (url.pathname.sta
 
         // Twitter uses its own tags and also wants the large image card.
         metas.push('<meta name="twitter:card" content="summary_large_image"/>');
+        metas.push('<meta name="twitter:site" content="@LocalKYNews"/>');
+        metas.push(`<meta name="twitter:title" content="${escapeHtml(metaPageTitle)}"/>`);
+        metas.push(`<meta name="twitter:description" content="${escapeHtml(desc)}"/>`);
         metas.push(
           `<meta name="twitter:image" content="${escapeHtml(imageForMeta)}"/>
         `);
