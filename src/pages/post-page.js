@@ -362,9 +362,9 @@ export default function PostPage() {
         url: "https://localkynews.com",
         logo: {
           "@type": "ImageObject",
-          url: "https://localkynews.com/img/logo512.png",
-          width: 512,
-          height: 512,
+          url: "https://localkynews.com/img/logo-wide.png",
+          width: 600,
+          height: 60,
         },
       },
       sourceOrganization: {
