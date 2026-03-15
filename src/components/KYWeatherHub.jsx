@@ -50,20 +50,16 @@ function formatAlertDescription(desc = "") {
   for (const raw of lines) {
     const trimmed = raw.trimEnd().trim();
 
-    if (trimmed === "") {
-      current = null;
-      skipBlock = false;
-      continue;
-    }
-
-    // New labeled block (starts with *)
+    // New labeled block (starts with *) — check this BEFORE blank-line handling
     if (/^\*\s*[A-Z]/.test(trimmed)) {
       if (/^\*\s*WHEN\b/i.test(trimmed)) {
         skipBlock = true;
         current = null;
         continue;
       }
+      // A real new block always ends any skip
       skipBlock = false;
+      current = null;
       // "* LABEL...rest" → "LABEL: rest"
       const converted = trimmed.replace(/^\*\s*([A-Z][A-Z ]+?)\.\.\.(.*)/, (_, label, rest) => `${label.trim()}: ${rest.trim()}`);
       current = { type: "label", text: converted };
@@ -72,6 +68,11 @@ function formatAlertDescription(desc = "") {
     }
 
     if (skipBlock) continue;
+
+    if (trimmed === "") {
+      current = null;
+      continue;
+    }
 
     if (current) {
       current.text = current.text.trimEnd() + " " + trimmed;
@@ -371,6 +372,7 @@ export default function KYWeatherHub() {
                 : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {alerts.map((alert, i) => {
                       const props = alert.properties;
+                      const alertUrl = props?.["@id"] || alert.id || props?.id || null;
                       const s = getAlertStyle(props.event);
                       return (
                         <div key={i} style={{ background: `${s.bg}33`, border: `1px solid ${s.bg}`, borderLeft: `4px solid ${s.bg}`, borderRadius: 8, padding: "12px 14px" }}>
@@ -380,11 +382,22 @@ export default function KYWeatherHub() {
                               <div style={{ fontWeight: "bold", color: "#000", fontSize: 13 }}>{props.event}</div>
                               <div style={{ fontSize: 11, color: "#222", margin: "4px 0" }}>{props.areaDesc?.split(";").slice(0, 4).join(" • ")}</div>
                               <div style={{ fontSize: 11, color: "#333" }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
+                              {alertUrl && (
+                                <a
+                                  href={alertUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ display: "inline-block", marginTop: 4, fontSize: 10, color: theme.palette.primary.main, textDecoration: "none" }}
+                                >
+                                  View Alert
+                                </a>
+                              )}
                             </div>
                             <span style={{ background: s.bg, color: s.text, padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: "bold", textTransform: "uppercase", whiteSpace: "nowrap" }}>{props.severity}</span>
                           </div>
                           {props.headline && <div style={{ fontSize: 11, color: "#222", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)" }}>{props.headline}</div>}
                           {props.description && <div style={{ fontSize: 11, color: "#333", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{formatAlertDescription(props.description)}</div>}
+                          {props.instruction && <div style={{ fontSize: 11, color: "#333", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)", fontStyle: "italic", lineHeight: 1.6 }}>💡 {props.instruction.split("\n").map(l => l.trim()).filter(Boolean).join(" ")}</div>}
                         </div>
                       );
                     })}
