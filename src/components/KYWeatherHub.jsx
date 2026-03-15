@@ -41,6 +41,16 @@ function getAlertStyle(event = "") {
   return ALERT_COLORS[event] || ALERT_COLORS.default;
 }
 
+function formatAlertDescription(desc = "") {
+  return desc
+    .split("\n")
+    .filter(line => !/^\*\s*WHEN\b/.test(line.trim()) && !/^\s*$/.test(line) || line.trim() === "")
+    .filter(line => !/^\*\s*WHEN\b/.test(line.trim()))
+    .map(line => line.replace(/^\*\s*/, "").replace(/\.\.\./, ": "))
+    .join("\n")
+    .trim();
+}
+
 export default function KYWeatherHub() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -195,13 +205,7 @@ export default function KYWeatherHub() {
 
       {/* Alert Banner */}
       {!alertsLoading && activeAlerts.length > 0 && (
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => setActiveTab("alerts")}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setActiveTab("alerts"); }}
-          style={{ background: "linear-gradient(90deg,#7b0000,#c62828,#7b0000)", padding: "10px 20px", display: "flex", alignItems: "center", gap: 10, borderBottom: "2px solid #ef9a9a", borderRadius: 8, cursor: "pointer" }}
-        >
+        <div style={{ background: "linear-gradient(90deg,#7b0000,#c62828,#7b0000)", padding: "10px 20px", display: "flex", alignItems: "center", gap: 10, borderBottom: "2px solid #ef9a9a", borderRadius: 8 }}>
           <span style={{ fontSize: 18 }}>{"🚨"}</span>
           <div style={{ flex: 1 }}>
             <span style={{ fontWeight: "bold", fontSize: 12, color: textColor, letterSpacing: 1, textTransform: "uppercase" }}>
@@ -211,9 +215,8 @@ export default function KYWeatherHub() {
               {activeAlerts.slice(0, 3).map(a => a.properties?.event).join(" • ")}
               {activeAlerts.length > 3 && ` • +${activeAlerts.length - 3} more`}
             </span>
-            <span style={{ fontSize: 11, color: "#ef9a9a", marginLeft: 8 }}>— tap to view all alerts</span>
           </div>
-          <button onClick={(e) => { e.stopPropagation(); fetchAlerts(); }} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: textColor, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontSize: 11 }}>Refresh</button>
+          <button onClick={fetchAlerts} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: textColor, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontSize: 11 }}>Refresh</button>
         </div>
       )}
       {!alertsLoading && activeAlerts.length === 0 && (
@@ -324,7 +327,6 @@ export default function KYWeatherHub() {
                     {alerts.map((alert, i) => {
                       const props = alert.properties;
                       const s = getAlertStyle(props.event);
-                      const alertUrl = alert.id || props["@id"] || null;
                       return (
                         <div key={i} style={{ background: `${s.bg}33`, border: `1px solid ${s.bg}`, borderLeft: `4px solid ${s.bg}`, borderRadius: 8, padding: "12px 14px" }}>
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -337,19 +339,7 @@ export default function KYWeatherHub() {
                             <span style={{ background: s.bg, color: s.text, padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: "bold", textTransform: "uppercase", whiteSpace: "nowrap" }}>{props.severity}</span>
                           </div>
                           {props.headline && <div style={{ fontSize: 11, color: "#222", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)" }}>{props.headline}</div>}
-                          {alertUrl && (
-                            <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)" }}>
-                              <a
-                                href={alertUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{ fontSize: 12, color: "#000", fontWeight: "bold", textDecoration: "none", border: "1px solid rgba(0,0,0,0.35)", borderRadius: 6, padding: "4px 12px", display: "inline-block" }}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                View Full Alert on weather.gov →
-                              </a>
-                            </div>
-                          )}
+                          {props.description && <div style={{ fontSize: 11, color: "#333", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{formatAlertDescription(props.description)}</div>}
                         </div>
                       );
                     })}
