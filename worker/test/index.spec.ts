@@ -38,13 +38,11 @@ import { articleToUrl } from '../src/utils/functions';
 const IncomingRequest = Request;
 
 describe('optimizeTitleForSeo', () => {
-	it('appends county suffix and truncates at word boundaries', () => {
-		const out = ingestModule.optimizeTitleForSeo(
-			'This is a long headline that should be shortened for SEO purposes',
-			'Fayette',
-		);
+	it('appends county suffix without truncating the title', () => {
+		const input = 'This is a long headline that should be shortened for SEO purposes';
+		const out = ingestModule.optimizeTitleForSeo(input, 'Fayette');
+		expect(out).toContain(input);
 		expect(out).toContain('— Fayette County, KY');
-		expect(out.length).toBeLessThanOrEqual(60);
 	});
 
 	it('does not append suffix when title already mentions Kentucky or KY', () => {

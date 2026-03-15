@@ -42,24 +42,58 @@ function getAlertStyle(event = "") {
 }
 
 function formatAlertDescription(desc = "") {
-  // Split into lines and clean up each one
   const lines = desc.split("\n");
-  const cleaned = [];
+  const blocks = [];
+  let current = null;
+  let skipBlock = false;
+
   for (const raw of lines) {
-    const line = raw.trimEnd();
-    // Drop WHEN block lines entirely
-    if (/^\*\s*WHEN\b/i.test(line.trim())) continue;
-    // Convert bullet labels: "* WHAT...text" → "WHAT: text"
-    const labelLine = line.replace(/^\*\s*([A-Z ]+)\.\.\./, (_, label) => `${label.trim()}: `);
-    const isNewBlock = /^\*?\s*[A-Z][A-Z ]+:/.test(labelLine.trim()) || labelLine.trim() === "";
-    if (isNewBlock || cleaned.length === 0) {
-      if (labelLine.trim() !== "") cleaned.push(labelLine.trim());
+    const trimmed = raw.trimEnd().trim();
+
+    if (trimmed === "") {
+      current = null;
+      skipBlock = false;
+      continue;
+    }
+
+    // New labeled block (starts with *)
+    if (/^\*\s*[A-Z]/.test(trimmed)) {
+      if (/^\*\s*WHEN\b/i.test(trimmed)) {
+        skipBlock = true;
+        current = null;
+        continue;
+      }
+      skipBlock = false;
+      // "* LABEL...rest" → "LABEL: rest"
+      const converted = trimmed.replace(/^\*\s*([A-Z][A-Z ]+?)\.\.\.(.*)/, (_, label, rest) => `${label.trim()}: ${rest.trim()}`);
+      current = { type: "label", text: converted };
+      blocks.push(current);
+      continue;
+    }
+
+    if (skipBlock) continue;
+
+    if (current) {
+      current.text = current.text.trimEnd() + " " + trimmed;
     } else {
-      // Continuation line — join onto previous with a space
-      cleaned[cleaned.length - 1] += " " + labelLine.trim();
+      current = { type: "intro", text: trimmed };
+      blocks.push(current);
     }
   }
-  return cleaned.join("\n").trim();
+
+  const result = blocks.map(block => {
+    if (block.type === "intro") {
+      return block.text
+        .replace(/^\.+\s*/, "")       // strip leading ellipsis
+        .replace(/\.\.\./g, ", ")     // ... → ", "
+        .replace(/,\s*,/g, ",")       // clean double commas
+        .replace(/\s{2,}/g, " ")      // normalize spaces
+        .trim();
+    }
+    return block.text.replace(/\s{2,}/g, " ").trim();
+  }).filter(Boolean);
+
+  return result.join("\n\n").trim();
 }
 
 export default function KYWeatherHub() {

@@ -36,35 +36,13 @@ export function optimizeTitleForSeo(title: string, county: string | null): strin
   const hasKentucky = lower.includes('kentucky');
   const hasKy = /,\s*ky\b/i.test(trimmed);
 
-  const truncateAtWordBoundary = (text: string, max: number): string => {
-    if (text.length <= max) return text;
-    const truncated = text.slice(0, max);
-    const lastSpace = truncated.lastIndexOf(' ');
-    if (lastSpace > 0) {
-      return truncated.slice(0, lastSpace);
-    }
-    return truncated;
-  };
-
-  // If the title already mentions the county or Kentucky, just enforce the max
-  // length. Otherwise append a county/KY suffix and ensure it fits.
-  if (hasCounty || hasKentucky || hasKy) {
-    return truncateAtWordBoundary(trimmed, 60);
+  // If the title already mentions the county or Kentucky, return it as-is.
+  if (hasCounty || hasKentucky || hasKy || !county) {
+    return trimmed;
   }
 
-  if (!county) {
-    return truncateAtWordBoundary(trimmed, 60);
-  }
-
-  const suffix = ` — ${county} County, KY`;
-  const maxLength = 60;
-  const available = maxLength - suffix.length;
-  if (available <= 0) {
-    return truncateAtWordBoundary(suffix, maxLength);
-  }
-
-  const titlePart = truncateAtWordBoundary(trimmed, available);
-  return `${titlePart}${suffix}`;
+  // Append a county/KY suffix for location context without truncating the title.
+  return `${trimmed} — ${county} County, KY`;
 }
 
 function deriveAuthorFromHostname(sourceUrl: string): string | null {
