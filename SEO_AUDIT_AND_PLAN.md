@@ -182,7 +182,7 @@ curl -I https://localkynews.com/news/pike-county
 **Current state:** Articles don't appear to link to related articles, county pages, or topical clusters. Internal links pass PageRank and help Google understand site structure.
 
 **Fix opportunities:**
-- Add "Related Articles" section at the bottom of every article page (already has county/category data to query by)
+- Add or improve the existing "Related Articles" section at the bottom of every article page (already has county/category data to query by). Removed the duplicate “More from County” list so only the styled related-articles block remains.
 - Link county article cards to the `/news/kentucky/:county` hub page
 - Add breadcrumb navigation links in the UI (the JSON-LD exists; the visible HTML `<nav>` may not)
 - Link from county hub pages to the 2–3 most recent articles per subcategory (sports, schools, weather)

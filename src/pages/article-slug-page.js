@@ -283,26 +283,6 @@ export default function ArticleSlugPage() {
     []
   );
 
-  const [relatedPosts, setRelatedPosts] = React.useState([]);
-  const [relatedLoading, setRelatedLoading] = React.useState(false);
-
-  React.useEffect(() => {
-    const county = resolvedPost?.county;
-    if (!county) {
-      setRelatedPosts([]);
-      return;
-    }
-
-    setRelatedLoading(true);
-    service
-      .fetchPage({ category: 'today', counties: [county], limit: 10 })
-      .then((result) => {
-        const posts = (result.posts || []).filter((p) => p.id !== resolvedPost?.id);
-        setRelatedPosts(posts.slice(0, 4));
-      })
-      .catch(() => {})
-      .finally(() => setRelatedLoading(false));
-  }, [resolvedPost, service]);
 
   React.useEffect(() => {
     if (!slug) {
@@ -591,28 +571,6 @@ export default function ArticleSlugPage() {
               )}
               {resolvedPost.alertGeojson && (
                 <AlertPolygonMap geojson={resolvedPost.alertGeojson} />
-              )}
-              {relatedPosts.length > 0 && (
-                <div style={{ marginTop: 24 }}>
-                  <Typography variant="h6" gutterBottom>
-                    More from {resolvedPost.county} County
-                  </Typography>
-                  <ul style={{ paddingLeft: 16, marginTop: 8 }}>
-                    {relatedPosts.map((post) => (
-                      <li key={post.id}>
-                        <RouterLink to={articleToUrl(post)}>{post.title}</RouterLink>
-                      </li>
-                    ))}
-                  </ul>
-                  <Button
-                    component={RouterLink}
-                    to={`/news/kentucky/${countyToSlug(resolvedPost.county)}`}
-                    color="primary"
-                    size="small"
-                  >
-                    View all {resolvedPost.county} County news →
-                  </Button>
-                </div>
               )}
             </>
           ) : loading ? (
