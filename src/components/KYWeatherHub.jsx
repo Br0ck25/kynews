@@ -295,7 +295,7 @@ export default function KYWeatherHub() {
                             <div style={{ fontSize: 10, color: theme.palette.text.secondary, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{period.name}</div>
                             <div style={{ fontSize: 30, marginBottom: 6 }}>{getWeatherIcon(period.shortForecast)}</div>
                             <div style={{ fontSize: 20, fontWeight: "bold", color: textColor }}>{period.temperature}°{period.temperatureUnit}</div>
-                            <div style={{ fontSize: 10, color: theme.palette.text.secondary, marginTop: 6, lineHeight: 1.3 }}>{period.shortForecast}</div>
+                            <div style={{ fontSize: 10, color: theme.palette.text.secondary, marginTop: 6, lineHeight: 1.3 }}>{period.detailedForecast}</div>
                           </div>
                         </Grid>
                       ))}
