@@ -271,10 +271,31 @@ async function extractSpcPageImage(htmlUrl: string): Promise<string | null> {
   if (png) return png;
 
   // 2. Brute-force scan for any spc.noaa.gov image URL in raw HTML
-  const rawImgMatch = /https?:\/\/www\.spc\.noaa\.gov\/[^\s"'<>]+\.(?:gif|png|jpg|jpeg)/i.exec(html);
+  const rawImgMatch = /https?:\/\/www\.spc\.noaa\.gov\/[\s"'<>]+\.(?:gif|png|jpg|jpeg)/i.exec(html);
   if (rawImgMatch) return rawImgMatch[0];
 
   return null;
+}
+
+/**
+ * Scrape the first <pre> block from an SPC product HTML page.
+ */
+async function extractSpcPageText(htmlUrl: string): Promise<string | null> {
+  let html: string;
+  try {
+    const res = await fetch(htmlUrl, {
+      headers: { 'User-Agent': SPC_USER_AGENT },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    html = await res.text();
+  } catch {
+    return null;
+  }
+
+  const preMatch = /<pre>([\s\S]*?)<\/pre>/i.exec(html);
+  if (!preMatch) return null;
+  return preMatch[1].replace(/<[^>]+>/g, '').trim();
 }
 
 // ─── Full-text fetch ─────────────────────────────────────────────────────────
@@ -770,21 +791,18 @@ export async function parseSpcOutlooks(xml: string): Promise<SpcOutlook[]> {
     const pubRaw   = tagValue(block, 'pubDate') ?? '';
     const publishedAt = pubRaw ? new Date(pubRaw).toISOString() : new Date().toISOString();
 
-    // Only convective/severe thunderstorm outlooks for Day 1, 2, or 3.
-    // Exclude Fire Weather Outlooks and other non-convective products.
+    // Only Convective Outlook items for Day 1, 2, or 3.
     const dayMatch = /\bday\s*([123])\b/i.exec(rawTitle);
     if (!dayMatch) continue;
 
-    const isFireWeather = /fire\s+weather/i.test(rawTitle);
-    const isConvective = /convective\s+outlook/i.test(rawTitle);
-    const isSevereThunderstorm = /severe\s+thunderstorm\s+outlook/i.test(rawTitle);
-    const isDayOutlook = /day\s*[123].*outlook/i.test(rawTitle);
+    const productType = inferProductType(rawTitle, null);
+    if (productType !== 'convective_outlook') continue;
 
-    if (!isConvective && !isSevereThunderstorm && !isDayOutlook) continue;
-    if (isFireWeather) continue;
+    const day = parseInt(dayMatch[1], 10) as 1 | 2 | 3;
+    const link = `https://www.spc.noaa.gov/products/outlook/day${day}otlk.html`;
 
     candidates.push({
-      day: parseInt(dayMatch[1], 10) as 1 | 2 | 3,
+      day,
       rawTitle,
       rawDesc,
       link,
@@ -824,11 +842,17 @@ export async function parseSpcOutlooks(xml: string): Promise<SpcOutlook[]> {
     const { text: preText, embeddedImageUrl } = extractSpcDescText(c.rawDesc);
 
     // The RSS description text is often just the header line for day 2/3 outlooks.
-    // If the extracted text is very short, fetch the full .txt version of the page.
+    // If the extracted text is very short, try to pull the full text version.
     let fullText = preText;
     if (preText.length < 220 || preText.split('\n').length < 4) {
       const fetched = await fetchSpcFullText(c.link);
-      if (fetched) fullText = fetched;
+      if (fetched) {
+        fullText = fetched;
+      } else {
+        // If the .txt endpoint isn't available, try scraping the HTML page directly.
+        const scraped = await extractSpcPageText(c.link);
+        if (scraped) fullText = scraped;
+      }
     }
 
     // Prefer the image that SPC embeds directly in the RSS; fall back to stable outlook GIF patterns
