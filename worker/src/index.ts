@@ -343,6 +343,19 @@ interface IngestRunOptions {
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 const url = new URL(request.url);
 
+// Enforce a single canonical hostname: redirect www → non-www.
+// This prevents duplicate-content signals and concentrates ranking signals.
+if (url.hostname.toLowerCase() === 'www.localkynews.com') {
+  const target = `https://localkynews.com${url.pathname}${url.search}`;
+  return new Response(null, {
+    status: 301,
+    headers: {
+      Location: target,
+      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+    },
+  });
+}
+
 // Homepage bot handling – serve JSON-LD structured data for search crawlers.
 // Regular browsers and the /health probe still get the JSON ping below.
 if (url.pathname === '/' && request.method === 'GET' && isSearchBot(request.headers.get('user-agent') || '')) {
@@ -2449,6 +2462,22 @@ ${canonicalLink}
       },
     });
   }
+}
+
+// Legacy county hub redirects (non-JS bots rely on HTTP redirects).
+// This ensures that old URLs like `/news/pike-county` permanently redirect
+// to the new canonical `/news/kentucky/pike-county` path.
+const legacyCountyMatch = url.pathname.match(/^\/news\/(?!kentucky\/)([a-z0-9-]+-county)\/?$/i);
+if (legacyCountyMatch && request.method === 'GET') {
+  const countySlug = legacyCountyMatch[1].toLowerCase();
+  const target = `/news/kentucky/${countySlug}${url.search}`;
+  return new Response(null, {
+    status: 301,
+    headers: {
+      Location: target,
+      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+    },
+  });
 }
 
 // include HEAD so preliminary bot probes still see our OG tags

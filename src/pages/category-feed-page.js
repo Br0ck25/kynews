@@ -92,6 +92,56 @@ export default function CategoryFeedPage({ category, title, countyFilterEnabled 
 
   useEffect(() => {
     dispatch(setTitle(title));
+
+    const setOgTag = (prop, content) => {
+      let el = document.querySelector(`meta[property="${prop}"]`);
+      if (!el) {
+        el = document.createElement("meta");
+        el.setAttribute("property", prop);
+        document.head.appendChild(el);
+      }
+      el.setAttribute("content", content);
+    };
+
+    const setTwitterTag = (name, content) => {
+      let el = document.querySelector(`meta[name="${name}"]`);
+      if (!el) {
+        el = document.createElement("meta");
+        el.setAttribute("name", name);
+        document.head.appendChild(el);
+      }
+      el.setAttribute("content", content);
+    };
+
+    const setCanonical = (url) => {
+      let el = document.querySelector('link[rel="canonical"]');
+      if (!el) {
+        el = document.createElement("link");
+        el.setAttribute("rel", "canonical");
+        document.head.appendChild(el);
+      }
+      el.setAttribute("href", url);
+    };
+
+    const canonicalUrl = `https://localkynews.com${window.location.pathname}`;
+    const pageMetaDescription = `Latest ${title.toLowerCase()} updates from across Kentucky, aggregated from local news sources.`;
+
+    setOgTag("og:url", canonicalUrl);
+    setOgTag("og:title", title);
+    setOgTag("og:description", pageMetaDescription);
+    setOgTag("og:type", "website");
+    setTwitterTag("twitter:title", title);
+    setTwitterTag("twitter:description", pageMetaDescription);
+    setCanonical(canonicalUrl);
+
+    // Keep page description in sync with meta tag
+    let descriptionMeta = document.querySelector('meta[name="description"]');
+    if (!descriptionMeta) {
+      descriptionMeta = document.createElement("meta");
+      descriptionMeta.name = "description";
+      document.head.appendChild(descriptionMeta);
+    }
+    descriptionMeta.setAttribute("content", pageMetaDescription);
   }, [title, dispatch]);
 
   // Reset and fetch first page whenever category or county selection changes

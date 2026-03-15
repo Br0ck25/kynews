@@ -86,6 +86,10 @@
 		{ "pattern": "localkynews.com/today.rss", "zone_name": "localkynews.com" },
 		{ "pattern": "www.localkynews.com/today.rss", "zone_name": "localkynews.com" },
 
+		// Explicit route for robots.txt so it is always handled by the worker.
+		{ "pattern": "localkynews.com/robots.txt", "zone_name": "localkynews.com" },
+		{ "pattern": "www.localkynews.com/robots.txt", "zone_name": "localkynews.com" },
+
 	],
 	/**
 	 * Smart Placement

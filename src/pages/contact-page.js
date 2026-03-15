@@ -50,8 +50,51 @@ export default function ContactPage() {
   const [error, setError] = React.useState("");
 
   React.useEffect(() => {
-    document.title = "Contact Local KY News — Kentucky News Aggregator";
+    const title = "Contact Local KY News — Kentucky News Aggregator";
+    document.title = title;
+
     const desc = "Contact the Local KY News team with questions, corrections, publisher inquiries, or feedback about Kentucky news coverage.";
+
+    const setOgTag = (prop, content) => {
+      let el = document.querySelector(`meta[property="${prop}"]`);
+      if (!el) {
+        el = document.createElement("meta");
+        el.setAttribute("property", prop);
+        document.head.appendChild(el);
+      }
+      el.setAttribute("content", content);
+    };
+
+    const setTwitterTag = (name, content) => {
+      let el = document.querySelector(`meta[name="${name}"]`);
+      if (!el) {
+        el = document.createElement("meta");
+        el.setAttribute("name", name);
+        document.head.appendChild(el);
+      }
+      el.setAttribute("content", content);
+    };
+
+    const setCanonical = (url) => {
+      let el = document.querySelector('link[rel="canonical"]');
+      if (!el) {
+        el = document.createElement("link");
+        el.setAttribute("rel", "canonical");
+        document.head.appendChild(el);
+      }
+      el.setAttribute("href", url);
+    };
+
+    const canonicalUrl = `https://localkynews.com${window.location.pathname}`;
+
+    setOgTag("og:url", canonicalUrl);
+    setOgTag("og:title", title);
+    setOgTag("og:description", desc);
+    setOgTag("og:type", "website");
+    setTwitterTag("twitter:title", title);
+    setTwitterTag("twitter:description", desc);
+    setCanonical(canonicalUrl);
+
     let meta = document.querySelector('meta[name="description"]');
     if (!meta) {
       meta = document.createElement("meta");

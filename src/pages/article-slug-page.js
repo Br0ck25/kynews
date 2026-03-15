@@ -383,6 +383,13 @@ export default function ArticleSlugPage() {
     setMeta("name", "twitter:description", cleanDesc);
     setMeta("name", "twitter:image", ogImage);
     setMeta('name', 'twitter:site', '@LocalKYNews');
+
+    // Google News signal for keywords
+    const countyLabel = formatCountyLabel(post.county);
+    const categoryLabel = (post.category || "").trim();
+    const keywords = [countyLabel, categoryLabel, "Kentucky"].filter(Boolean).join(", ");
+    setMeta("name", "news_keywords", keywords);
+
     const fbAppId = getFbAppId();
     if (fbAppId) setMeta("property", "fb:app_id", fbAppId);
 
