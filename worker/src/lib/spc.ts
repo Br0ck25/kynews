@@ -787,7 +787,7 @@ export async function parseSpcOutlooks(xml: string): Promise<SpcOutlook[]> {
     const block = match[1];
     const rawTitle = decodeXml(tagValue(block, 'title') ?? '').trim();
     const rawDesc  = decodeXml(tagValue(block, 'description') ?? '').trim();
-    const link     = decodeXml(tagValue(block, 'link') ?? '').trim();
+    const rawLink  = decodeXml(tagValue(block, 'link') ?? '').trim();
     const pubRaw   = tagValue(block, 'pubDate') ?? '';
     const publishedAt = pubRaw ? new Date(pubRaw).toISOString() : new Date().toISOString();
 
@@ -799,13 +799,13 @@ export async function parseSpcOutlooks(xml: string): Promise<SpcOutlook[]> {
     if (productType !== 'convective_outlook') continue;
 
     const day = parseInt(dayMatch[1], 10) as 1 | 2 | 3;
-    const link = `https://www.spc.noaa.gov/products/outlook/day${day}otlk.html`;
+    const outlookLink = `https://www.spc.noaa.gov/products/outlook/day${day}otlk.html`;
 
     candidates.push({
       day,
       rawTitle,
       rawDesc,
-      link,
+      link: outlookLink,
       publishedAt,
     });
   }

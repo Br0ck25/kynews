@@ -1821,15 +1821,22 @@ if (url.pathname === '/api/admin/spc/run' && request.method === 'POST') {
 // GET /api/spc-outlooks — public: return Day 1/2/3 SPC convective outlook articles for the weather page
 if (url.pathname === '/api/spc-outlooks' && request.method === 'GET') {
 	try {
-		const res = await fetch('https://www.spc.noaa.gov/products/spcrss.xml', {
-			headers: {
-				'User-Agent': 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)',
-				Accept: 'application/rss+xml, application/xml',
-			},
-		});
-		if (!res.ok) return json({ outlooks: [] });
-		const xml = await res.text();
-		const outlooks = await parseSpcOutlooks(xml);
+		const spcHeaders = {
+			'User-Agent': 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)',
+			Accept: 'application/rss+xml, application/xml',
+		};
+		// Fetch both the general SPC feed and the dedicated convective-outlook feed in parallel.
+		// The dedicated feed (spcacrss.xml) is more reliable for Day 2/3 items.
+		const [res1, res2] = await Promise.all([
+			fetch('https://www.spc.noaa.gov/products/spcrss.xml',  { headers: spcHeaders }),
+			fetch('https://www.spc.noaa.gov/products/spcacrss.xml', { headers: spcHeaders }),
+		]);
+		const [xml1, xml2] = await Promise.all([
+			res1.ok ? res1.text() : Promise.resolve(''),
+			res2.ok ? res2.text() : Promise.resolve(''),
+		]);
+		// Concatenate both XML bodies — parseSpcOutlooks uses regex <item> matching, so this is safe.
+		const outlooks = await parseSpcOutlooks(xml1 + xml2);
 		return json({ outlooks }, 200, { 'Cache-Control': 'public, max-age=900, s-maxage=900' });
 	} catch {
 		return json({ outlooks: [] });
@@ -1842,30 +1849,39 @@ if (url.pathname === '/api/weather' && request.method === 'GET') {
 	const lon = url.searchParams.get('lon');
 	if (!lat || !lon) return badRequest('Missing lat/lon parameters');
 
-	try {
-		const pointsRes = await fetch(`https://api.weather.gov/points/${lat},${lon}`);
-		if (!pointsRes.ok) return json({ error: 'Failed to fetch points' }, 502);
-		const pointsData = await pointsRes.json();
+	// NWS API requires a User-Agent header; requests without one are rejected.
+	const nwsHeaders = {
+		'User-Agent': 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)',
+		Accept: 'application/geo+json, application/json',
+	};
 
-		const forecastUrl = pointsData?.properties?.forecast;
-		const stationsUrl = pointsData?.properties?.observationStations;
-		const [forecastRes, stationsRes] = await Promise.all([forecastUrl ? fetch(forecastUrl) : null, stationsUrl ? fetch(stationsUrl) : null]);
+	try {
+		const pointsRes = await fetch(`https://api.weather.gov/points/${lat},${lon}`, { headers: nwsHeaders });
+		if (!pointsRes.ok) return json({ error: 'Failed to fetch points', status: pointsRes.status }, 502);
+		const pointsData = await pointsRes.json() as any;
+
+		const forecastUrl = pointsData?.properties?.forecast as string | undefined;
+		const stationsUrl = pointsData?.properties?.observationStations as string | undefined;
+		const [forecastRes, stationsRes] = await Promise.all([
+			forecastUrl ? fetch(forecastUrl, { headers: nwsHeaders }) : null,
+			stationsUrl ? fetch(stationsUrl, { headers: nwsHeaders }) : null,
+		]);
 
 		let forecast = null;
 		let observation = null;
 
 		if (forecastRes && forecastRes.ok) {
-			const fData = await forecastRes.json();
+			const fData = await forecastRes.json() as any;
 			forecast = fData?.properties?.periods ?? null;
 		}
 
 		if (stationsRes && stationsRes.ok) {
-			const sData = await stationsRes.json();
-			const stationId = sData?.features?.[0]?.properties?.stationIdentifier;
+			const sData = await stationsRes.json() as any;
+			const stationId = sData?.features?.[0]?.properties?.stationIdentifier as string | undefined;
 			if (stationId) {
-				const obsRes = await fetch(`https://api.weather.gov/stations/${stationId}/observations/latest`);
+				const obsRes = await fetch(`https://api.weather.gov/stations/${stationId}/observations/latest`, { headers: nwsHeaders });
 				if (obsRes.ok) {
-					const oData = await obsRes.json();
+					const oData = await obsRes.json() as any;
 					observation = oData?.properties ?? null;
 				}
 			}
