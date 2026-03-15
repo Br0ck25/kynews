@@ -289,10 +289,10 @@ export default function KYWeatherHub() {
               : forecast?.length
                 ? (
                     <Grid container spacing={2}>
-                      {forecast.filter((_, i) => i % 2 === 0).slice(0, 7).map((period, i) => (
+                      {forecast.slice(0, 14).map((period, i) => (
                         <Grid item xs={12} sm={6} md={4} key={i}>
                           <div style={{ background: i === 0 ? primaryAlpha15 : "rgba(255,255,255,0.03)", border: `1px solid ${i === 0 ? primary : "#1e3a5f"}`, borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
-                            <div style={{ fontSize: 10, color: theme.palette.text.secondary, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{i === 0 ? "TODAY" : period.name}</div>
+                            <div style={{ fontSize: 10, color: theme.palette.text.secondary, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{period.name}</div>
                             <div style={{ fontSize: 30, marginBottom: 6 }}>{getWeatherIcon(period.shortForecast)}</div>
                             <div style={{ fontSize: 20, fontWeight: "bold", color: textColor }}>{period.temperature}°{period.temperatureUnit}</div>
                             <div style={{ fontSize: 10, color: theme.palette.text.secondary, marginTop: 6, lineHeight: 1.3 }}>{period.shortForecast}</div>
