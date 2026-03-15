@@ -317,7 +317,7 @@ export function generateFacebookCaption(post = {}) {
  * or falls back to "Kentucky" and the site name.
  * Otherwise it falls back to the standard "| Local KY News" suffix.
  *
- * The result is kept under 70 characters where possible to avoid truncation in search results.
+ * The result is kept under 120 characters where possible to avoid truncation in search results.
  * For the county case, two fallback tiers reduce the suffix when the article title
  * would otherwise be cut too short.
  */
@@ -327,7 +327,7 @@ export function buildPageTitle(title, county, isKentucky, city) {
   const countyName = county ? String(county).trim() : '';
   const cityName = city ? String(city).trim() : '';
   const siteSuffix = 'Local KY News';
-  const maxLength = 70;
+  const maxLength = 120;
 
   const countyLabel = countyName
     ? (/county$/i.test(countyName) ? countyName : `${countyName} County`)

@@ -1,6 +1,6 @@
 // Helper for constructing SEO-friendly page titles.
 // The title is enriched with county, city, or Kentucky context when available,
-// while attempting to keep the result under 70 characters when possible.
+// while attempting to keep the result under 120 characters when possible.
 //
 // For the county case two fallback tiers reduce the suffix when the article
 // title would otherwise be cut too short:
@@ -19,7 +19,7 @@ export function buildPageTitle(
   const countyName = county ? county.trim() : '';
   const cityName = city ? city.trim() : '';
   const siteSuffix = 'Local KY News';
-  const maxLength = 70;
+  const maxLength = 120;
 
   const countyLabel = countyName
     ? (/county$/i.test(countyName) ? countyName : `${countyName} County`)
