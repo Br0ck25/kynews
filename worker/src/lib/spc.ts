@@ -148,11 +148,9 @@ async function fetchSpcFeed(
   const items = parseRssItems(xml, feedUrl, productHint);
 
   return items.filter((item) => {
-    // Always include convective outlooks (day 1/2/3) even if they don't mention Kentucky.
-    if (item.productType === 'convective_outlook') return true;
-
-    const haystack = `${item.title} ${item.description}`.toLowerCase();
-    return KY_FILTER_TERMS.some((term) => haystack.includes(term));
+    // Only include convective outlook articles (days 1/2/3). Do not include other
+    // outlook types such as Fire Weather Outlooks.
+    return item.productType === 'convective_outlook';
   });
 }
 
@@ -210,7 +208,11 @@ function inferProductType(title: string, hint: SpcProductType | null): SpcProduc
   if (t.includes('tornado watch'))                          return 'tornado_watch';
   if (t.includes('severe thunderstorm watch'))              return 'tstorm_watch';
   if (t.includes('mesoscale discussion'))                   return 'mesoscale_discussion';
-  if (t.includes('convective outlook') || /day\s*[123]/.test(t)) return 'convective_outlook';
+  if (t.includes('severe thunderstorm outlook'))            return 'convective_outlook';
+  if (t.includes('convective outlook'))                      return 'convective_outlook';
+  // Some titling uses "Day X ... Outlook" without explicitly saying convective.
+  // Exclude Fire Weather Outlooks by requiring no "fire weather" phrase.
+  if (/day\s*[123].*outlook/.test(t) && !t.includes('fire weather')) return 'convective_outlook';
   if (t.includes('fire weather'))                           return 'fire_weather';
   if (t.includes('public severe'))                          return 'public_severe';
   // fall back to the feed-level hint if title parsing didn't resolve a specific type
@@ -768,10 +770,18 @@ export async function parseSpcOutlooks(xml: string): Promise<SpcOutlook[]> {
     const pubRaw   = tagValue(block, 'pubDate') ?? '';
     const publishedAt = pubRaw ? new Date(pubRaw).toISOString() : new Date().toISOString();
 
-    // Only Outlook items for Day 1, 2, or 3 (convective, severe thunderstorm, fire weather, etc.)
+    // Only convective/severe thunderstorm outlooks for Day 1, 2, or 3.
+    // Exclude Fire Weather Outlooks and other non-convective products.
     const dayMatch = /\bday\s*([123])\b/i.exec(rawTitle);
     if (!dayMatch) continue;
-    if (!/outlook/i.test(rawTitle)) continue;
+
+    const isFireWeather = /fire\s+weather/i.test(rawTitle);
+    const isConvective = /convective\s+outlook/i.test(rawTitle);
+    const isSevereThunderstorm = /severe\s+thunderstorm\s+outlook/i.test(rawTitle);
+    const isDayOutlook = /day\s*[123].*outlook/i.test(rawTitle);
+
+    if (!isConvective && !isSevereThunderstorm && !isDayOutlook) continue;
+    if (isFireWeather) continue;
 
     candidates.push({
       day: parseInt(dayMatch[1], 10) as 1 | 2 | 3,
@@ -813,11 +823,19 @@ export async function parseSpcOutlooks(xml: string): Promise<SpcOutlook[]> {
     // Extract clean text and the embedded image URL from the HTML description
     const { text: preText, embeddedImageUrl } = extractSpcDescText(c.rawDesc);
 
-    // Prefer the image that SPC embeds directly in the RSS; otherwise resolve from known SPC filename patterns
+    // The RSS description text is often just the header line for day 2/3 outlooks.
+    // If the extracted text is very short, fetch the full .txt version of the page.
+    let fullText = preText;
+    if (preText.length < 220 || preText.split('\n').length < 4) {
+      const fetched = await fetchSpcFullText(c.link);
+      if (fetched) fullText = fetched;
+    }
+
+    // Prefer the image that SPC embeds directly in the RSS; fall back to stable outlook GIF patterns
     const imageUrl = embeddedImageUrl ?? await resolveImageUrl(deriveOutlookImageUrl(c.link, c.day));
 
     const dayLabel = ['First', 'Second', 'Third'][c.day - 1];
-    const { description, segments } = buildSpcArticleBody(preText, dayLabel);
+    const { description, segments } = buildSpcArticleBody(fullText, dayLabel);
 
     outlooks.push({ day: c.day, title: cleanTitle, description, segments, link: c.link, imageUrl, publishedAt: c.publishedAt });
   }

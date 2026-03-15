@@ -1836,6 +1836,47 @@ if (url.pathname === '/api/spc-outlooks' && request.method === 'GET') {
 	}
 }
 
+// GET /api/weather — proxy NWS endpoints so the frontend doesn't hit CORS issues.
+if (url.pathname === '/api/weather' && request.method === 'GET') {
+	const lat = url.searchParams.get('lat');
+	const lon = url.searchParams.get('lon');
+	if (!lat || !lon) return badRequest('Missing lat/lon parameters');
+
+	try {
+		const pointsRes = await fetch(`https://api.weather.gov/points/${lat},${lon}`);
+		if (!pointsRes.ok) return json({ error: 'Failed to fetch points' }, 502);
+		const pointsData = await pointsRes.json();
+
+		const forecastUrl = pointsData?.properties?.forecast;
+		const stationsUrl = pointsData?.properties?.observationStations;
+		const [forecastRes, stationsRes] = await Promise.all([forecastUrl ? fetch(forecastUrl) : null, stationsUrl ? fetch(stationsUrl) : null]);
+
+		let forecast = null;
+		let observation = null;
+
+		if (forecastRes && forecastRes.ok) {
+			const fData = await forecastRes.json();
+			forecast = fData?.properties?.periods ?? null;
+		}
+
+		if (stationsRes && stationsRes.ok) {
+			const sData = await stationsRes.json();
+			const stationId = sData?.features?.[0]?.properties?.stationIdentifier;
+			if (stationId) {
+				const obsRes = await fetch(`https://api.weather.gov/stations/${stationId}/observations/latest`);
+				if (obsRes.ok) {
+					const oData = await obsRes.json();
+					observation = oData?.properties ?? null;
+				}
+			}
+		}
+
+		return json({ points: pointsData, forecast, observation });
+	} catch (err) {
+		return json({ error: String(err) }, 500);
+	}
+}
+
 // GET /api/nws-stories — public: fetch latest briefings from NWS LMK, JKL, PAH offices
 if (url.pathname === '/api/nws-stories' && request.method === 'GET') {
 	try {

@@ -118,20 +118,14 @@ export default function KYWeatherHub() {
     setForecast(null);
     setCurrentObs(null);
     try {
-      const pointRes = await fetch(`https://api.weather.gov/points/${county.lat},${county.lon}`);
-      const pointData = await pointRes.json();
-      const { forecast: fUrl, observationStations } = pointData.properties;
-      const [fRes, sRes] = await Promise.all([fetch(fUrl), fetch(observationStations)]);
-      const fData = await fRes.json();
-      const sData = await sRes.json();
-      setForecast(fData.properties?.periods || []);
-      if (sData.features?.length) {
-        const sid = sData.features[0].properties.stationIdentifier;
-        const oRes = await fetch(`https://api.weather.gov/stations/${sid}/observations/latest`);
-        const oData = await oRes.json();
-        setCurrentObs(oData.properties);
-      }
-    } catch { setForecast([]); }
+      const res = await fetch(`/api/weather?lat=${county.lat}&lon=${county.lon}`);
+      const data = await res.json();
+      setForecast(data.forecast || []);
+      setCurrentObs(data.observation || null);
+    } catch {
+      setForecast([]);
+      setCurrentObs(null);
+    }
     setLoading(false);
   }, []);
 
