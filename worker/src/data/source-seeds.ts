@@ -91,6 +91,7 @@ export const MASTER_SOURCE_SEEDS: string[] = [
 	'https://ky-leadernews.com/feed/',
 	'https://www.wkrn.com/news/kentucky/feed/',
 	'https://www.owensborotimes.com/feed/',
+	'https://wp.kentuckystatepolice.ky.gov/news/category/ksp-news/feed/',
 
 
 ];
