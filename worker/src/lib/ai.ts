@@ -294,6 +294,25 @@ export async function summarizeArticle(
   let summary = fallback.summary;
   let seo = fallback.seoDescription;
 
+  // Articles under 60 words have no room for compression — return the
+  // cleaned source text directly as the summary rather than sending it
+  // to the AI for a near-verbatim rewrite.
+  if (originalWords < 60) {
+    const shortSummary = sourceForSummary.trim();
+    const result: SummaryResult = {
+      summary: shortSummary,
+      seoDescription: enforceSeoLength(extractFirstSentence(shortSummary), shortSummary),
+      summaryWordCount: wordCount(shortSummary),
+      sourceHash,
+    };
+    if (env.CACHE) {
+      const ttl = summaryTtl(publishedAt);
+      await env.CACHE.put(summaryKey, JSON.stringify(result)).catch(() => {});
+      await env.CACHE.put(ttlKey, '1', { expirationTtl: ttl }).catch(() => {});
+    }
+    return result;
+  }
+
   try {
     // Build prompt enriched with learned rules and style examples
     const systemPrompt = env.CACHE
@@ -307,7 +326,10 @@ export async function summarizeArticle(
         : Math.round(originalWords * 0.80),
       600
     );
-    const wordCountHint = `Source word count: ${originalWords} words. Target summary length: ${targetMin}–${targetMax} words.`;
+    const brevityHint = originalWords < 150
+      ? ' Note: source is very short — lightly rewrite for clarity without cutting content.'
+      : '';
+    const wordCountHint = `Source word count: ${originalWords} words. Target summary length: ${targetMin}–${targetMax} words.${brevityHint}`;
 
     const userPrompt = geoHint
       ? `Article metadata:\n${geoHint}\n${wordCountHint}\n\nArticle:\n${sourceForSummary.slice(0, 12_000)}`

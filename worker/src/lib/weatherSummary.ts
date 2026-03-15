@@ -544,6 +544,29 @@ function buildFallbackArticle(
   return { headline, body, contentText, contentHtml };
 }
 
+// IMPORTANT: The `summary` field stored in D1 is displayed verbatim as the
+// article card preview text and as the og:description fallback. It must:
+//   1. Always end on a complete sentence (never mid-word or mid-clause).
+//   2. Be at least 2 sentences for weather briefings (NWS forecasts need context).
+//   3. Use sliceToSentenceBoundary() — never raw .slice(N) — when truncation
+//      is needed. Raw character slices always risk cutting mid-sentence.
+// Weather briefings bypass the AI summarization pipeline (summarizeArticle is
+// not called) so the summary must be built carefully here.
+
+function sliceToSentenceBoundary(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const candidate = text.slice(0, maxChars);
+  // find last sentence-ending punctuation followed by a space or end
+  const lastEnd = Math.max(
+    candidate.lastIndexOf('. '),
+    candidate.lastIndexOf('! '),
+    candidate.lastIndexOf('? '),
+    candidate.lastIndexOf('.\n'),
+  );
+  if (lastEnd > 50) return candidate.slice(0, lastEnd + 1).trim();
+  return candidate.trimEnd();
+}
+
 // ─── Main article builder ─────────────────────────────────────────────────────
 
 export async function buildDailyWeatherArticle(
@@ -623,15 +646,25 @@ export async function buildDailyWeatherArticle(
     counties: [],
     city: null,
     slug: slugBase,
-    // Use the first two paragraphs of the body as the summary rather than
-    // a raw character slice that may cut mid-sentence
+    // Build a summary suitable for display as the article card preview and
+    // fallback og:description. Must end on a complete sentence and include
+    // enough context (2+ sentences), so we take multiple paragraphs and then
+    // trim to the nearest sentence boundary rather than slicing mid-sentence.
     summary: (() => {
       const bodyParagraphs = generated.body
         .split(/\n\n+/)
         .map((p) => p.trim())
-        .filter((p) => p.length > 30 && !/^[-*]/.test(p) && !/^(Eastern|Central|Western|Current)/i.test(p));
-      const twoParas = bodyParagraphs.slice(0, 2).join('\n\n');
-      return (twoParas || contentText).slice(0, 800);
+        .filter((p) => p.length > 30 && !/^[-*]/.test(p));
+
+      const preferredParas = bodyParagraphs.filter(
+        (p) => !/^(Eastern|Central|Western|Current)/i.test(p),
+      );
+
+      const source = (preferredParas.length > 0 ? preferredParas : bodyParagraphs)
+        .slice(0, 3)
+        .join('\n\n');
+
+      return sliceToSentenceBoundary(source || contentText, 1500);
     })(),
     seoDescription,
     rawWordCount: contentText.split(/\s+/).filter(Boolean).length,
