@@ -104,7 +104,7 @@ Structure the summary with these four sections in order:
 
 3. A paragraph beginning with exactly "What this means for [County]
    residents:" — substitute the actual county name from the metadata; if
-   county is unknown, use "Eastern Kentucky residents". Write 1–2 sentences
+   county is unknown but city is known from the metadata, use "[City] residents"; if neither county nor city is known, use "Kentucky residents". Write 1–2 sentences
    of plain local context or practical impact grounded in facts from the
    source. Do not editorialize.
 
@@ -148,6 +148,7 @@ Your summary must never:
 - Split a direct quote across paragraphs — if a quote spans a line break in the source, keep it as a single uninterrupted sentence in your output.
 - Begin with a pronoun or article ("The board...", "Officials said...") when the subject has not been named. Always name the specific entity (board, person, organization) and its location in the first sentence.
 - Start with "According to", "Officials say", "The article states", or any attribution opener. Always name the subject directly.
+- Use first-person pronouns ("we", "our", "us") unless they appear inside a direct quote from a named speaker. Always rewrite institutional first-person voice in third person, attributing statements to the named organization. Example: write "The center's staff guided them" not "We guided them."
 - Omit the county name from the opening paragraph when county metadata is provided in the article metadata block.
 - Write the "What this means for residents:" section as opinion — it must be grounded in specific facts from the source article.
 
@@ -294,10 +295,10 @@ export async function summarizeArticle(
   let summary = fallback.summary;
   let seo = fallback.seoDescription;
 
-  // Articles under 60 words have no room for compression — return the
+  // Articles under 30 words have no room for compression — return the
   // cleaned source text directly as the summary rather than sending it
   // to the AI for a near-verbatim rewrite.
-  if (originalWords < 60) {
+  if (originalWords < 30) {
     const shortSummary = sourceForSummary.trim();
     const result: SummaryResult = {
       summary: shortSummary,
@@ -321,8 +322,10 @@ export async function summarizeArticle(
 
     const targetMin = Math.max(Math.round(originalWords * 0.70), 100);
     const targetMax = Math.min(
-      originalWords < 200
-        ? Math.round(originalWords * 0.85)
+      originalWords < 150
+        ? Math.round(originalWords * 0.95)
+        : originalWords < 200
+        ? Math.round(originalWords * 0.90)
         : Math.round(originalWords * 0.80),
       600
     );
@@ -988,7 +991,7 @@ export function cleanContentForSummarization(text: string, title: string): strin
   // e.g. "Shot of a doctor examining a man. Source: Envato/by YuriArcursPeopleimages."
   t = t.replace(/^[^\n]{10,300}(?:Source:\s*Envato|Getty\s*Images?|iStock|Shutterstock|AP\s*Photo)[^\n]*\n?/gim, '');
 
-  t = t.replace(/^\s*Summary\s*$/gim, '');
+  t = t.replace(/^\s*Summary\s*\n?/gim, '');
 
   // Publisher-specific boilerplate
   t = t.replace(/Listen to this article with a (?:free|paid)?\s*account[^\n]*/gi, '');
@@ -1137,7 +1140,7 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   // Also strip any remaining bare slide counters that had no credit: "3/22 Caption text\n"
   t = t.replace(/(^|\n)\s*\d+\/\d+\s[^\n]{0,300}\n/g, '$1\n');
 
-  t = t.replace(/^\s*Summary\s*$/gim, '');
+  t = t.replace(/^\s*Summary\s*\n?/gim, '');
   t = t.replace(/^Skip\s+to\s+content\b[^\n]*/gim, '');
   t = t.replace(/^[^\n]{3,80}\([A-Z][^)]{3,60}\/\s*(?:Wikipedia|CC\s+BY|Wikimedia|AP|Getty|Reuters)[^)]*\)\s*$/gm, '');
   t = t.replace(/^Source:\s*[^\n.]{1,80}(?:\.|(?=\n))\s*/gim, '');
