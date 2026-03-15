@@ -714,6 +714,18 @@ export default class SiteService {
   }
 
   /**
+   * Discover recent post links from a public Facebook page URL.
+   * Uses mbasic scraping on the backend — works for public pages without an API token.
+   * Returns { ok, posts: [{ postUrl, message, imageUrl, publishedAt }], pageUrl, warning? }
+   */
+  async facebookPagePosts(pageUrl, limit = 10) {
+    return this.request("/api/admin/facebook/page-posts", {
+      method: "POST",
+      body: JSON.stringify({ url: pageUrl, limit }),
+    });
+  }
+
+  /**
    * Manually create an article from supplied fields (e.g. a Facebook post pasted by an admin).
    * Returns { status: 'inserted'|'duplicate', id, isDraft, category, county, canonicalUrl }
    */

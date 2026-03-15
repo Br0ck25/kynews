@@ -1738,6 +1738,42 @@ if (url.pathname === '/api/admin/facebook/preview' && request.method === 'POST')
 	});
 }
 
+// Discover recent post URLs from a public Facebook page by scraping mbasic.
+// Body: { url: string, limit?: number }
+// Returns: { ok, posts: [{ postUrl, message, imageUrl, publishedAt }], pageUrl, warning? }
+if (url.pathname === '/api/admin/facebook/page-posts' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+
+	const body = await parseJsonBody<{ url?: string; limit?: number }>(request);
+	const pageUrl = body?.url?.trim();
+	if (!pageUrl) return badRequest('Missing required field: url');
+	if (!isHttpUrl(pageUrl)) return badRequest('url must be an absolute http(s) URL');
+	if (!/facebook\.com/i.test(pageUrl)) return badRequest('url must be a facebook.com URL');
+
+	const limit = Math.min(Math.max(Number(body?.limit ?? 10), 1), 20);
+
+	try {
+		const posts = await scrapeFacebookPagePosts(pageUrl, limit);
+
+		if (posts.length === 0) {
+			return json({
+				ok: false,
+				posts: [],
+				pageUrl,
+				warning: 'No posts found. The page may be private, require login, or Facebook may have blocked the request. Try again or use individual post links instead.',
+			});
+		}
+
+		return json({ ok: true, posts, pageUrl, count: posts.length });
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.error('[FB PAGE POSTS FAILED]', msg);
+		return json({ ok: false, posts: [], pageUrl, warning: `Scrape failed: ${msg}` }, 200);
+	}
+}
+
 // new endpoint to generate a caption for an article for Facebook autoposting
 if (url.pathname === '/api/admin/facebook/caption' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
@@ -5810,6 +5846,165 @@ async function scrapeFacebookPostPublic(fbUrl: string): Promise<{ message: strin
 	}
 
 	return { message: null, imageUrl: null, publishedAt: null };
+}
+
+/**
+ * Returns true if this Facebook URL points to a page/profile root rather than
+ * a specific post.  Post URLs contain /posts/, /permalink/, story_fbid=, etc.
+ */
+function isFacebookPageUrl(fbUrl: string): boolean {
+	try {
+		const parsed = new URL(fbUrl);
+		if (!parsed.hostname.includes('facebook.com')) return false;
+		const path = parsed.pathname;
+		const isPost =
+			/\/posts\/\d+/.test(path) ||
+			/\/permalink\//.test(path) ||
+			/\/share\/p\//.test(path) ||
+			/\/photos\/\d+/.test(path) ||
+			/\/videos\/\d+/.test(path) ||
+			parsed.searchParams.has('story_fbid') ||
+			parsed.searchParams.has('fbid');
+		if (isPost) return false;
+		const segments = path.split('/').filter(Boolean);
+		return segments.length <= 1 || parsed.pathname === '/profile.php';
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Discover recent post links from a public Facebook page by fetching the
+ * mbasic.facebook.com server-rendered HTML and parsing out permalink hrefs.
+ *
+ * Returns up to `limit` posts as { postUrl, message, imageUrl, publishedAt }.
+ * message/imageUrl/publishedAt are best-effort previews and may be null.
+ */
+async function scrapeFacebookPagePosts(
+	pageUrl: string,
+	limit = 10,
+): Promise<Array<{ postUrl: string; message: string | null; imageUrl: string | null; publishedAt: string | null }>> {
+	let mbasicUrl: string;
+	try {
+		const parsed = new URL(pageUrl);
+		parsed.hostname = 'mbasic.facebook.com';
+		parsed.search = '';
+		mbasicUrl = parsed.toString();
+	} catch {
+		return [];
+	}
+
+	const MOBILE_UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+	const FB_CRAWLER_UA = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)';
+
+	let html = '';
+
+	// Attempt 1: mobile UA on mbasic
+	try {
+		const resp = await fetch(mbasicUrl, {
+			headers: {
+				'user-agent': MOBILE_UA,
+				'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+				'accept-language': 'en-US,en;q=0.5',
+				'cache-control': 'no-cache',
+			},
+			redirect: 'follow',
+		});
+		if (resp.ok) {
+			html = await resp.text();
+			// Login wall check
+			if (html.includes('login') && html.includes('password') && html.length < 20000) {
+				html = '';
+			}
+		}
+	} catch {
+		// fall through
+	}
+
+	// Attempt 2: crawler UA on original URL
+	if (!html) {
+		try {
+			const resp = await fetch(pageUrl, {
+				headers: {
+					'user-agent': FB_CRAWLER_UA,
+					'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+					'accept-language': 'en-US,en;q=0.5',
+					'cache-control': 'no-cache',
+				},
+				redirect: 'follow',
+			});
+			if (resp.ok) html = await resp.text();
+		} catch {
+			// fall through
+		}
+	}
+
+	if (!html) return [];
+
+	const posts: Array<{ postUrl: string; message: string | null; imageUrl: string | null; publishedAt: string | null }> = [];
+	const seenUrls = new Set<string>();
+
+	// Strategy 1: extract all permalink / /posts/ hrefs
+	const hrefPattern = /href="([^"]*(?:permalink|\/posts\/|story_fbid)[^"]*)"/gi;
+	let match: RegExpExecArray | null;
+	while ((match = hrefPattern.exec(html)) !== null) {
+		let href = match[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'");
+		if (href.startsWith('/')) href = `https://www.facebook.com${href}`;
+		href = href.replace('mbasic.facebook.com', 'www.facebook.com');
+		if (href.includes('/login') || href.includes('checkpoint') || href.includes('/share?')) continue;
+		try {
+			const p = new URL(href);
+			const key = p.pathname + (p.searchParams.get('story_fbid') ?? '') + (p.searchParams.get('id') ?? '');
+			if (seenUrls.has(key)) continue;
+			seenUrls.add(key);
+		} catch { continue; }
+		posts.push({ postUrl: href, message: null, imageUrl: null, publishedAt: null });
+		if (posts.length >= limit) break;
+	}
+
+	// Strategy 2: /PageName/posts/NNN patterns
+	if (posts.length === 0) {
+		const postsPattern = /href="([^"]*\/[^"\/]+\/posts\/\d+[^"]*)"/gi;
+		while ((match = postsPattern.exec(html)) !== null) {
+			let href = match[1].replace(/&amp;/g, '&');
+			if (href.startsWith('/')) href = `https://www.facebook.com${href}`;
+			href = href.replace('mbasic.facebook.com', 'www.facebook.com');
+			if (href.includes('/login') || href.includes('checkpoint')) continue;
+			try {
+				const p = new URL(href);
+				const key = p.pathname;
+				if (seenUrls.has(key)) continue;
+				seenUrls.add(key);
+			} catch { continue; }
+			posts.push({ postUrl: href, message: null, imageUrl: null, publishedAt: null });
+			if (posts.length >= limit) break;
+		}
+	}
+
+	// Strategy 3: try to grab inline post text for preview
+	const storyBlockPattern = /<div[^>]*>\s*(?:<[^>]+>\s*)*<abbr[^>]*>(.*?)<\/abbr>[\s\S]{0,2000}?<\/div>/gi;
+	let storyMatch: RegExpExecArray | null;
+	let storyIdx = 0;
+	storyBlockPattern.lastIndex = 0;
+	while ((storyMatch = storyBlockPattern.exec(html)) !== null && storyIdx < posts.length) {
+		const block = storyMatch[0];
+		const abbrMatch = block.match(/<abbr[^>]*>(.*?)<\/abbr>/i);
+		const publishedAt = abbrMatch ? abbrMatch[1].trim() : null;
+		const pMatch = block.match(/<p[^>]*>([\s\S]+?)<\/p>/i);
+		if (pMatch) {
+			const raw = pMatch[1]
+				.replace(/<[^>]+>/g, '')
+				.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'")
+				.trim();
+			if (raw.length > 20) {
+				posts[storyIdx].message = raw;
+				posts[storyIdx].publishedAt = publishedAt;
+			}
+		}
+		storyIdx++;
+	}
+
+	return posts;
 }
 
 /** Decode HTML entities in a string extracted from raw HTML attributes. */

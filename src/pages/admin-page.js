@@ -37,6 +37,7 @@ import EditIcon from "@material-ui/icons/Edit";
 import SiteService from "../services/siteService";
 import { KENTUCKY_COUNTIES } from "../constants/counties";
 import { articleToUrl } from "../utils/functions";
+import FacebookScraperTab from "../components/FacebookScraperTab";
 
 // `SiteService` already handles environment configuration internally.
 const service = new SiteService();
@@ -1095,6 +1096,7 @@ export default function AdminPage() {
           <Tab label="Create Article" />
           <Tab label={draftCount > 0 ? `Articles (${draftCount} draft${draftCount !== 1 ? "s" : ""})` : "Articles"} />
           <Tab label="Blocked" />
+          <Tab label="FB Scraper" />
         </Tabs>
       </Paper>
 
@@ -2173,6 +2175,19 @@ export default function AdminPage() {
       {/* ================================================================ */}
       {/* TAB 3 — Blocked                                                  */}
       {/* ================================================================ */}
+      {/* ================================================================ */}
+      {/* TAB 4 — Facebook Scraper                                         */}
+      {/* ================================================================ */}
+      {activeTab === 4 && (
+        <Box>
+          <Typography variant="h6" gutterBottom style={{ marginBottom: 4 }}>Facebook Scraper</Typography>
+          <Typography variant="body2" color="textSecondary" style={{ marginBottom: 16 }}>
+            Paste a Facebook page URL to discover recent posts, or paste individual post URLs to scrape and publish directly.
+          </Typography>
+          <FacebookScraperTab service={service} />
+        </Box>
+      )}
+
       {activeTab === 3 && (
         <Box>
           <Typography variant="h6" gutterBottom>Blocked Articles</Typography>
