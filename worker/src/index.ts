@@ -1435,27 +1435,40 @@ if (url.pathname.startsWith('/api/admin/articles/') && url.pathname.endsWith('/r
     await env.CACHE.delete(feedbackKey).catch(() => {});
   }
 
-  // refetch article content; append dummy query to bypass cachedTextFetch cache
-  const refetchUrl = article.canonicalUrl + `?_=${Date.now()}`;
-  const extracted = await fetchAndExtractArticle(env, {
-    url: refetchUrl,
-    sourceUrl: article.sourceUrl || article.canonicalUrl,
-    providedTitle: article.title,
-    providedDescription: '',
-    feedPublishedAt: article.publishedAt,
-  });
+  // refetch article content; omit feedPublishedAt so isManualIngest=true uses
+  // the browser-like UA path (better bot bypassing for admin actions).
+  let extracted: Awaited<ReturnType<typeof fetchAndExtractArticle>>;
+  try {
+    const refetchUrl = new URL(article.canonicalUrl);
+    refetchUrl.searchParams.set('_', String(Date.now()));
+    extracted = await fetchAndExtractArticle(env, {
+      url: refetchUrl.toString(),
+      sourceUrl: article.sourceUrl || article.canonicalUrl,
+      providedTitle: article.title,
+      providedDescription: '',
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return badRequest(`Failed to fetch article content: ${msg}`);
+  }
 
-  const aiResult = await summarizeArticle(env, article.urlHash, article.title, extracted.contentText, article.publishedAt, {
-    county: article.county,
-    city: article.city,
-    category: article.category,
-  });
+  let aiResult: Awaited<ReturnType<typeof summarizeArticle>>;
+  try {
+    aiResult = await summarizeArticle(env, article.urlHash, article.title, extracted.contentText, article.publishedAt, {
+      county: article.county,
+      city: article.city,
+      category: article.category,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return badRequest(`AI summarization failed: ${msg}`);
+  }
   const newSummary = aiResult.summary;
   const newSeo = aiResult.seoDescription;
 
   // update both summary and seo description directly since updateArticleContent
   // only handles title/summary.
-await prepare(env,
+  await prepare(env,
       'UPDATE articles SET summary = ?, seo_description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
     )
     .bind(newSummary, newSeo, id)
