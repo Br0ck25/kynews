@@ -121,3 +121,21 @@ The old fallback hardcoded "Eastern Kentucky residents" for every article withou
 | Short article word-count thresholds | Verify against real sources (KYTC, government notices) before setting cutoffs |
 | AI echoing source voice | Always add a "must never" rule; do not rely on the AI to infer style by example |
 | Geographic fallback text | Never hardcode a regional fallback when city metadata may be available |
+
+---
+
+### Change 7 — Force city-based resident phrasing when metadata is present
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+- After final summary construction we now post-process the text to replace
+  "What this means for Eastern Kentucky residents:" or "What this means for
+  Kentucky residents:" with "What this means for [City] residents:" when
+  `meta.city` is available.
+
+**Why:**
+The AI occasionally ignored the prompt instruction and used the generic
+"Eastern Kentucky" fallback even when the article metadata included a city.
+This deterministic post-processing ensures the local phrasing is always used
+when the city is known.

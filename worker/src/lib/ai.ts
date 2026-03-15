@@ -404,6 +404,20 @@ export async function summarizeArticle(
     seo = seo.charAt(0).toUpperCase() + seo.slice(1);
   }
 
+  // If we know the article city and the AI used the generic fallback, force the
+  // local phrasing so summaries don't mention "Eastern Kentucky" for city-level
+  // stories.
+  if (meta?.city) {
+    const city = meta.city.trim();
+    if (city) {
+      const cityResidents = `${city} residents`;
+      summary = summary.replace(
+        /What this means for (?:Eastern Kentucky|Kentucky) residents:/gi,
+        `What this means for ${cityResidents}:`,
+      );
+    }
+  }
+
   // Convert any Markdown headings the AI produced to HTML, after all sanitization
   summary = markdownHeadingsToHtml(summary);
 
