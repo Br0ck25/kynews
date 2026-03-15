@@ -42,13 +42,24 @@ function getAlertStyle(event = "") {
 }
 
 function formatAlertDescription(desc = "") {
-  return desc
-    .split("\n")
-    .filter(line => !/^\*\s*WHEN\b/.test(line.trim()) && !/^\s*$/.test(line) || line.trim() === "")
-    .filter(line => !/^\*\s*WHEN\b/.test(line.trim()))
-    .map(line => line.replace(/^\*\s*/, "").replace(/\.\.\./, ": "))
-    .join("\n")
-    .trim();
+  // Split into lines and clean up each one
+  const lines = desc.split("\n");
+  const cleaned = [];
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    // Drop WHEN block lines entirely
+    if (/^\*\s*WHEN\b/i.test(line.trim())) continue;
+    // Convert bullet labels: "* WHAT...text" → "WHAT: text"
+    const labelLine = line.replace(/^\*\s*([A-Z ]+)\.\.\./, (_, label) => `${label.trim()}: `);
+    const isNewBlock = /^\*?\s*[A-Z][A-Z ]+:/.test(labelLine.trim()) || labelLine.trim() === "";
+    if (isNewBlock || cleaned.length === 0) {
+      if (labelLine.trim() !== "") cleaned.push(labelLine.trim());
+    } else {
+      // Continuation line — join onto previous with a space
+      cleaned[cleaned.length - 1] += " " + labelLine.trim();
+    }
+  }
+  return cleaned.join("\n").trim();
 }
 
 export default function KYWeatherHub() {
