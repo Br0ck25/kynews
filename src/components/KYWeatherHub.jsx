@@ -5,16 +5,9 @@ import CategoryFeedPage from "../pages/category-feed-page";
 import SiteService from "../services/siteService";
 
 const KY_COUNTIES = [
-  { name: "McCracken (Paducah)", lat: 37.0834, lon: -88.6001 },
-  { name: "Graves (Mayfield)", lat: 36.7418, lon: -88.6215 },
-  { name: "Warren (Bowling Green)", lat: 36.9685, lon: -86.4808 },
-  { name: "Jefferson (Louisville)", lat: 38.2527, lon: -85.7585 },
-  { name: "Fayette (Lexington)", lat: 38.0406, lon: -84.5037 },
-  { name: "Franklin (Frankfort)", lat: 38.2009, lon: -84.8733 },
-  { name: "Kenton (Covington)", lat: 39.0837, lon: -84.5086 },
-  { name: "Pulaski (Somerset)", lat: 37.0912, lon: -84.6041 },
-  { name: "Perry (Hazard)", lat: 37.2498, lon: -83.1932 },
-  { name: "Pike (Pikeville)", lat: 37.4793, lon: -82.5185 },
+  { name: "Eastern Kentucky (Jackson / Carroll Airport KJKL)", lat: 37.59, lon: -83.31 },
+  { name: "Central Kentucky (Louisville / Bowman Field KLOU)", lat: 38.23, lon: -85.66 },
+  { name: "Western Kentucky (Paducah / Barkley Regional KPAH)", lat: 37.06, lon: -88.77 },
 ];
 
 const ALERT_COLORS = {
