@@ -647,7 +647,12 @@ export default class SiteService {
       method: "POST",
     });
   }
-
+  // batch-regenerate AI summaries for articles published in last 48h
+  async adminRegenerateRecent() {
+    return this.request("/api/admin/regenerate-recent", {
+      method: "POST",
+    });
+  }
   async adminCheckUpdates() {
     return this.request("/api/admin/check-updates", {
       method: "POST",

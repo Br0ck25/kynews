@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+﻿import React, { useEffect, useState, useRef } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -158,6 +158,10 @@ export default function AdminPage() {
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [checkUpdatesResult, setCheckUpdatesResult] = useState(null);
   const [checkUpdatesError, setCheckUpdatesError] = useState("");
+  // dashboard regenerate-recent state
+  const [regenRecent, setRegenRecent] = useState(false);
+  const [regenRecentResult, setRegenRecentResult] = useState(null);
+  const [regenRecentError, setRegenRecentError] = useState("");
 
   // --- Manual URL ingest state ---
   const [manualUrlInput, setManualUrlInput] = useState('');
@@ -203,6 +207,24 @@ export default function AdminPage() {
       setCheckUpdatesError(err?.errorMessage || String(err));
     } finally {
       setCheckingUpdates(false);
+    }
+  };
+
+  const handleRegenRecent = async () => {
+    setRegenRecent(true);
+    setRegenRecentError("");
+    setRegenRecentResult(null);
+    try {
+      const res = await service.adminRegenerateRecent();
+      if (res.ok) {
+        setRegenRecentResult(res);
+      } else {
+        setRegenRecentError(res.error || "unknown error");
+      }
+    } catch (err) {
+      setRegenRecentError(err?.errorMessage || String(err));
+    } finally {
+      setRegenRecent(false);
     }
   };
 
@@ -1097,6 +1119,9 @@ export default function AdminPage() {
             <Button variant="contained" color="default" onClick={handleCheckUpdates} disabled={checkingUpdates}>
               {checkingUpdates ? "Checking…" : "Check recent updates"}
             </Button>
+            <Button variant="contained" color="default" onClick={handleRegenRecent} disabled={regenRecent}>
+              {regenRecent ? "Regenerating…" : "Regen recent summaries"}
+            </Button>
             <Button variant="outlined" onClick={loadData} disabled={loading}>
               {loading ? "Loading…" : "Refresh"}
             </Button>
@@ -1109,6 +1134,16 @@ export default function AdminPage() {
           {checkUpdatesResult && (
             <Typography variant="body2" style={{ marginBottom: 12 }}>
               Update-check job enqueued for last 48 hours
+            </Typography>
+          )}
+          {regenRecentError && (
+            <Typography color="error" variant="body2" style={{ marginBottom: 12 }}>
+              {regenRecentError}
+            </Typography>
+          )}
+          {regenRecentResult && (
+            <Typography variant="body2" style={{ marginBottom: 12 }}>
+              Regenerate-summaries job enqueued for last 48 hours
             </Typography>
           )}
 

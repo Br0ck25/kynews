@@ -886,6 +886,15 @@ if (url.pathname === '/api/admin/check-updates' && request.method === 'POST') {
 	return json({ ok: true });
 }
 
+// Manual admin endpoint to regenerate AI summaries for articles published in last 48h
+if (url.pathname === '/api/admin/regenerate-recent' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+	ctx.waitUntil(regenerateRecentArticles(env, 48));
+	return json({ ok: true });
+}
+
 // Backfill articles for counties that currently have fewer than `threshold` items.
 // Enqueue one job per county; the worker queue consumer will perform the heavy
 // ingest work without being subject to the 30‑second waitUntil cap.
@@ -5332,6 +5341,74 @@ async function checkArticleUpdates(env: Env, maxAgeHours: number = 24): Promise<
   }
 }
 
+/**
+ * Regenerate AI summaries for articles published within the last maxAgeHours.
+ * Processes up to 20 articles per call to stay within CPU budget.
+ */
+async function regenerateRecentArticles(env: Env, maxAgeHours: number = 48): Promise<void> {
+  const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
+  const rows = await prepare(env,
+    `SELECT id, url_hash, canonical_url, source_url, title, published_at,
+            county, city, category
+     FROM articles
+     WHERE published_at >= ?
+       AND is_kentucky = 1
+     ORDER BY published_at DESC
+     LIMIT 20`
+  ).bind(cutoff).all();
+
+  const articles = (rows.results ?? []) as Array<{
+    id: number;
+    url_hash: string;
+    canonical_url: string;
+    source_url: string | null;
+    title: string;
+    published_at: string;
+    county: string | null;
+    city: string | null;
+    category: string;
+  }>;
+
+  for (const article of articles) {
+    try {
+      const refetchUrl = article.canonical_url + `?_=${Date.now()}`;
+      const extracted = await fetchAndExtractArticle(env, {
+        url: refetchUrl,
+        sourceUrl: article.source_url || article.canonical_url,
+        providedTitle: article.title,
+        providedDescription: '',
+        feedPublishedAt: article.published_at,
+      }).catch(() => null);
+
+      if (!extracted?.contentText) continue;
+
+      const aiResult = await summarizeArticle(
+        env,
+        article.url_hash,
+        article.title,
+        extracted.contentText,
+        article.published_at,
+        {
+          county: article.county,
+          city: article.city,
+          category: article.category as any,
+        },
+      );
+
+      await prepare(env,
+        'UPDATE articles SET summary = ?, seo_description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+      ).bind(aiResult.summary, aiResult.seoDescription, article.id).run().catch(() => {});
+
+      console.log(`[REGEN] Article #${article.id}: ${article.title}`);
+    } catch (err) {
+      console.error(
+        `[REGEN FAILED] Article #${article.id}:`,
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+}
+
 export const __testables = {
 	normalizeSourceUrl,
 	isStructuredSearchSource,
@@ -5358,6 +5435,7 @@ export const __testables = {
 	isAdminAuthorized,
 	// article update helpers
 	checkArticleUpdates,
+	regenerateRecentArticles,
 };
 
 // also export runIngest directly for easier import in tests or tooling
