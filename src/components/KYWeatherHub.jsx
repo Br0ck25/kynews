@@ -379,25 +379,25 @@ export default function KYWeatherHub() {
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                             <span style={{ fontSize: 18 }}>{s.icon}</span>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: "bold", color: "#000", fontSize: 13 }}>{props.event}</div>
-                              <div style={{ fontSize: 11, color: "#222", margin: "4px 0" }}>{props.areaDesc?.split(";").slice(0, 4).join(" • ")}</div>
-                              <div style={{ fontSize: 11, color: "#333" }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
+                              <div style={{ fontWeight: "bold", color: "#000", fontSize: 16 }}>{props.event}</div>
+                              <div style={{ fontSize: 14, color: "#222", margin: "4px 0" }}>{props.areaDesc?.split(";").slice(0, 4).join(" • ")}</div>
+                              <div style={{ fontSize: 14, color: "#333" }}>Expires: {props.expires ? new Date(props.expires).toLocaleString() : "Unknown"}</div>
                               {alertUrl && (
                                 <a
                                   href={alertUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  style={{ display: "inline-block", marginTop: 4, fontSize: 10, color: theme.palette.primary.main, textDecoration: "none" }}
+                                  style={{ display: "inline-block", marginTop: 4, fontSize: 12, color: theme.palette.primary.main, textDecoration: "none" }}
                                 >
                                   View Alert
                                 </a>
                               )}
                             </div>
-                            <span style={{ background: s.bg, color: s.text, padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: "bold", textTransform: "uppercase", whiteSpace: "nowrap" }}>{props.severity}</span>
+                            <span style={{ background: s.bg, color: s.text, padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: "bold", textTransform: "uppercase", whiteSpace: "nowrap" }}>{props.severity}</span>
                           </div>
-                          {props.headline && <div style={{ fontSize: 11, color: "#222", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)" }}>{props.headline}</div>}
-                          {props.description && <div style={{ fontSize: 11, color: "#333", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{formatAlertDescription(props.description)}</div>}
-                          {props.instruction && <div style={{ fontSize: 11, color: "#333", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)", fontStyle: "italic", lineHeight: 1.6 }}>💡 {props.instruction.split("\n").map(l => l.trim()).filter(Boolean).join(" ")}</div>}
+                          {props.headline && <div style={{ fontSize: 14, color: "#222", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)" }}>{props.headline}</div>}
+                          {props.description && <div style={{ fontSize: 14, color: "#333", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{formatAlertDescription(props.description)}</div>}
+                          {props.instruction && <div style={{ fontSize: 14, color: "#333", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.12)", fontStyle: "italic", lineHeight: 1.6 }}>💡 {props.instruction.split("\n").map(l => l.trim()).filter(Boolean).join(" ")}</div>}
                         </div>
                       );
                     })}
