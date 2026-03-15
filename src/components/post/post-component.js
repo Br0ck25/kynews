@@ -125,11 +125,15 @@ export default function FeaturedPost(props) {
 
     // If the content contains HTML paragraph/break tags, split on those first
     // so that sources which deliver pre-formatted HTML are handled correctly.
-    if (/<p[\s>]|<br\s*\/?>/i.test(raw)) {
+    // Preserve basic inline formatting (bold/italic/scale) rather than stripping
+    // every HTML tag out – otherwise editor-inserted <strong> markup disappears.
+    if (/<p[\s>]|<br\s*\/?\?>/i.test(raw)) {
       const stripped = raw
-        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<br\s*\/?\?>/gi, "\n")
         .replace(/<\/p>/gi, "\n")
-        .replace(/<[^>]+>/g, "");
+        .replace(/<p[^>]*>/gi, "")
+        // Remove all tags except a small whitelist so bold/italic formatting survives.
+        .replace(/<(?!\/?(?:b|strong|i|em|span)\b)[^>]+>/gi, "");
       const htmlParts = stripped.split(/\n+/).map((p) => p.trim()).filter(Boolean);
       if (htmlParts.length > 1) return htmlParts;
     }

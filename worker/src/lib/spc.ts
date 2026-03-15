@@ -716,6 +716,9 @@ function buildSpcArticleBody(
   // Drop forecaster signature lines e.g. "..Smith.. 03/14/2026"
   text = text.replace(/^\.\.([A-Za-z/]+)\.\.\.?\s+\d{2}\/\d{2}\/\d{4}\s*$/gm, '').trim();
 
+  // Drop the NWS product terminator line "$$"
+  text = text.replace(/^\$\$\s*$/gm, '').trim();
+
   // Convert from all-caps NWS style to sentence case
   text = toArticleCase(text);
 
@@ -865,21 +868,49 @@ export async function parseSpcOutlooks(xml: string): Promise<SpcOutlook[]> {
   }
 
   // Ensure Day 1/2/3 are always present, even if the feed doesn't include them.
+  // For any missing day, directly fetch the known SPC page instead of showing "(unavailable)".
   const existingDays = new Set(outlooks.map((o) => o.day));
   for (const day of [1, 2, 3] as const) {
     if (existingDays.has(day)) continue;
-    const imageUrl = await resolveImageUrl(deriveOutlookImageUrl('', day));
-    outlooks.push({
-      day,
-      title: `Day ${day} Convective Outlook (unavailable)`,
-      description: 'The SPC outlook is not currently available. Check back soon for updates.',
-      segments: [
-        { type: 'paragraph', text: 'The Storm Prediction Center has not released this outlook yet. Please check back later for the latest convective outlooks.' },
-      ],
-      link: 'https://www.spc.noaa.gov/products/outlook/',
-      imageUrl,
-      publishedAt: new Date().toISOString(),
-    });
+
+    const directLink = `https://www.spc.noaa.gov/products/outlook/day${day}otlk.html`;
+    const dayLabel = ['First', 'Second', 'Third'][day - 1];
+
+    // Try to fetch full text directly from the known SPC page URL.
+    // We use the known image URL pattern (resolveImageUrl) rather than scraping the page,
+    // because the map image is often loaded dynamically and HTML scraping returns wrong images.
+    const [directFullText, directImageUrl] = await Promise.all([
+      fetchSpcFullText(directLink),
+      resolveImageUrl(deriveOutlookImageUrl(directLink, day)),
+    ]);
+
+    if (directFullText && directFullText.length > 100) {
+      // We got real content — build a proper outlook card.
+      const { description, segments } = buildSpcArticleBody(directFullText, dayLabel);
+      outlooks.push({
+        day,
+        title: `Day ${day} Convective Outlook`,
+        description,
+        segments,
+        link: directLink,
+        imageUrl: directImageUrl,
+        publishedAt: new Date().toISOString(),
+      });
+    } else {
+      // Outlook genuinely not yet released — show placeholder.
+      const imageUrl = await resolveImageUrl(deriveOutlookImageUrl('', day));
+      outlooks.push({
+        day,
+        title: `Day ${day} Convective Outlook (unavailable)`,
+        description: 'The SPC outlook is not currently available. Check back soon for updates.',
+        segments: [
+          { type: 'paragraph', text: 'The Storm Prediction Center has not released this outlook yet. Please check back later for the latest convective outlooks.' },
+        ],
+        link: directLink,
+        imageUrl,
+        publishedAt: new Date().toISOString(),
+      });
+    }
   }
 
   // Sort to keep Day 1/2/3 order
