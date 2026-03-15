@@ -457,7 +457,8 @@ Rules:
 - Start with exactly "Update: " followed by the new information
 - Do NOT repeat anything already in the existing summary
 - Do NOT use phrases like "the article was updated" or "new information shows"
-- If there is no meaningful new information, respond with exactly: NO_UPDATE
+- Respond with exactly NO_UPDATE ONLY if the article added nothing new beyond a minor timestamp or formatting change
+- If a person's status changed (found, arrested, died, released, etc.) that is ALWAYS meaningful new information — never return NO_UPDATE for this
 - Write in past tense, third person, plain news style
 - Be specific: include names, numbers, charges, and facts from the update
 - Maximum 60 words`;
@@ -481,7 +482,9 @@ ${newContent.slice(0, 8000)}`;
     const text = extractAiText(aiRaw).trim();
 
     if (!text || text === 'NO_UPDATE' || text.includes('NO_UPDATE')) {
-      return null;
+      // If the AI declined to provide an update, try to detect an "Update:" line
+      // in the new content (common in breaking news stories) and use that.
+      return inferUpdateFromContent(newContent, existingSummary);
     }
 
     // Must start with "Update" to be valid
@@ -496,6 +499,69 @@ ${newContent.slice(0, 8000)}`;
   } catch {
     return null;
   }
+}
+
+// Regex that matches a bare timestamp like "Mar. 14 at 9:40 p.m." or "March 14, 2026"
+// These appear as Update: section headers on sites like Lex18, with the actual
+// news content on the following paragraph.
+const TIMESTAMP_ONLY_RE =
+  /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:,?\s+\d{4})?(?:\s+at\s+[\d:]+\s*[apm.]+)?[\s.,]*$/i;
+
+/**
+ * Scans the new article content for ALL explicit "Update:" / "Updated:" blocks
+ * (common in breaking news on sites like Lex18) that are not already present
+ * in the stored summary, and returns them combined in chronological order.
+ *
+ * Handles two patterns:
+ *   Pattern A — timestamp header:  "Update: Mar. 14 at 9:40 p.m."  (followed
+ *               by the actual news on the next paragraph)
+ *   Pattern B — inline content:    "Update: KSP confirmed the girl was found dead."
+ *
+ * Returns all new update blocks joined by "\n\n", or null if nothing new found.
+ */
+function inferUpdateFromContent(newContent: string, existingSummary: string): string | null {
+  const lowerSummary = (existingSummary || '').toLowerCase();
+  const rawLines = newContent.split(/\r?\n/).map((l) => l.trim());
+  const collected: string[] = [];
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
+    if (!line) continue;
+
+    const match = line.match(/^(?:Update|Updated)\s*[:\-–—]\s*(.*)$/i);
+    if (!match) continue;
+
+    const afterColon = (match[1] ?? '').trim();
+
+    // Pattern A: timestamp-only header — grab the following non-empty paragraph
+    if (!afterColon || TIMESTAMP_ONLY_RE.test(afterColon)) {
+      const contentLines: string[] = [];
+      for (let j = i + 1; j < rawLines.length; j++) {
+        const next = rawLines[j];
+        // Stop at blank line after content collected, or at next section header
+        if (/^(?:Update|Updated|Original story)\s*[:\-–—]/i.test(next)) break;
+        if (!next && contentLines.length > 0) break;
+        if (next) contentLines.push(next);
+      }
+      const content = contentLines.join(' ').trim();
+      if (!content) continue;
+      // Skip if already in the summary (check first 60 chars as fingerprint)
+      if (lowerSummary.includes(content.toLowerCase().slice(0, 60))) continue;
+      // Include timestamp prefix so the reader knows when this happened
+      const block = afterColon ? `${afterColon} — ${content}` : content;
+      collected.push(block);
+      continue;
+    }
+
+    // Pattern B: content is inline on the same line as "Update:"
+    if (lowerSummary.includes(afterColon.toLowerCase())) continue;
+    collected.push(afterColon);
+  }
+
+  if (collected.length === 0) return null;
+  // Multiple update blocks: join with a separator so prependUpdateToSummary
+  // receives a single string containing all new developments.
+  return collected.join('\n\n');
 }
 
 export async function generateImageAltText(

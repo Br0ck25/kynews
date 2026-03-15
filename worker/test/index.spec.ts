@@ -1,5 +1,5 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, test, expect, vi } from 'vitest';
 
 // avoid touching real push service during unit tests
 vi.mock('web-push', () => ({
@@ -2064,6 +2064,9 @@ describe('structured search source extraction', () => {
 		expect(__testables.isStructuredSearchSource('https://kyweathercenter.com/')).toBe(true);
 		expect(__testables.isRobotsBypassAllowed('https://kyweathercenter.com/')).toBe(true);
 	});
+
+	it('buildCountySearchUrls returns correct URLs for Fayette county', () => {
+		const urls = __testables.buildCountySearchUrls('Fayette');
 		expect(urls).toEqual([
 			'https://www.kentucky.com/search/?q=Fayette&page=1&sort=newest',
 			'https://www.wymt.com/search/?query=Fayette',
@@ -2767,6 +2770,38 @@ describe('database utilities', () => {
 		expect(updated.summary).toContain('added update');
 		expect(updated.summary).toContain('Orig');
 	});
+
+	it('falls back to an explicit "Update:" line when AI returns NO_UPDATE', async () => {
+		const originalAi = env.AI;
+		env.AI = {
+			run: vi.fn().mockResolvedValue({ response: 'NO_UPDATE' }),
+		} as any;
+
+		const existingSummary = 'Missing 9-year-old last seen in Florence.';
+		// Simulates the Lex18 pattern: two timestamp headers each followed by content
+		const newContent = [
+			'Update: Mar. 14 at 9:40 p.m.',
+			'',
+			'Kentucky State Police confirmed the missing girl was found deceased.',
+			'',
+			'Update: Mar. 14 at 12 p.m.',
+			'',
+			'The Boone County Sheriff\'s Office said search volunteers should meet at Oakbrook Swim Club.',
+			'',
+			'Original story:',
+			'An IAN alert was issued.',
+		].join('\n');
+
+		const result = await aiModule.generateUpdateParagraph(env, newContent, existingSummary, new Date().toISOString());
+		// Should contain both update blocks
+		expect(result).toContain('Mar. 14 at 9:40 p.m.');
+		expect(result).toContain('found deceased');
+		expect(result).toContain('Mar. 14 at 12 p.m.');
+		expect(result).toContain('Oakbrook Swim Club');
+
+		env.AI = originalAi;
+	});
+}); // end describe('database utilities')
 
 describe('db.insertArticle error logging', () => {
 	it('logs a helpful message and propagates the error', async () => {

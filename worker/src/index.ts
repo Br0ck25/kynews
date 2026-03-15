@@ -1366,12 +1366,15 @@ if (url.pathname.startsWith('/api/admin/articles/') && url.pathname.endsWith('/c
       return json({ ok: true, updated: false, reason: 'No baseline hash existed — hash stored. Run again to detect changes.' });
     }
 
-    // Hash unchanged — no update needed
-    if (article.contentHash === newHash) {
-      return json({ ok: true, updated: false, reason: 'Content unchanged since last check' });
-    }
-
-    // Content changed — generate update paragraph
+    // Content changed — generate update paragraph.
+    // Even if the hash is identical to the stored one (meaning the content
+    // hasn't changed since the last automated check), we still run the AI/
+    // fallback here because a previous check may have advanced the hash
+    // without ever actually updating the article summary (e.g. AI returned
+    // NO_UPDATE on the first pass).  For a manual admin check we always
+    // want to compare the *current* article content against the *current*
+    // stored summary so we don't silently drop updates.
+    const contentChanged = article.contentHash !== newHash;
     const updateParagraph = await generateUpdateParagraph(
       env,
       extracted.contentText,
@@ -1380,12 +1383,18 @@ if (url.pathname.startsWith('/api/admin/articles/') && url.pathname.endsWith('/c
     );
 
     if (!updateParagraph) {
-      // Still update the hash so future checks have the new baseline
-      await prepare(env, 'UPDATE articles SET content_hash = ? WHERE id = ?')
-        .bind(newHash, article.id)
-        .run()
-        .catch(() => {});
-      return json({ ok: true, updated: false, reason: 'Content changed but no meaningful new information found' });
+      if (contentChanged) {
+        // Content changed but nothing new to say — advance stored hash so
+        // future cron runs don't keep re-checking the same version.
+        await prepare(env, 'UPDATE articles SET content_hash = ? WHERE id = ?')
+          .bind(newHash, article.id)
+          .run()
+          .catch(() => {});
+      }
+      const reason = contentChanged
+        ? 'Content changed but no meaningful new information found'
+        : 'Content unchanged and summary is already up to date';
+      return json({ ok: true, updated: false, reason });
     }
 
     await prependUpdateToSummary(env, article.id, updateParagraph, newHash);

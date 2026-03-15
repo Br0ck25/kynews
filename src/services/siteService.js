@@ -641,6 +641,13 @@ export default class SiteService {
     });
   }
 
+  // regenerate the full AI summary for a single article
+  async regenerateSummary({ id }) {
+    return this.request(`/api/admin/articles/${id}/regenerate-summary`, {
+      method: "POST",
+    });
+  }
+
   async adminCheckUpdates() {
     return this.request("/api/admin/check-updates", {
       method: "POST",

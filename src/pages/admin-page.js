@@ -183,6 +183,10 @@ export default function AdminPage() {
   const [rowCheckResults, setRowCheckResults] = useState({});
   const [rowCheckErrors, setRowCheckErrors] = useState({});
   const [rowCheckLoadingId, setRowCheckLoadingId] = useState(null);
+  // per-article regenerate-summary state
+  const [rowRegenResults, setRowRegenResults] = useState({});
+  const [rowRegenErrors, setRowRegenErrors] = useState({});
+  const [rowRegenLoadingId, setRowRegenLoadingId] = useState(null);
 
   const handleCheckUpdates = async () => {
     setCheckingUpdates(true);
@@ -283,6 +287,26 @@ export default function AdminPage() {
       setRowCheckErrors((prev) => ({ ...prev, [id]: err?.errorMessage || String(err) }));
     } finally {
       setRowCheckLoadingId(null);
+    }
+  };
+
+  // regenerate AI summary for a single article row
+  const handleRowRegen = async (id) => {
+    if (!id) return;
+    setRowRegenErrors((prev) => ({ ...prev, [id]: "" }));
+    setRowRegenResults((prev) => ({ ...prev, [id]: null }));
+    setRowRegenLoadingId(id);
+    try {
+      const res = await service.regenerateSummary({ id });
+      if (res.ok) {
+        setRowRegenResults((prev) => ({ ...prev, [id]: res }));
+      } else {
+        setRowRegenErrors((prev) => ({ ...prev, [id]: res.error || "unknown error" }));
+      }
+    } catch (err) {
+      setRowRegenErrors((prev) => ({ ...prev, [id]: err?.errorMessage || String(err) }));
+    } finally {
+      setRowRegenLoadingId(null);
     }
   };
 
@@ -1941,6 +1965,11 @@ export default function AdminPage() {
                                 onClick={() => handleRowCheck(row.id)}>
                                 {rowCheckLoadingId === row.id ? "Checking…" : "Check update"}
                               </Button>
+                              <Button size="small" variant="outlined" color="default"
+                                disabled={rowRegenLoadingId === row.id}
+                                onClick={() => handleRowRegen(row.id)}>
+                                {rowRegenLoadingId === row.id ? "Regenerating…" : "Regen Summary"}
+                              </Button>
 
                               <Button size="small" variant="outlined" color="secondary"
                                 disabled={deletingId === row.id}
@@ -1956,7 +1985,7 @@ export default function AdminPage() {
                           </TableCell>
                         </TableRow>
                         {/* optionally display caption/post results below the review row */}
-                        {(rowCaptions[row.id] !== undefined || rowCaptionErrors[row.id] || rowPostResults[row.id] !== undefined || rowPostErrors[row.id] || rowCheckResults[row.id] !== undefined || rowCheckErrors[row.id]) && (
+                        {(rowCaptions[row.id] !== undefined || rowCaptionErrors[row.id] || rowPostResults[row.id] !== undefined || rowPostErrors[row.id] || rowCheckResults[row.id] !== undefined || rowCheckErrors[row.id] || rowRegenResults[row.id] !== undefined || rowRegenErrors[row.id]) && (
                           <TableRow>
                             <TableCell colSpan={10} style={{ paddingTop: 0, paddingBottom: 0 }}>
                               {rowCaptionErrors[row.id] && (
@@ -1987,6 +2016,16 @@ export default function AdminPage() {
                               {rowCheckResults[row.id] !== undefined && (
                                 <Typography variant="body2" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
                                   <strong>Update check:</strong> {JSON.stringify(rowCheckResults[row.id])}
+                                </Typography>
+                              )}
+                              {rowRegenErrors[row.id] && (
+                                <Typography color="error" variant="body2" style={{ marginTop: 8 }}>
+                                  {rowRegenErrors[row.id]}
+                                </Typography>
+                              )}
+                              {rowRegenResults[row.id] !== undefined && (
+                                <Typography variant="body2" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
+                                  <strong>Regen summary:</strong> {JSON.stringify(rowRegenResults[row.id])}
                                 </Typography>
                               )}
                             </TableCell>

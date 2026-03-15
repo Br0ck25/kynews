@@ -569,8 +569,13 @@ export async function prependUpdateToSummary(
     timeZone: 'America/New_York',
   });
 
-  const updatedSummary =
-    `Update (${timeLabel}): ${updateParagraph}\n\n${row.summary}`.trim();
+  // The updateParagraph may contain multiple blocks separated by \n\n
+  // (when inferUpdateFromContent found more than one new update section).
+  // Give each block its own "Update (time):" prefix.
+  const blocks = updateParagraph.split(/\n\n+/).map((b) => b.trim()).filter(Boolean);
+  const prefixed = blocks.map((b) => `Update (${timeLabel}): ${b}`).join('\n\n');
+
+  const updatedSummary = `${prefixed}\n\n${row.summary}`.trim();
 
   await prepare(env,
       `UPDATE articles
