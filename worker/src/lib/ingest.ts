@@ -90,6 +90,20 @@ function deriveAuthorFromHostname(sourceUrl: string): string | null {
   }
 }
 
+/**
+ * Rejoin military/professional rank abbreviations that get split across
+ * paragraph boundaries when some CMS systems wrap each word in its own <p>.
+ * Without this, "Tech.\n\nSgt." arrives as two separate sentences and the AI
+ * summarizer treats "Tech." as a sentence-ending period, cutting the name.
+ */
+function cleanContentForSummary(text: string): string {
+  // Ranks/titles whose trailing period is NOT a sentence-end
+  return text.replace(
+    /\b(Tech|Sgt|Maj|Capt|Col|Gen|Cpl|Pvt|Lt|Cdr|Adm|SSgt|MSgt|TSgt|SMSgt|CMSgt|Brig|Cmdr|Mr|Mrs|Ms|Dr|Rev|Fr|Sr|Jr)\.\s*\n{2,}/g,
+    '$1. ',
+  );
+}
+
 export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<IngestResult> {
   // Pre-flight duplicate check using the normalized source URL.  This allows
   // queue-sourced messages to short-circuit before performing any network
@@ -229,7 +243,7 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     title = optimizeTitleForSeo(title, classification.county);
   }
 
-  const ai = await summarizeArticle(env, canonicalHash, extracted.title, extracted.contentText, extracted.publishedAt, {
+  const ai = await summarizeArticle(env, canonicalHash, extracted.title, cleanContentForSummary(extracted.contentText), extracted.publishedAt, {
     county: classification.county,
     city: classification.city,
     category: classification.category,

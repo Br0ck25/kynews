@@ -541,7 +541,7 @@ export async function classifyArticleWithAi(
 
   // detect obvious national cues (word "national", "federal", US, etc.) so we
   // can apply a separate flag independent of Kentucky relevance.
-  const nationalSignal = /\bnational\b|\bfederal\b|\bunited states\b|\bu\.s\.\s+(?:government|congress|senate|house|military|federal|supreme court|president|department|agency|law|policy|court)\b|\b(?:congress|senate|white house|pentagon|supreme court|federal government|biden|trump|president)\b/i.test(semanticLeadText);
+  const nationalSignal = /\bnational\b|\bfederal\b|\bunited states\b|\bu\.s\.\s+(?:government|congress|senate|house|military|federal|supreme court|president|department|agency|law|policy|court)\b|\b(?:congress|senate|white house|pentagon|supreme court|federal government|biden|trump|president)\b|\bdepartment\s+of\s+defense\b|\bair\s+force\s+base\b|\bair\s+(?:national\s+guard|refueling\s+wing)\b|\b(?:army|navy|marines?|air\s+force|coast\s+guard|national\s+guard)\s+(?:base|post|installation|station)\b|\b(?:airmen?|soldiers?|sailors?|marines?|service\s+members?)\s+killed\b|\boperation\s+\w+/i.test(semanticLeadText);
 
   // hostname for source-specific overrides (always national, default county)
   const hostname = (() => {
@@ -879,7 +879,10 @@ export async function classifyArticleWithAi(
       '                Each county must be one of the official 120 Kentucky counties listed below.',
       '                If no Kentucky county is clearly identified, return an empty array.',
       '                Example: ["Fayette", "Clark"] for an article set in both Lexington and Winchester KY.',
-      '                IMPORTANT: Only return counties where the STORY IS SET, not where people mentioned are FROM.',
+      '                IMPORTANT: Return counties where the story is set. ALSO return the county for',
+      '                any Kentucky city explicitly named as a person\'s hometown when that person is',
+      '                the central subject of the story (e.g., a Kentucky native killed in a military',
+      '                crash overseas, a local resident charged in a federal case).',
       '                Do NOT return a county just because a coach, athlete, or official has a surname',
       '                matching a county name (e.g. "Johnson", "Martin", "Clark" as person surnames).',
       '                Do NOT return a county just because a school\'s full name contains a county name',
