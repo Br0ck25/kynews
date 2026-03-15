@@ -586,11 +586,16 @@ export async function classifyArticleWithAi(
   // this value directly.  Use a separate variable to make intent explicit.
   let allowedSourceDefaultCounty = isStatewideKyPolitics ? null : effectiveSourceDefaultCounty;
 
-  // treat articles from a known local source as KY, even if the text lacks an
-  // explicit Kentucky mention. This flag influences both the initial fallback
-  // and later merging logic.
+  // Detect any explicit KY signals in the text (e.g. "Kentucky", "Ky.",
+  // county/city names, etc.). This prevents a source-default county from
+  // forcing a Kentucky classification on world-wire stories (e.g. AP/Reuters)
+  // that happen to appear on a Kentucky outlet.
+  const detectedKyGeo = detectKentuckyGeo(semanticText);
+
+  // Determine whether this article should be treated as Kentucky. We rely on
+  // actual KY signals in the text rather than just the source's default county.
   const baseIsKentucky =
-    (relevance.category === 'kentucky' || hasKhsaa || allowedSourceDefaultCounty !== null) &&
+    (relevance.category === 'kentucky' || hasKhsaa || detectedKyGeo.isKentucky) &&
     !isAlwaysNational;
 
   // County/city detection pipeline (issue #6):
@@ -608,7 +613,7 @@ export async function classifyArticleWithAi(
   // we will later discard any city/county detected here, since the dateline
   // simply reflects the reporter's base, not the story subject.
   let baseGeo = baseIsKentucky
-    ? detectKentuckyGeo(semanticText)
+    ? detectedKyGeo
     : { isKentucky: false, county: null, counties: [], city: null };
 
   // Honour explicit "COUNTY NAME, Ky." dateline at the very start of the article.
@@ -995,11 +1000,14 @@ export async function classifyArticleWithAi(
 
     const aiCounty = aiCounties[0] ?? null;
 
-    const aiGeo = aiIsKentucky
-      ? detectKentuckyGeo(`${cleanTitle}\n${cleanContent}`)
-      : { isKentucky: false, county: null, counties: [], city: null };
+    // Always compute the geo signal from the text. This allows us to
+    // prevent AI hallucinations from turning a non-Kentucky wire story into
+    // a Kentucky one just because the source is KY-based.
+    const aiGeo = detectKentuckyGeo(`${cleanTitle}\n${cleanContent}`);
     const mergedIsKentucky =
-      fallback.isKentucky || aiIsKentucky || isKySchoolsSource;
+      fallback.isKentucky ||
+      (aiIsKentucky && aiGeo.isKentucky) ||
+      isKySchoolsSource;
 
     let mergedCategory = fallback.category;
     if (fallback.category === 'national' && aiCategory && aiCategory !== 'national') {

@@ -139,3 +139,17 @@ The AI occasionally ignored the prompt instruction and used the generic
 "Eastern Kentucky" fallback even when the article metadata included a city.
 This deterministic post-processing ensures the local phrasing is always used
 when the city is known.
+
+---
+
+### Change 8 — Prevent world-wire articles from being tagged as Kentucky
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- The classifier now requires an explicit Kentucky signal in the text (e.g. "Kentucky", "Ky.", a KY county/city name) before treating an article as a Kentucky story.
+- A source default county alone no longer forces `isKentucky=true` for an article.
+- AI responses claiming `isKentucky: true` are ignored unless the article text contains an actual Kentucky signal (via `detectKentuckyGeo`). This prevents AI hallucinations from tagging non-KY wire stories as Kentucky.
+
+**Why:**
+Lex18 and other Kentucky outlets publish wire stories (AP, Reuters, etc.) that have no local Kentucky context. Previously, the ingest logic would tag such articles as Kentucky simply because the site normally covers Kentucky, causing unrelated world news to appear in KY feeds. This fix prevents that false positive by insisting on actual Kentucky signals in the content (and not trusting the AI to invent them).
