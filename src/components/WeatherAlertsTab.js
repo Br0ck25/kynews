@@ -103,7 +103,7 @@ export default function WeatherAlertsTab({ service }) {
       lines.push(instruction);
     }
     lines.push("");
-    lines.push("#localkynews #kentuckyalerts #weatheralerts #kentuckyweather");
+    lines.push("#localkynews #kentuckyalerts #weatheralert #kentuckyweather");
     return lines.join("\n");
   }
 

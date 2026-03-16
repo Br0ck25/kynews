@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useRef } from "react";
+﻿import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -85,6 +85,10 @@ export default function AdminPage() {
   const [backfillResult, setBackfillResult] = useState(null);
   const [reclassifyResult, setReclassifyResult] = useState(null); // {status,message,results?}
   const [ingestLogs, setIngestLogs] = useState([]);
+
+  const ADMIN_ARTICLES_PAGE_SIZE = 20;
+  const articlesSentinelRef = useRef(null);
+  const isLoadingMoreRef = useRef(false);
 
   const [articleCategoryFilter, setArticleCategoryFilter] = useState("all");
   const [articleSearch, setArticleSearch] = useState("");
@@ -377,10 +381,11 @@ export default function AdminPage() {
     if (!authorized) return;
     setLoading(true);
     setError("");
+    isLoadingMoreRef.current = false;
     try {
       const [sourceResp, articleResp, blockedResp] = await Promise.all([
         service.getAdminSources(),
-        service.getAdminArticles({ category: articleCategoryFilter, search: articleSearch, limit: 200 }),
+        service.getAdminArticles({ category: articleCategoryFilter, search: articleSearch, limit: ADMIN_ARTICLES_PAGE_SIZE }),
         service.getBlockedArticles(),
       ]);
       const [metricsResp, rejectResp] = await Promise.all([
@@ -416,15 +421,53 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authorized]);
 
+  // Infinite scroll: load more articles as the user scrolls near the bottom of the table.
+  useEffect(() => {
+    if (activeTab !== 2) return;
+    const el = articlesSentinelRef.current;
+    if (!el) return;
+
+    let observer;
+    if (typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            loadMoreArticles();
+          }
+        },
+        { rootMargin: "400px" }
+      );
+      observer.observe(el);
+    }
+
+    const handleScroll = () => {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.top <= window.innerHeight + 400) {
+        loadMoreArticles();
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    // Trigger initial check in case the page is already scrolled.
+    handleScroll();
+
+    return () => {
+      if (observer) observer.disconnect();
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [activeTab, loadMoreArticles]);
+
   const applyFilter = async () => {
     if (!authorized) return;
     setLoading(true);
     setError("");
+    isLoadingMoreRef.current = false;
     try {
       const articleResp = await service.getAdminArticles({
         category: articleCategoryFilter,
         search: articleSearch,
-        limit: 200,
+        limit: ADMIN_ARTICLES_PAGE_SIZE,
       });
       const initialItems = articleResp.items || [];
       setArticleRows(initialItems);
@@ -718,14 +761,15 @@ export default function AdminPage() {
     }
   };
 
-  const loadMoreArticles = async () => {
-    if (!hasMoreArticles || !articleCursor || loadingMoreArticles) return;
+  const loadMoreArticles = useCallback(async () => {
+    if (!hasMoreArticles || !articleCursor || isLoadingMoreRef.current) return;
+    isLoadingMoreRef.current = true;
     setLoadingMoreArticles(true);
     try {
       const response = await service.getAdminArticles({
         category: articleCategoryFilter,
         search: articleSearch,
-        limit: 200,
+        limit: ADMIN_ARTICLES_PAGE_SIZE,
         cursor: articleCursor,
       });
 
@@ -736,9 +780,10 @@ export default function AdminPage() {
     } catch (err) {
       setError(err?.errorMessage || "Unable to load more articles.");
     } finally {
+      isLoadingMoreRef.current = false;
       setLoadingMoreArticles(false);
     }
-  };
+  }, [articleCategoryFilter, articleCursor, articleSearch, hasMoreArticles]);
 
   /**
    * Returns the best local URL for a given article row.
@@ -2207,6 +2252,9 @@ export default function AdminPage() {
               {loadingMoreArticles ? "Loading…" : hasMoreArticles ? "Load More" : "No More Articles"}
             </Button>
           </Box>
+
+          {/* Sentinel element used for infinite scrolling */}
+          <div ref={articlesSentinelRef} style={{ height: 1 }} />
         </Box>
       )}
 
