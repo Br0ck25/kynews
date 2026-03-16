@@ -290,3 +290,4 @@ Unlike the WLKY/PBS national-wire cases, this article is genuinely set in Kentuc
 | Military installation named "Fort X" | Add the plain "fort x" form to `KY_CITY_TO_COUNTY`; the census CDP variant ("fort x north/south") is insufficient for dateline matching |
 | Source default county fires on a story from a different KY location | Root cause is always missing city/county in the geo data; fix the data, not the classification logic |
 | Article with explicit `CITY, Ky.` dateline gets wrong county | Check `KY_CITY_TO_COUNTY` for the exact lowercase dateline form — the dateline parser uses that key verbatim |
+| Admin Weather Alerts tab requires manual fetch | Automatically run the same fetch flow as Storm Reports/NWS Discussions on tab load so alerts are kept up-to-date without manual clicks |

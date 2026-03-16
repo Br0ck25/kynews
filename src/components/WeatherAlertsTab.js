@@ -26,7 +26,11 @@ export default function WeatherAlertsTab({ service }) {
   const [filter, setFilter] = React.useState("all");
 
   React.useEffect(() => {
+    // Load existing saved posts immediately, then fetch any new NWS alerts.
+    // This matches the behavior of the Storm Reports and NWS Discussions tabs,
+    // which refresh automatically on tab open.
     loadPosts();
+    fetchAlerts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
