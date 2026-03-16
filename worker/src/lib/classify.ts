@@ -114,7 +114,7 @@ const COUNTY_PATTERNS = KY_COUNTIES.map((county) => ({
     // include plural "counties" suffix to stay synced with geo.ts
     // allow a forward-slash after the county suffix so phrases like
     // "Barren County/Metcalfe EMS" still match.
-    `\\b${escapeRegExp(county)}\\s+(?:county|counties|cnty|co\\.?)(?=[\\s.,)/]|$)`,
+    `\\b${escapeRegExp(county)}\\s+(?:county|counties|cnty|co\\.?)(?=[\\s.,)'’/]|$)`,
     'i',
   ),
 }));
@@ -1360,6 +1360,13 @@ function countKentuckyMentions(text: string, allowAmbiguousCities: boolean): num
     .filter((line) => {
       const trimmed = line.trim();
       if (!/\b(kentucky|ky)\b/i.test(trimmed)) return true;
+
+      // Ignore short nav/tag lines that are almost certainly site chrome,
+      // e.g. "Kentucky", "Kentucky News", "KY | Local".
+      const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+      if (wordCount <= 4) {
+        return false;
+      }
 
       // Ignore simple navigation/tag lines like "Kentucky", "KY", or
       // "Kentucky News" that may appear as part of site nav/related-topic lists.

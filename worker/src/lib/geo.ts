@@ -69,7 +69,7 @@ export function textContainsCounty(text: string, county: string): boolean {
     // suffix is present — bare word match is too noisy (e.g. "mason jar",
     // "Warren Buffett", "Lee Harvey Oswald").
     return new RegExp(
-      `\\b${escaped}\\s+(?:county|counties|cnty|co\\.?)(?=[\\s.,)]|$)`, 'i'
+      `\\b${escaped}\\s+(?:county|counties|cnty|co\\.?)(?=[\\s.,)'’]|$)`, 'i'
     ).test(text);
   }
   // For unambiguous single-word county names we need to be stricter: the
@@ -99,7 +99,7 @@ function textContainsCountyStrict(text: string, county: string): boolean {
   const escaped = escapeRegExp(county);
 
   // Rule 1: "[County] County" suffix always wins — unambiguous
-  const withSuffixRe = new RegExp(`\b${escaped}\s+County\b`, 'i');
+  const withSuffixRe = new RegExp(`\b${escaped}\s+County(?:['’]s)?\b`, 'i');
   if (withSuffixRe.test(text)) return true;
 
   // Rule 2: check bare occurrences — reject those preceded by a word
@@ -448,7 +448,7 @@ export function detectCounty(input, rawInput) {
     // which is the whitespace character class. Using a plain space ` ` would also
     // work but `\s` is more explicit and handles tab-separated text if it ever appears.
     const countyPattern = new RegExp(
-      `\\b${escaped}\\s+(?:county|counties|cnty|co\\.?)(?=[\\s.,)]|$)`,
+      `\\b${escaped}\\s+(?:county|counties|cnty|co\\.?)(?=[\\s.,)'’]|$)`,
       'i',
     );
 
@@ -719,7 +719,7 @@ export function detectAllCounties(input, rawInput) {
   for (const county of KY_COUNTIES) {
     const escaped = escapeRegExp(county.toLowerCase());
     const pattern = new RegExp(
-      `\\b${escaped}\\s+(?:county|counties|cnty|co(?=[\\s]|$))\\b`,
+      `\\b${escaped}\\s+(?:county|counties|cnty|co(?=[\\s]|$))(?:['’]s)?\\b`,
       'gi',
     );
     let m;

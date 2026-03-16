@@ -10,7 +10,7 @@ import {
   getSourceDefaultImage,
   normalizeTitleForSource,
 } from './classify';
-import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles, generateSeoSlug } from './db';
+import { findArticleByHash, findArticleByTitle, insertArticle, isUrlHashBlocked, listRecentArticleTitles, generateSeoSlug } from './db';
 import { browserFetch, cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, getImageDimensions, scrapeArticleHtml } from './scrape';
 
@@ -140,6 +140,19 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
       id: duplicate.id,
       urlHash: canonicalHash,
       category: duplicate.category,
+    };
+  }
+
+  // Reject if the title already exists exactly (case-insensitive). This avoids
+  // duplicate ingestion when the same story is scraped from multiple sources.
+  const exactTitleMatch = await findArticleByTitle(env, extracted.title);
+  if (exactTitleMatch) {
+    return {
+      status: 'duplicate',
+      reason: 'duplicate title',
+      id: exactTitleMatch.id,
+      urlHash: canonicalHash,
+      category: exactTitleMatch.category,
     };
   }
 

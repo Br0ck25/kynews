@@ -402,3 +402,29 @@ Broadcast outlet suffixes were leaking into stored titles and causing summaries 
 
 **Why:**
 Some national wire stories begin with a U.S. city dateline (e.g., `WASHINGTON, N.C.`). Because city names like “Washington” can also appear in Kentucky, the geo detector was incorrectly tagging such stories as KY. This guard ensures the dateline state code prevents that false positive.
+
+---
+
+### Change 19 — Reject articles with identical titles to existing posts
+
+**File:** `worker/src/lib/ingest.ts` / `worker/src/lib/db.ts`
+
+**What changed:**
+- Added an exact title dedupe check (case-insensitive) before the similarity filter.
+- If an existing article has the same title, the second ingestion is rejected as a duplicate.
+
+**Why:**
+Two separate feeds (or the same feed re-queued) can deliver the same story under the same headline. Title similarity alone can miss these when the previous story is older than the recent-title scan window. Rejecting exact-title matches ensures the same headline is not posted twice.
+
+---
+
+### Change 20 — Strengthen Kentucky detection to avoid false national tagging
+
+**File:** `worker/src/lib/geo.ts` / `worker/src/lib/classify.ts`
+
+**What changed:**
+- County-pattern matching now treats possessive forms (`County's`, `County’ s`) as a valid county mention. This prevents Kentucky counties (e.g., "Hardin County's") from being ignored and causing a story to be misclassified as national.
+- Expanded the KY keyword filter to ignore short nav/tag lines containing "Kentucky" or "KY" so site chrome doesn't accidentally trigger Kentucky classification.
+
+**Why:**
+Some Kentucky stories refer to local government entities in possessive form (e.g., "Hardin County's sheriff") and were previously missed by the county detection regex, causing valid Kentucky stories to be treated as national. Additionally, some non-Kentucky national stories were misclassified because a short nav/tag line containing "Kentucky" appeared in the scraped text. These improvements prevent both false negatives (missing KY stories) and false positives (tagging national stories as KY).

@@ -131,6 +131,13 @@ describe('county detection', () => {
     expect(detectAllCounties(text, text)).toEqual([]);
   });
 
+  it('detects county names even when followed by possessive apostrophe (County\'s)', () => {
+    const text = "Hardin County's sheriff needs help finding a lost emu.";
+    expect(detectCounty(text, text)).toBe('Hardin');
+    const geo = detectKentuckyGeo(text);
+    expect(geo.isKentucky).toBe(true);
+  });
+
   it('does not confuse state adjective "Ohio" with Ohio County', () => {
     expect(detectAllCounties('Ohio Sen. Bernie Moreno')).toEqual([]);
     expect(detectAllCounties('Ohio Gov. Mike DeWine')).toEqual([]);

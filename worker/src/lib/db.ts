@@ -152,6 +152,17 @@ export async function findArticleByHash(env: Env, urlHash: string): Promise<Arti
   return result ? mapArticleRow(result) : null;
 }
 
+export async function findArticleByTitle(env: Env, title: string): Promise<ArticleRecord | null> {
+  // Normalize by trimming and lowercasing for a case-insensitive exact match.
+  // This helps avoid inserting duplicate articles with identical titles.
+  const normalizedTitle = title.trim().toLowerCase();
+  const result = await prepare(env, `SELECT * FROM articles WHERE lower(trim(title)) = ? LIMIT 1`)
+    .bind(normalizedTitle)
+    .first<ArticleRow>();
+
+  return result ? mapArticleRow(result) : null;
+}
+
 export async function listRecentArticleTitles(env: Env, limit = 600): Promise<Array<{ id: number; title: string }>> {
   const safeLimit = Math.min(Math.max(Math.floor(limit || 0), 1), 2000);
   const rows = await prepare(env, `SELECT id, title FROM articles ORDER BY id DESC LIMIT ?`)
