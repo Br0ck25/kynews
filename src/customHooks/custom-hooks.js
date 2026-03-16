@@ -78,17 +78,20 @@ export function useNotificationPoller(notifications, baseUrl = "") {
             seenIds.current[feed] = latestId;
             const article = articles[0];
             const title = article?.title ?? "New article";
-            const body = article?.summary ?? article?.shortDesc ?? "";
-            const notif = new Notification(`Kentucky News – ${category}`, {
-              body: title,
-              icon: "/logo192.png",
-              tag: `kynews-${category}`, // replaces any prior notification for this feed
-            });
-            notif.onclick = () => {
-              window.focus();
-              const slug = article?.slug;
-              if (slug) window.location.href = `/news/${category}/${slug}`;
-            };
+            const slug = article?.slug;
+            try {
+              // Use the SW registration so notifications work when the tab is
+              // in the background or the PWA is installed and closed.
+              const reg = await navigator.serviceWorker.ready;
+              await reg.showNotification(`Kentucky News – ${category}`, {
+                body: title,
+                icon: "/logo192.png",
+                tag: `kynews-${category}`,
+                data: { url: slug ? `/news/${category}/${slug}` : "/" },
+              });
+            } catch (notifErr) {
+              console.warn(`[notifications] showNotification failed for ${feed}:`, notifErr);
+            }
           }
         } catch (err) {
           // Network errors are common on mobile — fail silently

@@ -4904,6 +4904,12 @@ if (result.status === 'inserted') {
 						createdAt: new Date().toISOString(),
 					});
 				}
+				// Notify subscribed browsers about the new article (fire-and-forget).
+				sendPushNotification(env, {
+					title: 'New article: Kentucky News',
+					body: result.title ?? item.title ?? '',
+					url: result.slug && result.category ? `/news/${result.category}/${result.slug}` : '/',
+				}).catch((err) => console.error('[push] sendPushNotification failed', err));
 			}
 if (result.status === 'duplicate') {
 status.duplicate += 1;

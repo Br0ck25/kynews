@@ -290,3 +290,16 @@ Unlike the WLKY/PBS national-wire cases, this article is genuinely set in Kentuc
 | Military installation named "Fort X" | Add the plain "fort x" form to `KY_CITY_TO_COUNTY`; the census CDP variant ("fort x north/south") is insufficient for dateline matching |
 | Source default county fires on a story from a different KY location | Root cause is always missing city/county in the geo data; fix the data, not the classification logic |
 | Article with explicit `CITY, Ky.` dateline gets wrong county | Check `KY_CITY_TO_COUNTY` for the exact lowercase dateline form — the dateline parser uses that key verbatim |
+
+---
+
+### Change 14 — Drop stray photo-credit lines before dateline to avoid them becoming the summary lead
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+- In `cleanContentForSummarization`, remove short caption-like lines (e.g. "Laurel County Correctional Center") when they appear immediately before the dateline or on the same line.
+- In `stripBoilerplateFromOutput`, apply the same removal so the final summary does not start with photo credit fragments.
+
+**Why:**
+Some scraped pages put the photo credit or caption just before the dateline, causing the AI to treat it as the opening sentence. This fix prevents those stray credit lines from leaking into generated summaries.

@@ -1085,6 +1085,19 @@ export function cleanContentForSummarization(text: string, title: string): strin
   // Pattern: "...Lexington, Ky. Photo by Vincenzo Ciaramitaro | Kentucky Kernel"
   // These appear as "[sentence]. Photo by [Name] | [Publication]" on one line.
   t = t.replace(/\s+Photo\s+by\s+[A-Z][a-zA-Z\s.'-]{2,50}(?:\s*[|\/]\s*[A-Za-z\s.'-]{2,60})?\s*$/gm, '');
+  // Sometimes the credit is preceded by a standalone caption line (e.g.
+  // "Laurel County Correctional Center") immediately before the dateline.
+  // Remove such stray caption lines so they don't get treated as the opening sentence.
+  t = t.replace(
+    /^(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,6})\s*\n(?=[A-Z][A-Z\s]{0,25},\s*(?:Ky|KY|KENTUCKY)\b)/gm,
+    '',
+  );
+  // Some scrapers insert the caption and dateline on the same line.
+  // Remove the caption-like prefix while keeping the actual dateline.
+  t = t.replace(
+    /^(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,6})\s+(?=[A-Z][A-Z\s]{0,25},\s*(?:Ky|KY|KENTUCKY)\b)/gm,
+    '',
+  );
   // Strip "Photographer Name/AP" or "Name/Getty" photo credits that appear at the
   // very start of content (e.g. "Charles Krupa/AP LEXINGTON, Ky. —")
   t = t.replace(/^[A-Z][a-zA-Z\s.'-]{2,50}\/(?:AP|Getty\s*Images?|Reuters|AFP)\s+/gm, '');
@@ -1172,6 +1185,17 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   t = t.replace(/^[^\n]{10,300}(?:Source:\s*Envato|Getty\s*Images?|iStock|Shutterstock|AP\s*Photo)[^\n]*\n?/gim, '');
   // Strip sentences that reference a "link down below" — the link doesn't exist in our summaries
   t = t.replace(/[^.!?]*\b(?:using\s+the\s+link(?:\s+down\s+below)?|link\s+down\s+below|you\s+can\s+read\s+[^.]{0,60}using\s+the\s+link)[^.!?]*[.!?]?\s*/gi, '');
+  // Strip stray image caption or credit lines that creep in before the dateline.
+  // Example: "Laurel County Correctional Center" before "LAUREL COUNTY, Ky. (LEX 18) —"
+  t = t.replace(
+    /^(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,6})\s*\n(?=[A-Z][A-Z\s]{0,25},\s*(?:Ky|KY|KENTUCKY)\b)/gm,
+    '',
+  );
+  // Remove caption-like prefixes on the same line as the dateline.
+  t = t.replace(
+    /^(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,6})\s+(?=[A-Z][A-Z\s]{0,25},\s*(?:Ky|KY|KENTUCKY)\b)/gm,
+    '',
+  );
   // Strip dateline echoed at summary start: "CITY, Ky. (SOURCE) —" or "CITY, KY —"
   t = t.replace(/^\s*[A-Z][A-Z\s]{0,25},\s*(?:Ky|KY|KENTUCKY)[\s.,][^\n]{0,80}[-—–]\s*/im, '');
   t = t.replace(/^Published\b[^\n]*$/gim, '');

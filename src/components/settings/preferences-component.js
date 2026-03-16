@@ -16,6 +16,35 @@ async function requestNotificationPermission() {
   return result === "granted";
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+async function subscribeToPush(baseUrl) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  const reg = await navigator.serviceWorker.ready;
+  const existing = await reg.pushManager.getSubscription();
+  if (existing) return existing;
+
+  const vapidKey = process.env.REACT_APP_VAPID_PUBLIC_KEY;
+  if (!vapidKey) return;
+
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(vapidKey),
+  });
+
+  await fetch(`${baseUrl}/api/subscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sub),
+  });
+  return sub;
+}
+
 const useStyles = makeStyles((theme) => ({
   root: {
     display: "flex",
@@ -47,6 +76,11 @@ export default function SettingsForm() {
           if (!granted) {
             // Permission denied — revert the toggle so the UI stays honest
             dispatch(setNotifications({ ...notifications, [feed]: false }));
+          } else {
+            // Enrol the browser in Web Push so background notifications work
+            subscribeToPush(process.env.REACT_APP_API_BASE_URL || "").catch((err) =>
+              console.warn("[push] subscribe failed:", err)
+            );
           }
         });
       }

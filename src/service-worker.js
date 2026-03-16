@@ -111,3 +111,30 @@ self.addEventListener('message', (event) => {
 });
 
 // Any other custom service worker logic can go here.
+
+// Handle server-sent push notifications.
+self.addEventListener('push', (event) => {
+  const data = event.data?.json() ?? { title: 'Kentucky News', body: '', url: '/' };
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/logo192.png',
+      badge: '/logo192.png',
+      tag: 'kynews',
+      data: { url: data.url },
+    })
+  );
+});
+
+// Open or focus the app when the user taps a notification.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      const existing = clientList.find((c) => c.url.includes(self.location.origin));
+      if (existing) return existing.focus();
+      return clients.openWindow(url);
+    })
+  );
+});
