@@ -75,7 +75,6 @@ export const MASTER_SOURCE_SEEDS: string[] = [
   'https://wbontv.com/feed/',
   'https://www.wbko.com/arc/outboundfeeds/rss/?outputType=xml',
   'https://feeds.nbcnews.com/nbcnews/public/news',
-  'https://news.yahoo.com/rss/',
   'https://www.thoroughbreddailynews.com/feed/',
   'https://www.wlwt.com/topstories-rss',
   'https://www.cbssports.com/rss/headlines/',
