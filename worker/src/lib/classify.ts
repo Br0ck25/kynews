@@ -1096,13 +1096,14 @@ export async function classifyArticleWithAi(
     fallback.isNational = nationalSignal || !fallback.isKentucky;
 
     // Known always-national domains get a final sanity check.  Unless the AI
-    // explicitly flagged the story as Kentucky *and* the text contains strong
-    // KY evidence (>=2 mentions plus the word "Kentucky"/"KY"), strip all
-    // Kentucky flags.  This prevents odd Hallucinations such as foxnews.com
-    // articles being assigned McLean or Jefferson counties.
+    // explicitly flagged the story as Kentucky *and* the lead text contains
+    // strong KY evidence (>=2 mentions plus the word "Kentucky"/"KY"), strip
+    // all Kentucky flags. This prevents site chrome/footer mentions of
+    // "Kentucky" (e.g. navigation links, sidebar widgets) from causing a
+    // national wire article to be treated as Kentucky.
     if (isAlwaysNational) {
       const strongTextEvidence =
-        relevance.mentionCount >= 2 && /\b(?:kentucky|ky)\b/i.test(semanticText);
+        relevance.mentionCount >= 2 && /\b(?:kentucky|ky)\b/i.test(semanticLeadText);
       if (!strongTextEvidence || !aiIsKentucky) {
         fallback.isKentucky = false;
         fallback.county = null;
@@ -1331,14 +1332,33 @@ function hasStrongLocationTitleMatch(title: string): boolean {
 function countKentuckyMentions(text: string, allowAmbiguousCities: boolean): number {
   if (!text) return 0;
 
+  // Filter out obvious navigational/menu scraps where "Kentucky" appears as a
+  // standalone menu item or tag (e.g. site nav, related-topic list). These
+  // typically appear as very short lines with no sentence punctuation.
+  const filtered = text
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!/\b(kentucky|ky)\b/i.test(trimmed)) return true;
+
+      // Ignore simple navigation/tag lines like "Kentucky", "KY", or
+      // "Kentucky News" that may appear as part of site nav/related-topic lists.
+      if (/^\s*(kentucky|ky)(\s+(news|sports|business|culture|technology|tech|health|travel|opinion|local|national|world))?\s*$/i.test(trimmed)) {
+        return false;
+      }
+
+      return true;
+    })
+    .join('\n');
+
   let count = 0;
 
   // Unambiguous standalone signals — always count.
-  count += countMatches(text, /\bkentucky\b/gi);
-  count += countMatches(text, /\bky\b/gi);
-  count += countMatches(text, /\bkhsaa\b/gi);
+  count += countMatches(filtered, /\bkentucky\b/gi);
+  count += countMatches(filtered, /\bky\b/gi);
+  count += countMatches(filtered, /\bkhsaa\b/gi);
   for (const term of KY_REGION_TERMS) {
-    count += countPhraseOccurrences(text, term);
+    count += countPhraseOccurrences(filtered, term);
   }
 
   // County and city hits only count when we already have KY context.

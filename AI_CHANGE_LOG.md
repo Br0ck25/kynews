@@ -150,6 +150,19 @@ when the city is known.
 - The classifier now requires an explicit Kentucky signal in the text (e.g. "Kentucky", "Ky.", a KY county/city name) before treating an article as a Kentucky story.
 - A source default county alone no longer forces `isKentucky=true` for an article.
 - AI responses claiming `isKentucky: true` are ignored unless the article text contains an actual Kentucky signal (via `detectKentuckyGeo`). This prevents AI hallucinations from tagging non-KY wire stories as Kentucky.
+- The always-national override now checks for Kentucky mentions in the article lead (first ~2,200 chars) rather than the entire scraped text, preventing footer/nav boilerplate from triggering a false KY classification.
 
 **Why:**
-Lex18 and other Kentucky outlets publish wire stories (AP, Reuters, etc.) that have no local Kentucky context. Previously, the ingest logic would tag such articles as Kentucky simply because the site normally covers Kentucky, causing unrelated world news to appear in KY feeds. This fix prevents that false positive by insisting on actual Kentucky signals in the content (and not trusting the AI to invent them).
+Lex18 and other Kentucky outlets publish wire stories (AP, Reuters, etc.) that have no local Kentucky context. Previously, small site chrome or footer mentions of "Kentucky" could accidentally satisfy the KY signal check and cause an otherwise national article to be tagged Kentucky. This fix ensures only the lead/news body can trigger KY classification, preventing unrelated global stories from leaking into KY feeds.
+
+---
+
+### Change 9 — Ignore nav/menu “Kentucky” mentions when counting KY signals
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- The KY mention counter now filters out lines that look like navigation tags or related-topic items (e.g. "Kentucky", "Kentucky News", "KY Sports"). These boilerplate snippets are excluded from the KY mention count.
+
+**Why:**
+Articles from global outlets often include "Kentucky" as a site navigation item or related-topic tag. Those incidental mentions were inflating the KY mention count and causing unrelated stories to be tagged as Kentucky. This guard ensures only meaningful narrative text can trigger a KY classification.
