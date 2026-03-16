@@ -166,3 +166,89 @@ Lex18 and other Kentucky outlets publish wire stories (AP, Reuters, etc.) that h
 
 **Why:**
 Articles from global outlets often include "Kentucky" as a site navigation item or related-topic tag. Those incidental mentions were inflating the KY mention count and causing unrelated stories to be tagged as Kentucky. This guard ensures only meaningful narrative text can trigger a KY classification.
+
+---
+
+## 2026-03-16 — Four fixes for false KY tagging, obituary ingestion, and list formatting
+
+---
+
+### Change 10 — Add four domains to `ALWAYS_NATIONAL_SOURCES`; move `pbs.org` from explicit-evidence set
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Added `wlky.com`, `aginguntold.com`, `popularmechanics.com`, and `pbs.org` to `ALWAYS_NATIONAL_SOURCES`.
+Removed `pbs.org` from `COUNTY_REQUIRES_EXPLICIT_EVIDENCE` (now fully covered by always-national).
+
+**Articles that triggered this fix:**
+- *Prostate cancer survivor* (Charlotte, NC) from `aginguntold.com` — tagged Kentucky; no KY content.
+- *2026 Academy Awards winners* from `pbs.org` — tagged Kentucky; AP wire, set in Los Angeles.
+- *Behind the scenes at the Oscars* from `wlky.com` — tagged Kentucky; AP wire, set in Los Angeles. The dateline ("LOS ANGELES —") was not appearing in the scraped lead so `NATIONAL_WIRE_OVERRIDE_RE` did not fire.
+- *Scientists discovered glass orbs from ancient asteroid impact* from `popularmechanics.com` — tagged Kentucky; story is set in Brazil with no KY content.
+
+**Root cause:**
+- `aginguntold.com` and `popularmechanics.com` were not in any classification list. When the scraped page included any sidebar/nav text containing "Kentucky" or "KY", the mention counter pushed the article over the Kentucky threshold.
+- `wlky.com` had `null` default county but was not in `ALWAYS_NATIONAL_SOURCES`. AP wire articles on WLKY omit their original dateline in the scraped text, so the wire-override regex never triggered; site-chrome KY mentions classified the article as Kentucky.
+- `pbs.org` was in `COUNTY_REQUIRES_EXPLICIT_EVIDENCE` (county only when explicit) but not `ALWAYS_NATIONAL_SOURCES`. PBS sidebar/related-article links containing "Kentucky" satisfied the 2-mention threshold and set `baseIsKentucky = true`, which survived the early-return `isNationalWireStory` path.
+
+**Safety of always-national guard for pbs.org and wlky.com:**
+The `ALWAYS_NATIONAL_SOURCES` block has a `strongTextEvidence` exception: an article is kept as Kentucky only when `mentionCount >= 2` in the lead text AND the AI also returns `isKentucky: true`. Genuine KY-focused PBS or WLKY stories (e.g. a PBS documentary about Appalachia) satisfy this bar and are not affected. Louisville news from WLKY is also covered by WDRB, Courier Journal, and Wave3.
+
+---
+
+### Change 11 — Reject obituary articles in `ingestSingleUrl`
+
+**File:** `worker/src/lib/ingest.ts`
+
+**What changed:**
+Added an obituary detection block immediately after the betting-content rejection check. Five strong structural patterns that only appear in formal death notices are matched against the article title and first 1,500 characters of content:
+- `preceded in death by`
+- `funeral services will be / are scheduled / are set`
+- `visitation will be / hours / are`
+- `in lieu of flowers`
+- `expressions of sympathy`
+
+If any pattern matches, the article is rejected with `reason: 'obituary — not a news story'` and never reaches the summarization step.
+
+**Article that triggered this fix:**
+- *DePresto Gary, 79* from `k105.com` — a formal obituary with funeral details, incorrectly ingested as a news article.
+
+**Why:**
+Individual death notices are not news stories. They are not summarizable in the site's editorial voice, they do not serve local audiences the same way news articles do, and ingesting them fills feeds with content that is not editorially appropriate for the platform. The five-signal filter is strict enough to avoid false positives on news stories about deaths (e.g. "preceded in office by" would not match because it lacks "death").
+
+---
+
+### Change 12 — Allow list formatting for structured-list articles in `BASE_SYSTEM_PROMPT`
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+Added a structured-list exception to Section 2 of the base system prompt:
+
+```
+EXCEPTION — structured lists: If the source article is itself a structured
+list (for example, award winners by category, election results by race, or
+ranked items), reproduce that list using the format "- Category: Winner"
+(one item per line) instead of converting it to prose. Only apply this
+exception when the source clearly enumerates discrete items under headings.
+```
+
+**Article that triggered this fix:**
+- *Here's a full list of 2026 Academy Awards winners* from `pbs.org` — the summary collapsed all winners into prose ("best picture, best actor etc should have been a list"), losing the structured format that readers expect.
+
+**Why:**
+The base prompt's blanket "no bullet points or list formatting" rule was written for narrative news articles. Awards lists, ranked lists, and ballot-result articles are inherently tabular — converting them to prose loses the scannable structure that is their primary value. The exception is narrowly scoped to articles whose source is itself a structured list, preventing the rule from being applied to ordinary news stories.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| Non-KY national source not in any classification list | Add to `ALWAYS_NATIONAL_SOURCES` proactively; sidebar leakage will eventually trigger false KY tags |
+| Local TV station that syndicates heavy AP wire | Add to `ALWAYS_NATIONAL_SOURCES`; genuine local stories are usually duplicated by print outlets already in the system |
+| Source in `COUNTY_REQUIRES_EXPLICIT_EVIDENCE` getting false KY tags | Escalate to `ALWAYS_NATIONAL_SOURCES`; the explicit-evidence guard only protects county assignment, not KY classification |
+| AP dateline in `(CITY) —` format (parentheses around wire service) | `NATIONAL_WIRE_OVERRIDE_RE` handles this for listed cities; non-listed cities rely on the generic dateline pattern which requires a comma separator |
+| Article with formal obituary structure | Reject in `ingestSingleUrl` using structural phrase matching before the summarization step |
+| Source article is a structured list | Prompt must allow list formatting; prose conversion destroys the article's primary value |

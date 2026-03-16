@@ -289,12 +289,32 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   // (AP/ABC); genuine KY stories are infrequent.
   // (moved to COUNTY_REQUIRES_EXPLICIT_EVIDENCE so we only assign a county when
   // it is explicitly mentioned in the article text.)
+
+  // wlky.com — Louisville CBS affiliate; heavily syndicates AP wire content.
+  // AP datelines (e.g. "LOS ANGELES —") sometimes appear after the scraped
+  // lead, so the wire-override regex does not catch them. Adding here ensures
+  // national wire stories are not tagged Kentucky due to site-chrome mentions
+  // of "Louisville, KY". Genuine Louisville / KY stories are duplicated via
+  // other Louisville outlets (WDRB, Courier Journal, Wave3).
+  'wlky.com',
+
+  // aginguntold.com — national aging/health news service; stories are set
+  // across the US (Charlotte, Atlanta, etc.) and never Kentucky-specific.
+  'aginguntold.com',
+
+  // popularmechanics.com — national science and technology magazine;
+  // never Kentucky-specific. Sidebar/nav leakage was triggering false KY tags.
+  'popularmechanics.com',
+
+  // pbs.org — PBS NewsHour; primarily AP/national wire coverage.
+  // Genuine KY-focused PBS stories still pass the strong-text-evidence guard
+  // (requires 2+ KY mentions in lead + AI confirmation).
+  'pbs.org',
 ]);
 
 // Wire/national sources where county should only be assigned when
 // explicitly evidenced in the article — never from sidebar/nav bleed.
-const COUNTY_REQUIRES_EXPLICIT_EVIDENCE = new Set<string>([
-  'pbs.org',
+const COUNTY_REQUIRES_EXPLICIT_EVIDENCE = new Set<string>([  // note: pbs.org moved to ALWAYS_NATIONAL_SOURCES
   'publicnewsservice.org',
   'wkms.org',
   'weku.org',

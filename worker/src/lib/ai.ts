@@ -101,6 +101,11 @@ Structure the summary with these four sections in order:
    concrete decisions — woven into natural prose. Do not use bullet points,
    dashes, or list formatting of any kind. Every detail should read as part of
    a flowing narrative sentence.
+   EXCEPTION — structured lists: If the source article is itself a structured
+   list (for example, award winners by category, election results by race, or
+   ranked items), reproduce that list using the format "- Category: Winner"
+   (one item per line) instead of converting it to prose. Only apply this
+   exception when the source clearly enumerates discrete items under headings.
 
 3. A paragraph beginning with exactly "What this means for [County]
    residents:" — substitute the actual county name from the metadata; if

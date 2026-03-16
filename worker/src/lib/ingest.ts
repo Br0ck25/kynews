@@ -215,6 +215,27 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
+  // Reject obituary articles — individual death notices are not news stories
+  // and should not be ingested regardless of source.  We detect them via
+  // strong structural phrases that only appear in formal obituaries and never
+  // in general news coverage.
+  const obituarySignals = [
+    /\bpreceded\s+in\s+death\s+by\b/i,
+    /\bfuneral\s+services\s+(?:will\s+be|are\s+scheduled|are\s+set)\b/i,
+    /\bvisitation\s+(?:will\s+be|hours|are)\b/i,
+    /\bin\s+lieu\s+of\s+flowers\b/i,
+    /\bexpressions\s+of\s+sympathy\b/i,
+  ];
+  const obituaryCheckText = `${extracted.title} ${extracted.contentText.slice(0, 1500)}`;
+  if (obituarySignals.some((re) => re.test(obituaryCheckText))) {
+    console.log(`[REJECTED] obituary content: ${extracted.title}`);
+    return {
+      status: 'rejected',
+      reason: 'obituary — not a news story',
+      urlHash: canonicalHash,
+    };
+  }
+
   const isManualIngest = source.allowShortContent === true;
   let title = extracted.title;
   if (!isManualIngest) {
