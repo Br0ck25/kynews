@@ -57,41 +57,11 @@ const EVENT_FULL_NAMES = {
   "Lightning":       "Lightning",
 };
 
-const EVENT_EMOJI_MAP = [
-  ["Tornado",        "🌪️"],
-  ["Funnel Cloud",   "🌪️"],
-  ["Waterspout",     "🌪️"],
-  ["Flash Flood",    "🌊"],
-  ["Flood",          "🌊"],
-  ["Hail",           "🌨️"],
-  ["Lightning",      "⚡"],
-  ["Tstm Wnd",       "⛈️"],
-  ["Marine Tstm",    "⛈️"],
-  ["High Wind",      "💨"],
-  ["Non-Tstm Wnd",   "💨"],
-  ["Snow",           "❄️"],
-  ["Blizzard",       "❄️"],
-  ["Winter Storm",   "❄️"],
-  ["Ice Storm",      "🧊"],
-  ["Freezing Rain",  "🧊"],
-  ["Sleet",          "🧊"],
-  ["Heavy Rain",     "🌧️"],
-  ["Dense Fog",      "🌫️"],
-  ["Wildfire",       "🔥"],
-];
-
-function getEventEmoji(eventType) {
-  const lower = eventType.toLowerCase();
-  for (const [key, emoji] of EVENT_EMOJI_MAP) {
-    if (lower.includes(key.toLowerCase())) return emoji;
-  }
-  return "⚠️";
-}
-
 // Parses a raw NWS LSR productText into a Facebook-ready formatted string.
-// LSR fixed-width column layout (0-indexed):
-//   Line 0: time=0-9, event=12-27, city=29-52
-//   Line 1: date=0-9, mag=12-27, county=29-48, state=49-50, source=53+
+// LSR fixed-width columns (0-indexed, per NWS spec):
+//   Row 0: time=0-9, event=12-27, city=29-52
+//   Row 1: date=0-9, mag=12-27, county=29-47, state=48-49, source=53+
+//   Row 2+: remarks (indented, possibly spanning blank lines)
 function parseLsrForFacebook(productText, officeLabel) {
   if (!productText) return "";
 
@@ -101,43 +71,61 @@ function parseLsrForFacebook(productText, officeLabel) {
   const issuedBy   = (headerMatch && headerMatch[1].trim()) || officeLabel || "NWS";
   const issuedTime = (headerMatch && headerMatch[2].trim()) || "";
 
-  const remarksIdx = productText.indexOf("..REMARKS..");
-  if (remarksIdx === -1) return productText;
+  // Data section starts on the line after ..REMARKS..
+  const remarksHeaderIdx = productText.indexOf("..REMARKS..");
+  if (remarksHeaderIdx === -1) return productText;
+  const dataStart = productText.indexOf("\n", remarksHeaderIdx) + 1;
+  const lines = productText.substring(dataStart).split("\n");
 
-  const body = productText.substring(remarksIdx + "..REMARKS..".length);
-  const rawBlocks = body.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
-  const eventBlocks = rawBlocks.filter(
-    b => !/^&&/.test(b) && !/^\$\$/.test(b) && !/^[A-Z]{2,4}$/.test(b.trim())
-  );
-  if (eventBlocks.length === 0) return productText;
+  // Each event's first line starts with a time: "0320 AM" or "1112 PM"
+  // Remarks follow on subsequent lines (indented) — including across blank lines.
+  // We must NOT split on blank lines here, only on a new time-start.
+  const TIME_START = /^\d{3,4}\s+(AM|PM)/;
+  const TERMINATOR = /^&&/;
 
-  const parsedEvents = eventBlocks.map(block => {
-    const lines = block.split("\n");
-    const l0 = (lines[0] || "").padEnd(80);
-    const l1 = (lines[1] || "").padEnd(80);
+  const eventGroups = [];
+  let current = null;
+  for (const line of lines) {
+    if (TERMINATOR.test(line.trim())) break;
+    if (TIME_START.test(line)) {
+      if (current) eventGroups.push(current);
+      current = [line];
+    } else if (current !== null) {
+      current.push(line);
+    }
+  }
+  if (current) eventGroups.push(current);
+  if (eventGroups.length === 0) return productText;
+
+  const parsedEvents = eventGroups.map(evLines => {
+    const l0 = (evLines[0] || "").padEnd(80);
+    const l1 = (evLines[1] || "").padEnd(80);
+    const remarks = evLines.slice(2)
+      .map(l => l.replace(/^\s+/, "").trimEnd())
+      .filter(l => l.length > 0)
+      .join(" ");
     return {
       time:      l0.substring(0,  10).trim(),
       eventType: l0.substring(12, 28).trim(),
       city:      l0.substring(29, 53).trim(),
       date:      l1.substring(0,  10).trim(),
       mag:       l1.substring(12, 28).trim(),
-      county:    l1.substring(29, 49).trim(),
-      state:     l1.substring(49, 51).trim(),
+      county:    l1.substring(29, 48).trim(),
+      state:     l1.substring(48, 50).trim(),
       source:    l1.substring(53).trim(),
-      remarks:   lines.slice(2).map(l => l.trim()).filter(Boolean).join(" "),
+      remarks,
     };
   });
 
-  const header = `🌩️ NWS Local Storm Report — ${issuedBy}${issuedTime ? "\n" + issuedTime : ""}`;
+  const header = `NWS Local Storm Report - ${issuedBy}${issuedTime ? "\n" + issuedTime : ""}`;
 
   const eventLines = parsedEvents.map(e => {
-    const emoji     = getEventEmoji(e.eventType);
     const fullName  = EVENT_FULL_NAMES[e.eventType] || e.eventType;
     const countyStr = e.county ? e.county + " County" : "";
-    const location  = [e.city, [countyStr, e.state].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
-    const parts = [`${emoji} ${fullName.toUpperCase()}`];
-    if (location)  parts.push(`📍 ${location}`);
-    parts.push(`🕐 ${e.time}${e.date ? "  |  " + e.date : ""}`);
+    const location  = [e.city, [countyStr, e.state].filter(Boolean).join(", ")].filter(Boolean).join(" - ");
+    const parts = [fullName.toUpperCase()];
+    if (location)  parts.push(location);
+    parts.push(`${e.time}${e.date ? "  |  " + e.date : ""}`);
     if (e.mag)     parts.push(`Magnitude: ${e.mag}`);
     if (e.source)  parts.push(`Source: ${e.source}`);
     if (e.remarks) parts.push(`\n${e.remarks}`);
@@ -154,8 +142,7 @@ function parseLsrForFacebook(productText, officeLabel) {
     "",
     eventLines.join("\n\n"),
     "",
-    "——————————————",
-    `LocalKYNews.com | #KentuckyWeather${countyTags ? "  " + countyTags : ""}`,
+    `#KentuckyWeather${countyTags ? "  " + countyTags : ""}`,
   ].join("\n");
 }
 

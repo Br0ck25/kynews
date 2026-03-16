@@ -252,3 +252,41 @@ The base prompt's blanket "no bullet points or list formatting" rule was written
 | AP dateline in `(CITY) —` format (parentheses around wire service) | `NATIONAL_WIRE_OVERRIDE_RE` handles this for listed cities; non-listed cities rely on the generic dateline pattern which requires a comma separator |
 | Article with formal obituary structure | Reject in `ingestSingleUrl` using structural phrase matching before the summarization step |
 | Source article is a structured list | Prompt must allow list formatting; prose conversion destroys the article's primary value |
+
+---
+
+## 2026-03-16 — Fix wrong county assigned to Fort Campbell article
+
+---
+
+### Change 13 — Add "fort campbell" to KY city→county mapping
+
+**File:** `worker/src/data/ky-geo.ts`
+
+**What changed:**
+```diff
++ "fort campbell": "Christian",
+  "fort campbell north": "Christian",
+```
+
+**Article that triggered this fix:**
+- *Army seeks tips on $110,000 drone theft from engineer battalion* from `harlanenterprise.net` — tagged Kentucky (correct) but assigned to **Harlan County** (wrong). The story is set at Fort Campbell, Christian County, KY.
+
+**Root cause:**
+The `KY_CITY_TO_COUNTY` map contained `"fort campbell north"` (a census-designated place) but not `"fort campbell"` itself — the name used by the Army installation, the article dateline, and virtually all news coverage. When `detectCity` ran the dateline check (`/^\s*([A-Za-z][A-Za-z\s]+?),\s*ky\b/i`) it extracted `"fort campbell"` and looked it up in `KY_CITY_TO_COUNTY`. The lookup returned `undefined`, so the function fell through without returning a city or county. With no text-derived county and no county detected by the county-pattern scan, the classifier fell back to `harlanenterprise.net`'s source default county of **Harlan** — the newspaper's home, not the story's location.
+
+**Why "Harlan" not "Christian":**
+`SOURCE_DEFAULT_COUNTY` maps `harlanenterprise.net` → `"Harlan"`. This fallback is correct for the vast majority of that outlet's local content (Harlan County crime, schools, government). It only misfires when the newspaper publishes wire or state-desk stories set somewhere else in Kentucky. The source default was the last line of defence — it only fires when all text-derived geo detection fails.
+
+**Why the Kentucky classification was correct:**
+Unlike the WLKY/PBS national-wire cases, this article is genuinely set in Kentucky. Fort Campbell IS in KY (Christian County), the CID contact number is a Kentucky-area-code number, and the byline is "Fort Campbell, Ky." The `isKentucky: true` flag was correct. Only the county was wrong.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| Military installation named "Fort X" | Add the plain "fort x" form to `KY_CITY_TO_COUNTY`; the census CDP variant ("fort x north/south") is insufficient for dateline matching |
+| Source default county fires on a story from a different KY location | Root cause is always missing city/county in the geo data; fix the data, not the classification logic |
+| Article with explicit `CITY, Ky.` dateline gets wrong county | Check `KY_CITY_TO_COUNTY` for the exact lowercase dateline form — the dateline parser uses that key verbatim |

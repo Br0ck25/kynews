@@ -287,6 +287,7 @@ export const KY_CITY_TO_COUNTY = {
   "crofton": "Christian",
   "dogwood": "Christian",
   "fearsville": "Christian",
+  "fort campbell": "Christian",
   "fort campbell north": "Christian",
   "gracey": "Christian",
   "herndon": "Christian",
