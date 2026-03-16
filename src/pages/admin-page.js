@@ -61,7 +61,19 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
 
   // Tab navigation: 0=Dashboard 1=Create Article 2=Articles 3=Blocked
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    const stored = window.localStorage.getItem("adminActiveTab");
+    const parsed = parseInt(stored, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+
+  const setActiveTabAndPersist = (value) => {
+    setActiveTab(value);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("adminActiveTab", String(value));
+    }
+  };
 
   const [sources, setSources] = useState([]);
   const [sourceSummary, setSourceSummary] = useState(null);
@@ -1102,7 +1114,7 @@ export default function AdminPage() {
           ].map((label, i) => (
             <Box
               key={i}
-              onClick={() => setActiveTab(i)}
+              onClick={() => setActiveTabAndPersist(i)}
               style={{
                 padding: "12px 8px",
                 textAlign: "center",
