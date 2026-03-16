@@ -827,6 +827,12 @@ export default class SiteService {
     });
   }
 
+  async deleteAllWeatherAlertPosts() {
+    return this.request("/api/admin/weather-alert-posts/delete-all", {
+      method: "POST",
+    });
+  }
+
   // ── End Weather Alert Posts ────────────────────────────────────────────────
 
   setAdminPanelKey(value) {

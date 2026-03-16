@@ -71,6 +71,7 @@ import {
 	insertWeatherAlertPost,
 	updateWeatherAlertPostText,
 	deleteWeatherAlertPost,
+	deleteAllWeatherAlertPosts,
 } from './lib/weatherAlerts';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
@@ -2100,6 +2101,14 @@ if (url.pathname === '/api/admin/weather-alert-posts/delete' && request.method =
 	const deleted = await deleteWeatherAlertPost(env, id);
 	if (!deleted) return json({ error: 'Post not found' }, 404);
 	return json({ ok: true, id });
+}
+
+// ── POST /api/admin/weather-alert-posts/delete-all ───────────────────────────
+// Wipe the entire table so stale alerts can be re-fetched fresh.
+if (url.pathname === '/api/admin/weather-alert-posts/delete-all' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const count = await deleteAllWeatherAlertPosts(env);
+	return json({ ok: true, deleted: count });
 }
 
 // serve files from the R2 media bucket; this is intentionally *not* an admin

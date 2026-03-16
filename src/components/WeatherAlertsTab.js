@@ -19,6 +19,7 @@ export default function WeatherAlertsTab({ service }) {
   const [editText, setEditText] = React.useState("");
   const [savingId, setSavingId] = React.useState(null);
   const [deletingId, setDeletingId] = React.useState(null);
+  const [clearingAll, setClearingAll] = React.useState(false);
   const [copiedId, setCopiedId] = React.useState(null);
   const [manualText, setManualText] = React.useState("");
   const [savingManual, setSavingManual] = React.useState(false);
@@ -61,8 +62,8 @@ export default function WeatherAlertsTab({ service }) {
     const area = (p.areaDesc || "").split(";").slice(0, 5).join(", ");
     const expires = formatExpires(p.expires);
     const headline = (p.headline || "").trim();
-    const desc = (p.description || "").split("\n").slice(0, 6).join("\n").trim();
-    const instruction = (p.instruction || "").trim();
+    const desc = (p.description || "").split("\n").slice(0, 6).join("\n").trim().replace(/\*/g, "");
+    const instruction = (p.instruction || "").trim().replace(/\*/g, "");
 
     const lines = [];
     lines.push(event.toUpperCase());
@@ -83,7 +84,7 @@ export default function WeatherAlertsTab({ service }) {
       lines.push(instruction);
     }
     lines.push("");
-    lines.push("— Eastern Kentucky Weather");
+    lines.push("#localkynews #kentuckyalerts #weatheralerts #kentuckyweather");
     return lines.join("\n");
   }
 
@@ -272,21 +273,45 @@ export default function WeatherAlertsTab({ service }) {
             Already-posted alerts are never duplicated.
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={fetchAlerts}
-          disabled={loading}
-        >
-          {loading ? (
-            <>
-              <CircularProgress size={14} style={{ marginRight: 6 }} />
-              Fetching...
-            </>
-          ) : (
-            "Fetch NWS Alerts"
-          )}
-        </Button>
+        <Box style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={fetchAlerts}
+            disabled={loading || clearingAll}
+          >
+            {loading ? (
+              <>
+                <CircularProgress size={14} style={{ marginRight: 6 }} />
+                Fetching...
+              </>
+            ) : (
+              "Fetch NWS Alerts"
+            )}
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            disabled={clearingAll || loading || posts.length === 0}
+            onClick={async () => {
+              if (!window.confirm(`Delete all ${posts.length} saved alert${posts.length !== 1 ? "s" : ""}? You can re-fetch them after.`)) return;
+              setClearingAll(true);
+              setError("");
+              try {
+                await service.deleteAllWeatherAlertPosts();
+                setPosts([]);
+                setPostedNwsIds(new Set());
+                setFetchStatus("All alerts cleared. Click Fetch NWS Alerts to reload.");
+              } catch (e) {
+                setError(e?.errorMessage || "Failed to clear alerts.");
+              } finally {
+                setClearingAll(false);
+              }
+            }}
+          >
+            {clearingAll ? "Clearing..." : "Clear All"}
+          </Button>
+        </Box>
       </Box>
 
       {fetchStatus && (

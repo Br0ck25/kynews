@@ -3,8 +3,6 @@
 // Database helpers for the weather_alert_posts table.
 // Called by route handlers in index.ts — never write raw queries inline.
 
-import type { Env } from '../types';
-
 export interface WeatherAlertPost {
   id: number;
   nws_alert_id: string | null;
@@ -18,7 +16,7 @@ export interface WeatherAlertPost {
 
 /** Return all posts ordered newest-first. */
 export async function listWeatherAlertPosts(env: Env): Promise<WeatherAlertPost[]> {
-  const result = await env.DB
+  const result = await env.ky_news_db
     .prepare('SELECT * FROM weather_alert_posts ORDER BY created_at DESC')
     .all<WeatherAlertPost>();
   return result.results ?? [];
@@ -26,7 +24,7 @@ export async function listWeatherAlertPosts(env: Env): Promise<WeatherAlertPost[
 
 /** Return the set of nws_alert_ids already stored (for duplicate prevention). */
 export async function getPostedNwsAlertIds(env: Env): Promise<Set<string>> {
-  const result = await env.DB
+  const result = await env.ky_news_db
     .prepare("SELECT nws_alert_id FROM weather_alert_posts WHERE nws_alert_id IS NOT NULL")
     .all<{ nws_alert_id: string }>();
   return new Set((result.results ?? []).map((r) => r.nws_alert_id));
@@ -46,7 +44,7 @@ export async function insertWeatherAlertPost(
   env: Env,
   post: NewWeatherAlertPost,
 ): Promise<number> {
-  const result = await env.DB
+  const result = await env.ky_news_db
     .prepare(
       `INSERT INTO weather_alert_posts
          (nws_alert_id, event, area, severity, expires_at, post_text)
@@ -70,7 +68,7 @@ export async function updateWeatherAlertPostText(
   id: number,
   post_text: string,
 ): Promise<boolean> {
-  const result = await env.DB
+  const result = await env.ky_news_db
     .prepare('UPDATE weather_alert_posts SET post_text = ? WHERE id = ?')
     .bind(post_text, id)
     .run();
@@ -79,9 +77,17 @@ export async function updateWeatherAlertPostText(
 
 /** Delete a post by id. */
 export async function deleteWeatherAlertPost(env: Env, id: number): Promise<boolean> {
-  const result = await env.DB
+  const result = await env.ky_news_db
     .prepare('DELETE FROM weather_alert_posts WHERE id = ?')
     .bind(id)
     .run();
   return ((result.meta as any)?.changes ?? 0) > 0;
+}
+
+/** Delete ALL posts (used to clear the table before a fresh fetch). */
+export async function deleteAllWeatherAlertPosts(env: Env): Promise<number> {
+  const result = await env.ky_news_db
+    .prepare('DELETE FROM weather_alert_posts')
+    .run();
+  return (result.meta as any)?.changes ?? 0;
 }
