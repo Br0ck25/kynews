@@ -38,8 +38,8 @@ export default function WeatherAlertsTab({ service }) {
     try {
       const data = await service.getWeatherAlertPosts();
       const sorted = [...(data.posts || [])].sort((a, b) => {
-        const ta = new Date(a.sent_at || a.created_at).getTime();
-        const tb = new Date(b.sent_at || b.created_at).getTime();
+        const ta = parseDateString(a.sent_at || a.created_at)?.getTime() || 0;
+        const tb = parseDateString(b.sent_at || b.created_at)?.getTime() || 0;
         if (tb !== ta) return tb - ta;
         return b.id - a.id; // higher id = more recently inserted = newest first
       });
@@ -50,10 +50,21 @@ export default function WeatherAlertsTab({ service }) {
     }
   }
 
-  function formatExpires(dateStr) {
+  function parseDateString(dateStr) {
+    // NWS sometimes provides timestamps without a timezone (e.g. "2026-03-16T11:45:00").
+    // In that case, assume UTC so the time can be correctly displayed in Eastern Time.
     if (!dateStr) return null;
+    if (/[zZ]$/.test(dateStr) || /[+-]\d{2}:\d{2}$/.test(dateStr)) {
+      return new Date(dateStr);
+    }
+    return new Date(`${dateStr}Z`);
+  }
+
+  function formatExpires(dateStr) {
+    const date = parseDateString(dateStr);
+    if (!date) return null;
     try {
-      return new Date(dateStr).toLocaleString("en-US", {
+      return date.toLocaleString("en-US", {
         month: "short",
         day: "numeric",
         hour: "numeric",
@@ -443,7 +454,7 @@ export default function WeatherAlertsTab({ service }) {
               )}
               <Typography variant="caption" color="textSecondary" display="block">
                 Added{" "}
-                {new Date(post.created_at).toLocaleString("en-US", {
+                {parseDateString(post.created_at)?.toLocaleString("en-US", {
                   month: "short",
                   day: "numeric",
                   hour: "numeric",
