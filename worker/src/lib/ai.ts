@@ -398,6 +398,22 @@ export async function summarizeArticle(
 
   summary = stripBoilerplateFromOutput(summary, title);
   summary = normalizeParagraphBoundaries(summary);
+
+  // If the AI output begins with a truncated fragment of the article's own
+  // first sentence, replace it with the full first sentence from the source.
+  // This addresses cases where the summary starts mid-sentence (e.g. "Side in Laurel County...")
+  // due to AI truncation.
+  const firstArticleSentence = extractFirstSentence(sourceForSummary);
+  const firstSummarySentence = extractFirstSentence(summary);
+  if (
+    firstArticleSentence &&
+    firstSummarySentence &&
+    firstArticleSentence.includes(firstSummarySentence) &&
+    firstArticleSentence.length > firstSummarySentence.length
+  ) {
+    summary = summary.replace(firstSummarySentence, firstArticleSentence);
+  }
+
   summary = fixLeadingParagraphPunctuation(ensureCompleteLastSentence(summary));
   seo = enforceSeoLength(seo, summary);
 

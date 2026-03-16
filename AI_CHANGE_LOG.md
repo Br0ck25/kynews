@@ -221,6 +221,22 @@ Individual death notices are not news stories. They are not summarizable in the 
 
 ### Change 12 — Improve obituary detection with additional phrasing patterns
 
+---
+
+### Change 13 — Reject real estate transfer listings
+
+**File:** `worker/src/lib/ingest.ts`
+
+**What changed:**
+- Added a hard reject for articles whose title or body contains "Real Estate Transfers". These posts are typically public-record lists of property transactions and not editorial news stories.
+
+**Why:**
+Real estate transfer pages are bulk lists of deeds and amounts and provide no meaningful news value. They can generate noisy, useless articles when ingested automatically.
+
+---
+
+### Change 14 — Drop stray photo-credit lines before dateline to avoid them becoming the summary lead
+
 **File:** `worker/src/lib/ingest.ts`
 
 **What changed:**
@@ -325,6 +341,18 @@ Some scraped pages put the photo credit or caption just before the dateline, cau
 
 ---
 
+### Change 15 — Prefer the article’s actual first sentence when the AI truncates it
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+- After the AI produces a summary, if the first sentence of the summary is a substring of the article’s actual first sentence, we replace it with the full first sentence from the source.
+
+**Why:**
+Some AI outputs begin mid-sentence (e.g. "Side in Laurel County…" instead of "A 19-year-old was killed…"). This deterministic post-processing ensures the summary always opens with a complete, self-contained first sentence.
+
+---
+
 ### Change 15 — Ignore nav/menu “Kentucky” lines when detecting KY relevance
 
 **File:** `worker/src/lib/geo.ts`
@@ -335,3 +363,42 @@ Some scraped pages put the photo credit or caption just before the dateline, cau
 
 **Why:**
 National stories (e.g. Yahoo Finance / Reuters) can contain a stray "Kentucky" link or tag in the scraped HTML. Those isolated nav items should not trigger Kentucky tagging, but previously they did because `detectKentuckyGeo` treated any appearance of "Kentucky" as a positive signal.
+
+---
+
+### Change 16 — Treat “Waterford” as a high-ambiguity city to prevent mis-tagging national stories as KY
+
+**File:** `worker/src/lib/geo.ts`
+
+**What changed:**
+- Added `waterford` to `HIGH_AMBIGUITY_CITIES` so that the city name only triggers Kentucky classification when there is an explicit KY location signal nearby.
+
+**Why:**
+“Waterford” is a city name in both Connecticut (national story) and Kentucky (Spencer County). Without this, a CT business article about “Waterford” could be incorrectly tagged as Kentucky simply because the city name matched.
+
+---
+
+### Change 17 — Strip broadcaster branding (e.g. "- WTVQ") before summarization
+
+**File:** `worker/src/lib/ingest.ts`
+
+**What changed:**
+- Normalized titles via `normalizeTitleForSource()` before sending them to the summarizer.
+- This removes tags like "- WTVQ" / "- ABC 36" so summaries and stored titles don’t include original reporting credit.
+
+**Why:**
+Broadcast outlet suffixes were leaking into stored titles and causing summaries to begin with truncated or irrelevant fragments. Normalizing the title ensures the summary prompt gets clean, content-focused input.
+
+---
+
+## 2026-03-16 — Prevent non-KY datelines from triggering KY tagging
+
+### Change 18 — Treat dateline state abbreviations (e.g. "N.C.") as out-of-state signals
+
+**File:** `worker/src/lib/geo.ts`
+
+**What changed:**
+- Added logic to detect dateline-style state abbreviations like `, N.C.` (normalized to `n c`) and treat them as explicit out-of-state location markers. This prevents `detectKentuckyGeo()` from misclassifying articles whose lead is a non-KY dateline (e.g., `WASHINGTON, N.C.`).
+
+**Why:**
+Some national wire stories begin with a U.S. city dateline (e.g., `WASHINGTON, N.C.`). Because city names like “Washington” can also appear in Kentucky, the geo detector was incorrectly tagging such stories as KY. This guard ensures the dateline state code prevents that false positive.

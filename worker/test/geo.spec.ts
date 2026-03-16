@@ -48,6 +48,17 @@ describe('geo city matching', () => {
     expect(detectCity(text)).toBe(null);
   });
 
+  it('does not classify a Connecticut Waterford story as Kentucky', () => {
+    const text = 'WATERFORD— General Dynamics Electric Boat announced Monday that most activities at the Crystal Mall will end on March 31.';
+    expect(detectCity(text)).toBe(null);
+  });
+
+  it('does not classify a non-KY dateline (e.g. WASHINGTON, N.C.) as Kentucky', () => {
+    const text = 'WASHINGTON, N.C. (WITN/Gray News) — A North Carolina woman was arrested after police said she left two young children in a hot car while she shoplifted at a Walmart.';
+    expect(detectCity(text)).toBe(null);
+    expect(detectKentuckyGeo(text).isKentucky).toBe(false);
+  });
+
   it('still matches Lexington with an explicit KY location signal in sports context', () => {
     const text = 'The game was played in Lexington, Ky. on Saturday';
     expect(detectCity(text)).toBe('lexington');

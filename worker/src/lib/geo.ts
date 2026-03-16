@@ -267,6 +267,14 @@ const NOISE_CITY_NAMES = new Set([
 const OUT_OF_STATE_ABBR_RE =
   /\b(al|ak|az|ar|ca|ct|de|fl|ga|hi|id|il|in|ia|ks|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy)\b/;
 
+/** Two-letter state postal abbreviations (normalized form). */
+const STATE_ABBREV_CODES = new Set([
+  'al','ak','az','ar','ca','co','ct','de','fl','ga','hi','id','il','in','ia',
+  'ks','ky','la','me','md','ma','mi','mn','ms','mo','mt','ne','nv','nh','nj',
+  'nm','ny','nc','nd','oh','ok','or','pa','ri','sc','sd','tn','tx','ut','vt',
+  'va','wa','wv','wi','wy','dc',
+]);
+
 /** Radius (characters) around a match to search for out-of-state signals. */
 // widen the radius when searching for out‑of‑state signals.  Atlanta
 // wire stories often mention “Georgia” several sentences earlier, and a
@@ -313,6 +321,7 @@ export const HIGH_AMBIGUITY_CITIES = new Set([
   'smith',        // Smith County, TN; very common surname; maps to Harlan KY
   'bowling green',// Bowling Green, OH / MO / WI etc.; requires explicit KY context
   'covington',    // Covington, VA / GA / TN / IN / OH — currently in classify.ts but should be here
+  'waterford',    // Waterford, CT / other states; requires explicit KY context
 ]);
 
 // dateline cities that should be ignored entirely when they appear at the
@@ -1025,6 +1034,15 @@ function isMatchDisqualifiedByState(
   // use precompiled regexes to ensure we only match whole words
   for (const re of OUT_OF_STATE_RES) {
     if (re.test(window)) return true;
+  }
+
+  // Detect state abbreviations like "N.C." / "N C" (which Normalized text
+  // converts to "n c") when they appear in a dateline-like pattern
+  // (e.g. "WASHINGTON, N.C."). This avoids false positives caused by normal
+  // word boundaries (e.g. "Floyd County").
+  for (const match of window.matchAll(/,\s*([a-z])\s+([a-z])\b/g)) {
+    const code = `${match[1]}${match[2]}`;
+    if (STATE_ABBREV_CODES.has(code)) return true;
   }
 
   // Also check for major Ohio metro cities near the match — these indicate

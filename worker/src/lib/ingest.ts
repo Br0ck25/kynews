@@ -2,7 +2,14 @@ import type { ExtractedArticle, IngestResult, IngestSource, NewArticle } from '.
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { generateImageAltText, summarizeArticle } from './ai';
-import { classifyArticleWithAi, isShortContentAllowed, BETTING_CONTENT_RE, isStatewideKyPoliticalStory, getSourceDefaultImage } from './classify';
+import {
+  classifyArticleWithAi,
+  isShortContentAllowed,
+  BETTING_CONTENT_RE,
+  isStatewideKyPoliticalStory,
+  getSourceDefaultImage,
+  normalizeTitleForSource,
+} from './classify';
 import { findArticleByHash, insertArticle, isUrlHashBlocked, listRecentArticleTitles, generateSeoSlug } from './db';
 import { browserFetch, cachedTextFetch, normalizeCanonicalUrl, sha256Hex, toIsoDateOrNull, wordCount } from './http';
 import { decodeHtmlEntities, getImageDimensions, scrapeArticleHtml } from './scrape';
@@ -242,13 +249,30 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
+  // Reject real estate transfer lists: these are just public record tables, not
+  // editorial news stories.
+  const transferPattern = /\bReal\s+Estate\s+Transfers\b/i;
+  if (transferPattern.test(extracted.title) || transferPattern.test(extracted.contentText)) {
+    console.log(`[REJECTED] real estate transfers: ${extracted.title}`);
+    return {
+      status: 'rejected',
+      reason: 'real estate transfers — not a news story',
+      urlHash: canonicalHash,
+    };
+  }
+
   const isManualIngest = source.allowShortContent === true;
   let title = extracted.title;
+
+  // Remove publisher branding that often appears in titles (e.g. "- WTVQ", "- ABC 36").
+  // This prevents content from being stored or summarized with the original reporting credit.
+  title = normalizeTitleForSource(title, extracted.sourceUrl || extracted.canonicalUrl);
+
   if (!isManualIngest) {
     title = optimizeTitleForSeo(title, classification.county);
   }
 
-  const ai = await summarizeArticle(env, canonicalHash, extracted.title, cleanContentForSummary(extracted.contentText), extracted.publishedAt, {
+  const ai = await summarizeArticle(env, canonicalHash, title, cleanContentForSummary(extracted.contentText), extracted.publishedAt, {
     county: classification.county,
     city: classification.city,
     category: classification.category,

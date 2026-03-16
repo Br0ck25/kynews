@@ -1568,7 +1568,7 @@ function normalizeText(value: string): string {
  * Strips site-name branding from titles for sources that embed "Kentucky" in their brand.
  * Prevents brand boilerplate from inflating the Kentucky mention count for national articles.
  */
-function normalizeTitleForSource(title: string, sourceUrl: string): string {
+export function normalizeTitleForSource(title: string, sourceUrl: string): string {
   const host = getHostname(sourceUrl);
   if (!host) return title;
 
@@ -1593,7 +1593,7 @@ function normalizeTitleForSource(title: string, sourceUrl: string): string {
 /**
  * Strips site-name branding from article content for known KY-branded sources.
  */
-function normalizeContentForSource(content: string, sourceUrl: string): string {
+export function normalizeContentForSource(content: string, sourceUrl: string): string {
   const host = getHostname(sourceUrl);
   if (!host) return content;
 
