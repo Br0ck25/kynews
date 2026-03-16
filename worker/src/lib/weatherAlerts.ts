@@ -17,7 +17,7 @@ export interface WeatherAlertPost {
 /** Return all posts ordered newest-first. */
 export async function listWeatherAlertPosts(env: Env): Promise<WeatherAlertPost[]> {
   const result = await env.ky_news_db
-    .prepare('SELECT * FROM weather_alert_posts ORDER BY created_at DESC')
+    .prepare('SELECT * FROM weather_alert_posts ORDER BY created_at DESC, id ASC')
     .all<WeatherAlertPost>();
   return result.results ?? [];
 }

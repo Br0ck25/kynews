@@ -56,14 +56,20 @@ export default function WeatherAlertsTab({ service }) {
     }
   }
 
+  function formatBullets(text) {
+    return text
+      .replace(/\*/g, "")
+      .replace(/^\s*([A-Z][A-Z\s]{1,30})\.\.\./gm, (_, key) => `${key.trim()}: `);
+  }
+
   function buildPostText(feat) {
     const p = feat.properties;
     const event = p.event || "Weather Alert";
     const area = (p.areaDesc || "").split(";").slice(0, 5).join(", ");
     const expires = formatExpires(p.expires);
     const headline = (p.headline || "").trim();
-    const desc = (p.description || "").split("\n").slice(0, 6).join("\n").trim().replace(/\*/g, "");
-    const instruction = (p.instruction || "").trim().replace(/\*/g, "");
+    const desc = formatBullets((p.description || "").trim());
+    const instruction = formatBullets((p.instruction || "").trim());
 
     const lines = [];
     lines.push(event.toUpperCase());
