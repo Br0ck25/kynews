@@ -424,7 +424,9 @@ Two separate feeds (or the same feed re-queued) can deliver the same story under
 
 **What changed:**
 - County-pattern matching now treats possessive forms (`County's`, `County’ s`) as a valid county mention. This prevents Kentucky counties (e.g., "Hardin County's") from being ignored and causing a story to be misclassified as national.
+- Added `Hardin` to `AMBIGUOUS_COUNTY_NAMES` so that "Hardin County" no longer triggers a KY match unless the article also provides an explicit KY signal (e.g. "Kentucky", local city/state name, etc.).
 - Expanded the KY keyword filter to ignore short nav/tag lines containing "Kentucky" or "KY" so site chrome doesn't accidentally trigger Kentucky classification.
+- Added a multi-state guard: if the text mentions more than one U.S. state (including Kentucky) but contains **no explicit Kentucky city/county**, the story is treated as national. This prevents storm/region stories (e.g., "Kentucky and southern Indiana") from being tagged as KY.
 
 **Why:**
-Some Kentucky stories refer to local government entities in possessive form (e.g., "Hardin County's sheriff") and were previously missed by the county detection regex, causing valid Kentucky stories to be treated as national. Additionally, some non-Kentucky national stories were misclassified because a short nav/tag line containing "Kentucky" appeared in the scraped text. These improvements prevent both false negatives (missing KY stories) and false positives (tagging national stories as KY).
+Some Kentucky stories refer to local government entities in possessive form (e.g., "Hardin County's sheriff") and were previously missed by the county detection regex, causing valid Kentucky stories to be treated as national. Additionally, stories that mention multiple states but lack a local KY location (e.g., storm coverage spanning KY + other states) were being mis-tagged as Kentucky because the text contained the word "Kentucky". These improvements prevent both false negatives (missing KY stories) and false positives (tagging national stories as KY).

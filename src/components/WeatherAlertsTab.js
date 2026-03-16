@@ -59,6 +59,7 @@ export default function WeatherAlertsTab({ service }) {
         hour: "numeric",
         minute: "2-digit",
         hour12: true,
+        timeZone: "America/New_York",
         timeZoneName: "short",
       });
     } catch {
@@ -448,6 +449,8 @@ export default function WeatherAlertsTab({ service }) {
                   hour: "numeric",
                   minute: "2-digit",
                   hour12: true,
+                  timeZone: "America/New_York",
+                  timeZoneName: "short",
                 })}
               </Typography>
             </Box>

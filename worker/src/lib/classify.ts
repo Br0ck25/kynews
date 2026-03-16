@@ -1292,6 +1292,20 @@ export function classifyArticle(title: string, bodyText: string): RelevanceClass
   const normalizedBody = normalizeText(bodyText);
   const wholeArticle = `${normalizedTitle} ${normalizedBody}`.trim();
 
+  // If the article mentions multiple U.S. states (including Kentucky) but has
+  // no explicit Kentucky county/city signal, treat it as national. This avoids
+  // misclassifying multi-state stories (e.g. storm coverage) as Kentucky.
+  const stateNames = new Set<string>();
+  const stateRe = /\b(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new\s+hampshire|new\s+jersey|new\s+mexico|new\s+york|north\s+carolina|north\s+dakota|ohio|oklahoma|oregon|pennsylvania|rhode\s+island|south\s+carolina|south\s+dakota|tennessee|texas|utah|vermont|virginia|washington|west\s+virginia|wisconsin|wyoming)\b/gi;
+  for (const m of normalizedBody.matchAll(stateRe)) {
+    if (m[1]) stateNames.add(m[1].toLowerCase());
+  }
+  const hasMultipleStates = stateNames.size > 1;
+  const hasExplicitKyLocation = Boolean(detectCounty(normalizedBody, normalizedBody) || detectCity(normalizedBody));
+  if (hasMultipleStates && stateNames.has('kentucky') && !hasExplicitKyLocation) {
+    return { category: 'national', tier: 'national', mentionCount: 0 };
+  }
+
   const titleHasKentucky = hasKentuckyOrKy(normalizedTitle);
   if (titleHasKentucky || hasStrongLocationTitleMatch(normalizedTitle)) {
     return { category: 'kentucky', tier: 'title', mentionCount: 1 };

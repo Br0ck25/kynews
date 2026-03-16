@@ -202,6 +202,7 @@ export const AMBIGUOUS_COUNTY_NAMES = new Set([
   'Taylor',    // person name
   'Wayne',    // person name
   'Webster',  // person/dictionary
+  'Hardin',   // Hardin County exists in KY, TN, TX, etc.
   // added to mitigate wire story false positives; each exists in KY_COUNTIES
   'Fulton',   // Fulton County GA (Atlanta), NY, etc.
   'Franklin', // Franklin County many states

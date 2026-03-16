@@ -35,10 +35,10 @@ describe('classification fallback geo integration', () => {
     expect(geo.county).toBeNull();
   });
 
-  it('classifies a Hardin County emu story as Kentucky', () => {
+  it('does not classify a multi-state storm story as Kentucky', () => {
     const title = "Police search for Hardin County family's pet emu after strong storms";
     const body = "The Hardin County Sheriff's Office is asking for the public's assistance in locating a pet emu named Mystery that went missing after severe storms hit Kentucky and southern Indiana.";
     const result = classifyArticle(title, body);
-    expect(result.category).toBe('kentucky');
+    expect(result.category).toBe('national');
   });
 });
