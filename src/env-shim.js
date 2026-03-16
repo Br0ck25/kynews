@@ -23,6 +23,9 @@
   if (env.VITE_API_BASE_URL !== undefined) {
     process.env['REACT_APP_API_BASE_URL'] = env.VITE_API_BASE_URL;
   }
+  if (env.VITE_VAPID_PUBLIC_KEY !== undefined) {
+    process.env['REACT_APP_VAPID_PUBLIC_KEY'] = env.VITE_VAPID_PUBLIC_KEY;
+  }
   if (env.MODE !== undefined) {
     // use bracket syntax so Vite's constant-replacement doesn’t turn the
     // left-hand side into a literal string (which would cause a syntax

@@ -68,22 +68,41 @@ export default function SettingsForm() {
       dispatch(setDarkTheme(checked));
     } else if (name.startsWith("notif_")) {
       const feed = name.replace("notif_", "");
-      const updated = { ...notifications, [feed]: checked };
-      dispatch(setNotifications(updated));
-      // Request browser permission when the user enables any notification toggle
-      if (checked) {
-        requestNotificationPermission().then((granted) => {
-          if (!granted) {
-            // Permission denied — revert the toggle so the UI stays honest
-            dispatch(setNotifications({ ...notifications, [feed]: false }));
-          } else {
-            // Enrol the browser in Web Push so background notifications work
-            subscribeToPush(process.env.REACT_APP_API_BASE_URL || "").catch((err) =>
-              console.warn("[push] subscribe failed:", err)
-            );
-          }
-        });
+      if (!checked) {
+        dispatch(setNotifications({ ...notifications, [feed]: false }));
+        return;
       }
+
+      // If the user has previously blocked notifications, the browser will
+      // never show a permission dialog again.  Alert them so they know what
+      // to do instead of silently leaving the toggle in the off state.
+      if (typeof Notification !== "undefined" && Notification.permission === "denied") {
+        alert(
+          "Notifications are blocked for this site. To re-enable them, open your browser's site settings, find this site, and allow notifications — then try again."
+        );
+        return; // Do not turn the toggle on.
+      }
+
+      // Optimistically enable so the user sees immediate feedback.
+      dispatch(setNotifications({ ...notifications, [feed]: true }));
+
+      // Use pushManager.subscribe() as the permission gate.  On Android
+      // browsers (Brave, Chrome) it shows the notification permission prompt
+      // and handles the full subscription in one call — more reliable than
+      // calling Notification.requestPermission() first, which can behave
+      // inconsistently on mobile PWAs.
+      const apiBase = process.env.REACT_APP_API_BASE_URL || "";
+      subscribeToPush(apiBase).catch((err) => {
+        if (err && err.name === "NotAllowedError") {
+          // User denied the permission prompt — revert.
+          dispatch(setNotifications({ ...notifications, [feed]: false }));
+        } else {
+          // Any other failure (SW not ready, network, etc.) — keep the
+          // toggle on.  The in-page poller will still fire notifications
+          // when the tab is open and Notification.permission is granted.
+          console.warn("[push] subscribe error:", err);
+        }
+      });
     }
   };
 
