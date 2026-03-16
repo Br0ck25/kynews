@@ -806,10 +806,10 @@ export default class SiteService {
     return this.request("/api/admin/weather-alert-posts");
   }
 
-  async saveWeatherAlertPost({ nws_alert_id, event, area, severity, expires_at, post_text }) {
+  async saveWeatherAlertPost({ nws_alert_id, event, area, severity, expires_at, sent_at, post_text }) {
     return this.request("/api/admin/weather-alert-posts", {
       method: "POST",
-      body: JSON.stringify({ nws_alert_id, event, area, severity, expires_at, post_text }),
+      body: JSON.stringify({ nws_alert_id, event, area, severity, expires_at, sent_at, post_text }),
     });
   }
 

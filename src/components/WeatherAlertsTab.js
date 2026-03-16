@@ -37,7 +37,7 @@ export default function WeatherAlertsTab({ service }) {
         const ta = new Date(a.sent_at || a.created_at).getTime();
         const tb = new Date(b.sent_at || b.created_at).getTime();
         if (tb !== ta) return tb - ta;
-        return a.id - b.id; // NWS delivers newest first → lowest id = newest
+        return b.id - a.id; // higher id = more recently inserted = newest first
       });
       setPosts(sorted);
       setPostedNwsIds(new Set(data.postedNwsIds || []));
@@ -66,6 +66,7 @@ export default function WeatherAlertsTab({ service }) {
     return text
       .replace(/\*/g, "")
       .replace(/^\s*([A-Z][A-Z\s]{1,30})\.\.\./gm, (_, key) => `\n\n${key.trim()}: `)
+      .replace(/\n(WHAT|WHERE|WHEN|IMPACTS|PRECAUTIONARY ACTIONS|ADDITIONAL DETAILS):/g, "\n\n$1:")
       .replace(/\n{3,}/g, "\n\n") // collapse any triple+ newlines to one blank line
       .trimStart();
   }
