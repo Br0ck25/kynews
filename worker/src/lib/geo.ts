@@ -330,6 +330,18 @@ const DATELINE_CITY_RE = /^\s*frankfort,?\s*ky\b/i;
  */
 const KY_UNAMBIGUOUS_KEYWORDS = ['kentucky', 'commonwealth of kentucky'];
 
+// Lines that are likely from navigation menus or related-topic tags and
+// should not count as genuine geographic signals. These often appear as
+// standalone lines like "Kentucky", "KY", or "Kentucky News".
+const NAV_KENTUCKY_LINE_RE = /^\s*(kentucky|ky)(\s+(news|sports|business|culture|technology|tech|health|travel|opinion|local|national|world))?\s*[:\-–—]?\s*$/i;
+
+function stripNavKentuckyLines(text) {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !NAV_KENTUCKY_LINE_RE.test(line))
+    .join('\n');
+}
+
 /**
  * @typedef {object} GeoDetection
  * @property {boolean} isKentucky
@@ -343,7 +355,7 @@ const KY_UNAMBIGUOUS_KEYWORDS = ['kentucky', 'commonwealth of kentucky'];
  * @returns {GeoDetection}
  */
 export function detectKentuckyGeo(input) {
-  const haystack = normalizeForSearch(input);
+  const haystack = normalizeForSearch(stripNavKentuckyLines(input));
 
   // run both detectors up front so we can merge later; counties found by
   // `detectAllCounties` (Pass A/B/C) are treated as more authoritative than

@@ -219,7 +219,26 @@ Individual death notices are not news stories. They are not summarizable in the 
 
 ---
 
-### Change 12 — Allow list formatting for structured-list articles in `BASE_SYSTEM_PROMPT`
+### Change 12 — Improve obituary detection with additional phrasing patterns
+
+**File:** `worker/src/lib/ingest.ts`
+
+**What changed:**
+Expanded the obituary signal set to include additional common phrases from formal death notices, such as:
+- `passed away`
+- `survived by` / `is survived by`
+- `celebration of life`
+- `memorial service`
+- `has gone to be with God`
+
+This makes the filter more robust against obits that do not mention funeral arrangements explicitly.
+
+**Why:**
+The previous filter relied on a narrow set of phrases and missed many typical obituaries (e.g. those that focus on life details, survivors, and a simple "passed away" line). The expanded signal set helps prevent future obituary posts from slipping through.
+
+---
+
+### Change 13 — Allow list formatting for structured-list articles in `BASE_SYSTEM_PROMPT`
 
 **File:** `worker/src/lib/ai.ts`
 
@@ -303,3 +322,16 @@ Unlike the WLKY/PBS national-wire cases, this article is genuinely set in Kentuc
 
 **Why:**
 Some scraped pages put the photo credit or caption just before the dateline, causing the AI to treat it as the opening sentence. This fix prevents those stray credit lines from leaking into generated summaries.
+
+---
+
+### Change 15 — Ignore nav/menu “Kentucky” lines when detecting KY relevance
+
+**File:** `worker/src/lib/geo.ts`
+
+**What changed:**
+- When scanning for Kentucky signals, strip standalone nav/menu lines like "Kentucky", "KY", or "Kentucky News" before counting mentions.
+- This prevents sidebar/navigation artifacts from convincing the classifier that an article is about Kentucky.
+
+**Why:**
+National stories (e.g. Yahoo Finance / Reuters) can contain a stray "Kentucky" link or tag in the scraped HTML. Those isolated nav items should not trigger Kentucky tagging, but previously they did because `detectKentuckyGeo` treated any appearance of "Kentucky" as a positive signal.

@@ -225,6 +225,12 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     /\bvisitation\s+(?:will\s+be|hours|are)\b/i,
     /\bin\s+lieu\s+of\s+flowers\b/i,
     /\bexpressions\s+of\s+sympathy\b/i,
+    /\bis\s+survived\s+by\b/i,
+    /\bsurvived\s+by\b/i,
+    /\bcelebration\s+of\s+life\b/i,
+    /\bmemorial\s+service\b/i,
+    /\bhas\s+gone\s+to\s+be\s+with\s+God\b/i,
+    /\bpassed\s+away\b/i,
   ];
   const obituaryCheckText = `${extracted.title} ${extracted.contentText.slice(0, 1500)}`;
   if (obituarySignals.some((re) => re.test(obituaryCheckText))) {

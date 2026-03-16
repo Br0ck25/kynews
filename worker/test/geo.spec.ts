@@ -61,6 +61,14 @@ describe('geo city matching', () => {
     expect(geo.city).toBe('bowling green');
     expect(geo.county).toBe('Warren');
   });
+
+  it('does not mark Kentucky when the only mention is a nav/menu line', () => {
+    // Some scraped pages include a standalone "Kentucky" line (nav tag) that
+    // should not count as a geographic signal.
+    const text = 'Kentucky\nThe rest of the article is about national politics.';
+    const geo = detectKentuckyGeo(text);
+    expect(geo.isKentucky).toBe(false);
+  });
 });
 
 // county-focused tests
