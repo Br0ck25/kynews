@@ -59,7 +59,7 @@ export default function WeatherAlertsTab({ service }) {
   function formatBullets(text) {
     return text
       .replace(/\*/g, "")
-      .replace(/^\s*([A-Z][A-Z\s]{1,30})\.\.\./gm, (_, key) => `\n${key.trim()}: `)
+      .replace(/^\s*([A-Z][A-Z\s]{1,30})\.\.\./gm, (_, key) => `\n\n${key.trim()}: `)
       .trimStart();
   }
 
@@ -123,6 +123,7 @@ export default function WeatherAlertsTab({ service }) {
           area: feat.properties?.areaDesc || "",
           severity: feat.properties?.severity || "Unknown",
           expires_at: feat.properties?.expires || null,
+          sent_at: feat.properties?.sent || null,
           post_text,
         };
 

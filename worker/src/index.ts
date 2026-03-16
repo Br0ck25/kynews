@@ -2043,6 +2043,7 @@ if (url.pathname === '/api/admin/weather-alert-posts' && request.method === 'POS
 		area?: string;
 		severity?: string;
 		expires_at?: string | null;
+		sent_at?: string | null;
 		post_text?: string;
 	}>(request);
 	if (!body) return badRequest('Missing request body');
@@ -2066,6 +2067,7 @@ if (url.pathname === '/api/admin/weather-alert-posts' && request.method === 'POS
 		area: typeof body.area === 'string' ? body.area.trim() : '',
 		severity: typeof body.severity === 'string' ? body.severity.trim() : 'Unknown',
 		expires_at: typeof body.expires_at === 'string' ? body.expires_at : null,
+		sent_at: typeof body.sent_at === 'string' ? body.sent_at : null,
 		post_text,
 	});
 

@@ -10,6 +10,7 @@ export interface WeatherAlertPost {
   area: string;
   severity: string;
   expires_at: string | null;
+  sent_at: string | null;
   post_text: string;
   created_at: string;
 }
@@ -17,7 +18,7 @@ export interface WeatherAlertPost {
 /** Return all posts ordered newest-first. */
 export async function listWeatherAlertPosts(env: Env): Promise<WeatherAlertPost[]> {
   const result = await env.ky_news_db
-    .prepare('SELECT * FROM weather_alert_posts ORDER BY created_at DESC, id ASC')
+    .prepare('SELECT * FROM weather_alert_posts ORDER BY COALESCE(sent_at, created_at) DESC, id DESC')
     .all<WeatherAlertPost>();
   return result.results ?? [];
 }
@@ -36,6 +37,7 @@ export interface NewWeatherAlertPost {
   area: string;
   severity: string;
   expires_at: string | null;
+  sent_at: string | null;
   post_text: string;
 }
 
@@ -47,8 +49,8 @@ export async function insertWeatherAlertPost(
   const result = await env.ky_news_db
     .prepare(
       `INSERT INTO weather_alert_posts
-         (nws_alert_id, event, area, severity, expires_at, post_text)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+         (nws_alert_id, event, area, severity, expires_at, sent_at, post_text)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       post.nws_alert_id ?? null,
@@ -56,6 +58,7 @@ export async function insertWeatherAlertPost(
       post.area,
       post.severity,
       post.expires_at ?? null,
+      post.sent_at ?? null,
       post.post_text,
     )
     .run();
