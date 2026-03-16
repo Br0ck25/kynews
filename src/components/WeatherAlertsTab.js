@@ -92,7 +92,7 @@ export default function WeatherAlertsTab({ service }) {
     setFetchStatus("Pulling NWS data...");
     setError("");
     try {
-      const areas = ["KY", "WV", "VA", "TN"];
+      const areas = ["KY"];
       const all = [];
       for (const area of areas) {
         const res = await fetch(`https://api.weather.gov/alerts/active?area=${area}`);
@@ -267,8 +267,8 @@ export default function WeatherAlertsTab({ service }) {
             Weather Alert Posts
           </Typography>
           <Typography variant="body2" color="textSecondary">
-            Fetches live NWS alerts for KY, WV, VA and TN. Each alert is saved
-            as a formatted post you can edit, copy, and paste to Facebook.
+            Fetches live NWS alerts for Kentucky. Each alert is saved as a
+            formatted post you can edit, copy, and paste to Facebook.
             Already-posted alerts are never duplicated.
           </Typography>
         </Box>
