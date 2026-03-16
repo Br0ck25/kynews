@@ -1086,26 +1086,44 @@ export default function AdminPage() {
         <Typography color="error" variant="body2" style={{ marginBottom: 10 }}>{error}</Typography>
       )}
 
-      {/* ── Tab bar ────────────────────────────────────────────────── */}
+      {/* ── Tab bar — 3 × 3 grid ───────────────────────────────────── */}
       <Paper square style={{ marginBottom: 16 }}>
-        <Tabs
-          value={activeTab}
-          onChange={(_, v) => setActiveTab(v)}
-          indicatorColor="primary"
-          textColor="primary"
-          variant="scrollable"
-          scrollButtons="auto"
-        >
-          <Tab label="Dashboard" />
-          <Tab label="Create Article" />
-          <Tab label={draftCount > 0 ? `Articles (${draftCount} draft${draftCount !== 1 ? "s" : ""})` : "Articles"} />
-          <Tab label="Blocked" />
-          <Tab label="FB Scraper" />
-          <Tab label="Weather Alerts" />
-          <Tab label="NWS Discussions" />
-          <Tab label="Storm Reports" />
-          <Tab label="Weather" />
-        </Tabs>
+        <Box style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
+          {[
+            "Dashboard",
+            "Create Article",
+            draftCount > 0 ? `Articles (${draftCount} draft${draftCount !== 1 ? "s" : ""})` : "Articles",
+            "Blocked",
+            "FB Scraper",
+            "Weather Alerts",
+            "NWS Discussions",
+            "Storm Reports",
+            "Weather",
+          ].map((label, i) => (
+            <Box
+              key={i}
+              onClick={() => setActiveTab(i)}
+              style={{
+                padding: "12px 8px",
+                textAlign: "center",
+                cursor: "pointer",
+                fontWeight: activeTab === i ? 700 : 400,
+                color: activeTab === i ? "#1976d2" : "rgba(0,0,0,0.54)",
+                borderBottom: activeTab === i ? "2px solid #1976d2" : "2px solid transparent",
+                fontSize: 13,
+                userSelect: "none",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                borderRight: i % 3 !== 2 ? "1px solid rgba(0,0,0,0.08)" : "none",
+                borderTop: i >= 3 ? "1px solid rgba(0,0,0,0.08)" : "none",
+                transition: "color 0.15s, border-bottom-color 0.15s",
+              }}
+            >
+              {label}
+            </Box>
+          ))}
+        </Box>
       </Paper>
 
       {/* ================================================================ */}

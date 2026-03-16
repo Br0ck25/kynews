@@ -34,6 +34,131 @@ function fmtTime(dateStr) {
   }
 }
 
+const EVENT_FULL_NAMES = {
+  "Tstm Wnd Dmg":    "Thunderstorm Wind Damage",
+  "Tstm Wnd Gst":    "Thunderstorm Wind Gust",
+  "Flash Flood":     "Flash Flood",
+  "Flood":           "Flood",
+  "Tornado":         "Tornado",
+  "Hail":            "Hail",
+  "Heavy Rain":      "Heavy Rain",
+  "High Wind":       "High Wind",
+  "Funnel Cloud":    "Funnel Cloud",
+  "Waterspout":      "Waterspout",
+  "Marine Tstm Wind":"Marine Thunderstorm Wind",
+  "Non-Tstm Wnd Gst":"Non-Thunderstorm Wind Gust",
+  "Non-Tstm Wnd Dmg":"Non-Thunderstorm Wind Damage",
+  "Winter Storm":    "Winter Storm",
+  "Ice Storm":       "Ice Storm",
+  "Sleet":           "Sleet",
+  "Snow":            "Snow",
+  "Freezing Rain":   "Freezing Rain",
+  "Dense Fog":       "Dense Fog",
+  "Lightning":       "Lightning",
+};
+
+const EVENT_EMOJI_MAP = [
+  ["Tornado",        "🌪️"],
+  ["Funnel Cloud",   "🌪️"],
+  ["Waterspout",     "🌪️"],
+  ["Flash Flood",    "🌊"],
+  ["Flood",          "🌊"],
+  ["Hail",           "🌨️"],
+  ["Lightning",      "⚡"],
+  ["Tstm Wnd",       "⛈️"],
+  ["Marine Tstm",    "⛈️"],
+  ["High Wind",      "💨"],
+  ["Non-Tstm Wnd",   "💨"],
+  ["Snow",           "❄️"],
+  ["Blizzard",       "❄️"],
+  ["Winter Storm",   "❄️"],
+  ["Ice Storm",      "🧊"],
+  ["Freezing Rain",  "🧊"],
+  ["Sleet",          "🧊"],
+  ["Heavy Rain",     "🌧️"],
+  ["Dense Fog",      "🌫️"],
+  ["Wildfire",       "🔥"],
+];
+
+function getEventEmoji(eventType) {
+  const lower = eventType.toLowerCase();
+  for (const [key, emoji] of EVENT_EMOJI_MAP) {
+    if (lower.includes(key.toLowerCase())) return emoji;
+  }
+  return "⚠️";
+}
+
+// Parses a raw NWS LSR productText into a Facebook-ready formatted string.
+// LSR fixed-width column layout (0-indexed):
+//   Line 0: time=0-9, event=12-27, city=29-52
+//   Line 1: date=0-9, mag=12-27, county=29-48, state=49-50, source=53+
+function parseLsrForFacebook(productText, officeLabel) {
+  if (!productText) return "";
+
+  const headerMatch = productText.match(
+    /National Weather Service (.+?)[\r\n]+(\d{3,4}\s+[AP]M\s+\w+\s+\w+\s+\w+\s+\d+\s+\d{4})/i
+  );
+  const issuedBy   = (headerMatch && headerMatch[1].trim()) || officeLabel || "NWS";
+  const issuedTime = (headerMatch && headerMatch[2].trim()) || "";
+
+  const remarksIdx = productText.indexOf("..REMARKS..");
+  if (remarksIdx === -1) return productText;
+
+  const body = productText.substring(remarksIdx + "..REMARKS..".length);
+  const rawBlocks = body.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+  const eventBlocks = rawBlocks.filter(
+    b => !/^&&/.test(b) && !/^\$\$/.test(b) && !/^[A-Z]{2,4}$/.test(b.trim())
+  );
+  if (eventBlocks.length === 0) return productText;
+
+  const parsedEvents = eventBlocks.map(block => {
+    const lines = block.split("\n");
+    const l0 = (lines[0] || "").padEnd(80);
+    const l1 = (lines[1] || "").padEnd(80);
+    return {
+      time:      l0.substring(0,  10).trim(),
+      eventType: l0.substring(12, 28).trim(),
+      city:      l0.substring(29, 53).trim(),
+      date:      l1.substring(0,  10).trim(),
+      mag:       l1.substring(12, 28).trim(),
+      county:    l1.substring(29, 49).trim(),
+      state:     l1.substring(49, 51).trim(),
+      source:    l1.substring(53).trim(),
+      remarks:   lines.slice(2).map(l => l.trim()).filter(Boolean).join(" "),
+    };
+  });
+
+  const header = `🌩️ NWS Local Storm Report — ${issuedBy}${issuedTime ? "\n" + issuedTime : ""}`;
+
+  const eventLines = parsedEvents.map(e => {
+    const emoji     = getEventEmoji(e.eventType);
+    const fullName  = EVENT_FULL_NAMES[e.eventType] || e.eventType;
+    const countyStr = e.county ? e.county + " County" : "";
+    const location  = [e.city, [countyStr, e.state].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+    const parts = [`${emoji} ${fullName.toUpperCase()}`];
+    if (location)  parts.push(`📍 ${location}`);
+    parts.push(`🕐 ${e.time}${e.date ? "  |  " + e.date : ""}`);
+    if (e.mag)     parts.push(`Magnitude: ${e.mag}`);
+    if (e.source)  parts.push(`Source: ${e.source}`);
+    if (e.remarks) parts.push(`\n${e.remarks}`);
+    return parts.join("\n");
+  });
+
+  const countyTags = [...new Set(
+    parsedEvents.map(e => e.county).filter(Boolean)
+      .map(c => "#" + c.replace(/\s+/g, "") + "County")
+  )].join(" ");
+
+  return [
+    header,
+    "",
+    eventLines.join("\n\n"),
+    "",
+    "——————————————",
+    `LocalKYNews.com | #KentuckyWeather${countyTags ? "  " + countyTags : ""}`,
+  ].join("\n");
+}
+
 export default function StormReportsTab() {
   const [byOffice, setByOffice] = React.useState({});
   const [loading, setLoading] = React.useState(false);
@@ -43,6 +168,7 @@ export default function StormReportsTab() {
   const [texts, setTexts] = React.useState({});
   const [loadingId, setLoadingId] = React.useState(null);
   const [copiedId, setCopiedId] = React.useState(null);
+  const [copiedFb, setCopiedFb] = React.useState(null);
 
   React.useEffect(() => {
     load();
@@ -120,6 +246,24 @@ export default function StormReportsTab() {
     ta.select();
     document.execCommand("copy");
     ta.remove();
+  }
+
+  function copyFb(pid) {
+    const officeInfo = OFFICES.find(o => o.id === activeOffice);
+    const fbText = parseLsrForFacebook(texts[pid] || "", officeInfo?.label || "");
+    const markCopied = () => {
+      setCopiedFb(pid);
+      setTimeout(() => setCopiedFb(null), 2000);
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(fbText).then(markCopied).catch(() => {
+        fallbackCopy(fbText);
+        markCopied();
+      });
+    } else {
+      fallbackCopy(fbText);
+      markCopied();
+    }
   }
 
   const currentProducts = byOffice[activeOffice] || [];
@@ -296,13 +440,23 @@ export default function StormReportsTab() {
                     >
                       {texts[p.id]}
                     </Paper>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => copy(p.id)}
-                    >
-                      {copiedId === p.id ? "Copied!" : "Copy Text"}
-                    </Button>
+                    <Box style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => copy(p.id)}
+                      >
+                        {copiedId === p.id ? "Copied!" : "Copy Raw Text"}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        onClick={() => copyFb(p.id)}
+                      >
+                        {copiedFb === p.id ? "Copied!" : "Copy for Facebook"}
+                      </Button>
+                    </Box>
                   </>
                 )}
               </Box>
