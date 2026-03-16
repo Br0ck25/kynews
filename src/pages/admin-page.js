@@ -39,6 +39,9 @@ import { KENTUCKY_COUNTIES } from "../constants/counties";
 import { articleToUrl } from "../utils/functions";
 import FacebookScraperTab from "../components/FacebookScraperTab";
 import WeatherAlertsTab from "../components/WeatherAlertsTab";
+import NwsDiscussionsTab from "../components/NwsDiscussionsTab";
+import StormReportsTab from "../components/StormReportsTab";
+import WeatherForecastTab from "../components/WeatherForecastTab";
 
 // `SiteService` already handles environment configuration internally.
 const service = new SiteService();
@@ -1099,6 +1102,9 @@ export default function AdminPage() {
           <Tab label="Blocked" />
           <Tab label="FB Scraper" />
           <Tab label="Weather Alerts" />
+          <Tab label="NWS Discussions" />
+          <Tab label="Storm Reports" />
+          <Tab label="Weather" />
         </Tabs>
       </Paper>
 
@@ -2196,6 +2202,33 @@ export default function AdminPage() {
       {activeTab === 5 && (
         <Box>
           <WeatherAlertsTab service={service} />
+        </Box>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB 6 — NWS Discussions                                          */}
+      {/* ================================================================ */}
+      {activeTab === 6 && (
+        <Box>
+          <NwsDiscussionsTab />
+        </Box>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB 7 — Storm Reports                                            */}
+      {/* ================================================================ */}
+      {activeTab === 7 && (
+        <Box>
+          <StormReportsTab />
+        </Box>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB 8 — Weather Forecast                                         */}
+      {/* ================================================================ */}
+      {activeTab === 8 && (
+        <Box>
+          <WeatherForecastTab />
         </Box>
       )}
 
