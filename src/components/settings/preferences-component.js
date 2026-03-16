@@ -26,17 +26,26 @@ function urlBase64ToUint8Array(base64String) {
 async function subscribeToPush(baseUrl) {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
   const reg = await navigator.serviceWorker.ready;
-  const existing = await reg.pushManager.getSubscription();
-  if (existing) return existing;
 
   const vapidKey = process.env.REACT_APP_VAPID_PUBLIC_KEY;
-  if (!vapidKey) return;
+  if (!vapidKey) {
+    console.warn('[push] REACT_APP_VAPID_PUBLIC_KEY is not set');
+    return;
+  }
 
-  const sub = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(vapidKey),
-  });
+  // Get existing subscription or create a new one.
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+    });
+  }
 
+  // Always POST to the backend — the server uses the endpoint as the key so
+  // this is idempotent.  Without this, a subscription that exists on-device
+  // but was never synced to the server (e.g. created during a buggy session)
+  // would never receive push notifications.
   await fetch(`${baseUrl}/api/subscribe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
