@@ -125,7 +125,15 @@ export default function KYWeatherHub() {
   const [loading, setLoading] = useState(true);
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [time, setTime] = useState(new Date());
-  const [activeTab, setActiveTab] = useState("forecast");
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const stored = localStorage.getItem("kyWeather.activeTab");
+      if (stored) return JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+    return "forecast";
+  });
   const [outlooks, setOutlooks] = useState([]);
   const [outlooksLoading, setOutlooksLoading] = useState(true);
   const [nwsOffices, setNwsOffices] = useState([]);
@@ -151,6 +159,14 @@ export default function KYWeatherHub() {
       // ignore
     }
   }, [selectedCounty]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("kyWeather.activeTab", JSON.stringify(activeTab));
+    } catch {
+      // ignore
+    }
+  }, [activeTab]);
 
   const fetchAlerts = useCallback(async () => {
     setAlertsLoading(true);
