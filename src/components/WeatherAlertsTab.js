@@ -59,7 +59,8 @@ export default function WeatherAlertsTab({ service }) {
   function formatBullets(text) {
     return text
       .replace(/\*/g, "")
-      .replace(/^\s*([A-Z][A-Z\s]{1,30})\.\.\./gm, (_, key) => `${key.trim()}: `);
+      .replace(/^\s*([A-Z][A-Z\s]{1,30})\.\.\./gm, (_, key) => `\n${key.trim()}: `)
+      .trimStart();
   }
 
   function buildPostText(feat) {
