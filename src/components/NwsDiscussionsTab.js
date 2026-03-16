@@ -313,29 +313,6 @@ export default function NwsDiscussionsTab() {
   );
 }
 
-
-const NWS_HEADERS = {
-  "User-Agent": "LocalKYNews/1.0 (localkynews.com; news@localkynews.com)",
-  Accept: "application/geo+json, application/json",
-};
-
-function fmtTime(dateStr) {
-  if (!dateStr) return "";
-  try {
-    return new Date(dateStr).toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-      timeZoneName: "short",
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
-export default function NwsDiscussionsTab() {
   const [products, setProducts] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
