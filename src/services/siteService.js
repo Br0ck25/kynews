@@ -800,6 +800,35 @@ export default class SiteService {
     });
   }
 
+  // ── Weather Alert Posts ────────────────────────────────────────────────────
+
+  async getWeatherAlertPosts() {
+    return this.request("/api/admin/weather-alert-posts");
+  }
+
+  async saveWeatherAlertPost({ nws_alert_id, event, area, severity, expires_at, post_text }) {
+    return this.request("/api/admin/weather-alert-posts", {
+      method: "POST",
+      body: JSON.stringify({ nws_alert_id, event, area, severity, expires_at, post_text }),
+    });
+  }
+
+  async updateWeatherAlertPost({ id, post_text }) {
+    return this.request("/api/admin/weather-alert-posts/update", {
+      method: "POST",
+      body: JSON.stringify({ id, post_text }),
+    });
+  }
+
+  async deleteWeatherAlertPost(id) {
+    return this.request("/api/admin/weather-alert-posts/delete", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+  }
+
+  // ── End Weather Alert Posts ────────────────────────────────────────────────
+
   setAdminPanelKey(value) {
     const key = String(value || "").trim();
     if (!key) {

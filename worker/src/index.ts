@@ -65,6 +65,13 @@ import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
 import { fetchNwsStories } from './lib/nwsStories';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
 import { isSearchBot } from './lib/isSearchBot';
+import {
+	listWeatherAlertPosts,
+	getPostedNwsAlertIds,
+	insertWeatherAlertPost,
+	updateWeatherAlertPostText,
+	deleteWeatherAlertPost,
+} from './lib/weatherAlerts';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
@@ -2012,6 +2019,87 @@ if (url.pathname === '/api/admin/weather-summary/run' && request.method === 'POS
 	} catch (err: any) {
 		return json({ error: String(err) }, 500);
 	}
+}
+
+// ── GET /api/admin/weather-alert-posts ─────────────────────────────────────
+// Returns all posts (newest first) AND the set of already-posted NWS alert IDs
+// so the frontend can skip duplicates before ever saving.
+if (url.pathname === '/api/admin/weather-alert-posts' && request.method === 'GET') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const posts = await listWeatherAlertPosts(env);
+	const postedIds = await getPostedNwsAlertIds(env);
+	return json({ posts, postedNwsIds: [...postedIds] });
+}
+
+// ── POST /api/admin/weather-alert-posts ─────────────────────────────────────
+// Save one new alert post. If nws_alert_id is provided and already exists
+// the endpoint returns 409 so the frontend knows it is a duplicate.
+if (url.pathname === '/api/admin/weather-alert-posts' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{
+		nws_alert_id?: string | null;
+		event?: string;
+		area?: string;
+		severity?: string;
+		expires_at?: string | null;
+		post_text?: string;
+	}>(request);
+	if (!body) return badRequest('Missing request body');
+
+	const post_text = typeof body.post_text === 'string' ? body.post_text.trim() : '';
+	if (!post_text) return badRequest('post_text is required');
+
+	const nws_alert_id = typeof body.nws_alert_id === 'string' ? body.nws_alert_id.trim() || null : null;
+
+	// Duplicate check — only applies to NWS-sourced posts
+	if (nws_alert_id) {
+		const posted = await getPostedNwsAlertIds(env);
+		if (posted.has(nws_alert_id)) {
+			return json({ error: 'Alert already posted', nws_alert_id }, 409);
+		}
+	}
+
+	const id = await insertWeatherAlertPost(env, {
+		nws_alert_id,
+		event: typeof body.event === 'string' ? body.event.trim() : 'Weather Alert',
+		area: typeof body.area === 'string' ? body.area.trim() : '',
+		severity: typeof body.severity === 'string' ? body.severity.trim() : 'Unknown',
+		expires_at: typeof body.expires_at === 'string' ? body.expires_at : null,
+		post_text,
+	});
+
+	return json({ ok: true, id });
+}
+
+// ── POST /api/admin/weather-alert-posts/update ──────────────────────────────
+// Update the editable post_text for an existing post.
+if (url.pathname === '/api/admin/weather-alert-posts/update' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ id?: number; post_text?: string }>(request);
+	if (!body) return badRequest('Missing request body');
+
+	const id = Number(body.id ?? 0);
+	if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid id');
+
+	const post_text = typeof body.post_text === 'string' ? body.post_text.trim() : '';
+	if (!post_text) return badRequest('post_text is required');
+
+	const updated = await updateWeatherAlertPostText(env, id, post_text);
+	if (!updated) return json({ error: 'Post not found' }, 404);
+	return json({ ok: true, id });
+}
+
+// ── POST /api/admin/weather-alert-posts/delete ──────────────────────────────
+// Delete a post by id.
+if (url.pathname === '/api/admin/weather-alert-posts/delete' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ id?: number }>(request);
+	const id = Number(body?.id ?? 0);
+	if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid id');
+
+	const deleted = await deleteWeatherAlertPost(env, id);
+	if (!deleted) return json({ error: 'Post not found' }, 404);
+	return json({ ok: true, id });
 }
 
 // serve files from the R2 media bucket; this is intentionally *not* an admin
