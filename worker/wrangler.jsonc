@@ -108,6 +108,9 @@
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/
 	 */
+	"vars": {
+		"VAPID_PUBLIC_KEY": "BMFqpYJylmcgn-91AH8x0bXip42UcmCZkYXvSkzntMJMK0BjfOl6j02c46dXC900npvwDX7pNsWo53-lGagvtwc"
+	},
 	// "vars": {  "MY_VARIABLE": "production_value" }
 	/**
 	 * Static Assets

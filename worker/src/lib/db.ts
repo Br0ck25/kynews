@@ -103,12 +103,18 @@ export async function sendPushNotification(
   // web-push is a relatively large library; import lazily so tests that
   // don't touch push code don't incur the cost.
   const webpush = await import('web-push');
-  const publicKey = process.env.VAPID_PUBLIC_KEY || '';
-  const privateKey = process.env.VAPID_PRIVATE_KEY || '';
+  // Worker env bindings (secrets + vars) are on the `env` object, NOT process.env.
+  const publicKey = env.VAPID_PUBLIC_KEY || '';
+  const privateKey = env.VAPID_PRIVATE_KEY || '';
+  if (!publicKey || !privateKey) {
+    console.warn('sendPushNotification: VAPID keys not set — skipping');
+    return;
+  }
   try {
     webpush.setVapidDetails('mailto:admin@localkynews.com', publicKey, privateKey);
   } catch (e) {
     console.warn('webpush.setVapidDetails failed', e);
+    return;
   }
 
   const subs = await getPushSubscriptions(env);
