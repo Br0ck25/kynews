@@ -416,6 +416,30 @@ export default function AdminPage() {
     }
   };
 
+  const loadMoreArticles = useCallback(async () => {
+    if (!hasMoreArticles || !articleCursor || isLoadingMoreRef.current) return;
+    isLoadingMoreRef.current = true;
+    setLoadingMoreArticles(true);
+    try {
+      const response = await service.getAdminArticles({
+        category: articleCategoryFilter,
+        search: articleSearch,
+        limit: ADMIN_ARTICLES_PAGE_SIZE,
+        cursor: articleCursor,
+      });
+
+      const nextItems = response.items || [];
+      setArticleRows((prev) => [...prev, ...nextItems]);
+      setArticleCursor(response.nextCursor || null);
+      setHasMoreArticles(Boolean(response.nextCursor));
+    } catch (err) {
+      setError(err?.errorMessage || "Unable to load more articles.");
+    } finally {
+      isLoadingMoreRef.current = false;
+      setLoadingMoreArticles(false);
+    }
+  }, [articleCategoryFilter, articleCursor, articleSearch, hasMoreArticles]);
+
   useEffect(() => {
     if (authorized) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -760,30 +784,6 @@ export default function AdminPage() {
       setPublishingUrl("");
     }
   };
-
-  const loadMoreArticles = useCallback(async () => {
-    if (!hasMoreArticles || !articleCursor || isLoadingMoreRef.current) return;
-    isLoadingMoreRef.current = true;
-    setLoadingMoreArticles(true);
-    try {
-      const response = await service.getAdminArticles({
-        category: articleCategoryFilter,
-        search: articleSearch,
-        limit: ADMIN_ARTICLES_PAGE_SIZE,
-        cursor: articleCursor,
-      });
-
-      const nextItems = response.items || [];
-      setArticleRows((prev) => [...prev, ...nextItems]);
-      setArticleCursor(response.nextCursor || null);
-      setHasMoreArticles(Boolean(response.nextCursor));
-    } catch (err) {
-      setError(err?.errorMessage || "Unable to load more articles.");
-    } finally {
-      isLoadingMoreRef.current = false;
-      setLoadingMoreArticles(false);
-    }
-  }, [articleCategoryFilter, articleCursor, articleSearch, hasMoreArticles]);
 
   /**
    * Returns the best local URL for a given article row.
@@ -1145,7 +1145,7 @@ export default function AdminPage() {
 
       {/* ── Tab bar — 3 × 3 grid ───────────────────────────────────── */}
       <Paper square style={{ marginBottom: 16 }}>
-        <Box style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
+        <Box role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
           {[
             "Dashboard",
             "Create Article",
@@ -1159,6 +1159,9 @@ export default function AdminPage() {
           ].map((label, i) => (
             <Box
               key={i}
+              role="tab"
+              aria-selected={activeTab === i}
+              tabIndex={0}
               onClick={() => setActiveTabAndPersist(i)}
               style={{
                 padding: "12px 8px",
