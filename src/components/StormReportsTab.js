@@ -62,24 +62,14 @@ const EVENT_FULL_NAMES = {
 //   Row 0: time=0-9, event=12-27, city=29-52
 //   Row 1: date=0-9, mag=12-27, county=29-47, state=48-49, source=53+
 //   Row 2+: remarks (indented, possibly spanning blank lines)
-function parseLsrForFacebook(productText, officeLabel) {
+function filterLsrToState(productText, state = "KY") {
   if (!productText) return "";
 
-  const headerMatch = productText.match(
-    /National Weather Service (.+?)[\r\n]+(\d{3,4}\s+[AP]M\s+\w+\s+\w+\s+\w+\s+\d+\s+\d{4})/i
-  );
-  const issuedBy   = (headerMatch && headerMatch[1].trim()) || officeLabel || "NWS";
-  const issuedTime = (headerMatch && headerMatch[2].trim()) || "";
-
-  // Data section starts on the line after ..REMARKS..
   const remarksHeaderIdx = productText.indexOf("..REMARKS..");
   if (remarksHeaderIdx === -1) return productText;
   const dataStart = productText.indexOf("\n", remarksHeaderIdx) + 1;
   const lines = productText.substring(dataStart).split("\n");
 
-  // Each event's first line starts with a time: "0320 AM" or "1112 PM"
-  // Remarks follow on subsequent lines (indented) — including across blank lines.
-  // We must NOT split on blank lines here, only on a new time-start.
   const TIME_START = /^\d{3,4}\s+(AM|PM)/;
   const TERMINATOR = /^&&/;
 
@@ -96,6 +86,73 @@ function parseLsrForFacebook(productText, officeLabel) {
   }
   if (current) eventGroups.push(current);
   if (eventGroups.length === 0) return productText;
+
+  const parsedEvents = eventGroups.map(evLines => {
+    const l0 = (evLines[0] || "").padEnd(80);
+    const l1 = (evLines[1] || "").padEnd(80);
+    const remarks = evLines.slice(2)
+      .map(l => l.replace(/^\s+/, "").trimEnd())
+      .filter(l => l.length > 0)
+      .join(" ");
+    return {
+      original: evLines,
+      state:     l1.substring(48, 50).trim(),
+    };
+  });
+
+  const filtered = parsedEvents.filter(e => e.state.toUpperCase() === state.toUpperCase());
+  if (filtered.length === 0) {
+    // Keep header but make it clear there are no matching events.
+    const header = productText.substring(0, dataStart);
+    const terminatorIdx = productText.indexOf("\n&&", dataStart);
+    const terminator =
+      terminatorIdx === -1
+        ? "\n&&\n\n$$"
+        : productText.substring(terminatorIdx);
+    return `${header}(No ${state} reports found)${terminator}`;
+  }
+
+  const header = productText.substring(0, dataStart);
+  const body = filtered.map(e => e.original.join("\n")).join("\n");
+  const terminatorIdx = productText.indexOf("\n&&", dataStart);
+  const terminator =
+    terminatorIdx === -1
+      ? "\n&&\n\n$$"
+      : productText.substring(terminatorIdx);
+  return `${header}${body}${terminator}`;
+}
+
+function parseLsrForFacebook(productText, officeLabel) {
+  const filteredText = filterLsrToState(productText, "KY");
+  if (!filteredText) return "";
+
+  const headerMatch = filteredText.match(
+    /National Weather Service (.+?)[\r\n]+(\d{3,4}\s+[AP]M\s+\w+\s+\w+\s+\w+\s+\d+\s+\d{4})/i
+  );
+  const issuedBy   = (headerMatch && headerMatch[1].trim()) || officeLabel || "NWS";
+  const issuedTime = (headerMatch && headerMatch[2].trim()) || "";
+
+  const remarksHeaderIdx = filteredText.indexOf("..REMARKS..");
+  if (remarksHeaderIdx === -1) return filteredText;
+  const dataStart = filteredText.indexOf("\n", remarksHeaderIdx) + 1;
+  const lines = filteredText.substring(dataStart).split("\n");
+
+  const TIME_START = /^\d{3,4}\s+(AM|PM)/;
+  const TERMINATOR = /^&&/;
+
+  const eventGroups = [];
+  let current = null;
+  for (const line of lines) {
+    if (TERMINATOR.test(line.trim())) break;
+    if (TIME_START.test(line)) {
+      if (current) eventGroups.push(current);
+      current = [line];
+    } else if (current !== null) {
+      current.push(line);
+    }
+  }
+  if (current) eventGroups.push(current);
+  if (eventGroups.length === 0) return filteredText;
 
   const parsedEvents = eventGroups.map(evLines => {
     const l0 = (evLines[0] || "").padEnd(80);
@@ -210,7 +267,8 @@ export default function StormReportsTab() {
   }
 
   function copy(pid) {
-    const text = texts[pid] || "";
+    const rawText = texts[pid] || "";
+    const text = filterLsrToState(rawText, "KY");
     const markCopied = () => {
       setCopiedId(pid);
       setTimeout(() => setCopiedId(null), 2000);
@@ -425,7 +483,7 @@ export default function StormReportsTab() {
                         overflow: "auto",
                       }}
                     >
-                      {texts[p.id]}
+                      {filterLsrToState(texts[p.id] || "", "KY")}
                     </Paper>
                     <Box style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <Button
