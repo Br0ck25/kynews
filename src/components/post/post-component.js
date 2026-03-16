@@ -26,7 +26,10 @@ const useStyles = makeStyles((theme) => ({
     color: theme.palette.common.white,
     marginBottom: theme.spacing(4),
     // backgroundImage: "url(https://source.unsplash.com/random)",
-    backgroundSize: "cover",
+    // Use "contain" so uploaded images are not cropped on the left/right.
+    // This preserves the full image even if the aspect ratio differs from the
+    // header container.
+    backgroundSize: "contain",
     backgroundRepeat: "no-repeat",
     backgroundPosition: "center",
     minHeight: 320
