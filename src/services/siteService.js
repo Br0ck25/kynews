@@ -964,4 +964,24 @@ export default class SiteService {
       return [];
     }
   }
+
+  // ── Morning / Evening Digest ───────────────────────────────────────────────
+
+  async getDigests() {
+    return this.request("/api/admin/digest");
+  }
+
+  async generateDigest(when) {
+    return this.request("/api/admin/digest/generate", {
+      method: "POST",
+      body: JSON.stringify({ when }),
+    });
+  }
+
+  async saveDigest(when, text) {
+    return this.request("/api/admin/digest/save", {
+      method: "POST",
+      body: JSON.stringify({ when, text }),
+    });
+  }
 }

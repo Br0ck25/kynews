@@ -42,6 +42,7 @@ import WeatherAlertsTab from "../components/WeatherAlertsTab";
 import NwsDiscussionsTab from "../components/NwsDiscussionsTab";
 import StormReportsTab from "../components/StormReportsTab";
 import WeatherForecastTab from "../components/WeatherForecastTab";
+import DigestTab from "../components/DigestTab";
 
 // `SiteService` already handles environment configuration internally.
 const service = new SiteService();
@@ -1145,7 +1146,7 @@ export default function AdminPage() {
 
       {/* ── Tab bar — 3 × 3 grid ───────────────────────────────────── */}
       <Paper square style={{ marginBottom: 16 }}>
-        <Box role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
+        <Box role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
           {[
             "Dashboard",
             "Create Article",
@@ -1156,6 +1157,7 @@ export default function AdminPage() {
             "NWS Discussions",
             "Storm Reports",
             "Weather",
+            "Morning/Evening",
           ].map((label, i) => (
             <Box
               key={i}
@@ -1175,8 +1177,8 @@ export default function AdminPage() {
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
-                borderRight: i % 3 !== 2 ? "1px solid rgba(0,0,0,0.08)" : "none",
-                borderTop: i >= 3 ? "1px solid rgba(0,0,0,0.08)" : "none",
+                borderRight: i % 5 !== 4 ? "1px solid rgba(0,0,0,0.08)" : "none",
+                borderTop: i >= 5 ? "1px solid rgba(0,0,0,0.08)" : "none",
                 transition: "color 0.15s, border-bottom-color 0.15s",
               }}
             >
@@ -2355,6 +2357,18 @@ export default function AdminPage() {
               )}
             </TableBody>
           </Table>
+        </Box>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB 9 — Morning / Evening Digest                                 */}
+      {/* ================================================================ */}
+      {activeTab === 9 && (
+        <Box>
+          <Typography variant="h6" gutterBottom style={{ marginBottom: 4 }}>
+            Morning Round Up &amp; Evening Recap
+          </Typography>
+          <DigestTab service={service} />
         </Box>
       )}
     </Box>

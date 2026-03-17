@@ -2113,6 +2113,53 @@ if (url.pathname === '/api/admin/weather-alert-posts/delete-all' && request.meth
 	return json({ ok: true, deleted: count });
 }
 
+// ── GET /api/admin/digest ───────────────────────────────────────────────────
+// Returns the stored morning and evening digest texts from KV.
+if (url.pathname === '/api/admin/digest' && request.method === 'GET') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	if (!env.CACHE) return json({ morning: null, evening: null });
+	const [morningRaw, eveningRaw] = await Promise.all([
+		env.CACHE.get('admin:digest:morning'),
+		env.CACHE.get('admin:digest:evening'),
+	]);
+	return json({
+		morning: morningRaw ? JSON.parse(morningRaw) : null,
+		evening: eveningRaw ? JSON.parse(eveningRaw) : null,
+	});
+}
+
+// ── POST /api/admin/digest/generate ────────────────────────────────────────
+// Generate a new digest from today's articles and store it in KV.
+// Body: { "when": "morning" | "evening" }
+if (url.pathname === '/api/admin/digest/generate' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ when?: 'morning' | 'evening' }>(request);
+	const when: 'morning' | 'evening' = body?.when === 'evening' ? 'evening' : 'morning';
+	const text = await generateDigestText(env, when);
+	const entry = { text, generatedAt: new Date().toISOString() };
+	if (env.CACHE) {
+		await env.CACHE.put(`admin:digest:${when}`, JSON.stringify(entry));
+	}
+	return json({ ok: true, when, ...entry });
+}
+
+// ── POST /api/admin/digest/save ─────────────────────────────────────────────
+// Save an edited digest text back to KV.
+// Body: { "when": "morning" | "evening", "text": string }
+if (url.pathname === '/api/admin/digest/save' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ when?: string; text?: string }>(request);
+	if (!body) return badRequest('Missing request body');
+	const when: 'morning' | 'evening' = body.when === 'evening' ? 'evening' : 'morning';
+	const text = typeof body.text === 'string' ? body.text.trim() : '';
+	if (!text) return badRequest('text is required');
+	const entry = { text, generatedAt: new Date().toISOString() };
+	if (env.CACHE) {
+		await env.CACHE.put(`admin:digest:${when}`, JSON.stringify(entry));
+	}
+	return json({ ok: true, when });
+}
+
 // serve files from the R2 media bucket; this is intentionally *not* an admin
 // route so that uploaded images can be embedded in public article pages.
 if (url.pathname.startsWith('/api/media/') && request.method === 'GET') {
@@ -4522,6 +4569,11 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
     maybeRunWeatherSummary(env).catch((err) => console.error('[WEATHER_SUMMARY] error', err))
   );
 
+  // Generate the morning digest at 6:45 AM ET and evening digest at 6:45 PM ET.
+  ctx.waitUntil(
+    maybeRunDigest(env).catch((err) => console.error('[DIGEST] error', err))
+  );
+
   // Check SPC RSS feed for new convective outlooks, watches, and discussions
   ctx.waitUntil(
     processSpcFeed(env).then(({ published, skipped }) => {
@@ -5391,6 +5443,150 @@ function extractKyweathercenterSearchArticleLinks(baseUrl: string, html: string,
 
 
 
+
+// ---------------------------------------------------------------------------
+// Morning / Evening digest helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the text of a Morning or Evening digest from today's articles.
+ * Picks up to 7 "today" articles (3 top + up to 4 more) and formats them
+ * into the standard Facebook post copy format. No AI required.
+ */
+async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promise<string> {
+	// Determine today's date in Eastern Time
+	const etParts = new Intl.DateTimeFormat('en-US', {
+		timeZone: 'America/New_York',
+		year: 'numeric', month: '2-digit', day: '2-digit',
+	}).formatToParts(new Date());
+	const year  = etParts.find((p) => p.type === 'year')?.value  ?? '';
+	const month = etParts.find((p) => p.type === 'month')?.value ?? '';
+	const day   = etParts.find((p) => p.type === 'day')?.value   ?? '';
+	const datePrefix = `${year}-${month}-${day}`;
+
+	const result = await env.DB.prepare(
+		`SELECT id, title, slug, county, category, is_kentucky, is_national
+		 FROM articles
+		 WHERE category = 'today' AND published_at LIKE ? AND slug IS NOT NULL
+		 ORDER BY published_at DESC
+		 LIMIT 25`,
+	).bind(`${datePrefix}%`).all();
+
+	const rows = (result.results ?? []) as Array<{
+		id: number; title: string; slug: string | null;
+		county: string | null; category: string;
+		is_kentucky: number; is_national: number;
+	}>;
+
+	if (rows.length === 0) {
+		return when === 'morning'
+			? `Morning News Roundup – Top Stories to Start Your Day\n\nNo articles found yet for ${datePrefix}. Check back soon.`
+			: `Evening Recap – Stories You May Have Missed\n\nNo articles found yet for ${datePrefix}. Check back soon.`;
+	}
+
+	const top  = rows.slice(0, 3);
+	const more = rows.slice(3, 7);
+
+	// Unique county names from the leading articles for the intro sentence
+	const seenCounties = new Set<string>();
+	const counties: string[] = [];
+	for (const r of rows.slice(0, 5)) {
+		if (r.county && !seenCounties.has(r.county)) {
+			seenCounties.add(r.county);
+			counties.push(r.county);
+		}
+	}
+
+	const buildUrl = (r: typeof rows[0]) =>
+		buildArticleUrl(BASE_URL, r.slug, r.county, r.category, !!r.is_national, r.id);
+
+	const parts: string[] = [];
+
+	if (when === 'morning') {
+		const intro = counties.length >= 2
+			? `From ${counties[0]} County to ${counties[1]} County and communities across the Commonwealth, here are the top stories making news in Kentucky this morning.`
+			: counties.length === 1
+			? `Out of ${counties[0]} County and across the Commonwealth, here are the top stories making news in Kentucky this morning.`
+			: `Here are the top stories making news in Kentucky this morning.`;
+
+		parts.push('Morning News Roundup – Top Stories to Start Your Day');
+		parts.push('');
+		parts.push(intro);
+		parts.push('');
+		parts.push('Here are the latest headlines from across Kentucky this morning');
+		parts.push('');
+		parts.push(' Top Stories This Morning');
+		parts.push('');
+		for (const r of top) {
+			parts.push(`• ${r.title}`);
+			parts.push(`  ${buildUrl(r)}`);
+			parts.push('');
+		}
+		if (more.length > 0) {
+			parts.push('  More Kentucky news this morning');
+			parts.push('');
+			for (const r of more) {
+				parts.push(`• ${r.title}`);
+				parts.push(`  ${buildUrl(r)}`);
+				parts.push('');
+			}
+		}
+	} else {
+		const intro = counties.length >= 2
+			? `From ${counties[0]} County to ${counties[1]} County and across the Commonwealth, here are the latest stories published today in Kentucky.`
+			: counties.length === 1
+			? `From ${counties[0]} County and across the Commonwealth, here are the latest stories published today in Kentucky.`
+			: `From across the Commonwealth, here are the latest stories published today in Kentucky.`;
+
+		parts.push('Evening Recap – Stories You May Have Missed');
+		parts.push('');
+		parts.push(intro);
+		parts.push('');
+		parts.push('  Top stories tonight');
+		parts.push('');
+		for (const r of top) {
+			parts.push(`• ${r.title}`);
+			parts.push(`  ${buildUrl(r)}`);
+			parts.push('');
+		}
+		if (more.length > 0) {
+			parts.push('  More Kentucky headlines');
+			parts.push('');
+			for (const r of more) {
+				parts.push(`• ${r.title}`);
+				parts.push(`  ${buildUrl(r)}`);
+				parts.push('');
+			}
+		}
+	}
+
+	return parts.join('\n').trimEnd();
+}
+
+/**
+ * Called from the scheduled handler every minute.
+ * Only runs at exactly 6:45 AM or 6:45 PM Eastern; skips all other ticks.
+ */
+async function maybeRunDigest(env: Env): Promise<void> {
+	if (!env.CACHE) return;
+	const parts = new Intl.DateTimeFormat('en-US', {
+		timeZone: 'America/New_York',
+		hour12: false,
+		hour: 'numeric',
+		minute: 'numeric',
+	}).formatToParts(new Date());
+	const hour   = parseInt(parts.find((p) => p.type === 'hour')?.value   ?? '0', 10);
+	const minute = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+
+	if (minute !== 45) return;
+	if (hour !== 6 && hour !== 18) return;
+
+	const when: 'morning' | 'evening' = hour === 6 ? 'morning' : 'evening';
+	const text = await generateDigestText(env, when);
+	const entry = { text, generatedAt: new Date().toISOString() };
+	await env.CACHE.put(`admin:digest:${when}`, JSON.stringify(entry));
+	console.log(`[DIGEST] Generated ${when} digest (${text.length} chars)`);
+}
 
 // ---------------------------------------------------------------------------
 // Article update detection task
