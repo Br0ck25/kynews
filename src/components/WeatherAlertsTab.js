@@ -25,6 +25,15 @@ export default function WeatherAlertsTab({ service }) {
   const [savingManual, setSavingManual] = React.useState(false);
   const [filter, setFilter] = React.useState("all");
 
+  // Summary mode state
+  const [showSummary, setShowSummary] = React.useState(false);
+  const [summaryText, setSummaryText] = React.useState("");
+  const [editingSummary, setEditingSummary] = React.useState(false);
+  const [editSummaryText, setEditSummaryText] = React.useState("");
+  const [copiedSummary, setCopiedSummary] = React.useState(false);
+  const [summaryError, setSummaryError] = React.useState("");
+
+
   React.useEffect(() => {
     // Load existing saved posts immediately, then fetch any new NWS alerts.
     // This matches the behavior of the Storm Reports and NWS Discussions tabs,
@@ -228,6 +237,72 @@ export default function WeatherAlertsTab({ service }) {
     }
   }
 
+  function buildSummaryText(postsList) {
+    if (!postsList || postsList.length === 0) {
+      return "No active weather alerts available to summarize.";
+    }
+
+    const lines = [];
+    const now = new Date();
+    lines.push(
+      `Kentucky Weather Alert Summary — updated ${now.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "America/New_York",
+      })}`
+    );
+    lines.push("");
+
+    // Group by severity
+    const grouped = postsList.reduce((acc, post) => {
+      const sev = (post.severity || "Unknown").toLowerCase();
+      if (!acc[sev]) acc[sev] = [];
+      acc[sev].push(post);
+      return acc;
+    }, {});
+
+    const priority = ["extreme", "severe", "moderate", "unknown"];
+
+    for (const sev of priority) {
+      const items = grouped[sev] || [];
+      if (!items.length) continue;
+      lines.push(`• ${sev.charAt(0).toUpperCase() + sev.slice(1)} (${items.length})`);
+      for (const p of items.slice(0, 5)) {
+        const area = p.area ? p.area.split(";").slice(0, 3).join(", ") : "";
+        lines.push(
+          `  • ${p.event}${area ? ` – ${area}` : ""}${p.expires_at ? ` (expires ${formatExpires(p.expires_at)})` : ""}`
+        );
+      }
+      if (items.length > 5) {
+        lines.push(`  ...and ${items.length - 5} more`);
+      }
+    }
+
+    lines.push("");
+    lines.push(
+      "#KentuckyNews #KYWeatherAlert #WeatherAlertSummary #LocalKYNews #KYwx"
+    );
+
+    return lines.join("\n");
+  }
+
+  function generateSummary() {
+    setSummaryError("");
+    const summary = buildSummaryText(posts);
+    setSummaryText(summary);
+    setEditingSummary(false);
+  }
+
+  function copySummaryToClipboard() {
+    if (!summaryText) return;
+    copyToClipboard("summary", summaryText);
+    setCopiedSummary(true);
+    setTimeout(() => setCopiedSummary(false), 2000);
+  }
+
   function copyToClipboard(id, text) {
     const markCopied = () => {
       setCopiedId(id);
@@ -322,6 +397,18 @@ export default function WeatherAlertsTab({ service }) {
             )}
           </Button>
           <Button
+            variant={showSummary ? "contained" : "outlined"}
+            color="default"
+            onClick={() => {
+              setShowSummary((prev) => !prev);
+              if (!showSummary && !summaryText) {
+                generateSummary();
+              }
+            }}
+          >
+            Summary
+          </Button>
+          <Button
             variant="outlined"
             color="secondary"
             disabled={clearingAll || loading || posts.length === 0}
@@ -357,9 +444,122 @@ export default function WeatherAlertsTab({ service }) {
         </Typography>
       )}
 
-      {/* Summary counts */}
-      {posts.length > 0 && (
-        <Box style={{ display: "flex", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
+      {showSummary && (
+        <Paper style={{ padding: 20, marginBottom: 16 }}>
+          <Box
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: 16,
+            }}
+          >
+            <Typography variant="h6">Alert Summary</Typography>
+            <Box style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {summaryText && !editingSummary && (
+                <>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="primary"
+                    onClick={copySummaryToClipboard}
+                  >
+                    {copiedSummary ? "✓ Copied!" : "Copy for Facebook"}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      setEditSummaryText(summaryText);
+                      setEditingSummary(true);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                </>
+              )}
+              {editingSummary && (
+                <>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="primary"
+                    onClick={() => {
+                      setSummaryText(editSummaryText);
+                      setEditingSummary(false);
+                    }}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setEditingSummary(false)}
+                  >
+                    Cancel
+                  </Button>
+                </>
+              )}
+              <Button
+                size="small"
+                variant="contained"
+                color="secondary"
+                onClick={generateSummary}
+              >
+                Generate New
+              </Button>
+            </Box>
+            {summaryError && (
+              <Typography variant="body2" color="error">
+                {summaryError}
+              </Typography>
+            )}
+          </Box>
+
+          {editingSummary ? (
+            <TextField
+              multiline
+              fullWidth
+              rows={18}
+              variant="outlined"
+              value={editSummaryText}
+              onChange={(e) => setEditSummaryText(e.target.value)}
+              inputProps={{
+                style: { fontFamily: "monospace", fontSize: 13, lineHeight: 1.6 },
+              }}
+            />
+          ) : summaryText ? (
+            <Box
+              component="pre"
+              style={{
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                fontFamily: "monospace",
+                fontSize: 13,
+                lineHeight: 1.6,
+                background: "#f5f5f5",
+                border: "1px solid #e0e0e0",
+                borderRadius: 4,
+                padding: "12px 14px",
+                margin: 0,
+              }}
+            >
+              {summaryText}
+            </Box>
+          ) : (
+            <Typography variant="body2" color="textSecondary">
+              Click "Generate New" to create a summary from the current alerts.
+            </Typography>
+          )}
+        </Paper>
+      )}
+
+      {!showSummary && (
+        <>
+          {/* Summary counts */}
+          {posts.length > 0 && (
+            <Box style={{ display: "flex", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
           {[
             { label: "Total", value: counts.total, key: "all" },
             { label: "Extreme", value: counts.extreme, key: "extreme" },
@@ -557,6 +757,9 @@ export default function WeatherAlertsTab({ service }) {
           </Box>
         </Paper>
       ))}
+
+        </>
+      )}
 
       {/* Manual post composer */}
       <Paper style={{ padding: 16, marginTop: 8 }}>
