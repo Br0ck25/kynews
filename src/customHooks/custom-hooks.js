@@ -87,7 +87,7 @@ export function useNotificationPoller(notifications, baseUrl = "") {
                 body: title,
                 icon: "/logo192.png",
                 tag: `kynews-${category}`,
-                data: { url: slug ? `/news/${category}/${slug}` : "/" },
+                data: { url: slug ? `/news/${(category || 'national').trim().toLowerCase()}/${slug}` : "/" },
               });
             } catch (notifErr) {
               console.warn(`[notifications] showNotification failed for ${feed}:`, notifErr);

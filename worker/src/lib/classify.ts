@@ -868,7 +868,7 @@ export async function classifyArticleWithAi(
   // We detect this by checking whether the wire-override match was triggered by a
   // specific non-KY city rather than a wire-service tag (AP, Reuters, Gray News, etc.).
   const NON_KY_DATELINE_RE =
-    /(?:^|\n|\.\s+)WASHINGTON\s*(?:\([^)]{1,40}\))?\s*[-—–]|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[a-z]{2,}\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]/i;
+    /(?:^|\n|\.\s+)WASHINGTON\s*(?:\([^)]{1,40}\))?\s*[-—–]|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)(?:[a-z]{2,}(?:\.[a-z]{1,2})*\.?)\s*(?:\([^)]{1,30}\)\s*)?[-—–]/i;
   const hasNonKyDateline = NON_KY_DATELINE_RE.test(semanticLeadText);
 
   if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline)) {

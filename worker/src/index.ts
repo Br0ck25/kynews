@@ -4105,6 +4105,7 @@ function buildArticlePath(article: {
   // and treats it as a missing article.  Returning '/' here directly would
   // cause bots to scrape the homepage instead of an intended story.
   if (!article.slug) return '/';
+
   if (article.isKentucky && article.county) {
     let countyStr = article.county.trim();
     if (!/county$/i.test(countyStr)) countyStr += ' County';
@@ -4114,7 +4115,12 @@ function buildArticlePath(article: {
   if (article.isKentucky) {
     return `/news/kentucky/${article.slug}`;
   }
-  return `/news/${article.category}/${article.slug}`;
+
+  // If the category is missing/empty for a non-KY story, default to 'national'.
+  // This prevents generating URLs like /news//<slug> when the admin retags an
+  // article but leaves the category unset.
+  const category = (article.category || '').trim().toLowerCase() || 'national';
+  return `/news/${category}/${article.slug}`;
 }
 
 /**
@@ -4960,7 +4966,9 @@ if (result.status === 'inserted') {
 				sendPushNotification(env, {
 					title: 'New article: Kentucky News',
 					body: result.title ?? item.title ?? '',
-					url: result.slug && result.category ? `/news/${result.category}/${result.slug}` : '/',
+					url: result.slug
+						? `/news/${(result.category || 'national').trim().toLowerCase()}/${result.slug}`
+						: '/',
 				}).catch((err) => console.error('[push] sendPushNotification failed', err));
 			}
 if (result.status === 'duplicate') {

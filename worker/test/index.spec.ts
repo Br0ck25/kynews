@@ -570,7 +570,7 @@ async function ensureSchemaAndFixture() {
 					expect(xml).toContain('kyslug');
 					expect(xml).toContain('natslug');
 					expect(xml).not.toContain('oldslug');
-					expect(xml).toMatch(/<news:keywords>Fayette County, Sports, Kentucky<\/news:keywords>/);
+					expect(xml).toMatch(/<news:keywords>Fayette, Sports, Kentucky<\/news:keywords>/);
 					expect(xml).toMatch(/<news:keywords>National<\/news:keywords>/);
 				});
 		});
@@ -5139,6 +5139,15 @@ describe('social preview HTML route', () => {
 		__testables.buildArticlePath = orig;
 	});
 
+	it('treats an empty category as national when building article paths', () => {
+		const path = __testables.buildArticlePath({
+			slug: 'my-slug',
+			category: '',
+			isKentucky: false,
+			county: null,
+		});
+		expect(path).toBe('/news/national/my-slug');
+	});
 
 });
 });

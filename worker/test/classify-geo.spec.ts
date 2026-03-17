@@ -57,4 +57,13 @@ describe('classification fallback geo integration', () => {
     const result = classifyArticle(title, body);
     expect(result.category).toBe('national');
   });
+
+  it('does not classify N.C. InvestigateTV wire story as Kentucky even if Kentucky is mentioned', () => {
+    const title = 'CAR-T cell therapy offers new hope for lupus patients';
+    const body = "CHAPEL HILL, N.C. (InvestigateTV) — A treatment first developed to fight cancer is now being used in a clinical trial in North Carolina. " +
+      "Kentucky is mentioned in a navigation menu. " +
+      "Another Kentucky link appears in the sidebar.";
+    const result = classifyArticle(title, body);
+    expect(result.category).toBe('national');
+  });
 });

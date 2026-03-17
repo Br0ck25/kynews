@@ -347,6 +347,19 @@ A wire story about a Georgia crash referenced “Piedmont Athens Regional,” wh
 
 ---
 
+### Change 24 — Default blank categories to national when building URLs (2026-03-17)
+
+**Files:** `worker/src/index.ts`, `src/customHooks/custom-hooks.js`
+
+**What changed:**
+- `buildArticlePath()` now treats an empty category as `national` when `isKentucky` is false, preventing invalid URLs like `/news//<slug>`.
+- Updated the admin ingest/retag link builder and notification payloads to use `national` when `category` is missing.
+
+**Why:**
+When an article is retagged from Kentucky to national, the stored classification can sometimes have an empty category string. This previously resulted in broken links like `/news//cart-cell-therapy-offers-new-hope-lupus-patients-2026` that return an empty page. The fix ensures national articles always generate valid `/news/national/...` URLs.
+
+---
+
 ### Change 13 — Allow list formatting for structured-list articles in `BASE_SYSTEM_PROMPT`
 
 **File:** `worker/src/lib/ai.ts`
@@ -524,3 +537,16 @@ Two separate feeds (or the same feed re-queued) can deliver the same story under
 
 **Why:**
 Some Kentucky stories refer to local government entities in possessive form (e.g., "Hardin County's sheriff") and were previously missed by the county detection regex, causing valid Kentucky stories to be treated as national. Additionally, stories that mention multiple states but lack a local KY location (e.g., storm coverage spanning KY + other states) were being mis-tagged as Kentucky because the text contained the word "Kentucky". These improvements prevent both false negatives (missing KY stories) and false positives (tagging national stories as KY).
+
+---
+
+### Change 24 — Fix N.C. datelines being treated as Kentucky (2026-03-17)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Expanded the `NON_KY_DATELINE_RE` regex to recognize state abbreviations with internal periods (e.g. `N.C.`, `N.Y.`) as explicit out-of-state datelines.
+- Added a regression test ensuring a wire-style lead like "CHAPEL HILL, N.C. (InvestigateTV) —" results in a national classification even if stray "Kentucky" mentions appear later.
+
+**Why:**
+Some national wire stories begin with datelines like "CHAPEL HILL, N.C.". The previous dateline regex failed to match the dotted state abbreviation, allowing Kentucky signal heuristics (e.g., sidebar/menu text mentioning "Kentucky") to incorrectly classify the story as Kentucky. The fix ensures the dateline override works reliably across common abbreviation formats.
