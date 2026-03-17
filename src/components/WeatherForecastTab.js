@@ -114,7 +114,7 @@ export default function WeatherForecastTab() {
     const lines = [];
 
     // Work out the date range label from the first daytime period name
-    const jklPeriods = fcs["JKL"].periods.slice(0, 8);
+    const jklPeriods = fcs["JKL"].periods.slice(0, 6);
     const firstDay = jklPeriods.find((p) => p.isDaytime)?.name || "Coming Days";
     const days = jklPeriods.filter((p) => p.isDaytime).slice(0, 3).map((p) => p.name);
     const rangeLabel =
@@ -125,7 +125,7 @@ export default function WeatherForecastTab() {
 
     // Per-office section
     for (const office of OFFICES) {
-      const periods = fcs[office.id].periods.slice(0, 8);
+      const periods = fcs[office.id].periods.slice(0, 6);
       lines.push(`${office.label} (${office.sublabel})`);
       for (const p of periods) {
         const precip =
