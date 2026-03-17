@@ -300,9 +300,36 @@ Permalinks must remain stable once published. Changing the slug when an article 
 **What changed:**
 - Removed `whas11.com` from `ALWAYS_NATIONAL_SOURCES` so local Louisville stories are not automatically forced into the national category.
 - Added `whas11.com` to `SOURCE_DEFAULT_COUNTY` with a default of `Jefferson` so that Kentucky stories without explicit county mentions still get a reasonable county assignment.
+- Added regression coverage to ensure WHAS11 stories with a KY dateline (e.g. Crestwood/Oldham County fire) stay classified as Kentucky and extract the correct county when present.
 
 **Why:**
-WHAS11 publishes both local Louisville/Kentucky weather advisories and syndicated national wire content. The previous “always national” override incorrectly prevented genuine Kentucky stories (e.g., the March 17, 2026 WHAS11 fire and weather advisory articles) from being classified as local. This change lets text-based geo signals (like “LOUISVILLE, Ky.” and the list of affected counties) determine whether the story is Kentucky.
+WHAS11 publishes both local Louisville/Kentucky weather advisories and syndicated national wire content. The previous “always national” override incorrectly prevented genuine Kentucky stories (e.g., the March 17, 2026 Bradshaw‑Duncan House fire in Crestwood and the related weather advisory) from being classified as local. This change lets text-based geo signals (like “LOUISVILLE, Ky.” and the list of affected counties) determine whether the story is Kentucky.
+
+---
+
+### Change 21 — Don’t default to Jefferson when the article explicitly lists other KY counties (2026-03-17 14:40 UTC)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Improved the `hasExplicitCountyMention` logic so that county list phrases like "Grayson, Meade and Hardin counties" count as explicit evidence even though only the final county includes the "counties" suffix.
+- This prevents the classifier from falling back to the source default county (Jefferson for `wave3.com`) when the article is clearly about other Kentucky counties.
+
+**Why:**
+Some storm/alert stories use a shared suffix list ("X, Y and Z counties") which previously failed the explicit-county detection check. The classifier then treated the article as having no explicit county evidence and fell back to the source default (Jefferson), causing summaries and titles to incorrectly mention Jefferson County.
+
+---
+
+### Change 22 — Treat “LOUISVILLE, Ky.” datelines as strong KY signals (2026-03-17 15:10 UTC)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Added a regression test so that articles starting with a Louisville dateline ("LOUISVILLE, Ky. —") are classified as Kentucky rather than national, even when the body text does not include a second KY mention.
+- Ensured the classifier does *not* fall back to the source default county (Jefferson) when a clear KY dateline is present, preventing incorrect title suffixes.
+
+**Why:**
+Several crash/traffic/road-condition stories begin with a Louisville dateline and contain only a single explicit "Ky." mention. Previously the classifier required multiple KY signals and would incorrectly tag such stories as national, causing the UI to show the wrong section and summary styling.
 
 ---
 

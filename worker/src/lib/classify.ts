@@ -610,10 +610,10 @@ export async function classifyArticleWithAi(
   // When statewide KY politics is detected we must ignore any source-default
   // county even if the dateline city appears elsewhere in the text.  The
   // reporter's location (e.g. Bowling Green) is irrelevant to the story's
-  // geographic subject (Frankfort/seat of government).  effectiveSourceDefaultCounty
-  // already becomes null in that case, but downstream merge logic also used
+  // geographic subject (Frankfort/seat of government).  `effectiveSourceDefaultCounty`
+  // already becomes null in that case, but downstream merge logic also uses
   // this value directly.  Use a separate variable to make intent explicit.
-  let allowedSourceDefaultCounty = isStatewideKyPolitics ? null : effectiveSourceDefaultCounty;
+  let allowedSourceDefaultCounty = effectiveSourceDefaultCounty;
 
   // Detect any explicit KY signals in the text (e.g. "Kentucky", "Ky.",
   // county/city names, etc.). This prevents a source-default county from
@@ -744,11 +744,29 @@ export async function classifyArticleWithAi(
   // FIX 5 (continued): evaluate whether the detected county is supported by
   // an explicit mention in the article text.  If not, drop it so that a
   // source default county (if present) can survive.
-  const hasExplicitCountyMention = baseGeo.county
-    ? COUNTY_PATTERNS.some(
-        (p) => p.county === baseGeo.county && p.pattern.test(semanticText)
-      )
-    : false;
+  // If the article explicitly mentions any county name (e.g. "Hardin counties"
+  // in a list like "Grayson, Meade and Hardin counties"), treat the county
+  // information as explicit even if the first detected county doesn't include
+  // the word "County" itself.
+  const hasExplicitCountyMention = baseGeo.counties.some((county) =>
+    COUNTY_PATTERNS.some((p) => p.county === county && p.pattern.test(semanticText)),
+  );
+
+  // Some stories (e.g. a Louisville dateline crash report) are clearly KY but
+  // not tied to a specific county.  In those cases we should not fall back to
+  // the source's default county even though the city is in
+  // HIGH_AMBIGUITY_CITIES and would otherwise trigger the fallback.
+  const isLouisvilleDateline = /LOUISVILLE,?\s*Ky\b/i.test(semanticLeadText);
+
+  // If the article explicitly lists counties (even in a shared suffix list),
+  // avoid falling back to the source default county (e.g. Jefferson for wave3.com)
+  // because the story is clearly about other counties.
+  const shouldAvoidDefaultCounty =
+    (hasExplicitCountyMention && baseGeo.counties.length > 0) ||
+    isLouisvilleDateline;
+  if (shouldAvoidDefaultCounty) {
+    allowedSourceDefaultCounty = null;
+  }
 
   const effectiveGeoCounty = hasExplicitCountyMention ? baseGeo.county : null;
   const effectiveGeoCounties = hasExplicitCountyMention ? (baseGeo.counties || []) : [];

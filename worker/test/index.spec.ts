@@ -1569,13 +1569,33 @@ describe('classification utilities', () => {
 			expect(classification.county).toBe('Montgomery');
 		});
 
-		it('whas11 source is always treated as national regardless of content', async () => {
+		it('whas11 local content should be treated as Kentucky when clearly set in KY', async () => {
 			const classification = await classifyArticleWithAi(env, {
 				url: 'https://www.whas11.com/local-kentucky',
 				title: 'Louisville celebration draws thousands',
-				content: 'The parade in downtown Louisville drew thousands of viewers.',
+				content: 'LOUISVILLE, Ky. — The parade in downtown Louisville drew thousands of viewers.',
 			});
-			expect(classification.isKentucky).toBe(false);
+			expect(classification.isKentucky).toBe(true);
+			expect(classification.county).toBe('Jefferson');
+		});
+
+		it('whas11 tornado story should be classified as Kentucky with the first explicitly mentioned county', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://www.wave3.com/2026/03/17/nws-preliminary-investigation-determines-ef-1-tornado-hit-grayson-meade-hardin-counties/',
+				title: 'NWS preliminary investigation determines EF-1 tornado hit Grayson, Meade, Hardin counties — Jefferson County, KY',
+				content: 'LOUISVILLE, Ky. (WAVE) - After assessing storm damage, the National Weather Service has issued a preliminary rating of an EF-1 tornado with winds of 100 mph for the storms that hit Grayson, Meade and Hardin counties.',
+			});
+			expect(classification.isKentucky).toBe(true);
+			expect(classification.county).toBe('Grayson');
+		});
+
+		it('wave3 Louisville crash article should be classified as Kentucky (no county default) not National', async () => {
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://www.wave3.com/2026/03/17/multiple-crashes-reported-across-louisville-tuesday-morning/',
+				title: 'Multiple crashes reported across Louisville Tuesday morning',
+				content: 'The National Weather Service warned drivers the roads may be slick. LOUISVILLE, Ky. — Several crashes have occurred Tuesday morning across Louisville\'s interstates. As of 7 a.m., there are 12 crashes on interstates and ramps in the Louisville area, according to TRIMARC.',
+			});
+			expect(classification.isKentucky).toBe(true);
 			expect(classification.county).toBeNull();
 		});
 
