@@ -255,6 +255,7 @@ export default function WeatherAlertsTab({ service }) {
       })}`
     );
     lines.push("");
+    lines.push("");
 
     // Determine the top alert types for the hook line
     const text = postsList
@@ -292,6 +293,7 @@ export default function WeatherAlertsTab({ service }) {
       );
     }
 
+    lines.push("");
     lines.push("");
     lines.push(
       `Here’s the latest breakdown as of ${now.toLocaleString("en-US", {
