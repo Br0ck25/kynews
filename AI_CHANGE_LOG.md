@@ -254,6 +254,19 @@ The previous filter relied on a narrow set of phrases and missed many typical ob
 
 ---
 
+### Change 15 — Ignore political affiliation abbreviations (R-Ky/D-Ky) when counting Kentucky mentions
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- `countKentuckyMentions` now strips out political affiliation patterns like "R-Ky." and "D-Ky." before tallying Kentucky mentions.
+- The new guard also handles normalized variants such as "R Ky" (punctuation removed) that can appear in downstream text processing.
+
+**Why:**
+National stories often quote or mention Kentucky lawmakers using party abbreviations (e.g. "Sen. Mitch McConnell, R-Ky."). These should not be treated as geographic Kentucky signals, because the story is not about Kentucky itself. Without this fix, such articles could be incorrectly classified as Kentucky local news.
+
+---
+
 ### Change 13 — Allow list formatting for structured-list articles in `BASE_SYSTEM_PROMPT`
 
 **File:** `worker/src/lib/ai.ts`
@@ -426,6 +439,7 @@ Two separate feeds (or the same feed re-queued) can deliver the same story under
 - County-pattern matching now treats possessive forms (`County's`, `County’ s`) as a valid county mention. This prevents Kentucky counties (e.g., "Hardin County's") from being ignored and causing a story to be misclassified as national.
 - Added `Hardin` to `AMBIGUOUS_COUNTY_NAMES` so that "Hardin County" no longer triggers a KY match unless the article also provides an explicit KY signal (e.g. "Kentucky", local city/state name, etc.).
 - Expanded the KY keyword filter to ignore short nav/tag lines containing "Kentucky" or "KY" so site chrome doesn't accidentally trigger Kentucky classification.
+- Added a new filter to ignore nav/header lines containing "Kentucky" when they use separators like `|`, `>`, `»`, or `/`, preventing sites whose header includes "Kentucky | News" from making a story appear KY.
 - Added a multi-state guard: if the text mentions more than one U.S. state (including Kentucky) but contains **no explicit Kentucky city/county**, the story is treated as national. This prevents storm/region stories (e.g., "Kentucky and southern Indiana") from being tagged as KY.
 
 **Why:**

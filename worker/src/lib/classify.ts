@@ -460,6 +460,14 @@ export const NATIONAL_WIRE_OVERRIDE_RE =
 const KY_POLITICIAN_MENTION_RE =
   /\b(?:rep(?:resentative)?|sen(?:ator)?)\b[^.]{1,60}\bR(?:ep)?\.?-Ky\b|\bKentucky\s+(?:Republican|Democrat|lawmaker|congressman|congresswoman|senator|representative)\b/i;
 
+// Global regex variant to remove political affiliation references (e.g. "R-Ky.")
+// from Kentucky mention counting. These should not result in a KY classification.
+const KY_POLITICIAN_MENTION_SCRUB_RE = new RegExp(KY_POLITICIAN_MENTION_RE.source, 'gi');
+
+// Normalized text (after removing punctuation) can contain "r ky" or "d ky".
+// Ensure these don't count as a Kentucky signal either.
+const KY_POLITICIAN_MENTION_NORMALIZED_RE = /\b(?:r|d)(?:ep)?\s*ky\b/gi;
+
 /**
  * Keywords that signal betting/odds/gambling content. These articles are
  * non‑summarizable and should be treated as national regardless of any
@@ -1366,10 +1374,16 @@ function hasStrongLocationTitleMatch(title: string): boolean {
 function countKentuckyMentions(text: string, allowAmbiguousCities: boolean): number {
   if (!text) return 0;
 
+  // Remove political affiliation abbreviations like "R-Ky." / "D-Ky." so they
+  // don't count as genuine Kentucky location signals.
+  const scrubbed = text
+    .replace(KY_POLITICIAN_MENTION_SCRUB_RE, (m) => ' '.repeat(m.length))
+    .replace(KY_POLITICIAN_MENTION_NORMALIZED_RE, (m) => ' '.repeat(m.length));
+
   // Filter out obvious navigational/menu scraps where "Kentucky" appears as a
   // standalone menu item or tag (e.g. site nav, related-topic list). These
   // typically appear as very short lines with no sentence punctuation.
-  const filtered = text
+  const filtered = scrubbed
     .split('\n')
     .filter((line) => {
       const trimmed = line.trim();
@@ -1379,6 +1393,12 @@ function countKentuckyMentions(text: string, allowAmbiguousCities: boolean): num
       // e.g. "Kentucky", "Kentucky News", "KY | Local".
       const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
       if (wordCount <= 4) {
+        return false;
+      }
+
+      // Ignore lines that look like navigation/header lists, e.g. "Kentucky | News | Sports".
+      // These often contain separators like '|', '>', '»', '/', etc.
+      if (/[|>»•\/]/.test(trimmed) && wordCount <= 12) {
         return false;
       }
 

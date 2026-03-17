@@ -41,4 +41,13 @@ describe('classification fallback geo integration', () => {
     const result = classifyArticle(title, body);
     expect(result.category).toBe('national');
   });
+
+  it('does not classify national stories as Kentucky when they reference R-Ky/D-Ky', () => {
+    const title = 'Zelenskyy will discuss the matter with NATO';
+    const body = "KYIV, Ukraine — President Volodymyr Zelenskyy spoke with NATO leaders. " +
+      "Sen. Mitch McConnell, R-Ky., and Rep. John Yarmuth, D-Ky., also commented.";
+    const result = classifyArticle(title, body);
+    expect(result.category).toBe('national');
+    expect(result.mentionCount).toBeLessThan(2);
+  });
 });
