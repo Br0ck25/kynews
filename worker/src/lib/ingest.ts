@@ -274,6 +274,20 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
+  // Reject personal opinion columns — bylines containing "/Columnist" flag
+  // content that is editorial opinion, not local news.  Community newspapers
+  // consistently use the "By Name/Columnist" format for their column writers.
+  // These articles have no geographic or news value for ingestion.
+  const columnistCheckText = `${extracted.title} ${extracted.contentText.slice(0, 1500)}`;
+  if (/\/\s*Columnist\b/i.test(columnistCheckText)) {
+    console.log(`[REJECTED] opinion column: ${extracted.title}`);
+    return {
+      status: 'rejected',
+      reason: 'opinion column — not a news story',
+      urlHash: canonicalHash,
+    };
+  }
+
   const isManualIngest = source.allowShortContent === true;
   let title = extracted.title;
 

@@ -1242,7 +1242,17 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
 function normalizeParagraphBoundaries(text: string): string {
   const paragraphs = text
     .split(/\n{2,}/)
-    .map((paragraph) => paragraph.replace(/\n+/g, ' ').replace(/[ \t]+/g, ' ').trim())
+    .map((paragraph) => paragraph
+      .replace(/\n+/g, ' ')
+      .replace(/[ \t]+/g, ' ')
+      // Insert a space where a sentence-ending period/!/? is immediately followed
+      // by an uppercase letter with no space. This fixes AI output that joins
+      // one-sentence paragraphs without spaces when the source article (e.g. WLKY
+      // brief format) has each sentence in its own <p> tag. The lookbehind ensures
+      // we only fire after a lowercase letter or digit — not after single-letter
+      // abbreviation components like the "S" in "U.S.Army".
+      .replace(/(?<=[a-z0-9][.!?])([A-Z])/g, ' $1')
+      .trim())
     .filter(Boolean);
 
   if (paragraphs.length === 0) return '';

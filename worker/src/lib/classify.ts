@@ -291,13 +291,13 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   // (moved to COUNTY_REQUIRES_EXPLICIT_EVIDENCE so we only assign a county when
   // it is explicitly mentioned in the article text.)
 
-  // wlky.com — Louisville CBS affiliate; heavily syndicates AP wire content.
-  // AP datelines (e.g. "LOS ANGELES —") sometimes appear after the scraped
-  // lead, so the wire-override regex does not catch them. Adding here ensures
-  // national wire stories are not tagged Kentucky due to site-chrome mentions
-  // of "Louisville, KY". Genuine Louisville / KY stories are duplicated via
-  // other Louisville outlets (WDRB, Courier Journal, Wave3).
-  'wlky.com',
+  // wlky.com — previously always-national to prevent AP wire leakage.
+  // Removed (see Change 27, 2026-03-17): genuine Kentucky legislative/local
+  // stories filed under a FRANKFORT, Ky. dateline were being tagged national.
+  // NON_KY_DATELINE_RE (pattern 3) now catches AP wire datelines without a
+  // state suffix (e.g. "LOS ANGELES —"), so the always-national guard is no
+  // longer necessary. SOURCE_DEFAULT_COUNTY updated to Jefferson.
+  // 'wlky.com',
 
   // aginguntold.com — national aging/health news service; stories are set
   // across the US (Charlotte, Atlanta, etc.) and never Kentucky-specific.
@@ -393,7 +393,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'nky.com': 'Kenton',
   // Cincinnati/NKY broadcaster – no single KY county (see FIX 5)
   'wlwt.com': null,  // Cincinnati/NKY broadcaster – no single KY county (see FIX 5)
-  'wlky.com': null,   // Louisville CBS affiliate – no single county (covers full Louisville metro)
+  'wlky.com': 'Jefferson',  // Louisville CBS affiliate — Jefferson is the correct default when geo fails
   'themountaineagle.com': 'Letcher', // Whitesburg newspaper
   'mountain-topmedia.com': 'Perry',   // Mountain Top Media — Hazard/Perry County area
 
@@ -867,8 +867,21 @@ export async function classifyArticleWithAi(
   // in the body.  The dateline city is authoritative for where the story originates.
   // We detect this by checking whether the wire-override match was triggered by a
   // specific non-KY city rather than a wire-service tag (AP, Reuters, Gray News, etc.).
+  // NON_KY_DATELINE_RE — three patterns:
+  // 1. Washington DC dateline (common for AP/wire stories).
+  // 2. CITY, STATE — form. Handles both multi-char abbreviations (e.g. "Okla.")
+  //    and single-letter dotted abbreviations (e.g. "S.C.", "N.C."). The state
+  //    token uses [a-z]+ (min 1 char) so "SPARTANBURG COUNTY, S.C. (Gray News) —"
+  //    is recognized as a non-KY dateline. Previously [a-z]{2,} caused "S.C." to
+  //    fail the pattern because "S" is only one character before the first dot.
+  // 3. Known major non-KY US cities appearing before a dash without a state
+  //    suffix (e.g. "LOS ANGELES —"). NATIONAL_WIRE_OVERRIDE_RE already flags
+  //    these articles as national wire stories but does not set hasNonKyDateline,
+  //    so the isKentucky override block never fires. This third alternative closes
+  //    that gap and ensures site-chrome KY references from local TV stations
+  //    (e.g. WHAS11) cannot keep a Los Angeles wire story tagged Kentucky.
   const NON_KY_DATELINE_RE =
-    /(?:^|\n|\.\s+)WASHINGTON\s*(?:\([^)]{1,40}\))?\s*[-—–]|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)(?:[a-z]{2,}(?:\.[a-z]{1,2})*\.?)\s*(?:\([^)]{1,30}\)\s*)?[-—–]/i;
+    /(?:^|\n|\.\s+)WASHINGTON\s*(?:\([^)]{1,40}\))?\s*[-—–]|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)(?:[a-z]+(?:\.[a-z]{1,2})*\.?)\s*(?:\([^)]{1,30}\)\s*)?[-—–]|(?:^|\n|\.\s+)\b(?:los\s+angeles|new\s+york|chicago|miami|houston|dallas|atlanta|boston|denver|phoenix|seattle|nashville|charlotte|memphis|jacksonville|san\s+francisco|san\s+diego|austin|baltimore|san\s+antonio|las\s+vegas|indianapolis|detroit|oklahoma\s+city|raleigh|fort\s+worth|baton\s+rouge|new\s+orleans|albuquerque|tucson|minneapolis|pittsburgh|virginia\s+beach|colorado\s+springs|el\s+paso|omaha)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]/i;
   const hasNonKyDateline = NON_KY_DATELINE_RE.test(semanticLeadText);
 
   if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline)) {

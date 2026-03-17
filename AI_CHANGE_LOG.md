@@ -550,3 +550,149 @@ Some Kentucky stories refer to local government entities in possessive form (e.g
 
 **Why:**
 Some national wire stories begin with datelines like "CHAPEL HILL, N.C.". The previous dateline regex failed to match the dotted state abbreviation, allowing Kentucky signal heuristics (e.g., sidebar/menu text mentioning "Kentucky") to incorrectly classify the story as Kentucky. The fix ensures the dateline override works reliably across common abbreviation formats.
+
+---
+
+## 2026-03-17 — Two fixes: national city datelines without state suffix; opinion column rejection
+
+---
+
+### Change 25 — Extend `NON_KY_DATELINE_RE` to match known non-KY cities without state abbreviation (2026-03-17)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Added a third alternative to `NON_KY_DATELINE_RE` that matches a set of well-known major non-KY US cities (e.g. `LOS ANGELES —`, `CHICAGO —`) appearing at the start of a line or after a sentence-ending period, with or without a state suffix.
+
+**Article that triggered this fix:**
+- *Carnival Cruise Line cancels nearly a dozen sailings due to 'changes to itinerary plans'* from `whas11.com` — tagged Kentucky despite a clear "LOS ANGELES —" dateline and no Kentucky content.
+
+**Root cause:**
+`NATIONAL_WIRE_OVERRIDE_RE` correctly detected "LOS ANGELES —" as a national wire story, setting `isNationalWireStory = true`. However, the override block that forces `isKentucky = false` is gated on `hasOnlyPoliticianKyMention || hasNonKyDateline`. The existing `NON_KY_DATELINE_RE` requires either "WASHINGTON" specifically, or a "CITY, STATE —" form (with a comma and state abbreviation). "LOS ANGELES —" has no state suffix, so `hasNonKyDateline = false`. With `isNationalWireStory = true` but neither condition met, the code returned early (skipping the AI) with `isKentucky = true` still set from WHAS11's site-chrome Louisville/KY navigation text.
+
+Change 18 (2026-03-17) removed `whas11.com` from `ALWAYS_NATIONAL_SOURCES` to allow genuine Louisville stories to be tagged Kentucky. That was correct, but it exposed this gap: WHAS11 AP wire stories with a non-KY city dateline that lacks a state suffix now rely entirely on `NON_KY_DATELINE_RE` to override the site-chrome KY signal. The third alternative closes this gap.
+
+**Cities added to `NON_KY_DATELINE_RE`:**
+los angeles, new york, chicago, miami, houston, dallas, atlanta, boston, denver, phoenix, seattle, nashville, charlotte, memphis, jacksonville, san francisco, san diego, austin, baltimore, san antonio, las vegas, indianapolis, detroit, oklahoma city, raleigh, fort worth, baton rouge, new orleans, albuquerque, tucson, minneapolis, pittsburgh, virginia beach, colorado springs, el paso, omaha.
+
+Note: `richmond` is intentionally excluded because Richmond, KY is a Kentucky city.
+
+---
+
+### Change 26 — Reject personal opinion columns at ingestion (2026-03-17)
+
+**File:** `worker/src/lib/ingest.ts`
+
+**What changed:**
+Added a rejection filter that checks the article title and the first 1,500 characters of content for the `/Columnist` byline pattern (case-insensitive). When matched, the article is rejected with `reason: 'opinion column — not a news story'`, identical in structure to the obituary and real estate transfer rejections.
+
+**Article that triggered this fix:**
+- *Finding Sanctuary: One Woman's Spiritual Retreat* by Rhonda Gould/Columnist from `harlanenterprise.net` — tagged Kentucky despite containing zero Kentucky geographic content.
+
+**Root cause:**
+The article is a personal spiritual reflection column with no news value and no mention of any Kentucky location in the article text. It was tagged Kentucky because:
+1. The scraped harlanenterprise.net page includes "Harlan County, Kentucky" in the newspaper's header/branding, which satisfies `detectKentuckyGeo`.
+2. The source default county for `harlanenterprise.net` is `Harlan`, which was accepted as county evidence because "Harlan" appears in the scraped page header.
+This is the same site-chrome leakage pattern as the WHAS11/PBS cases, but no classification fix is appropriate here — the source IS a Kentucky newspaper and the site chrome correctly reflects that. The fix instead belongs at ingestion: personal columns from community newspaper columnists are not news stories and should not be ingested.
+
+The `/Columnist` byline format (e.g. "By Rhonda Gould/Columnist") is consistently used by community newspapers across Kentucky to distinguish their regular opinion columnists from staff reporters. It is a strong, narrow signal for non-news editorial content.
+
+---
+
+### Investigation note — Healthcare/Cancer article from lanereport.com was correctly tagged (2026-03-17)
+
+**Article:** *Healthcare: Are We Closer to Curing Cancer?* from `lanereport.com`
+
+**Finding:**
+This article was **correctly tagged as Kentucky** and required no fix. The article:
+- Quotes three named Kentucky physicians at specific Kentucky institutions (UofL Health—Brown Cancer Center, Baptist Health Lexington, St. Elizabeth Healthcare in Northern Kentucky, Norton Cancer Institute in Louisville)
+- Cites Kentucky-specific statistics: "Kentucky still has a cancer mortality rate of 182 deaths per 100,000 people — higher than the national average" and "Kentucky is the only state seeing an increase in cervical cancer rates"
+- Is published by the Lane Report, a Kentucky business/policy publication
+
+Any investigation finding `isKentucky: true` and category `today` for this article is correct behavior. Do not add this domain to non-KY overrides.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| National wire station (e.g. WHAS11) removed from `ALWAYS_NATIONAL_SOURCES` | Add all major non-KY US cities to `NON_KY_DATELINE_RE` city list; otherwise AP wire stories without a state suffix in the dateline can slip through with `isKentucky = true` from site chrome |
+| Wire story `isNationalWireStory = true` but `hasNonKyDateline = false` | Root cause is that `NON_KY_DATELINE_RE` requires a comma+state suffix that some datelines omit; fix the regex, not the station's classification list |
+| Opinion column from community newspaper tagged Kentucky | Source-default county and header branding will always make these look KY; fix is a byline-pattern rejection at ingestion, not a classifier change |
+| `/Columnist` byline format | Treat as hard reject in `ingestSingleUrl`; do not attempt to classify or summarize |
+| Article from Kentucky publication mentions only Kentucky entities and Kentucky-specific statistics | This is a genuine Kentucky story; do not add the source to non-KY overrides |
+
+---
+
+## 2026-03-17 — Three fixes: WLKY false national, S.C. dateline miss, summary spacing
+
+---
+
+### Change 27 — Remove `wlky.com` from `ALWAYS_NATIONAL_SOURCES`; set Jefferson as default county (2026-03-17)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Commented out `'wlky.com'` in `ALWAYS_NATIONAL_SOURCES`. WLKY articles now go through the standard text-based geo classification pipeline.
+- Updated `SOURCE_DEFAULT_COUNTY['wlky.com']` from `null` to `'Jefferson'` so that genuine Louisville/Jefferson County stories without explicit county mention still get a county assignment.
+
+**Article that triggered this fix:**
+- *Kentucky lawmakers vote to override governor's veto of school tax credit bill* from `wlky.com` — tagged **national** despite a clear `FRANKFORT, Ky. —` dateline and multiple Kentucky legislative signals (House Bill 1, KY Legislature, Gov. Andy Beshear).
+
+**Root cause:**
+`wlky.com` was added to `ALWAYS_NATIONAL_SOURCES` in Change 10 to prevent AP wire stories (e.g. Academy Awards from Los Angeles) from leaking Kentucky tags via site-chrome KY navigation text. However, that hard override blocks ALL WLKY articles from being classified as Kentucky, including genuine local stories. Change 25 (same session) already solved the original problem by adding major non-KY US cities (including `los angeles`) to `NON_KY_DATELINE_RE` pattern 3, so AP wire datelines without a state suffix are now caught. The `ALWAYS_NATIONAL_SOURCES` guard for WLKY is therefore no longer needed and causes false negatives for WLKY's substantial local Kentucky reporting.
+
+This mirrors exactly what Change 18 did for `whas11.com`.
+
+---
+
+### Change 28 — Fix `NON_KY_DATELINE_RE` pattern 2 for single-letter state abbreviations (2026-03-17)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Changed `[a-z]{2,}` to `[a-z]+` in pattern 2 of `NON_KY_DATELINE_RE`. This allows the pattern to match single-letter state abbreviations like "S.C.", "N.C.", "S.D." where the state token before the first period is just one character.
+
+**Article that triggered this fix:**
+- *Mom charged with DUI after running stop sign, causing crash that killed 8-year-old daughter* from a Kentucky Gray Television outlet (WYMT or similar) — tagged **Kentucky** despite `SPARTANBURG COUNTY, S.C. (WHNS/Gray News) —` dateline and no Kentucky content.
+
+**Root cause:**
+`NATIONAL_WIRE_OVERRIDE_RE` correctly detected `(WHNS/Gray News)` and set `isNationalWireStory = true`. However, the block that forces `isKentucky = false`:
+```
+if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline))
+```
+requires `hasNonKyDateline = true`. Pattern 2 of `NON_KY_DATELINE_RE` requires the state token to match `[a-z]{2,}` (minimum 2 chars). "SPARTANBURG COUNTY, S.C." — the state abbreviation starts with a single "S" before the first period, which fails `{2,}`. So `hasNonKyDateline = false`, the override block did not fire, and `isKentucky = true` from the KYOW outlet's site-chrome navigation survived into the stored article.
+
+Change 24 (previous session) was intended to fix N.C. datelines but used the same `[a-z]{2,}` pattern, so it only fixed dotted abbreviations where the first component is 2+ chars (e.g. "Okla." → "Okla" = 4 chars ✓, but "N.C." → "N" = 1 char ✗).
+
+**Safety:** `[a-z]+` still requires at least one letter and the negative lookahead `(?!ky\b|kentucky\b)` prevents `KY` or `Kentucky` from triggering a false national override.
+
+---
+
+### Change 29 — Fix missing spaces between sentences in AI summaries (2026-03-17)
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+Added a `.replace(/(?<=[a-z0-9][.!?])([A-Z])/g, ' $1')` step inside the `.map()` in `normalizeParagraphBoundaries`. This inserts a space between a sentence-ending character and the next sentence when they run together without whitespace.
+
+**Article that triggered this fix:**
+- *Kentucky lawmakers vote to override governor's veto of school tax credit bill* from `wlky.com` — the AI summary displayed as "House Bill 1.The education bill..." and "organizations.Gov. Andy Beshear vetoed it last week." with no spaces between sentences.
+
+**Root cause:**
+WLKY (and certain other broadcast CMS sites) publishes articles where each sentence is its own `<p>` tag. Readability extracts these as separate paragraphs separated by `\n\n`. When the AI model summarizes this style of content, it sometimes produces a dense output with sentences concatenated without spaces between them (e.g. `1.The education bill` instead of `1. The education bill`). `normalizeParagraphBoundaries` splits on `\n{2,}` to find paragraph breaks, but if the AI output lacks newlines between sentences, the missing space is never inserted.
+
+**Why the lookbehind `(?<=[a-z0-9])` is safe:**
+Only fires when the character BEFORE the period is lowercase (letter or digit). This prevents the regex from inserting spaces inside single-letter abbreviations like "U.S.Army" → the "S" before the period is uppercase, so it does NOT match. Titles/abbreviations like "Gov.", "Rep.", "Dr.", "St." are correctly matched because their final letter is lowercase (`v`, `p`, `r`, `t`) and they ARE followed by a name that needs a space.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| Local TV station removed from `ALWAYS_NATIONAL_SOURCES` for genuine KY content | Remove the station from `ALWAYS_NATIONAL_SOURCES` and set the correct county in `SOURCE_DEFAULT_COUNTY`; rely on `NON_KY_DATELINE_RE` pattern 3 (city list) to catch AP wire content |
+| Gray News/WHNS/wire story tagged Kentucky from a KY outlet | Check `NON_KY_DATELINE_RE` pattern 2 — dotted state abbreviations with single-char first component (S.C., N.C.) need `[a-z]+` not `[a-z]{2,}` |
+| AI summary has sentences running together without spaces | Root cause is AI model joining one-sentence-per-paragraph articles; fix is in `normalizeParagraphBoundaries` with lookbehind-guarded space insertion after `[a-z0-9][.!?]` |
+| Lookbehind in Cloudflare Workers V8 | ES2018 lookbehind assertions (`(?<=...)`) are supported in V8/Workers — safe to use |
