@@ -256,6 +256,55 @@ export default function WeatherAlertsTab({ service }) {
     );
     lines.push("");
 
+    // Determine the top alert types for the hook line
+    const text = postsList
+      .map((p) => (p.event || "").toLowerCase())
+      .join(" ");
+    const hasTornado = /tornado/.test(text);
+    const hasFlood = /flood/.test(text);
+    const hasWinter = /winter|snow|ice|blizzard/.test(text);
+    const hasWind = /wind/.test(text);
+    const hasSevere = /severe/.test(text);
+
+    if (hasTornado) {
+      lines.push(
+        "Multiple weather alerts are active across Kentucky tonight, including tornado warnings and severe storms."
+      );
+    } else if (hasFlood) {
+      lines.push(
+        "Multiple weather alerts are active across Kentucky tonight, including flood warnings and heavy rain."
+      );
+    } else if (hasWinter) {
+      lines.push(
+        "Multiple weather alerts are active across Kentucky tonight, including winter weather advisories and snow squalls."
+      );
+    } else if (hasWind) {
+      lines.push(
+        "Multiple weather alerts are active across Kentucky tonight, including high wind advisories and storms."
+      );
+    } else if (hasSevere) {
+      lines.push(
+        "Multiple weather alerts are active across Kentucky tonight, including severe thunderstorm warnings."
+      );
+    } else {
+      lines.push(
+        "Multiple weather alerts are active across Kentucky tonight, including snow squalls and winter weather advisories."
+      );
+    }
+
+    lines.push("");
+    lines.push(
+      `Here’s the latest breakdown as of ${now.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "America/New_York",
+      })}:`
+    );
+    lines.push("");
+
     // Group by severity
     const grouped = postsList.reduce((acc, post) => {
       const sev = (post.severity || "Unknown").toLowerCase();
@@ -299,9 +348,16 @@ export default function WeatherAlertsTab({ service }) {
           const trimmed = snippet.length > 220 ? snippet.slice(0, 217) + "..." : snippet;
           lines.push(`    ${trimmed}`);
         }
+
+        // make it very clear where one alert ends and the next begins
+        lines.push("");
       }
     }
 
+    lines.push("");
+    lines.push(
+      "Comment your county below to report conditions in your area."
+    );
     lines.push("");
     lines.push(
       "#KentuckyNews #KYWeatherAlert #WeatherAlertSummary #LocalKYNews #KYwx"
