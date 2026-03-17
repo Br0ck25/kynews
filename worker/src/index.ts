@@ -5485,7 +5485,7 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 	}
 
 	const top  = rows.slice(0, 3);
-	const more = rows.slice(3, 7);
+	const more = rows.slice(3, 10);
 
 	// Unique county names from the leading articles for the intro sentence
 	const seenCounties = new Set<string>();
@@ -5531,6 +5531,7 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 				parts.push('');
 			}
 		}
+		parts.push('#KentuckyNews #KYMorningNews #MorningRoundup #LocalKYNews #KentuckyHeadlines #StartYourDayKY #KYNewsUpdate');
 	} else {
 		const intro = counties.length >= 2
 			? `From ${counties[0]} County to ${counties[1]} County and across the Commonwealth, here are the latest stories published today in Kentucky.`
@@ -5558,6 +5559,7 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 				parts.push('');
 			}
 		}
+		parts.push('#KentuckyNews #KYEveningRecap #EveningNews #LocalKYNews #StoriesYouMissed #KentuckyHeadlines #KYDailyUpdate');
 	}
 
 	return parts.join('\n').trimEnd();
