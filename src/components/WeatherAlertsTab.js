@@ -295,16 +295,7 @@ export default function WeatherAlertsTab({ service }) {
 
     lines.push("");
     lines.push("");
-    lines.push(
-      `Here’s the latest breakdown as of ${now.toLocaleString("en-US", {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-        timeZone: "America/New_York",
-      })}:`
-    );
+    lines.push("Here’s what you need to know:");
     lines.push("");
 
     // Group by severity
@@ -317,41 +308,62 @@ export default function WeatherAlertsTab({ service }) {
 
     const priority = ["extreme", "severe", "moderate", "unknown"];
 
+    const getBrief = (post) => {
+      const textLines = (post.post_text || "")
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .filter(
+          (l) =>
+            !/^#/i.test(l) &&
+            !/^Area:/i.test(l) &&
+            !/^Expires:/i.test(l) &&
+            !/^Severity:/i.test(l)
+        );
+
+      // If the first line is an uppercase header, drop it
+      if (textLines.length > 0 && textLines[0].toUpperCase() === textLines[0]) {
+        textLines.shift();
+      }
+
+      // Look for a "WHAT:" section for the clearest description
+      const whatLine = textLines.find((l) => /^WHAT:/i.test(l));
+      if (whatLine) {
+        return whatLine.replace(/^WHAT:\s*/i, "");
+      }
+
+      // Otherwise use the first 1-2 sentences
+      const sentence = textLines.join(" ");
+      const match = sentence.match(/(.+?[.!?])(\s|$)/);
+      if (match) return match[1];
+
+      return sentence;
+    };
+
+    const shortExpires = (iso) => {
+      if (!iso) return "";
+      const d = parseDateString(iso);
+      if (!d) return "";
+      const h = d.getHours();
+      const m = d.getMinutes();
+      const suffix = h === 0 && m === 0 ? "Midnight" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      return suffix;
+    };
+
     for (const sev of priority) {
       const items = grouped[sev] || [];
       if (!items.length) continue;
-      lines.push(`• ${sev.charAt(0).toUpperCase() + sev.slice(1)} (${items.length})`);
+      lines.push(`MODERATE ALERTS (${items.length})`);
+      lines.push("");
       for (const p of items) {
         const area = p.area ? p.area.split(";").slice(0, 3).join(", ") : "";
-        const headline = (p.headline || "").trim();
-        const title = headline && headline !== p.event ? headline : p.event;
-        const expires = p.expires_at ? ` (expires ${formatExpires(p.expires_at)})` : "";
-        lines.push(`  • ${title}${area ? ` – ${area}` : ""}${expires}`);
+        const title = p.event || "Weather Alert";
+        const brief = getBrief(p);
+        const expiresLabel = p.expires_at ? `Expires: ${shortExpires(p.expires_at)}` : "";
 
-        // include a more useful snippet from the saved post text.
-        // Remove NWS header fields (Area/Expires/Severity) and hashtags,
-        // then show the first meaningful line or two.
-        const textLines = (p.post_text || "")
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .filter(
-            (l) =>
-              !/^#/i.test(l) &&
-              !/^Area:/i.test(l) &&
-              !/^Expires:/i.test(l) &&
-              !/^Severity:/i.test(l)
-          );
-        if (textLines.length > 0 && textLines[0].toUpperCase() === textLines[0]) {
-          textLines.shift();
-        }
-        const snippet = textLines.slice(0, 2).join(" ");
-        if (snippet) {
-          const trimmed = snippet.length > 220 ? snippet.slice(0, 217) + "..." : snippet;
-          lines.push(`    ${trimmed}`);
-        }
-
-        // make it very clear where one alert ends and the next begins
+        lines.push(`• ${area || "Statewide"}`);
+        if (brief) lines.push(`  ${brief}`);
+        if (expiresLabel) lines.push(`  ${expiresLabel}`);
         lines.push("");
       }
     }
