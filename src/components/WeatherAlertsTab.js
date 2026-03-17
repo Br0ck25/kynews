@@ -270,14 +270,19 @@ export default function WeatherAlertsTab({ service }) {
       const items = grouped[sev] || [];
       if (!items.length) continue;
       lines.push(`• ${sev.charAt(0).toUpperCase() + sev.slice(1)} (${items.length})`);
-      for (const p of items.slice(0, 5)) {
+      for (const p of items) {
         const area = p.area ? p.area.split(";").slice(0, 3).join(", ") : "";
-        lines.push(
-          `  • ${p.event}${area ? ` – ${area}` : ""}${p.expires_at ? ` (expires ${formatExpires(p.expires_at)})` : ""}`
-        );
-      }
-      if (items.length > 5) {
-        lines.push(`  ...and ${items.length - 5} more`);
+        const headline = (p.headline || "").trim();
+        const title = headline && headline !== p.event ? headline : p.event;
+        const expires = p.expires_at ? ` (expires ${formatExpires(p.expires_at)})` : "";
+        lines.push(`  • ${title}${area ? ` – ${area}` : ""}${expires}`);
+
+        // include a short snippet from the saved post text for additional context
+        const snippet = (p.post_text || "").split("\n").filter(Boolean).slice(0, 2).join(" ");
+        if (snippet) {
+          const trimmed = snippet.length > 180 ? snippet.slice(0, 177) + "..." : snippet;
+          lines.push(`    ${trimmed}`);
+        }
       }
     }
 
