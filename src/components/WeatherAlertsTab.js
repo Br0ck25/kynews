@@ -315,29 +315,26 @@ export default function WeatherAlertsTab({ service }) {
         .filter(Boolean)
         .filter(
           (l) =>
-            !/^#/i.test(l) &&
+            !/^#/.test(l) &&
             !/^Area:/i.test(l) &&
             !/^Expires:/i.test(l) &&
             !/^Severity:/i.test(l)
         );
 
-      // If the first line is an uppercase header, drop it
-      if (textLines.length > 0 && textLines[0].toUpperCase() === textLines[0]) {
+      // Drop leading all-uppercase header line (e.g. "SPECIAL WEATHER STATEMENT")
+      if (textLines.length > 0 && textLines[0].length > 3 && textLines[0] === textLines[0].toUpperCase()) {
         textLines.shift();
       }
 
-      // Look for a "WHAT:" section for the clearest description
-      const whatLine = textLines.find((l) => /^WHAT:/i.test(l));
-      if (whatLine) {
-        return whatLine.replace(/^WHAT:\s*/i, "");
-      }
-
-      // Otherwise use the first 1-2 sentences
-      const sentence = textLines.join(" ");
-      const match = sentence.match(/(.+?[.!?])(\s|$)/);
-      if (match) return match[1];
-
-      return sentence;
+      let sentence = textLines.join(" ");
+      // Strip NWS issuance header: "Event issued Date at Time TZ by NWS City ST Description"
+      sentence = sentence.replace(/^.*?\bby NWS\s+\w+\s+\w+\s+/i, "");
+      // Strip WHAT: or WHAT... prefix
+      sentence = sentence.replace(/^WHAT[.:…]+\s*/i, "");
+      // Return first complete sentence
+      const m = sentence.match(/(.+?[.!?])(\s|$)/);
+      if (m) return m[1];
+      return sentence.length > 200 ? sentence.substring(0, 200) + "..." : sentence;
     };
 
     const shortExpires = (iso) => {
@@ -346,17 +343,19 @@ export default function WeatherAlertsTab({ service }) {
       if (!d) return "";
       const h = d.getHours();
       const m = d.getMinutes();
-      const suffix = h === 0 && m === 0 ? "Midnight" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-      return suffix;
+      if (h === 0 && m === 0) return "Midnight";
+      const opts = { hour: "numeric", hour12: true };
+      if (m !== 0) opts.minute = "2-digit";
+      return d.toLocaleTimeString("en-US", opts);
     };
 
     for (const sev of priority) {
       const items = grouped[sev] || [];
       if (!items.length) continue;
-      lines.push(`MODERATE ALERTS (${items.length})`);
+      lines.push(`${sev.toUpperCase()} ALERTS (${items.length})`);
       lines.push("");
       for (const p of items) {
-        const area = p.area ? p.area.split(";").slice(0, 3).join(", ") : "";
+        const area = p.area ? p.area.split(";").map(s => s.trim()).filter(Boolean).slice(0, 3).join(", ") : "";
         const title = p.event || "Weather Alert";
         const brief = getBrief(p);
         const expiresLabel = p.expires_at ? `Expires: ${shortExpires(p.expires_at)}` : "";
