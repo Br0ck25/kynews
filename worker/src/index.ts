@@ -5464,19 +5464,19 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 	const day   = etParts.find((p) => p.type === 'day')?.value   ?? '';
 	const datePrefix = `${year}-${month}-${day}`;
 
-	const result = await env.DB.prepare(
+	const result = await prepare(env,
 		`SELECT id, title, slug, county, category, is_kentucky, is_national
 		 FROM articles
 		 WHERE category = 'today' AND published_at LIKE ? AND slug IS NOT NULL
 		 ORDER BY published_at DESC
 		 LIMIT 25`,
-	).bind(`${datePrefix}%`).all();
-
-	const rows = (result.results ?? []) as Array<{
+	).bind(`${datePrefix}%`).all<{
 		id: number; title: string; slug: string | null;
 		county: string | null; category: string;
 		is_kentucky: number; is_national: number;
-	}>;
+	}>();
+
+	const rows = result.results ?? [];
 
 	if (rows.length === 0) {
 		return when === 'morning'
