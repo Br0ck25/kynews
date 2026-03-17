@@ -75,9 +75,14 @@ async function ensureSchemaAndFixture() {
 			content_text TEXT NOT NULL,
 			content_html TEXT NOT NULL,
 			image_url TEXT,
+			image_alt TEXT,
+			image_width INTEGER,
+			image_height INTEGER,
 			raw_r2_key TEXT,
 			slug TEXT,
 			content_hash TEXT,
+			alert_geojson TEXT,
+			local_intro TEXT,
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
@@ -1046,6 +1051,9 @@ it('queryArticles list responses omit heavy content fields', async () => {
 				content_text TEXT NOT NULL,
 				content_html TEXT NOT NULL,
 				image_url TEXT,
+				image_alt TEXT,
+				image_width INTEGER,
+				image_height INTEGER,
 				raw_r2_key TEXT,
 				slug TEXT,
 				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1571,6 +1579,52 @@ describe('classification utilities', () => {
 			expect(classification.county).toBeNull();
 		});
 
+		it('does not change slug when retagging a national article as Kentucky', async () => {
+			await ensureSchemaAndFixture();
+			const now = new Date().toISOString();
+			const slug = 'gas-prices-jump-again-louisville-as-war-iran-continues-gasbuddy-reports-2026';
+			const id = await insertArticle(env, {
+				canonicalUrl: 'https://example.com/article',
+				sourceUrl: 'https://example.com/article',
+				urlHash: 'hash-retag-001',
+				title: 'Gas prices jump again; Louisville as war, Iran continues: GasBuddy reports',
+				author: null,
+				publishedAt: now,
+				category: 'national',
+				isKentucky: false,
+				isNational: true,
+				county: null,
+				city: null,
+				summary: 'Gas prices spike in Louisville.',
+				seoDescription: 'Gas prices rising.',
+				rawWordCount: 50,
+				summaryWordCount: 10,
+				contentText: 'Story body',
+				contentHtml: '<p>Story body</p>',
+				imageUrl: null,
+				rawR2Key: null,
+				slug,
+				contentHash: null,
+			});
+
+			await updateArticleClassification(env, id, {
+				category: 'weather',
+				isKentucky: true,
+				isNational: false,
+				county: 'Jefferson',
+				counties: ['Jefferson'],
+			});
+
+			const row = await env.ky_news_db.prepare('SELECT slug, category, is_kentucky, county FROM articles WHERE id = ?')
+				.bind(id)
+				.first();
+			expect(row).not.toBeNull();
+			expect(row.slug).toBe(slug);
+			expect(row.category).toBe('weather');
+			expect(row.is_kentucky).toBe(1);
+			expect(row.county).toBe('Jefferson');
+		});
+
 		// national wire-like always-national source should ignore Kentucky hints
 		it('does not tag newsfromthestates.com article about Louisville as KY', async () => {
 			const classification = await classifyArticleWithAi(env, {
@@ -1698,6 +1752,18 @@ describe('classification utilities', () => {
 		expect(classification.county).toBeNull();
 	});
 
+	it('does not classify WYMT/Gray News WV story as Kentucky', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.wymt.com/2026/03/17/man-sentenced-after-severely-abusing-4-month-old-causing-permanent-brain-damage/',
+			title: 'Man sentenced after severely abusing 4-month-old, causing permanent brain damage',
+			content:
+				'WESTON, W.Va (WDTV/Gray News) - A man was sentenced after severely abusing a 4-month-old baby, fracturing the baby’s skull, causing a brain bleed and permanent brain damage. ' +
+				'Eric Auen Jr. was sentenced to seven to 35 years in prison on several child abuse charges. He will also serve 50 years of supervised release after his prison term.',
+		});
+		expect(classification.isKentucky).toBe(false);
+		expect(classification.category).toBe('national');
+	});
+
 	it('recognizes dateline with parenthetical credit as national wire', async () => {
 		const classification = await classifyArticleWithAi(env, {
 			url: 'https://www.example.com/politics',
@@ -1716,6 +1782,20 @@ describe('classification utilities', () => {
 		});
 		expect(classification.isKentucky).toBe(false);
 		expect(classification.county).toBeNull();
+	});
+
+	it('classifies Louisville winter weather advisory as Kentucky', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.whas11.com/article/weather/louisville-winter-weather-advisory-black-ice/417-da8cfb05-30a4-4810-8017-2c1a543fa6e6',
+			title: 'Louisville under Winter Weather Advisory Tuesday morning',
+			content:
+				'LOUISVILLE, Ky. — Louisville and surrounding cities are under a Winter Weather Advisory Tuesday morning. ' +
+				'The advisory is in effect until 9 a.m. EDT. Scattered heavy snow showers with snow accumulations up to one inch is possible, according to National Weather Service (NWS) Louisville. ' +
+				'Drivers should plan on slippery road conditions.',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.category).toBe('weather');
+		expect(classification.county).toBe('Jefferson');
 	});
 
 	it('respects AI judgment when the model classifies a national-wire KY story as Kentucky', async () => {

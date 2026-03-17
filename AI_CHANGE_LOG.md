@@ -267,6 +267,45 @@ National stories often quote or mention Kentucky lawmakers using party abbreviat
 
 ---
 
+### Change 16 — Treat WYMT/Gray News WV wire stories as national
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Expanded the `NATIONAL_WIRE_OVERRIDE_RE` regex to match additional wire-style bylines, including `WDTV/Gray News`, and to recognize datelines like `WESTON, W.Va` (state abbreviations with dots) as out-of-state.
+
+**Why:**
+Stories from WYMT (Gray Television) that begin with `WESTON, W.Va (WDTV/Gray News) —` were being misclassified as Kentucky because the wire override pattern did not recognize that format as a national wire dateline. This change ensures such WV wire stories are treated as national regardless of the source domain.
+
+---
+
+### Change 17 — Stabilize slugs on retagging; only regenerate when title changes (2026-03-17 12:10 UTC)
+
+**File:** `worker/src/lib/db.ts`
+
+**What changed:**
+- `generateSeoSlug()` now uses `getUTCFullYear()` so slug generation is consistent across timezones.
+- `updateArticleContent()` still regenerates slugs when a title changes (keeping permalinks aligned with the headline).
+- `updateArticleClassification()` and `updateArticlePrimaryCounty()` no longer touch the slug, preventing retags/retags from breaking existing links.
+
+**Why:**
+Permalinks must remain stable once published. Changing the slug when an article is retagged (e.g., national → Kentucky) caused previously shared links to break. Slugs now only change when the title itself changes.
+
+---
+
+### Change 18 — Treat WHAS11 weather advisories as Kentucky despite syndicated wire content (2026-03-17 12:22 UTC)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Removed `whas11.com` from `ALWAYS_NATIONAL_SOURCES` so local Louisville stories are not automatically forced into the national category.
+- Added `whas11.com` to `SOURCE_DEFAULT_COUNTY` with a default of `Jefferson` so that Kentucky stories without explicit county mentions still get a reasonable county assignment.
+
+**Why:**
+WHAS11 publishes both local Louisville/Kentucky weather advisories and syndicated national wire content. The previous “always national” override incorrectly prevented genuine Kentucky stories (e.g., the March 17, 2026 WHAS11 fire and weather advisory articles) from being classified as local. This change lets text-based geo signals (like “LOUISVILLE, Ky.” and the list of affected counties) determine whether the story is Kentucky.
+
+---
+
 ### Change 13 — Allow list formatting for structured-list articles in `BASE_SYSTEM_PROMPT`
 
 **File:** `worker/src/lib/ai.ts`

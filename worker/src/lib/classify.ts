@@ -277,9 +277,10 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   // Kentucky-focused homepage; content is largely Ohio/national.
   'wlwt.com',
 
-  // whas11.com — Louisville ABC affiliate; syndicates AP wire and Indiana
-  // stories.  Treat as national since local content is rare.
-  'whas11.com',
+  // whas11.com — Louisville ABC affiliate; publishes both local and wire
+  // content.  Rely on text-based geo signals (e.g. "LOUISVILLE, Ky.") to
+  // decide whether a story is Kentucky-local.
+  // 'whas11.com',
 
   // stateline.org — States Newsroom / Stateline; national policy wire covering
   // all 50 states.
@@ -357,6 +358,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'lex18.com': 'Fayette',   // Lexington ABC affiliate; Fayette when Lexington is in the text (HIGH_AMBIGUITY_CITIES blocks geo detection without a source default)
   'wkyt.com': 'Fayette',
   'wymt.com': 'Perry',
+  'whas11.com': 'Jefferson',
   'jessaminejournalonline.com': 'Jessamine',
   'richmondregister.com': 'Madison',
   'bgdailynews.com': 'Warren',           // Bowling Green
@@ -386,7 +388,6 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   // Louisville Metro
   'wdrb.com': 'Jefferson',
   'wave3.com': 'Jefferson',
-  'whas11.com': null, // now in ALWAYS_NATIONAL_SOURCES; wire content only
   'courier-journal.com': 'Jefferson',
   // Northern Kentucky
   'nky.com': 'Kenton',
@@ -448,7 +449,7 @@ const KY_HARD_NEGATIVES: RegExp[] = [
 // This prevents local outlets from tagging such wire stories with their
 // home county.  Example: "GILBERT, Ariz. —" or "TULSA, Okla. (AP) —".
 export const NATIONAL_WIRE_OVERRIDE_RE =
-  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[a-z]{2,}\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]\s*|(?:^|\n|\.\s+)[A-Z][A-Z\s]{1,25},\s*(?:United Arab Emirates|Afghanistan|Albania|Algeria|Argentina|Australia|Austria|Azerbaijan|Bahrain|Bangladesh|Belarus|Belgium|Bolivia|Bosnia|Brazil|Cambodia|Canada|Chile|China|Colombia|Croatia|Cuba|Cyprus|Denmark|Ecuador|Egypt|Ethiopia|Finland|France|Germany|Ghana|Greece|Guatemala|Haiti|Honduras|Hungary|India|Indonesia|Iran|Iraq|Ireland|Israel|Italy|Jamaica|Japan|Jordan|Kazakhstan|Kenya|Kuwait|Lebanon|Libya|Malaysia|Mali|Mexico|Moldova|Morocco|Myanmar|Nepal|Netherlands|New Zealand|Nicaragua|Nigeria|North Korea|Norway|Oman|Pakistan|Palestine|Panama|Paraguay|Peru|Philippines|Poland|Portugal|Qatar|Romania|Russia|Saudi Arabia|Senegal|Serbia|Somalia|South Africa|South Korea|Spain|Sri Lanka|Sudan|Sweden|Switzerland|Syria|Taiwan|Tanzania|Thailand|Tunisia|Turkey|Uganda|Ukraine|United Kingdom|Uruguay|Venezuela|Vietnam|Yemen|Zimbabwe)\s*)/i;
+  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\(wdtv\/gray\s+news\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[A-Za-z]{1,4}(?:\.[A-Za-z]{1,4})?\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]\s*|(?:^|\n|\.\s+)[A-Z][A-Z\s]{1,25},\s*(?:United Arab Emirates|Afghanistan|Albania|Algeria|Argentina|Australia|Austria|Azerbaijan|Bahrain|Bangladesh|Belarus|Belgium|Bolivia|Bosnia|Brazil|Cambodia|Canada|Chile|China|Colombia|Croatia|Cuba|Cyprus|Denmark|Ecuador|Egypt|Ethiopia|Finland|France|Germany|Ghana|Greece|Guatemala|Haiti|Honduras|Hungary|India|Indonesia|Iran|Iraq|Ireland|Israel|Italy|Jamaica|Japan|Jordan|Kazakhstan|Kenya|Kuwait|Lebanon|Libya|Malaysia|Mali|Mexico|Moldova|Morocco|Myanmar|Nepal|Netherlands|New Zealand|Nicaragua|Nigeria|North Korea|Norway|Oman|Pakistan|Palestine|Panama|Paraguay|Peru|Philippines|Poland|Portugal|Qatar|Romania|Russia|Saudi Arabia|Senegal|Serbia|Somalia|South Africa|South Korea|Spain|Sri Lanka|Sudan|Sweden|Switzerland|Syria|Taiwan|Tanzania|Thailand|Tunisia|Turkey|Uganda|Ukraine|United Kingdom|Uruguay|Venezuela|Vietnam|Yemen|Zimbabwe)\s*)/i;
 
 
 /**

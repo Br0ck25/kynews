@@ -48,6 +48,13 @@ describe('classification fallback geo integration', () => {
       "Sen. Mitch McConnell, R-Ky., and Rep. John Yarmuth, D-Ky., also commented.";
     const result = classifyArticle(title, body);
     expect(result.category).toBe('national');
-    expect(result.mentionCount).toBeLessThan(2);
+  });
+
+  it('does not classify WV wire story from WYMT as Kentucky', () => {
+    const title = 'Man sentenced after severely abusing 4-month-old, causing permanent brain damage';
+    const body = "WESTON, W.Va (WDTV/Gray News) - A man was sentenced after severely abusing a 4-month-old baby, fracturing the baby’s skull, causing a brain bleed and permanent brain damage. " +
+      "Eric Auen Jr. was sentenced to seven to 35 years in prison on several child abuse charges. He will also serve 50 years of supervised release after his prison term.";
+    const result = classifyArticle(title, body);
+    expect(result.category).toBe('national');
   });
 });

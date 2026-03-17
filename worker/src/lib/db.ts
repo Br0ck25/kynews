@@ -1,5 +1,5 @@
 import type { ArticleListResponse, ArticleRecord, Category, NewArticle } from '../types';
-import { normalizeCountyList } from './geo';
+import { normalizeCountyList, escapeRegExp } from './geo';
 import { normalizeCanonicalUrl } from './http';
 
 // cache results of PRAGMA table_info lookups.  D1 has a very small
@@ -312,7 +312,8 @@ export function generateSeoSlug(
   county: string | null | undefined,
   publishedAt: string,
 ): string {
-  const year = new Date(publishedAt).getFullYear().toString();
+  // Use UTC year so slugs are consistent regardless of deployment timezone.
+  const year = new Date(publishedAt).getUTCFullYear().toString();
 
   const countyPrefix = county
     ? county
@@ -625,7 +626,23 @@ export async function updateArticleContent(
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
   const binds: unknown[] = [];
 
+  // If the article's slug was auto-generated we should keep it in sync with the
+  // title (and county). Otherwise the URL can become stale after edits.
+  let updateSlug: string | null = null;
   if (patch.title !== undefined) {
+    const existing = await prepare(env, 'SELECT title, county, published_at, slug FROM articles WHERE id = ?')
+      .bind(id)
+      .first<{ title: string; county: string | null; published_at: string; slug: string | null }>();
+    if (existing && existing.slug) {
+      const expectedBase = generateSeoSlug(existing.title, existing.county, existing.published_at);
+      // If the current slug looks like it was auto-generated from the title/county/year,
+      // keep it in sync when the title changes.
+      if (existing.slug.startsWith(expectedBase)) {
+        const baseSlug = generateSeoSlug(patch.title.trim().slice(0, 500), existing.county, existing.published_at);
+        updateSlug = await ensureUniqueSlug(env, baseSlug);
+      }
+    }
+
     sets.push('title = ?');
     binds.push(patch.title.trim().slice(0, 500));
   }
@@ -639,6 +656,11 @@ export async function updateArticleContent(
     sets.push('image_url = ?');
     // allow null or trimmed string
     binds.push(patch.imageUrl ? patch.imageUrl.trim().slice(0, 2000) : null);
+  }
+
+  if (updateSlug) {
+    sets.push('slug = ?');
+    binds.push(updateSlug);
   }
 
   if (sets.length === 1) return;
@@ -1144,6 +1166,10 @@ export async function updateArticleClassification(
   // reclassification should also bump the RSS cache version
   const normalizedCounty = normalizeCountyName(patch.county);
 
+  // Do not update the slug when changing classification/county. Keeping the
+  // original slug stable avoids breaking existing links, even if the route
+  // URL changes from /news/national/... to /news/kentucky/....
+
   // When the caller doesn't provide `isNational` we want to preserve the
   // existing value instead of blindly setting it to `0`.  The old behavior
   // treated `undefined` as `false`, which could clear a previously-tagged
@@ -1216,6 +1242,9 @@ export async function updateArticlePrimaryCounty(
   // include the article
   const normalizedCounty = normalizeCountyName(county);
 
+  // Do not update the slug when changing the primary county. Keeping the
+  // existing slug stable avoids breaking existing article links.
+
   // update the article row; we do not mutate is_kentucky here unless
   // clearing the last county.
   await prepare(env, 'UPDATE articles SET county = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
@@ -1253,6 +1282,12 @@ export async function updateArticlePrimaryCounty(
         .bind(id, normalizedCounty)
         .run();
     }
+  }
+
+  if (updateSlug) {
+    await prepare(env, 'UPDATE articles SET slug = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(updateSlug, id)
+      .run();
   }
 
   const result = await getArticleById(env, id);

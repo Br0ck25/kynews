@@ -218,6 +218,55 @@ describe('Bot HTML SEO requirements', () => {
 		expect(html).toContain(`<meta property="og:image" content="${ARTICLE_IMAGE}"`);
 	});
 
+	it('updates slug when title is changed for auto-generated slugs', async () => {
+		// Use a fixed published date to make the generated slug predictable.
+		const now = '2026-01-01T00:00:00.000Z';
+		const sourceHash = 'hash-slug-update-001';
+		await insertArticle([
+			'https://example.com/article/old-headlines',
+			'https://example.com/article/old-headlines',
+			sourceHash,
+			'Old Headlines',
+			null,
+			now,
+			'today',
+			1,
+			0,
+			'Perry',
+			'hazard',
+			'Old summary',
+			'Old seo desc',
+			100,
+			20,
+			'Old content',
+			'<p>Old content</p>',
+			null,
+			null,
+			null,
+			'perry-old-headlines-2026',
+			null,
+		]);
+
+		const row = await env.ky_news_db
+			.prepare('SELECT id, slug FROM articles WHERE url_hash = ?')
+			.bind(sourceHash)
+			.first<{ id: number; slug: string }>();
+		expect(row).not.toBeNull();
+		const originalSlug = row.slug;
+
+		const { updateArticleContent } = await import('../src/lib/db');
+		await updateArticleContent(env, row.id, { title: 'New Headlines' });
+
+		const updated = await env.ky_news_db
+			.prepare('SELECT title, slug FROM articles WHERE id = ?')
+			.bind(row.id)
+			.first<{ title: string; slug: string }>();
+		expect(updated).not.toBeNull();
+		expect(updated.title).toBe('New Headlines');
+		expect(updated.slug).not.toBe(originalSlug);
+		expect(updated.slug).toContain('new-headlines');
+	});
+
 	// ── Twitter ───────────────────────────────────────────────────────────────
 
 	it('contains twitter:site set to @LocalKYNews', () => {
