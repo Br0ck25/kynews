@@ -277,10 +277,26 @@ export default function WeatherAlertsTab({ service }) {
         const expires = p.expires_at ? ` (expires ${formatExpires(p.expires_at)})` : "";
         lines.push(`  • ${title}${area ? ` – ${area}` : ""}${expires}`);
 
-        // include a short snippet from the saved post text for additional context
-        const snippet = (p.post_text || "").split("\n").filter(Boolean).slice(0, 2).join(" ");
+        // include a more useful snippet from the saved post text.
+        // Remove NWS header fields (Area/Expires/Severity) and hashtags,
+        // then show the first meaningful line or two.
+        const textLines = (p.post_text || "")
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .filter(
+            (l) =>
+              !/^#/i.test(l) &&
+              !/^Area:/i.test(l) &&
+              !/^Expires:/i.test(l) &&
+              !/^Severity:/i.test(l)
+          );
+        if (textLines.length > 0 && textLines[0].toUpperCase() === textLines[0]) {
+          textLines.shift();
+        }
+        const snippet = textLines.slice(0, 2).join(" ");
         if (snippet) {
-          const trimmed = snippet.length > 180 ? snippet.slice(0, 177) + "..." : snippet;
+          const trimmed = snippet.length > 220 ? snippet.slice(0, 217) + "..." : snippet;
           lines.push(`    ${trimmed}`);
         }
       }
