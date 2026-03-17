@@ -756,7 +756,7 @@ export async function classifyArticleWithAi(
   // not tied to a specific county.  In those cases we should not fall back to
   // the source's default county even though the city is in
   // HIGH_AMBIGUITY_CITIES and would otherwise trigger the fallback.
-  const isLouisvilleDateline = /LOUISVILLE,?\s*Ky\b/i.test(semanticLeadText);
+  const isLouisvilleDateline = /\bLOUISVILLE,?\s*Ky\b/i.test(semanticLeadText);
 
   // If the article explicitly lists counties (even in a shared suffix list),
   // avoid falling back to the source default county (e.g. Jefferson for wave3.com)
@@ -1150,7 +1150,8 @@ export async function classifyArticleWithAi(
     // national wire article to be treated as Kentucky.
     if (isAlwaysNational) {
       const strongTextEvidence =
-        relevance.mentionCount >= 2 && /\b(?:kentucky|ky)\b/i.test(semanticLeadText);
+        (relevance.mentionCount >= 2 || isLouisvilleDateline) &&
+        /\b(?:kentucky|ky)\b/i.test(semanticLeadText);
       if (!strongTextEvidence || !aiIsKentucky) {
         fallback.isKentucky = false;
         fallback.county = null;

@@ -322,6 +322,7 @@ export const HIGH_AMBIGUITY_CITIES = new Set([
   'smith',        // Smith County, TN; very common surname; maps to Harlan KY
   'bowling green',// Bowling Green, OH / MO / WI etc.; requires explicit KY context
   'covington',    // Covington, VA / GA / TN / IN / OH — currently in classify.ts but should be here
+  'athens',       // Athens, GA (and other states); frequently appears in Georgia wire stories (e.g. Piedmont Athens Regional)
   'waterford',    // Waterford, CT / other states; requires explicit KY context
 ]);
 
@@ -611,7 +612,9 @@ export function detectCity(input) {
       }
     }
 
-    if (!hasLocationSignals && !hasKentuckyContext && likelyCount < 2) {
+    // Special-case: avoid misclassifying GA wire stories that mention
+    // "Piedmont Athens Regional" (a Georgia hospital) as a Kentucky "Athens".
+    if (city === 'athens' && normalized.includes('piedmont athens')) {
       continue;
     }
 

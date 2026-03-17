@@ -325,11 +325,25 @@ Some storm/alert stories use a shared suffix list ("X, Y and Z counties") which 
 **File:** `worker/src/lib/classify.ts`
 
 **What changed:**
+- Fixed a bug where the Louisville-dateline detection regex contained an unexpected control character, causing `LOUISVILLE, Ky.` leads to be missed.
 - Added a regression test so that articles starting with a Louisville dateline ("LOUISVILLE, Ky. —") are classified as Kentucky rather than national, even when the body text does not include a second KY mention.
 - Ensured the classifier does *not* fall back to the source default county (Jefferson) when a clear KY dateline is present, preventing incorrect title suffixes.
 
 **Why:**
 Several crash/traffic/road-condition stories begin with a Louisville dateline and contain only a single explicit "Ky." mention. Previously the classifier required multiple KY signals and would incorrectly tag such stories as national, causing the UI to show the wrong section and summary styling.
+
+---
+
+### Change 23 — Prevent Georgia wire stories mentioning Piedmont Athens from being tagged Kentucky (2026-03-17 16:xx UTC)
+
+**File:** `worker/src/lib/geo.ts`
+
+**What changed:**
+- Added a special-case guard so that “Piedmont Athens Regional” (a Georgia hospital) does not trigger a Kentucky “Athens” city match.
+- Added a regression test ensuring a Gray News/ANF story datelined Atlanta remains classified as national even if the AI suggests Kentucky.
+
+**Why:**
+A wire story about a Georgia crash referenced “Piedmont Athens Regional,” which caused the geo detector to incorrectly identify "Athens" as Kentucky (Fayette County) and tag the article as Kentucky. This fix prevents that false local classification.
 
 ---
 

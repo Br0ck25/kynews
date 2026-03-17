@@ -1483,6 +1483,41 @@ describe('classification utilities', () => {
 			expect(classification.category).toBe('national');
 		});
 
+		// wlky.com sometimes publishes genuine Louisville news; the classifier
+		// should not force such stories into the national bucket simply because
+		// the domain is on the always-national list.
+		it('allows local wlky.com stories with a Louisville dateline to be treated as Kentucky', async () => {
+			const originalAi = env.AI;
+			env.AI = { run: vi.fn().mockResolvedValue({ response: JSON.stringify({ category: 'today', isKentucky: true, counties: [] }) }) } as any;
+
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://wlky.com/news/parade-accident',
+				title: "Woman killed in Kentucky St. Patrick's Day parade float accident described as 'force for good'",
+				content: 'LOUISVILLE, Ky. — The coroner has identified the woman who died after getting stuck on a float during the parade.',
+			});
+
+			env.AI = originalAi;
+
+			expect(classification.isKentucky).toBe(true);
+			expect(classification.category).not.toBe('national');
+		});
+
+		it('does not misclassify Georgia wire stories mentioning Piedmont Athens as Kentucky', async () => {
+			const originalAi = env.AI;
+			env.AI = { run: vi.fn().mockResolvedValue({ response: JSON.stringify({ category: 'today', isKentucky: true, counties: ['Fayette'] }) }) } as any;
+
+			const classification = await classifyArticleWithAi(env, {
+				url: 'https://wymt.com/2026/03/17/grandfather-killed-after-being-pinned-under-ambulance-while-helping-17-year-old-grandson/',
+				title: 'Grandfather killed after being pinned under ambulance while helping 17-year-old grandson',
+				content: 'ATLANTA (ANF/Gray News) — A grandfather in Georgia has died and his grandson suffered serious injuries after being pinned under an ambulance over the weekend. Schoon was airlifted from Piedmont Athens Regional to Children’s Healthcare of Atlanta’s Arthur M. Blank Hospital.',
+			});
+
+			env.AI = originalAi;
+
+			expect(classification.isKentucky).toBe(false);
+			expect(classification.category).toBe('national');
+		});
+
 		// ensure Indiana stories mentioning Floyd County don't get mis-tagged
 		it('does not assign Floyd County for stories about Floyd County, Indiana', async () => {
 			const classification = await classifyArticleWithAi(env, {
