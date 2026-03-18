@@ -313,6 +313,19 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   'pbs.org',
 ]);
 
+// Sources that cover both Ohio and Northern Kentucky (Cincinnati/NKY border
+// area). For these sources, classifying an article as Kentucky requires either:
+//   (a) an explicit KY city or county detected in the article text, OR
+//   (b) "Northern Kentucky" spelled out in the article body.
+// This prevents Cincinnati, Ohio articles from being tagged Kentucky via
+// site-chrome branding alone — nkytribune.com's "Northern Kentucky Tribune"
+// footer/copyright text counts as a Kentucky keyword match yet the story may
+// be entirely about Cincinnati (an Ohio city).
+const REQUIRES_EXPLICIT_KY_GEO = new Set<string>([
+  'nkytribune.com',  // Northern Kentucky Tribune — covers both NKY and Cincinnati OH
+  'linknky.com',     // LinkNKY — NKY multi-county source, often covers Cincinnati metro
+]);
+
 // Wire/national sources where county should only be assigned when
 // explicitly evidenced in the article — never from sidebar/nav bleed.
 const COUNTY_REQUIRES_EXPLICIT_EVIDENCE = new Set<string>([  // note: pbs.org moved to ALWAYS_NATIONAL_SOURCES
@@ -385,6 +398,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'paducahsun.com': 'McCracken',
   'murrayledger.com': 'Calloway',
   'mayfield-messenger.com': 'Graves',
+  'owensborotimes.com': 'Daviess',  // Owensboro Times — Daviess County hyperlocal
   // Louisville Metro
   'wdrb.com': 'Jefferson',
   'wave3.com': 'Jefferson',
@@ -623,9 +637,23 @@ export async function classifyArticleWithAi(
 
   // Determine whether this article should be treated as Kentucky. We rely on
   // actual KY signals in the text rather than just the source's default county.
+
+  // For Cincinnati/NKY border sources (nkytribune.com, linknky.com), the
+  // "Kentucky" keyword may only appear in site-chrome branding (e.g. the
+  // "Northern Kentucky Tribune" footer copyright).  Require an actual KY geo
+  // (city or county detected in text) OR "Northern Kentucky" spelled out in
+  // the article body before classifying as Kentucky.  Without this guard a
+  // Cincinnati, Ohio award article published by NKY Tribune would inherit the
+  // Kentucky flag purely from "Northern Kentucky Tribune" in the page footer.
+  const requiresExplicitKyGeo = REQUIRES_EXPLICIT_KY_GEO.has(hostname);
+  const hasExplicitKyGeoOrNKY =
+    !!(detectedKyGeo.county || detectedKyGeo.city) ||
+    /\bnorthern\s+kentucky\b/i.test(cleanContent.slice(0, 3000));
+
   const baseIsKentucky =
     (relevance.category === 'kentucky' || hasKhsaa || detectedKyGeo.isKentucky) &&
-    !isAlwaysNational;
+    !isAlwaysNational &&
+    (!requiresExplicitKyGeo || hasExplicitKyGeoOrNKY);
 
   // County/city detection pipeline (issue #6):
   // 1. If the article text contains a county name, detectCounty returns it.

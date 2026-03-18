@@ -835,5 +835,94 @@ The old threshold rejected 2-word sentences like "First sentence." (2 words, 15 
 |---|---|
 | Facebook posts look weak with only 1–3 sentences | Use prose + bullet layout: 2 prose paragraphs, up to 3 bullets, 1 closing — gives more information without overwhelming |
 | County hashtag unclear (`#Warren` could be many states) | Always use `#CountyNameCountyKY` format for unambiguous state-scoped discoverability |
-| `generateFacebookHook` drops legitimate 2-word sentences | Hook guard must use `< 2 words` not `< 3 words`; length guard must be tiny (< 5 chars) to catch only true stubs |
+| `generateFacebookHook` drops legitimate 2-word sentences | Hook guard must use `< 2 words` not `< 3 words`; length guard must use tiny (< 5 chars) to catch only true stubs |
 | Obituaries should not be posted to Facebook | Return `''` from `generateFacebookCaption` and `generateFacebookHashtags` when `category === 'obituaries'` |
+
+---
+
+## 2026-03-18 — Two fixes: NKY Tribune Cincinnati false KY tag; Owensboro Times missing county
+
+---
+
+### Change 37 — Add `REQUIRES_EXPLICIT_KY_GEO` guard for Cincinnati/NKY border sources (2026-03-18)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Added a new `REQUIRES_EXPLICIT_KY_GEO` set containing `nkytribune.com` and `linknky.com`.
+- For these sources, `baseIsKentucky` now additionally requires either:
+  - (a) an explicit KY city or county detected in the article text (`detectedKyGeo.county || detectedKyGeo.city`), OR
+  - (b) "Northern Kentucky" spelled out verbatim in the first 3,000 characters of the article body.
+- Without this guard, the bare "Kentucky" keyword from site-chrome (e.g. "Northern Kentucky Tribune" appearing in a footer copyright line) was sufficient to set `baseIsKentucky = true` even when the article had zero Kentucky geographic content.
+
+**Article that triggered this fix:**
+- *Midwest Living's Best of the Midwest names Cincinnati one of Best Cities in Midwest* from `nkytribune.com` — tagged Kentucky despite being entirely about Cincinnati, Ohio. No KY city, county, or "Northern Kentucky" phrase appeared in the article body; only the "Northern Kentucky Tribune" brand name in the footer provided the keyword.
+
+**Root cause:**
+`nkytribune.com` is the Northern Kentucky Tribune. Its scraped page content includes "Northern Kentucky Tribune" in footer copyright lines (e.g. "Copyright 2026 Northern Kentucky Tribune") which are > 4 words and therefore NOT filtered by the `countKentuckyMentions` nav guard. These lines push the KY mention count to ≥ 2, causing `classifyArticle` to return `category: 'kentucky'`. Even when `classifyArticle` correctly returns `'national'` (e.g. if the multi-state guard fires on "Ohio" from "Ohio River"), `detectKentuckyGeo(semanticText)` still returns `isKentucky: true` from the same chrome text. Since `baseIsKentucky` combines `relevance.category === 'kentucky'` **OR** `detectedKyGeo.isKentucky`, either path alone is sufficient to mark the article Kentucky — even when the article body is entirely about an Ohio city.
+
+**Why this fix is safe for genuine NKY Tribune Kentucky articles:**
+- Articles about crimes, schools, or events in KY cities (Covington, Florence, Newport, etc.) will have a KY city detected by `detectCity` → `detectedKyGeo.city` is non-null → condition (a) passes → `baseIsKentucky = true` ✓
+- Articles about "Northern Kentucky" as a region (e.g. "Northern Kentucky businesses growing") contain "Northern Kentucky" in the body text → condition (b) passes → `baseIsKentucky = true` ✓
+- The Cincinnati award article has neither: no KY city/county detected, no "Northern Kentucky" in body → `baseIsKentucky = false` → correctly national ✓
+
+**Implementation:**
+```typescript
+const requiresExplicitKyGeo = REQUIRES_EXPLICIT_KY_GEO.has(hostname);
+const hasExplicitKyGeoOrNKY =
+  !!(detectedKyGeo.county || detectedKyGeo.city) ||
+  /\bnorthern\s+kentucky\b/i.test(cleanContent.slice(0, 3000));
+
+const baseIsKentucky =
+  (relevance.category === 'kentucky' || hasKhsaa || detectedKyGeo.isKentucky) &&
+  !isAlwaysNational &&
+  (!requiresExplicitKyGeo || hasExplicitKyGeoOrNKY);
+```
+
+---
+
+### Change 38 — Add `owensborotimes.com` to `SOURCE_DEFAULT_COUNTY` (2026-03-18)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+```diff
+  // Western Kentucky
+  'paducahsun.com': 'McCracken',
+  'murrayledger.com': 'Calloway',
+  'mayfield-messenger.com': 'Graves',
++ 'owensborotimes.com': 'Daviess',  // Owensboro Times — Daviess County hyperlocal
+```
+
+**Article that triggered this fix:**
+- *OPD: 17-year-old charged with murder in Orchard Street shooting* from `owensborotimes.com` — tagged Kentucky but assigned no county. owensborotimes.com exclusively covers Owensboro (Daviess County) and should always receive a county tag.
+
+**Root cause:**
+`owensborotimes.com` was absent from `SOURCE_DEFAULT_COUNTY`. The article's geo detection path produced `county = null` in scenarios where:
+1. The scraped page lacked a "Kentucky"/"KY" context signal → Warren County (from "Warren County Juvenile Detention Center") was not detected because `AMBIGUOUS_COUNTY_NAMES` requires `hasKentuckyContext = true` for ambiguous county names.
+2. Without an explicit county match, `hasExplicitCountyMention = false` → `effectiveGeoCounty = null`.
+3. `detectCity` found "owensboro" (non-HIGH_AMBIGUITY) → source-default fallback path was skipped (source default only applies when no city is found or city is ambiguous).
+4. If the AI then failed or returned `isKentucky: false`, `return fallback` produced `{county: null}`.
+
+Adding `'Daviess'` as the source default provides a fallback in the `mergedCounty` path via `aiGeo.county` and the source-default-when-no-had-geo path:
+```
+mergedCounty = fallback.county ?? aiCounty ?? aiGeo.county ??
+               (mergedIsKentucky && !hadGeo ? allowedSourceDefaultCounty : null)
+```
+
+**Why Daviess:**
+Owensboro is the county seat of Daviess County, Kentucky. owensborotimes.com is a hyperlocal news publication exclusively covering Owensboro and Daviess County. It publishes no content outside this area.
+
+**Note on the Warren County / Daviess County ordering issue:**
+The specific murder article mentioned "Warren County Juvenile Detention Center" (where the suspect was lodged), which is in Warren County — a different county from Owensboro (Daviess). When `hasKentuckyContext = true`, `detectAllCounties` may assign Warren as primary (it appears first as an explicit "X County" match). The AI is expected to override this to Daviess because the crime occurred in Owensboro, not Warren County. Adding the source default ensures Daviess is available as a fallback even when the AI path fails.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| NKY/OH border source (nkytribune.com, linknky.com) with Cincinnati-focused article | Add source to `REQUIRES_EXPLICIT_KY_GEO`; brand footer "Northern Kentucky Tribune" is not a geographic Kentucky signal |
+| Site-chrome KY keyword bypassing nav filter | Lines with ≤4 words are filtered but copyright lines like "Copyright 2026 Northern Kentucky Tribune" (5 words) slips through — the `REQUIRES_EXPLICIT_KY_GEO` guard is the correct fix, not lengthening the filter threshold |
+| New hyperlocal KY source with no county tag | Add to `SOURCE_DEFAULT_COUNTY` immediately with the correct county; do not wait for geo detection failures to surface |
+| Detention facility county ≠ crime scene county | AI correctly overrides geo when crime scene city (Owensboro) is named; source default provides backstop when AI fails |

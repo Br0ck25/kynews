@@ -3065,6 +3065,20 @@ describe('ingestSingleUrl error handling', () => {
 		vi.restoreAllMocks();
 	});
 
+	it('rejects ingesting from blocked sources like AFP', async () => {
+		await ensureSchemaAndFixture();
+
+		// Verify we never attempt a network fetch when the source is blocked.
+		const originalFetch = global.fetch;
+		global.fetch = async () => { throw new Error('network should not be called'); };
+
+		const res = await __testables.ingestSingleUrl(env, { url: 'https://news.afp.com/article' });
+		expect(res.status).toBe('rejected');
+		expect(res.reason).toMatch(/blocked/i);
+
+		global.fetch = originalFetch;
+	});
+
 	it('does not optimize title for manual ingests', async () => {
 		await ensureSchemaAndFixture();
 
@@ -5030,6 +5044,276 @@ describe('admin facebook post endpoint', () => {
 		expect(lastBody).toContain('picture=https%3A%2F%2Ffoo.bar%2Fimage.jpg');
 
 		global.fetch = originalFetch;
+	});
+});
+
+describe('digest ranking', () => {
+	it('scores statewide Kentucky hard news above minor local announcements', () => {
+		const statewideStory = {
+			id: 1,
+			title: "Kentucky lawmakers override Gov. Beshear's school choice tax credit veto",
+			slug: 'kentucky-lawmakers-override-veto',
+			county: null,
+			category: 'today',
+			is_kentucky: 1,
+			is_national: 1,
+			published_at: null,
+		};
+		const minorLocalStory = {
+			id: 2,
+			title: 'DCPS names Dych director of secondary schools — Daviess County, KY',
+			slug: 'dcps-names-dych',
+			county: 'Daviess',
+			category: 'today',
+			is_kentucky: 1,
+			is_national: 0,
+			published_at: null,
+		};
+
+		expect(__testables.scoreArticle(statewideStory)).toBeGreaterThan(
+			__testables.scoreArticle(minorLocalStory),
+		);
+	});
+
+	it('puts statewide hard-news stories ahead of lower-value local items in the morning digest', async () => {
+		await ensureSchemaAndFixture();
+		await env.ky_news_db.prepare(`DELETE FROM articles`).run();
+		await env.ky_news_db.prepare(`DELETE FROM article_counties`).run();
+
+		const insertDigestArticle = async (article: {
+			urlHash: string;
+			title: string;
+			publishedAt: string;
+			county: string | null;
+			isNational: number;
+			slug: string;
+		}) => {
+			await env.ky_news_db.prepare(`
+				INSERT INTO articles (
+					canonical_url, source_url, url_hash, title, author, published_at, category,
+					is_kentucky, is_national, county, city, summary, seo_description, raw_word_count,
+					summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`).bind(
+				`https://example.com/${article.slug}`,
+				'https://example.com',
+				article.urlHash,
+				article.title,
+				null,
+				article.publishedAt,
+				'today',
+				1,
+				article.isNational,
+				article.county,
+				null,
+				'Summary',
+				'SEO description',
+				150,
+				80,
+				'Content body for digest ranking test',
+				'<p>Content body for digest ranking test</p>',
+				null,
+				null,
+				article.slug,
+				`${article.urlHash}-content`,
+			).run();
+		};
+
+		await insertDigestArticle({
+			urlHash: 'digest-weather',
+			title: 'Springtime weather whiplash in Kentucky creates unique challenges for drivers and road crews',
+			publishedAt: '2026-03-18T05:42:48.000Z',
+			county: 'Fayette',
+			isNational: 0,
+			slug: 'springtime-weather-whiplash',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-dcps',
+			title: 'DCPS names Dych director of secondary schools — Daviess County, KY',
+			publishedAt: '2026-03-18T05:15:00.000Z',
+			county: 'Daviess',
+			isNational: 0,
+			slug: 'dcps-names-dych',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-newport',
+			title: 'Newport Syndicate to expand its Gangster Speakeasy Murder Mystery Dinner Series',
+			publishedAt: '2026-03-18T04:42:22.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'newport-syndicate-murder-mystery',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-bowling-green',
+			title: 'Bowling Green City Commission approves proposal for City Hall renovations — Warren County, KY',
+			publishedAt: '2026-03-18T03:43:01.000Z',
+			county: 'Warren',
+			isNational: 0,
+			slug: 'bowling-green-city-hall-renovations',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-hosparus',
+			title: 'Hosparus Health holds annual Senior Resource Summit — Warren County, KY',
+			publishedAt: '2026-03-18T03:42:44.000Z',
+			county: 'Warren',
+			isNational: 0,
+			slug: 'hosparus-senior-resource-summit',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-veto',
+			title: "Kentucky lawmakers override Gov. Beshear's school choice tax credit veto",
+			publishedAt: '2026-03-18T02:23:18.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'kentucky-lawmakers-override-veto',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-veto-followup',
+			title: 'Kentucky school choice bill set to become law after Senate overrides Beshear veto',
+			publishedAt: '2026-03-18T00:55:00.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'kentucky-school-choice-bill-set-to-become-law',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-lexington',
+			title: 'Lexington Police investigating Tuesday evening shooting that left one man with injuries — Fayette County, KY',
+			publishedAt: '2026-03-18T02:00:03.000Z',
+			county: 'Fayette',
+			isNational: 0,
+			slug: 'lexington-police-investigating-shooting',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-pulaski',
+			title: 'Pulaski County man charged in double murder of father, grandfather set to change plea',
+			publishedAt: '2026-03-18T01:55:50.000Z',
+			county: 'Pulaski',
+			isNational: 0,
+			slug: 'pulaski-county-double-murder-plea',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-senate-debate',
+			title: "Democrats running for Kentucky's open US Senate seat spar in debate",
+			publishedAt: '2026-03-18T01:35:00.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'kentucky-open-us-senate-debate',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-senate-debate-2',
+			title: 'Democratic candidates in Kentucky Senate race debate ICE, Israel and affordability',
+			publishedAt: '2026-03-18T02:35:13.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'kentucky-senate-race-debate-ice-israel-affordability',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-senate-debate-3',
+			title: 'Kentucky Democrats land all across political spectrum in U.S. Senate debate',
+			publishedAt: '2026-03-18T02:50:00.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'kentucky-democrats-land-all-across-political-spectrum',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-senate-analyst',
+			title: 'Political analyst: As May primary approaches, GOP U.S. Senate race is still up for grabs',
+			publishedAt: '2026-03-18T00:22:36.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'political-analyst-gop-us-senate-race-still-up-for-grabs',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-kids-resolution',
+			title: "'Kids Over Guns' resolution reintroduced by Metro Council — Jefferson County, KY",
+			publishedAt: '2026-03-18T03:18:00.000Z',
+			county: 'Jefferson',
+			isNational: 0,
+			slug: 'kids-over-guns-resolution-reintroduced-metro-council',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-opd-murder',
+			title: 'OPD: 17-year-old charged with murder in Orchard Street shooting',
+			publishedAt: '2026-03-17T23:55:12.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'opd-17-year-old-charged-with-murder',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-drug-arrests',
+			title: '5 arrested after drugs located inside Eastern Kentucky Correctional Complex',
+			publishedAt: '2026-03-17T22:46:38.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'five-arrested-drugs-eastern-kentucky-correctional-complex',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-sexual-offense',
+			title: 'Kentucky State Penitentiary caseworker facing sexual offense charges',
+			publishedAt: '2026-03-17T22:05:31.000Z',
+			county: 'Crittenden',
+			isNational: 0,
+			slug: 'kentucky-state-penitentiary-caseworker-sexual-offense-charges',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-wynters-law',
+			title: "Kentucky Senate approves Wynter's Law to strengthen state's Amber Alert system",
+			publishedAt: '2026-03-17T23:15:57.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'kentucky-senate-approves-wynters-law',
+		});
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-03-18T11:45:00.000Z'));
+
+		try {
+			const text = await __testables.generateDigestText(env as any, 'morning');
+			const bullets = text
+				.split('\n')
+				.filter((line) => line.startsWith('• '))
+				.map((line) => line.slice(2).trim());
+			const schoolChoiceStories = bullets.filter((line) =>
+				/\bschool choice\b|\btax credit veto\b/i.test(line),
+			);
+			const senateDebateStories = bullets.filter((line) =>
+				/\bsenate\b.*\bdebate\b|\bdebate\b.*\bsenate\b/i.test(line),
+			);
+
+			expect(bullets.slice(0, 3)).toContain(
+				"Kentucky lawmakers override Gov. Beshear's school choice tax credit veto",
+			);
+			expect(
+				bullets.indexOf("Kentucky lawmakers override Gov. Beshear's school choice tax credit veto"),
+			).toBeLessThan(
+				bullets.indexOf('DCPS names Dych director of secondary schools — Daviess County, KY'),
+			);
+			expect(schoolChoiceStories).toHaveLength(1);
+			expect(senateDebateStories).toHaveLength(1);
+			expect(bullets).toContain('Kentucky Democrats land all across political spectrum in U.S. Senate debate');
+			expect(bullets).toContain('OPD: 17-year-old charged with murder in Orchard Street shooting');
+			expect(bullets).toContain('5 arrested after drugs located inside Eastern Kentucky Correctional Complex');
+			expect(bullets).toContain('Kentucky State Penitentiary caseworker facing sexual offense charges');
+			expect(bullets).toContain("Kentucky Senate approves Wynter's Law to strengthen state's Amber Alert system");
+			expect(bullets).not.toContain("Democrats running for Kentucky's open US Senate seat spar in debate");
+			expect(bullets).not.toContain(
+				'Democratic candidates in Kentucky Senate race debate ICE, Israel and affordability',
+			);
+			expect(bullets).not.toContain(
+				'Political analyst: As May primary approaches, GOP U.S. Senate race is still up for grabs',
+			);
+			expect(bullets).not.toContain(
+				'Kentucky school choice bill set to become law after Senate overrides Beshear veto',
+			);
+			expect(bullets).not.toContain(
+				"'Kids Over Guns' resolution reintroduced by Metro Council — Jefferson County, KY",
+			);
+			expect(bullets).not.toContain(
+				'Bowling Green City Commission approves proposal for City Hall renovations — Warren County, KY',
+			);
+			expect(bullets).not.toContain('Hosparus Health holds annual Senior Resource Summit — Warren County, KY');
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 // tests for server-side social preview route

@@ -75,6 +75,20 @@ function deriveAuthorFromHostname(sourceUrl: string): string | null {
   }
 }
 
+const BLOCKED_SOURCE_HOSTNAMES = new Set([
+  'afp.com',
+  'news.afp.com',
+]);
+
+function isBlockedSourceUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === 'afp.com' || hostname.endsWith('.afp.com') || BLOCKED_SOURCE_HOSTNAMES.has(hostname);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Rejoin military/professional rank abbreviations that get split across
  * paragraph boundaries when some CMS systems wrap each word in its own <p>.
@@ -95,7 +109,20 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   // fetch, readability work, or expensive AI classification.  It also helps
   // avoid CPU‑limit loops caused by retrying messages that refer to an
   // article already inserted under the same canonical form.
-  const sourceUrlHash = await sha256Hex(normalizeCanonicalUrl(source.url));
+  const normalizedUrl = normalizeCanonicalUrl(source.url);
+
+  // Explicitly block certain sources (e.g. paid wire services) to avoid
+  // creating articles from those publishers.
+  if (isBlockedSourceUrl(normalizedUrl)) {
+    const urlHash = await sha256Hex(normalizedUrl);
+    return {
+      status: 'rejected',
+      reason: 'source blocked',
+      urlHash,
+    };
+  }
+
+  const sourceUrlHash = await sha256Hex(normalizedUrl);
   const preflightDuplicate = await findArticleByHash(env, sourceUrlHash);
   if (preflightDuplicate) {
     return {

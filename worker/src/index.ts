@@ -5558,53 +5558,16 @@ type DigestRow = {
   category: string;
   is_kentucky: number;
   is_national: number;
+  published_at: string | null;
 };
 
-function scoreArticle(row: DigestRow, index: number): number {
-  let score = 0;
+function scoreArticle(row: DigestRow): number {
+  const title = (row.title ?? '').replace(/[\r\n]+/g, ' ').trim();
 
-  // Recency: diminishing bonus, not dominant
-  score += Math.max(0, 6 - index);
-
-  // High-value categories
-  const HIGH_VALUE = ['crime', 'government', 'emergency', 'economy', 'education', 'health', 'politics'];
-  if (HIGH_VALUE.includes((row.category ?? '').toLowerCase())) score += 8;
-
-  // Extra bump for the highest-value hard news categories
-  const HARD_NEWS = ['crime', 'government'];
-  if (HARD_NEWS.includes((row.category ?? '').toLowerCase())) score += 4;
-
-  // Statewide stories with no county miss the county bonus — partially
-  // compensate when the story is clearly high-value government/political
-  // so important statewide news can still compete with local stories.
-  const STATEWIDE_BOOST_PATTERNS = [
-    /\bgovernor\b/i,
-    /\blegislature\b|\blegislative\b/i,
-    /\bgeneral\s+assembly\b/i,
-    /\bstate\s+(senate|house|budget|police|trooper)\b/i,
-    /\bsupreme\s+court\b/i,
-    /\battorney\s+general\b/i,
-    /\bky\s+department\b|\bkentucky\s+department\b/i,
-  ];
-  if (
-    !row.county &&
-    row.is_kentucky &&
-    STATEWIDE_BOOST_PATTERNS.some((p) => p.test(row.title ?? ''))
-  ) {
-    score += 4;
-  }
-
-  // Local Kentucky stories preferred
-  if (row.is_kentucky) score += 5;
-
-  // Prefer local over national stories
-  if (row.is_national) score -= 12;
-
-  // Stories with a specific county are more local
-  if (row.county) score += 5;
-
-  // Penalize auto-generated weather summaries slightly so they don't always lead
-  if ((row.category ?? '').toLowerCase() === 'weather') score -= 4;
+  // Statewide Kentucky coverage often has `is_national = 1` because it is not
+  // pinned to a single county. Keep those stories eligible for the hard-news
+  // bonuses below, but still sink truly non-Kentucky national items.
+  if (row.is_national && !row.is_kentucky) return -10;
 
   const FILLER_PATTERNS = [
     /student achiever/i,
@@ -5615,25 +5578,130 @@ function scoreArticle(row: DigestRow, index: number): number {
     /\bholiday\s+(parade|event|festival|celebration)\b/i,
     /\bfun\s+fact\b/i,
     /\bthis\s+week('?s)?\s+(events?|things?\s+to\s+do)\b/i,
+    /\bcelebrat(es?|ing|ion).{0,40}(birthday|anniversary|festival|jubilee)/i,
+    /\b250th\b|\b100th\b|\b75th\b/i,
+    /\bmusic\s+festival\b|\bconcert\b|\blive\s+music\b/i,
+    /\bthings\s+to\s+do\b/i,
+    /\brecipe\b|\bcooking\b|\bfood\s+festival\b/i,
+    /\bmurder\s+mystery\b/i,
+    /\bdinner\s+(series|theater|theatre|show|event)\b/i,
+    /\bopinion\b|\bop-?ed\b|\bcommentary\b|\bcolumn\b/i,
+    /\bcitizens?\s+group\s+hosts?\b/i,
+    /\bforum\s+for\b/i,
+    /\bexpand(s|ing)?\s+its\b/i,
+    /\bspeakeasy\b|\bgangster\b/i,
+    /\b5k\s*,?\s*(walk|run)\b/i,
+    /\bkaraoke\b/i,
+    /\bweathers?\s+.{0,20}snowstorm\b/i,
+    /\bweather\s+whiplash\b/i,
+    /\bpolitical\s+analyst\b/i,
+    /\bwomen\s+in\s+business\b/i,
+    /\bnew\s+celtic\b|\bnew\s+.{0,15}arts?\s+scene\b/i,
+    /\birish\s+musician\b/i,
+    /\bbest\s+of\s+\w+\s+(voting|vote|award)\b/i,
+    /\bvoting\s+is\s+open\b/i,
+    /\bcast\s+your?\s+vote\b/i,
+    /\bto\s+appear\s+on\b/i,
+    /\bfamily\s+feud\b|\bwheel\s+of\s+fortune\b|\bjeopardy\b/i,
+    /\breality\s+(tv|show|series)\b/i,
+    /\btv\s+show\b|\btelevision\s+show\b/i,
+    /\bendometriosis\b|\bawareness\s+month\b/i,
+    /\b(promotes?|named?)\s+.{0,30}\bvice\s+president\b/i,
+    /\bnamed?\s+(next|new)\s+(principal|superintendent|director|chief)\b/i,
+    /\bchurchill\s+downs\b/i,
   ];
-  if (FILLER_PATTERNS.some((p) => p.test(row.title ?? ''))) score -= 6;
+
+  const MINOR_PATTERNS = [
+    /\bnames?\s+\w+\s+(director|principal|superintendent|chief|officer|coordinator)\b/i,
+    /\bpromotes?\s+\w+\s+to\b/i,
+    /\bhires?\s+new\b/i,
+    /\bappoints?\s+\w+\s+(as|to)\b/i,
+    /\bannual\s+.{0,30}(summit|gala|luncheon|banquet|dinner|meeting|gathering|conference)\b/i,
+    /\bhosts?\s+(annual|its\s+\d+|a\s+free|free)\b/i,
+    /\bpresents?\s+a\s+new\b/i,
+    /\brenovations?\b/i,
+    /\broad\s+(work|clos|construction|project)\b/i,
+    /\btraffic\s+(impact|delay|update)\b/i,
+    /\bcelebration\s+of\s+america\b/i,
+    /\bstudent\s+(art|showcase|exhibit)\b/i,
+    /\bhonors?\s+(husband|wife|teacher|veteran)\s+through\b/i,
+    /\bapproves?\s+proposal\b/i,
+    /\bbuilding\s+new\s+.{0,20}(scene|center|facility|park|trail)\b/i,
+    /\bpromotes?\s+\w[\w\s]{0,30}to\s+(senior|vice|executive|assistant)\b/i,
+    /\bpolitical\s+analyst\b/i,
+    /\bup\s+for\s+grabs\b/i,
+    /\bresolution\s+reintroduced\b/i,
+    /\breintroduced\s+by\s+metro\s+council\b/i,
+  ];
+
+  let score = 0;
+
+  if (FILLER_PATTERNS.some((p) => p.test(title))) {
+    score -= 20;
+  } else if (MINOR_PATTERNS.some((p) => p.test(title))) {
+    score -= 10;
+  }
+
+  if (row.is_kentucky) score += 5;
+  if (row.county) score += 2;
+
+  const HIGH_VALUE_PATTERNS: Array<{ pattern: RegExp; bonus: number }> = [
+    { pattern: /\bmurder\b/i,                                              bonus: 20 },
+    { pattern: /\bhomicide\b/i,                                            bonus: 20 },
+    { pattern: /\bdouble\s+murder\b/i,                                     bonus:  6 },
+    { pattern: /\bshot\s+and\s+(killed|dead)\b/i,                          bonus: 20 },
+    { pattern: /\bshooting\b/i,                                            bonus: 15 },
+    { pattern: /\bstabbing\b|\bstabbed\b/i,                                bonus: 15 },
+    { pattern: /\bsexual\s+(offense|assault|abuse)\b/i,                    bonus: 18 },
+    { pattern: /\bhomeless\s+.{0,20}(dead|killed|found)\b/i,              bonus: 12 },
+    { pattern: /\bdrug(s)?\s+(located|found|seized|bust|trafficking)\b/i,  bonus: 14 },
+    { pattern: /\bmeth\b|\bfentanyl\b|\bheroin\b|\bcocaine\b/i,            bonus:  8 },
+    { pattern: /\b\d+\s+arrested\b/i,                                      bonus: 12 },
+    { pattern: /\barrested\b/i,                                            bonus:  8 },
+    { pattern: /\bcharged\s+(with|in)\b/i,                                 bonus:  8 },
+    { pattern: /\bindicted\b/i,                                            bonus: 12 },
+    { pattern: /\bfacing\s+.{0,20}(charge|count|offense)\b/i,             bonus: 10 },
+    { pattern: /\bgovernor\b|\bbeshear\b/i,                                bonus: 12 },
+    { pattern: /\bveto\b|\boverride\b/i,                                   bonus: 15 },
+    { pattern: /\blawmakers?\s+(override|pass|approve|vote|advance)\b/i,   bonus: 14 },
+    { pattern: /\blegislature\b|\bgeneral\s+assembly\b/i,                  bonus:  7 },
+    { pattern: /\bu\.?s\.?\s+senate\b|\bsenate\s+(race|seat)\b|\bcongress(ional)?\b/i, bonus:  7 },
+    { pattern: /\bhouse\s+bill\b|\bsenate\s+bill\b|\bhb\s*\d+\b|\bsb\s*\d+\b/i, bonus: 6 },
+    { pattern: /\bdebate\b/i,                                              bonus:  5 },
+    { pattern: /\bamber\s+alert\b/i,                                       bonus: 20 },
+    { pattern: /\bmissing\s+(child|teen|person)\b/i,                       bonus: 15 },
+    { pattern: /\bevacu(ation|ate)\b/i,                                    bonus: 15 },
+    { pattern: /\bwater\s+(outage|contamination|boil)\b/i,                 bonus:  7 },
+    { pattern: /\bpower\s+outage\b/i,                                      bonus:  5 },
+    { pattern: /\brecords?\s+reveal\b|\binvestigation\s+reveals?\b/i,      bonus:  7 },
+    { pattern: /\bdied\s+in\s+(custody|jail|prison)\b/i,                   bonus: 15 },
+    { pattern: /\bunder\s+investigation\b/i,                               bonus:  6 },
+    { pattern: /\bfederal\s+(charges?|indictment|investigation)\b/i,       bonus: 14 },
+    { pattern: /\blawsuit\b/i,                                             bonus:  4 },
+    { pattern: /\bschool\s+choice\b/i,                                     bonus:  6 },
+    { pattern: /\btax\s+(credit|cut|increase|hike)\b/i,                    bonus:  5 },
+    { pattern: /\bbudget\s+(cut|shortfall|crisis)\b/i,                     bonus:  6 },
+  ];
+
+  for (const { pattern, bonus } of HIGH_VALUE_PATTERNS) {
+    if (pattern.test(title)) score += bonus;
+  }
+
+  if (score > 0 && row.published_at) {
+    const hoursOld = (Date.now() - new Date(row.published_at).getTime()) / 3_600_000;
+    score += Math.max(0, Math.round(4 - hoursOld));
+  }
 
   return score;
 }
 
-const HOME_COUNTY = 'Calloway';
-
 function buildIntroSentence(rows: DigestRow[], when: 'morning' | 'evening'): string {
   const topRows = rows.slice(0, 10);
-  const hasHomeCounty = topRows.some(r => r.county === HOME_COUNTY);
   const uniqueCounties = [...new Set(topRows.map(r => r.county).filter((c): c is string => !!c))];
   const hasMultipleRegions = uniqueCounties.length >= 3;
   const hasStatewide = topRows.some(r => r.is_kentucky && !r.county);
 
   if (when === 'morning') {
-    if (hasHomeCounty && hasMultipleRegions) {
-      return `From ${HOME_COUNTY} County to communities across the Commonwealth, here are the top stories making news in Kentucky this morning.`;
-    }
     if (hasStatewide && hasMultipleRegions) {
       return `From local communities to statewide news, here are the stories Kentucky is waking up to this morning.`;
     }
@@ -5645,9 +5713,6 @@ function buildIntroSentence(rows: DigestRow[], when: 'morning' | 'evening'): str
     }
     return `From across the Commonwealth, here are the top stories making news in Kentucky this morning.`;
   } else {
-    if (hasHomeCounty && hasMultipleRegions) {
-      return `From ${HOME_COUNTY} County to communities across the Commonwealth, here are the top stories from today in Kentucky.`;
-    }
     if (hasStatewide && hasMultipleRegions) {
       return `From local headlines to statewide developments, here's what shaped Kentucky today.`;
     }
@@ -5663,21 +5728,124 @@ function buildIntroSentence(rows: DigestRow[], when: 'morning' | 'evening'): str
 
 function deduplicateByTitle(rows: DigestRow[]): DigestRow[] {
   const kept: DigestRow[] = [];
+  const TOKEN_ALIASES: Record<string, string> = {
+    candidates: 'candidate',
+    charged: 'charge',
+    charges: 'charge',
+    democratic: 'democrat',
+    democrats: 'democrat',
+    injuries: 'injury',
+    lawmakers: 'lawmaker',
+    overrides: 'override',
+    republicans: 'republican',
+  };
+
   const normalize = (t: string) =>
-    t.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter((w) => w.length >= 5);
+    t
+      .toLowerCase()
+      .replace(/['’]s\b/g, '')
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .split(/\s+/)
+      .map((w) => TOKEN_ALIASES[w] ?? w)
+      .filter((w) => w.length >= 4);
+
+  const buildFeatures = (title: string) => {
+    const tokens = normalize(title);
+    return {
+      words: new Set(tokens),
+      bigrams: new Set(tokens.slice(0, -1).map((word, idx) => `${word} ${tokens[idx + 1]}`)),
+    };
+  };
 
   for (const row of rows) {
-    const words = new Set(normalize(row.title));
+    const features = buildFeatures(row.title);
     const isDuplicate = kept.some((k) => {
-      const kWords = new Set(normalize(k.title));
-      const overlap = [...words].filter((w) => kWords.has(w)).length;
-      const minLen = Math.min(words.size, kWords.size);
-      return minLen > 0 && overlap / minLen >= 0.75;
+      const other = buildFeatures(k.title);
+      const tokenOverlap = [...features.words].filter((w) => other.words.has(w)).length;
+      const bigramOverlap = [...features.bigrams].filter((bg) => other.bigrams.has(bg)).length;
+      const minLen = Math.min(features.words.size, other.words.size);
+
+      return (
+        (minLen > 0 && tokenOverlap / minLen >= 0.75) ||
+        (bigramOverlap >= 1 && tokenOverlap >= 3) ||
+        tokenOverlap >= 4
+      );
     });
     if (!isDuplicate) kept.push(row);
   }
 
   return kept;
+}
+
+function inferDigestTopic(title: string): string | null {
+  const text = title.toLowerCase();
+
+  if (/\bschool\s+choice\b|\btax\s+credit\s+veto\b|\bhouse\s+bill\s+1\b/.test(text)) {
+    return 'school-choice';
+  }
+  if (/\bu\.?s\.?\s+senate\b|\bsenate\s+(race|seat)\b|\bsenate\s+debate\b/.test(text)) {
+    return 'us-senate-race';
+  }
+  if (/\bamber\s+alert\b|\bwynter'?s\s+law\b/.test(text)) {
+    return 'amber-alert';
+  }
+
+  return null;
+}
+
+function inferDigestDesk(row: DigestRow): 'public-safety' | 'government' | 'election' | 'weather' | 'other' {
+  const title = (row.title ?? '').toLowerCase();
+
+  if (/\bu\.?s\.?\s+senate\b|\bsenate\s+(race|seat)\b|\bprimary\b/.test(title)) {
+    return 'election';
+  }
+  if (/\bweather\b|\bstorm\b|\bsnow\b|\brain\b|\bwind\b|\btornado\b|\bflood\b/.test(title)) {
+    return 'weather';
+  }
+  if (/\bmurder\b|\bhomicide\b|\bshooting\b|\bstabbing\b|\barrested\b|\bcharged\b|\bindicted\b|\bsexual\s+offense\b|\bamber\s+alert\b|\bmissing\s+(child|teen|person)\b|\bdrugs?\b/.test(title)) {
+    return 'public-safety';
+  }
+  if (/\bgovernor\b|\bbeshear\b|\bveto\b|\boverride\b|\blawmakers?\b|\blegislature\b|\bgeneral\s+assembly\b|\bhouse\s+bill\b|\bsenate\s+bill\b|\bresolution\b/.test(title)) {
+    return 'government';
+  }
+
+  return 'other';
+}
+
+function selectDigestRows(scoredRows: Array<{ row: DigestRow; score: number }>, limit: number): DigestRow[] {
+  const selected: Array<{ row: DigestRow; score: number }> = [];
+  const deferred: Array<{ row: DigestRow; score: number }> = [];
+  const topicCounts = new Map<string, number>();
+  const deskCounts = new Map<string, number>();
+
+  for (const candidate of scoredRows) {
+    const topic = inferDigestTopic(candidate.row.title);
+    const desk = inferDigestDesk(candidate.row);
+    const sameTopicAlreadyUsed = !!topic && (topicCounts.get(topic) ?? 0) >= 1;
+    const electionAlreadyUsed = desk === 'election' && (deskCounts.get(desk) ?? 0) >= 1;
+
+    if (sameTopicAlreadyUsed || electionAlreadyUsed) {
+      deferred.push(candidate);
+      continue;
+    }
+
+    selected.push(candidate);
+    if (topic) topicCounts.set(topic, (topicCounts.get(topic) ?? 0) + 1);
+    deskCounts.set(desk, (deskCounts.get(desk) ?? 0) + 1);
+
+    if (selected.length >= limit) {
+      return selected.map((entry) => entry.row);
+    }
+  }
+
+  for (const candidate of deferred) {
+    selected.push(candidate);
+    if (selected.length >= limit) {
+      break;
+    }
+  }
+
+  return selected.slice(0, limit).map((entry) => entry.row);
 }
 
 /**
@@ -5706,7 +5874,7 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 	const datePrefixNext = `${nextYear}-${nextMonth}-${nextDay2}`;
 
 	const result = await prepare(env,
-		`SELECT id, title, slug, county, category, is_kentucky, is_national
+		`SELECT id, title, slug, county, category, is_kentucky, is_national, published_at
 		 FROM articles
 		 WHERE category = 'today'
 		   AND slug IS NOT NULL
@@ -5725,24 +5893,14 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 
 	const dedupedRows = deduplicateByTitle(rows);
 
-	let scored = [...dedupedRows]
-		.map((r, index) => ({ row: r, score: scoreArticle(r, index) }))
-		.sort((a, b) => b.score - a.score)
-		.map((x) => x.row);
+	const scored = [...dedupedRows]
+		.map((r) => ({ row: r, score: scoreArticle(r) }))
+		.sort((a, b) => b.score - a.score);
 
-	// Pin a Calloway County story into the top 3 if one isn't already there
-	const topThreeHasCalloway = scored.slice(0, 3).some((r) => r.county === HOME_COUNTY);
-	if (!topThreeHasCalloway) {
-		const callowayIdx = scored.findIndex((r) => r.county === HOME_COUNTY);
-		if (callowayIdx > 2) {
-			// Swap the lowest-scoring of the top 3 with the first Calloway story
-			const [callowayStory] = scored.splice(callowayIdx, 1);
-			scored.splice(2, 0, callowayStory);
-		}
-	}
+	const rankedRows = selectDigestRows(scored, 7);
 
-	const top  = scored.slice(0, 3);
-	const more = scored.slice(3, 7);
+	const top  = rankedRows.slice(0, 3);
+	const more = rankedRows.slice(3, 7);
 
 	const intro = buildIntroSentence(dedupedRows, when);
 
@@ -5891,30 +6049,53 @@ async function postDigestToFacebook(env: Env, text: string, when?: 'morning' | '
 
 async function maybeRunDigest(env: Env): Promise<void> {
   if (!env.CACHE) return;
-  const parts = new Intl.DateTimeFormat('en-US', {
+
+  // Parse the current Eastern Time into components we need for window checks
+  // and for the per-day dedup key.
+  const etParts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
     hour12: false,
     hour: 'numeric',
     minute: 'numeric',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   }).formatToParts(new Date());
-  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10);
-  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+  const hour   = parseInt(etParts.find((p) => p.type === 'hour')?.value   ?? '0', 10);
+  const minute = parseInt(etParts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+  const year   = etParts.find((p) => p.type === 'year')?.value  ?? '';
+  const month  = etParts.find((p) => p.type === 'month')?.value ?? '';
+  const day    = etParts.find((p) => p.type === 'day')?.value   ?? '';
+  const todayEt = `${year}-${month}-${day}`;
 
-  // 6:45 AM — generate digest and set autopost flag to 'pending'
-  if (hour === 6 && minute === 45) {
-    const text = await generateDigestText(env, 'morning');
-    const entry = { text, generatedAt: new Date().toISOString() };
-    await env.CACHE.put('admin:digest:morning', JSON.stringify(entry));
-    await env.CACHE.put(
-      'admin:digest:morning:autopost',
-      JSON.stringify({ status: 'pending', scheduledFor: '7:00 AM', generatedAt: new Date().toISOString() }),
-      { expirationTtl: 3600 }
-    );
-    console.log(`[DIGEST] Generated morning digest, autopost pending`);
+  // ── MORNING GENERATE: 6:30–6:59 AM ET ──────────────────────────────────────
+  // Runs on every cron tick in this window (every minute) but a KV dedup flag
+  // ensures the digest is only generated once per calendar day.  Widening from
+  // a single-minute check to a 30-minute window means a missed cron tick can
+  // never silently prevent the morning post from firing.
+  if (hour === 6 && minute >= 30) {
+    const generatedKey = `admin:digest:morning:generated:${todayEt}`;
+    const alreadyGenerated = await env.CACHE.get(generatedKey);
+    if (!alreadyGenerated) {
+      const text = await generateDigestText(env, 'morning');
+      const entry = { text, generatedAt: new Date().toISOString() };
+      await env.CACHE.put('admin:digest:morning', JSON.stringify(entry));
+      await env.CACHE.put(
+        'admin:digest:morning:autopost',
+        JSON.stringify({ status: 'pending', scheduledFor: '7:00 AM', generatedAt: new Date().toISOString() }),
+        { expirationTtl: 7200 },
+      );
+      // Mark as generated for today so later ticks in this window are no-ops.
+      await env.CACHE.put(generatedKey, '1', { expirationTtl: 3600 * 8 });
+      console.log(`[DIGEST] Generated morning digest for ${todayEt}, autopost pending at 7:00 AM`);
+    }
   }
 
-  // 7:00 AM — auto-post morning if still pending
-  if (hour === 7 && minute === 0) {
+  // ── MORNING POST: 7:00–7:14 AM ET ──────────────────────────────────────────
+  // Attempts to post on every tick in this 15-minute window.  The status
+  // transitions from 'pending' → 'posted'|'failed' on the first successful
+  // attempt, so later ticks in the window are automatically skipped.
+  if (hour === 7 && minute <= 14) {
     const raw = await env.CACHE.get('admin:digest:morning:autopost');
     if (raw) {
       const flag = JSON.parse(raw) as { status: string };
@@ -5932,7 +6113,7 @@ async function maybeRunDigest(env: Env): Promise<void> {
           await env.CACHE.put(
             'admin:digest:morning:autopost',
             JSON.stringify(newFlag),
-            { expirationTtl: 3600 }
+            { expirationTtl: 7200 },
           );
           console.log(`[DIGEST] Morning auto-post ${isSuccess ? 'succeeded' : 'failed'}`);
         }
@@ -5940,21 +6121,26 @@ async function maybeRunDigest(env: Env): Promise<void> {
     }
   }
 
-  // 5:45 PM — generate evening digest and set autopost flag to 'pending'
-  if (hour === 17 && minute === 45) {
-    const text = await generateDigestText(env, 'evening');
-    const entry = { text, generatedAt: new Date().toISOString() };
-    await env.CACHE.put('admin:digest:evening', JSON.stringify(entry));
-    await env.CACHE.put(
-      'admin:digest:evening:autopost',
-      JSON.stringify({ status: 'pending', scheduledFor: '6:00 PM', generatedAt: new Date().toISOString() }),
-      { expirationTtl: 3600 }
-    );
-    console.log(`[DIGEST] Generated evening digest, autopost pending`);
+  // ── EVENING GENERATE: 5:30–5:59 PM ET ─────────────────────────────────────
+  if (hour === 17 && minute >= 30) {
+    const generatedKey = `admin:digest:evening:generated:${todayEt}`;
+    const alreadyGenerated = await env.CACHE.get(generatedKey);
+    if (!alreadyGenerated) {
+      const text = await generateDigestText(env, 'evening');
+      const entry = { text, generatedAt: new Date().toISOString() };
+      await env.CACHE.put('admin:digest:evening', JSON.stringify(entry));
+      await env.CACHE.put(
+        'admin:digest:evening:autopost',
+        JSON.stringify({ status: 'pending', scheduledFor: '6:00 PM', generatedAt: new Date().toISOString() }),
+        { expirationTtl: 7200 },
+      );
+      await env.CACHE.put(generatedKey, '1', { expirationTtl: 3600 * 8 });
+      console.log(`[DIGEST] Generated evening digest for ${todayEt}, autopost pending at 6:00 PM`);
+    }
   }
 
-  // 6:00 PM — auto-post evening if still pending
-  if (hour === 18 && minute === 0) {
+  // ── EVENING POST: 6:00–6:14 PM ET ─────────────────────────────────────────
+  if (hour === 18 && minute <= 14) {
     const raw = await env.CACHE.get('admin:digest:evening:autopost');
     if (raw) {
       const flag = JSON.parse(raw) as { status: string };
@@ -5972,7 +6158,7 @@ async function maybeRunDigest(env: Env): Promise<void> {
           await env.CACHE.put(
             'admin:digest:evening:autopost',
             JSON.stringify(newFlag),
-            { expirationTtl: 3600 }
+            { expirationTtl: 7200 },
           );
           console.log(`[DIGEST] Evening auto-post ${isSuccess ? 'succeeded' : 'failed'}`);
         }
@@ -6175,6 +6361,8 @@ export const __testables = {
 	runIngest,
 	// make ingestSingleUrl available for unit tests
 	ingestSingleUrl,
+	scoreArticle,
+	generateDigestText,
 	isAdminAuthorized,
 	// article update helpers
 	checkArticleUpdates,
