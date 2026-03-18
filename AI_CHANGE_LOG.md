@@ -926,3 +926,96 @@ The specific murder article mentioned "Warren County Juvenile Detention Center" 
 | Site-chrome KY keyword bypassing nav filter | Lines with ≤4 words are filtered but copyright lines like "Copyright 2026 Northern Kentucky Tribune" (5 words) slips through — the `REQUIRES_EXPLICIT_KY_GEO` guard is the correct fix, not lengthening the filter threshold |
 | New hyperlocal KY source with no county tag | Add to `SOURCE_DEFAULT_COUNTY` immediately with the correct county; do not wait for geo detection failures to surface |
 | Detention facility county ≠ crime scene county | AI correctly overrides geo when crime scene city (Owensboro) is named; source default provides backstop when AI fails |
+
+---
+
+## 2026-03-18 — Two fixes: AFP canonical URL bypass; WLKY national wire tagged Kentucky
+
+---
+
+### Change 39 — Check canonical URL against blocked sources after fetch (2026-03-18)
+
+**File:** `worker/src/lib/ingest.ts`
+
+**What changed:**
+Added a second `isBlockedSourceUrl` check immediately after `fetchAndExtractArticle` returns, comparing against `extracted.canonicalUrl`. The first check (against `normalizedUrl = source.url`) was already in place; this adds a complementary check for the canonical URL that the page itself declares.
+
+```typescript
+if (
+  extracted.canonicalUrl !== normalizedUrl &&
+  isBlockedSourceUrl(extracted.canonicalUrl)
+) {
+  return { status: 'rejected', reason: 'source blocked (canonical)', urlHash };
+}
+```
+
+**Article that triggered this fix:**
+- An article from `news.afp.com` (AFP international wire) was tagged Kentucky and posted, despite `news.afp.com` and `afp.com` being in `BLOCKED_SOURCE_HOSTNAMES`.
+
+**Root cause:**
+The AFP article arrived via an RSS feed from another domain (e.g. a local Kentucky TV station that syndicates AFP content). The `source.url` (the RSS entry URL) came from the local station's domain and therefore passed the `isBlockedSourceUrl(normalizedUrl)` check. After `fetchAndExtractArticle` fetched and parsed the page, Readability extracted the canonical URL (`<link rel="canonical">` or `<meta property="og:url">`) pointing to `news.afp.com/...`. This canonical URL was never checked against the block list — it was sent directly to `classifyArticleWithAi` with `hostname = 'news.afp.com'`. Since `news.afp.com` was not in `ALWAYS_NATIONAL_SOURCES`, the AFP article went through normal classification and could be tagged Kentucky if the article text mentioned any KY content.
+
+**Why this fix is safe:**
+The check skips the equality guard (`extracted.canonicalUrl !== normalizedUrl`) so that direct ingests from a blocked domain that produce a self-referencing canonical URL continue to be caught by the first check. The second check only fires when the canonical URL is genuinely different from (and more authoritative than) the source URL.
+
+---
+
+### Change 40 — Add `afp.com` / `news.afp.com` to `ALWAYS_NATIONAL_SOURCES` (2026-03-18)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+```diff
++ // afp.com / news.afp.com — Agence France-Presse international wire service.
++ 'afp.com',
++ 'news.afp.com',
+```
+
+**Why:**
+Defence in depth: even if a future code path bypasses the ingestion block check (e.g. manual /api/admin/ingest called with an AFP URL), the classification step will still refuse to tag AFP content as Kentucky unless there is overwhelming geographic evidence (≥2 KY mentions plus AI confirmation). The ingest block is the primary gate; ALWAYS_NATIONAL_SOURCES is the backstop.
+
+---
+
+### Change 41 — Add `washington` to `NON_KY_DATELINE_RE` pattern 3; make line-start optional (2026-03-18)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Added `washington` to the known-non-KY city list in pattern 3 of `NON_KY_DATELINE_RE`.
+- Changed pattern 3's prefix from `(?:^|\n|\.\s+)` (line-start required) to `(?:^|\n|\.\s+)?` (optional). This allows the pattern to match mid-paragraph occurrences of any listed city followed by a dash.
+
+**Articles that triggered this fix:**
+- *Watch live: Markwayne Mullin faces confirmation hearing as Trump's DHS pick* from `wlky.com` — tagged Kentucky despite a clear `WASHINGTON —` dateline and `By REBECCA SANTANA, Associated Press` byline.
+
+**Root cause:**
+When WLKY's Readability-parsed article text places the byline and dateline on one paragraph line (e.g. `...Associated Press WASHINGTON — Markwayne Mullin...`), the `WASHINGTON —` text is not preceded by a newline or sentence-ending period + space. The three NON_KY_DATELINE_RE patterns all required `(?:^|\n|\.\s+)` before the city name:
+- Pattern 1: explicit `(?:^|\n|\.\s+)WASHINGTON` — fails for inline WASHINGTON
+- Pattern 2: `(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25}, STATE —` — not applicable (no state suffix)
+- Pattern 3 (cities list): `(?:^|\n|\.\s+)\b(?:los angeles|...)` — did not include `washington` and required line-start
+
+`NATIONAL_WIRE_OVERRIDE_RE` does match `\bwashington\s*...[-—–]\s*` inline (using `\b` not line-start), correctly setting `isNationalWireStory = true`. But the override block that forces `isKentucky = false` requires `hasNonKyDateline = true`:
+```typescript
+if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline)) {
+  fallback.isKentucky = false;
+  ...
+}
+```
+Because `hasNonKyDateline = false` (and `hasOnlyPoliticianKyMention = false` since no KY politicians are mentioned in the Mullin article), this block never fired. `fallback.isKentucky` remained `true` from WLKY's site-chrome KY navigation text (the WLKY page includes Louisville/Kentucky references in header/footer). Then `if (isNationalWireStory || ...) { return fallback }` returned the fallback early with `isKentucky = true`.
+
+**Why `washington` is safe in the non-KY city list:**
+Washington, KY (Mason County) is a tiny unincorporated community that has never been the subject of a `CITY —` wire dateline. All major AP/Reuters/AFP/wire stories with a `WASHINGTON —` dateline refer to Washington, DC. The negative lookaheads in patterns 1 and 2 and the dash-requirement in pattern 3 provide sufficient specificity that "Washington Street" or "Washington County" (a real KY county) will not match — only `washington —` followed by a dash will fire.
+
+**Safety for genuine Kentucky AP stories:**
+When a legitimate KY-AP story starts with "FRANKFORT, Ky. (AP) —", pattern 2 of `NON_KY_DATELINE_RE` has a negative lookahead `(?!ky\b|kentucky\b)` that prevents it from matching. "Frankfort" is not in pattern 3's city list and "washington" does not appear in those articles. So genuine KY AP wire stories are unaffected.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| Wire-service article (AFP/AP/Reuters) arriving via a local-TV syndication URL | The canonical URL may differ from the RSS source URL; always check `extracted.canonicalUrl` against `isBlockedSourceUrl` after fetch |
+| AFP content slipping through ingestion block | Defence in depth: add `afp.com` / `news.afp.com` to `ALWAYS_NATIONAL_SOURCES` as a backstop classification guard |
+| `isNationalWireStory = true` but `hasNonKyDateline = false` | Root cause: NON_KY_DATELINE_RE required `(?:^|\n|\.\s+)` before the city name but WLKY/Hearst CMS often presents byline + dateline as one paragraph without a newline; fix is to add the city to pattern 3 with optional line-start prefix |
+| `WASHINGTON —` dateline inline (no preceding newline) | Add `washington` to pattern 3 city list with `(?:^|\n|\.\s+)?` (optional prefix); the `[-—–]` after the city is specific enough to avoid false matches on "Washington Street" |
+| AP wire story on a local TV station (WLKY, WHAS11) tagged Kentucky | Trace whether `isNationalWireStory` fired AND whether `hasNonKyDateline` fired; both must be true for the override to work — if the dateline is inline (no line break), only pattern 3 catches it |

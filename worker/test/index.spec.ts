@@ -5075,6 +5075,173 @@ describe('digest ranking', () => {
 		);
 	});
 
+	it('does not treat "murder mystery" entertainment headlines as hard-news crime stories', () => {
+		const hardNewsCrimeStory = {
+			id: 11,
+			title: 'One charged in W Sixth Street Shooting — Fayette County, KY',
+			slug: 'one-charged-w-sixth-street-shooting',
+			county: 'Fayette',
+			category: 'today',
+			is_kentucky: 1,
+			is_national: 0,
+			published_at: null,
+		};
+		const entertainmentStory = {
+			id: 12,
+			title: 'Newport Syndicate to expand its Gangster Speakeasy Murder Mystery Dinner Series',
+			slug: 'newport-syndicate-murder-mystery',
+			county: null,
+			category: 'today',
+			is_kentucky: 1,
+			is_national: 0,
+			published_at: null,
+		};
+
+		expect(__testables.scoreArticle(hardNewsCrimeStory)).toBeGreaterThan(
+			__testables.scoreArticle(entertainmentStory),
+		);
+		expect(__testables.scoreArticle(entertainmentStory)).toBeLessThanOrEqual(0);
+	});
+
+	it('prioritizes service-member casualty headlines over routine policy items', () => {
+		const serviceMemberCasualtyStory = {
+			id: 13,
+			title: 'President Trump will pay his respects to six US service members killed in the Middle East',
+			slug: 'president-trump-pay-respects-service-members-killed-middle-east',
+			county: null,
+			category: 'today',
+			is_kentucky: 1,
+			is_national: 0,
+			published_at: null,
+		};
+		const routinePolicyStory = {
+			id: 14,
+			title: 'Union formally opposes state bills over local control, taxes and permitting authority — Boone County, KY',
+			slug: 'union-formally-opposes-state-bills-local-control-taxes-permitting',
+			county: 'Boone',
+			category: 'today',
+			is_kentucky: 1,
+			is_national: 0,
+			published_at: null,
+		};
+
+		expect(__testables.scoreArticle(serviceMemberCasualtyStory)).toBeGreaterThan(
+			__testables.scoreArticle(routinePolicyStory),
+		);
+	});
+
+	it('allows one Kentucky-qualified national digest link and blocks other national links', async () => {
+		await ensureSchemaAndFixture();
+		await env.ky_news_db.prepare(`DELETE FROM articles`).run();
+		await env.ky_news_db.prepare(`DELETE FROM article_counties`).run();
+
+		const insertDigestArticle = async (article: {
+			urlHash: string;
+			title: string;
+			publishedAt: string;
+			county: string | null;
+			isNational: number;
+			slug: string;
+		}) => {
+			await env.ky_news_db.prepare(`
+				INSERT INTO articles (
+					canonical_url, source_url, url_hash, title, author, published_at, category,
+					is_kentucky, is_national, county, city, summary, seo_description, raw_word_count,
+					summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`).bind(
+				`https://example.com/${article.slug}`,
+				'https://example.com',
+				article.urlHash,
+				article.title,
+				null,
+				article.publishedAt,
+				'today',
+				1,
+				article.isNational,
+				article.county,
+				null,
+				'Summary',
+				'SEO description',
+				150,
+				80,
+				'Content body for digest ranking test',
+				'<p>Content body for digest ranking test</p>',
+				null,
+				null,
+				article.slug,
+				`${article.urlHash}-content`,
+			).run();
+		};
+
+		await insertDigestArticle({
+			urlHash: 'digest-allow-national-veto',
+			title: "Kentucky lawmakers override Gov. Beshear's school choice tax credit veto",
+			publishedAt: '2026-03-18T02:23:18.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'kentucky-lawmakers-override-veto',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-allow-national-senate',
+			title: 'Kentucky Democrats land all across political spectrum in U.S. Senate debate',
+			publishedAt: '2026-03-18T02:20:00.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'kentucky-democrats-land-all-across-political-spectrum',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-block-national-ellen',
+			title: 'Ellen Oost appointed as Louisville Public Media’s COO',
+			publishedAt: '2026-03-18T02:10:00.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'ellen-oost-appointed-as-louisville-public-medias-coo-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-allow-local-shooting',
+			title: 'One charged in W Sixth Street Shooting — Fayette County, KY',
+			publishedAt: '2026-03-18T03:00:00.000Z',
+			county: 'Fayette',
+			isNational: 0,
+			slug: 'one-charged-w-sixth-street-shooting',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-allow-local-voter-data',
+			title: 'Louisville officials seek to block transfer of Kentuckians’ sensitive voter data to feds — Jefferson County, KY',
+			publishedAt: '2026-03-18T02:50:00.000Z',
+			county: 'Jefferson',
+			isNational: 0,
+			slug: 'louisville-officials-seek-block-transfer-kentuckians-sensitive-voter-data',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-allow-local-library',
+			title: 'Blackey library still facing flood repairs nearly 4 years later — Letcher County, KY',
+			publishedAt: '2026-03-18T02:40:00.000Z',
+			county: 'Letcher',
+			isNational: 0,
+			slug: 'blackey-library-still-facing-flood-repairs',
+		});
+
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-03-18T11:45:00.000Z'));
+
+		try {
+			const text = await __testables.generateDigestText(env as any, 'morning');
+			const links = text
+				.split('\n')
+				.map((line) => line.trim())
+				.filter((line) => line.startsWith('http'));
+			const nationalLinks = links.filter((line) => line.includes('/news/national/'));
+
+			expect(nationalLinks).toHaveLength(1);
+			expect(nationalLinks[0]).toMatch(/\/news\/national\/(?:.*-)?kentucky(?:-|$)/);
+			expect(text).not.toContain('Ellen Oost appointed as Louisville Public Media’s COO');
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('puts statewide hard-news stories ahead of lower-value local items in the morning digest', async () => {
 		await ensureSchemaAndFixture();
 		await env.ky_news_db.prepare(`DELETE FROM articles`).run();
@@ -5160,11 +5327,91 @@ describe('digest ranking', () => {
 			slug: 'hosparus-senior-resource-summit',
 		});
 		await insertDigestArticle({
+			urlHash: 'digest-hospice-garden',
+			title: 'Hospice of Southern Kentucky celebrates revitalization of memorial garden',
+			publishedAt: '2026-03-18T03:52:44.000Z',
+			county: 'Warren',
+			isNational: 0,
+			slug: 'hospice-southern-kentucky-revitalization-memorial-garden',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-purple-toad',
+			title: 'Purple Toad opens Bowling Green location — Simpson County, KY',
+			publishedAt: '2026-03-18T03:35:00.000Z',
+			county: 'Simpson',
+			isNational: 0,
+			slug: 'purple-toad-opens-bowling-green-location',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-jenkins-hotel',
+			title: 'Jenkins council backs plan for hotel at old country club — Letcher County, KY',
+			publishedAt: '2026-03-18T03:20:00.000Z',
+			county: 'Letcher',
+			isNational: 0,
+			slug: 'jenkins-council-backs-plan-hotel-old-country-club',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-louisville-day-one-insurance',
+			title: 'Louisville considering day-one health insurance coverage for new employees',
+			publishedAt: '2026-03-18T03:10:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'louisville-considering-dayone-health-insurance-coverage-new-employees',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-pet-of-day',
+			title: 'Pet of the Day: Daisy',
+			publishedAt: '2026-03-18T03:08:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'pet-day-daisy-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-pet-adoption-event',
+			title: 'Find a new friend Saturday at pet adoption event here — Letcher County, KY',
+			publishedAt: '2026-03-18T03:07:00.000Z',
+			county: 'Letcher',
+			isNational: 0,
+			slug: 'find-new-friend-saturday-pet-adoption-event-here-letcher-county-ky-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-ellen-oost',
+			title: 'Ellen Oost appointed as Louisville Public Media’s COO',
+			publishedAt: '2026-03-18T03:06:00.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'ellen-oost-appointed-as-louisville-public-medias-coo-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-magistrate-qa',
+			title: 'District 6 magistrate candidates speak at Pie and Coffee Q&A',
+			publishedAt: '2026-03-18T03:05:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'district-6-magistrate-candidates-speak-pie-coffee-qa-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-clean-sweep',
+			title: 'Bluegrass Greensource launches 13th annual Main Street Clean Sweep across Central Kentucky',
+			publishedAt: '2026-03-18T03:04:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'bluegrass-greensource-launches-13th-annual-main-street-clean-sweep-across',
+		});
+		await insertDigestArticle({
+			urlHash: 'digest-lady-cougars',
+			title: 'LADY COUGARS IN SWEET SIXTEEN — Letcher County, KY',
+			publishedAt: '2026-03-18T03:03:00.000Z',
+			county: 'Letcher',
+			isNational: 0,
+			slug: 'lady-cougars-sweet-sixteen-letcher-county-ky-2026',
+		});
+		await insertDigestArticle({
 			urlHash: 'digest-veto',
 			title: "Kentucky lawmakers override Gov. Beshear's school choice tax credit veto",
 			publishedAt: '2026-03-18T02:23:18.000Z',
 			county: null,
-			isNational: 1,
+			isNational: 0,
 			slug: 'kentucky-lawmakers-override-veto',
 		});
 		await insertDigestArticle({
@@ -5212,7 +5459,7 @@ describe('digest ranking', () => {
 			title: 'Kentucky Democrats land all across political spectrum in U.S. Senate debate',
 			publishedAt: '2026-03-18T02:50:00.000Z',
 			county: null,
-			isNational: 1,
+			isNational: 0,
 			slug: 'kentucky-democrats-land-all-across-political-spectrum',
 		});
 		await insertDigestArticle({
@@ -5268,6 +5515,10 @@ describe('digest ranking', () => {
 
 		try {
 			const text = await __testables.generateDigestText(env as any, 'morning');
+			const links = text
+				.split('\n')
+				.map((line) => line.trim())
+				.filter((line) => line.startsWith('http'));
 			const bullets = text
 				.split('\n')
 				.filter((line) => line.startsWith('• '))
@@ -5278,10 +5529,14 @@ describe('digest ranking', () => {
 			const senateDebateStories = bullets.filter((line) =>
 				/\bsenate\b.*\bdebate\b|\bdebate\b.*\bsenate\b/i.test(line),
 			);
+			const publicSafetyStories = bullets.filter((line) =>
+				/\bmurder\b|\bshooting\b|\bsexual offense\b|\barrested\b|\bamber alert\b|\bwynter'?s law\b/i.test(line),
+			);
 
 			expect(bullets.slice(0, 3)).toContain(
 				"Kentucky lawmakers override Gov. Beshear's school choice tax credit veto",
 			);
+			expect(bullets).toHaveLength(7);
 			expect(
 				bullets.indexOf("Kentucky lawmakers override Gov. Beshear's school choice tax credit veto"),
 			).toBeLessThan(
@@ -5290,10 +5545,7 @@ describe('digest ranking', () => {
 			expect(schoolChoiceStories).toHaveLength(1);
 			expect(senateDebateStories).toHaveLength(1);
 			expect(bullets).toContain('Kentucky Democrats land all across political spectrum in U.S. Senate debate');
-			expect(bullets).toContain('OPD: 17-year-old charged with murder in Orchard Street shooting');
-			expect(bullets).toContain('5 arrested after drugs located inside Eastern Kentucky Correctional Complex');
-			expect(bullets).toContain('Kentucky State Penitentiary caseworker facing sexual offense charges');
-			expect(bullets).toContain("Kentucky Senate approves Wynter's Law to strengthen state's Amber Alert system");
+			expect(publicSafetyStories.length).toBeGreaterThanOrEqual(2);
 			expect(bullets).not.toContain("Democrats running for Kentucky's open US Senate seat spar in debate");
 			expect(bullets).not.toContain(
 				'Democratic candidates in Kentucky Senate race debate ICE, Israel and affordability',
@@ -5307,10 +5559,288 @@ describe('digest ranking', () => {
 			expect(bullets).not.toContain(
 				"'Kids Over Guns' resolution reintroduced by Metro Council — Jefferson County, KY",
 			);
+			expect(bullets).not.toContain('Hospice of Southern Kentucky celebrates revitalization of memorial garden');
+			expect(bullets).not.toContain('Purple Toad opens Bowling Green location — Simpson County, KY');
 			expect(bullets).not.toContain(
-				'Bowling Green City Commission approves proposal for City Hall renovations — Warren County, KY',
+				'Jenkins council backs plan for hotel at old country club — Letcher County, KY',
 			);
-			expect(bullets).not.toContain('Hosparus Health holds annual Senior Resource Summit — Warren County, KY');
+			expect(bullets).not.toContain(
+				'Newport Syndicate to expand its Gangster Speakeasy Murder Mystery Dinner Series',
+			);
+			expect(bullets).not.toContain(
+				'Louisville considering day-one health insurance coverage for new employees',
+			);
+			expect(bullets).not.toContain('Pet of the Day: Daisy');
+			expect(bullets).not.toContain(
+				'Find a new friend Saturday at pet adoption event here — Letcher County, KY',
+			);
+			expect(bullets).not.toContain(
+				'Springtime weather whiplash in Kentucky creates unique challenges for drivers and road crews',
+			);
+			expect(bullets).not.toContain('District 6 magistrate candidates speak at Pie and Coffee Q&A');
+			expect(bullets).not.toContain(
+				'Bluegrass Greensource launches 13th annual Main Street Clean Sweep across Central Kentucky',
+			);
+			expect(bullets).not.toContain('LADY COUGARS IN SWEET SIXTEEN — Letcher County, KY');
+			expect(bullets).not.toContain('Ellen Oost appointed as Louisville Public Media’s COO');
+			const nationalLinks = links.filter((line) => line.includes('/news/national/'));
+			expect(nationalLinks.length).toBeLessThanOrEqual(1);
+			expect(
+				nationalLinks.every((line) => /\/news\/national\/(?:.*-)?kentucky(?:-|$)/.test(line)),
+			).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('prefers hard-news and policy stories from a mixed local morning pool', async () => {
+		await ensureSchemaAndFixture();
+		await env.ky_news_db.prepare(`DELETE FROM articles`).run();
+		await env.ky_news_db.prepare(`DELETE FROM article_counties`).run();
+
+		const insertDigestArticle = async (article: {
+			urlHash: string;
+			title: string;
+			publishedAt: string;
+			county: string | null;
+			isNational: number;
+			slug: string;
+		}) => {
+			await env.ky_news_db.prepare(`
+				INSERT INTO articles (
+					canonical_url, source_url, url_hash, title, author, published_at, category,
+					is_kentucky, is_national, county, city, summary, seo_description, raw_word_count,
+					summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`).bind(
+				`https://example.com/${article.slug}`,
+				'https://example.com',
+				article.urlHash,
+				article.title,
+				null,
+				article.publishedAt,
+				'today',
+				1,
+				article.isNational,
+				article.county,
+				null,
+				'Summary',
+				'SEO description',
+				150,
+				80,
+				'Content body for digest ranking test',
+				'<p>Content body for digest ranking test</p>',
+				null,
+				null,
+				article.slug,
+				`${article.urlHash}-content`,
+			).run();
+		};
+
+		await insertDigestArticle({
+			urlHash: 'pool-clean-sweep',
+			title: 'Bluegrass Greensource launches 13th annual Main Street Clean Sweep across Central Kentucky',
+			publishedAt: '2026-03-18T13:52:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'bluegrass-greensource-main-street-clean-sweep',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-prison-drugs',
+			title: 'KY prison workers face charges in drug trafficking case — Crittenden County, KY',
+			publishedAt: '2026-03-18T13:36:00.000Z',
+			county: 'Crittenden',
+			isNational: 0,
+			slug: 'ky-prison-workers-face-charges-drug-trafficking-case-crittenden',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-wanted-wednesday',
+			title: 'Wanted Wednesday: Evan Currie — Warren County, KY',
+			publishedAt: '2026-03-18T13:35:00.000Z',
+			county: 'Warren',
+			isNational: 0,
+			slug: 'wanted-wednesday-evan-currie-warren-county-ky-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-magistrate-qa',
+			title: 'District 6 magistrate candidates speak at Pie and Coffee Q&A',
+			publishedAt: '2026-03-18T13:25:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'district-6-magistrate-candidates-speak-pie-coffee-qa-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-pet-day',
+			title: 'Pet of the Day: Daisy',
+			publishedAt: '2026-03-18T13:23:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'pet-day-daisy-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-ellen-oost',
+			title: 'Ellen Oost appointed as Louisville Public Media’s COO',
+			publishedAt: '2026-03-18T13:04:00.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'ellen-oost-appointed-as-louisville-public-medias-coo-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-day-one-insurance',
+			title: 'Louisville considering day-one health insurance coverage for new employees',
+			publishedAt: '2026-03-18T13:00:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'louisville-considering-dayone-health-insurance-coverage-new-employees',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-trump-respects',
+			title: 'President Trump will pay his respects to six US service members killed in the Middle East',
+			publishedAt: '2026-03-18T12:55:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'president-trump-will-pay-his-respects-six-us-service-members-killed-middle-east',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-voter-data',
+			title: 'Louisville officials seek to block transfer of Kentuckians’ sensitive voter data to feds — Jefferson County, KY',
+			publishedAt: '2026-03-18T12:51:00.000Z',
+			county: 'Jefferson',
+			isNational: 0,
+			slug: 'louisville-officials-seek-block-transfer-kentuckians-sensitive-voter-data',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-trump-delaware',
+			title: 'Trump will pay his respects in Delaware to 6 US service members killed in the Middle East',
+			publishedAt: '2026-03-18T12:46:00.000Z',
+			county: null,
+			isNational: 1,
+			slug: 'trump-pay-respects-delaware-service-members-killed-middle-east',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-hospice-garden',
+			title: 'Hospice of Southern Kentucky celebrates revitalization of memorial garden',
+			publishedAt: '2026-03-18T12:40:00.000Z',
+			county: 'Warren',
+			isNational: 0,
+			slug: 'hospice-southern-kentucky-revitalization-memorial-garden',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-union-bills',
+			title: 'Union formally opposes state bills over local control, taxes and permitting authority — Boone County, KY',
+			publishedAt: '2026-03-18T12:30:00.000Z',
+			county: 'Boone',
+			isNational: 0,
+			slug: 'union-formally-opposes-state-bills-local-control-taxes-permitting',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-horse-club',
+			title: '4-H Horse Club Arena Ride Coming Up',
+			publishedAt: '2026-03-18T11:45:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: '4-h-horse-club-arena-ride-coming-up',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-w-sixth',
+			title: 'One charged in W Sixth Street Shooting — Fayette County, KY',
+			publishedAt: '2026-03-18T11:41:00.000Z',
+			county: 'Fayette',
+			isNational: 0,
+			slug: 'one-charged-w-sixth-street-shooting-fayette-county-ky-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-ag-spotlight',
+			title: 'Ag Spotlight: Elijah Bell',
+			publishedAt: '2026-03-18T11:00:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'ag-spotlight-elijah-bell',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-psc-bill',
+			title: 'Madon’s PSC bill advances — Letcher County, KY',
+			publishedAt: '2026-03-18T11:00:00.000Z',
+			county: 'Letcher',
+			isNational: 0,
+			slug: 'madons-psc-bill-advances-letcher-county-ky-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-turkey-season',
+			title: 'Spring teases as turkey season nears',
+			publishedAt: '2026-03-18T11:00:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'spring-teases-as-turkey-season-nears',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-whitaker-bills',
+			title: 'Rep. Whitaker is backing 5 bills awaiting Senate vote',
+			publishedAt: '2026-03-18T11:00:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'rep-whitaker-backing-bills-awaiting-senate-vote',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-lcc-frankfort',
+			title: 'LCC students help mushroom bill grow in Frankfort',
+			publishedAt: '2026-03-18T11:00:00.000Z',
+			county: null,
+			isNational: 0,
+			slug: 'lcc-students-help-mushroom-bill-grow-in-frankfort',
+		});
+		await insertDigestArticle({
+			urlHash: 'pool-sweet-sixteen',
+			title: 'LADY COUGARS IN SWEET SIXTEEN — Letcher County, KY',
+			publishedAt: '2026-03-18T11:00:00.000Z',
+			county: 'Letcher',
+			isNational: 0,
+			slug: 'lady-cougars-in-sweet-sixteen-letcher-county-ky-2026',
+		});
+
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-03-18T15:45:00.000Z'));
+
+		try {
+			const text = await __testables.generateDigestText(env as any, 'morning');
+			const links = text
+				.split('\n')
+				.map((line) => line.trim())
+				.filter((line) => line.startsWith('http'));
+			const bullets = text
+				.split('\n')
+				.filter((line) => line.startsWith('• '))
+				.map((line) => line.slice(2).trim());
+			const legislativeStories = bullets.filter((line) =>
+				/\bbill\s+advances\b|\bbills?\s+awaiting\s+senate\s+vote\b|\bfrankfort\b|\bstate\s+bills\b/i.test(line),
+			);
+			const publicSafetyStories = bullets.filter((line) =>
+				/\bmurder\b|\bshooting\b|\bstabbing\b|\barrested\b|\bcharged\b|\bindicted\b|\bwanted\b|\bsexual\s+offense\b|\bdrugs?\b|\bservice\s+members?\b.{0,30}\b(killed|dead)\b/i.test(line),
+			);
+
+			expect(bullets).toHaveLength(7);
+			expect(bullets).toContain('One charged in W Sixth Street Shooting — Fayette County, KY');
+			expect(bullets).toContain('KY prison workers face charges in drug trafficking case — Crittenden County, KY');
+			expect(bullets).toContain(
+				'President Trump will pay his respects to six US service members killed in the Middle East',
+			);
+			expect(legislativeStories.length).toBeGreaterThanOrEqual(1);
+			expect(publicSafetyStories.length).toBeLessThanOrEqual(4);
+			expect(bullets).not.toContain(
+				'Bluegrass Greensource launches 13th annual Main Street Clean Sweep across Central Kentucky',
+			);
+			expect(bullets).not.toContain('Pet of the Day: Daisy');
+			expect(bullets).not.toContain('Ag Spotlight: Elijah Bell');
+			expect(bullets).not.toContain('4-H Horse Club Arena Ride Coming Up');
+			expect(bullets).not.toContain('Spring teases as turkey season nears');
+			expect(bullets).not.toContain('LADY COUGARS IN SWEET SIXTEEN — Letcher County, KY');
+			expect(bullets).not.toContain('District 6 magistrate candidates speak at Pie and Coffee Q&A');
+			expect(bullets).not.toContain('Ellen Oost appointed as Louisville Public Media’s COO');
+			const nationalLinks = links.filter((line) => line.includes('/news/national/'));
+			expect(nationalLinks.length).toBeLessThanOrEqual(1);
+			expect(
+				nationalLinks.every((line) => /\/news\/national\/(?:.*-)?kentucky(?:-|$)/.test(line)),
+			).toBe(true);
 		} finally {
 			vi.useRealTimers();
 		}

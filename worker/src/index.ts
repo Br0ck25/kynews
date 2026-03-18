@@ -5697,6 +5697,9 @@ function scoreArticle(row: DigestRow): number {
     /\bopinion\b|\bop-?ed\b|\bcommentary\b|\bcolumn\b/i,
     /\bcitizens?\s+group\s+hosts?\b/i,
     /\bforum\s+for\b/i,
+    /\bcandidates?\b.{0,40}\b(q\s*&\s*a|q\/a|forum|town\s+hall|pie\s+and\s+coffee)\b/i,
+    /\bspeak(s|ing)?\s+at\b.{0,40}\b(q\s*&\s*a|q\/a|forum|town\s+hall)\b/i,
+    /\bpie\s+and\s+coffee\b/i,
     /\bexpand(s|ing)?\s+its\b/i,
     /\bspeakeasy\b|\bgangster\b/i,
     /\b5k\s*,?\s*(walk|run)\b/i,
@@ -5704,6 +5707,19 @@ function scoreArticle(row: DigestRow): number {
     /\bweathers?\s+.{0,20}snowstorm\b/i,
     /\bweather\s+whiplash\b/i,
     /\bpolitical\s+analyst\b/i,
+    /\bmain\s+street\s+clean\s+sweep\b/i,
+    /\bclean\s+sweep\b/i,
+    /\bag\s+spotlight\b/i,
+    /\bhorse\s+club\b|\barena\s+ride\b/i,
+    /\bturkey\s+season\b/i,
+    /\bsweet\s+sixteen\b/i,
+    /\bcoming\s+up\b/i,
+    /\bcelebrates?\s+(revitalization|renovation|opening|launch|milestone)\b/i,
+    /\bmemorial\s+garden\b/i,
+    /\bopens?\s+.*\blocation\b/i,
+    /\bgrand\s+opening\b/i,
+    /\bcountry\s+club\b/i,
+    /\bhotel\s+at\b/i,
     /\bwomen\s+in\s+business\b/i,
     /\bnew\s+celtic\b|\bnew\s+.{0,15}arts?\s+scene\b/i,
     /\birish\s+musician\b/i,
@@ -5714,6 +5730,11 @@ function scoreArticle(row: DigestRow): number {
     /\bfamily\s+feud\b|\bwheel\s+of\s+fortune\b|\bjeopardy\b/i,
     /\breality\s+(tv|show|series)\b/i,
     /\btv\s+show\b|\btelevision\s+show\b/i,
+    /\bpet\s+of\s+the\s+(day|week)\b/i,
+    /\badoptable\s+pet\b/i,
+    /\b(pet|animal|dog|cat)\s+adoption\b/i,
+    /\bpet\s+adoption\s+(event|drive|day|fair)\b/i,
+    /\bfind\s+a\s+new\s+friend\b/i,
     /\bendometriosis\b|\bawareness\s+month\b/i,
     /\b(promotes?|named?)\s+.{0,30}\bvice\s+president\b/i,
     /\bnamed?\s+(next|new)\s+(principal|superintendent|director|chief)\b/i,
@@ -5741,6 +5762,14 @@ function scoreArticle(row: DigestRow): number {
     /\bup\s+for\s+grabs\b/i,
     /\bresolution\s+reintroduced\b/i,
     /\breintroduced\s+by\s+metro\s+council\b/i,
+    /\bcouncil\s+backs?\s+plan\b/i,
+    /\bopens?\s+.*\blocation\b/i,
+    /\bcelebrates?\s+revitalization\b/i,
+    /\bmemorial\s+garden\b/i,
+    /\bhotel\s+at\s+old\s+country\s+club\b/i,
+    /\bconsidering\s+day-?one\s+health\s+insurance\b/i,
+    /\bhealth\s+insurance\s+coverage\s+for\s+new\s+employees?\b/i,
+    /\bappointed?\s+as\s+.{0,40}\b(coo|cfo|ceo|chief\s+operating\s+officer|chief\s+financial\s+officer)\b/i,
   ];
 
   let score = 0;
@@ -5755,7 +5784,7 @@ function scoreArticle(row: DigestRow): number {
   if (row.county) score += 2;
 
   const HIGH_VALUE_PATTERNS: Array<{ pattern: RegExp; bonus: number }> = [
-    { pattern: /\bmurder\b/i,                                              bonus: 20 },
+    { pattern: /\bmurder\b(?!\s+mystery)/i,                                bonus: 20 },
     { pattern: /\bhomicide\b/i,                                            bonus: 20 },
     { pattern: /\bdouble\s+murder\b/i,                                     bonus:  6 },
     { pattern: /\bshot\s+and\s+(killed|dead)\b/i,                          bonus: 20 },
@@ -5763,17 +5792,24 @@ function scoreArticle(row: DigestRow): number {
     { pattern: /\bstabbing\b|\bstabbed\b/i,                                bonus: 15 },
     { pattern: /\bsexual\s+(offense|assault|abuse)\b/i,                    bonus: 18 },
     { pattern: /\bhomeless\s+.{0,20}(dead|killed|found)\b/i,              bonus: 12 },
+    { pattern: /\b(service\s+members?|troops?|soldiers?)\b.{0,30}\b(killed|dead)\b/i, bonus: 14 },
+    { pattern: /\bmilitary\s+(casualt(y|ies)|death|deaths)\b/i,            bonus: 12 },
     { pattern: /\bdrug(s)?\s+(located|found|seized|bust|trafficking)\b/i,  bonus: 14 },
     { pattern: /\bmeth\b|\bfentanyl\b|\bheroin\b|\bcocaine\b/i,            bonus:  8 },
     { pattern: /\b\d+\s+arrested\b/i,                                      bonus: 12 },
     { pattern: /\barrested\b/i,                                            bonus:  8 },
     { pattern: /\bcharged\s+(with|in)\b/i,                                 bonus:  8 },
     { pattern: /\bindicted\b/i,                                            bonus: 12 },
+    { pattern: /\bwanted\s+(wednesday|fugitive|suspect|person)\b/i,        bonus: 10 },
     { pattern: /\bfacing\s+.{0,20}(charge|count|offense)\b/i,             bonus: 10 },
     { pattern: /\bgovernor\b|\bbeshear\b/i,                                bonus: 12 },
     { pattern: /\bveto\b|\boverride\b/i,                                   bonus: 15 },
     { pattern: /\blawmakers?\s+(override|pass|approve|vote|advance)\b/i,   bonus: 14 },
     { pattern: /\blegislature\b|\bgeneral\s+assembly\b/i,                  bonus:  7 },
+    { pattern: /\bbills?\s+awaiting\s+senate\s+vote\b/i,                   bonus: 10 },
+    { pattern: /\bbill\s+advances?\b/i,                                    bonus:  8 },
+    { pattern: /\bsenate\s+vote\b/i,                                       bonus:  6 },
+    { pattern: /\bfrankfort\b/i,                                           bonus:  4 },
     { pattern: /\bu\.?s\.?\s+senate\b|\bsenate\s+(race|seat)\b|\bcongress(ional)?\b/i, bonus:  7 },
     { pattern: /\bhouse\s+bill\b|\bsenate\s+bill\b|\bhb\s*\d+\b|\bsb\s*\d+\b/i, bonus: 6 },
     { pattern: /\bdebate\b/i,                                              bonus:  5 },
@@ -5787,6 +5823,7 @@ function scoreArticle(row: DigestRow): number {
     { pattern: /\bunder\s+investigation\b/i,                               bonus:  6 },
     { pattern: /\bfederal\s+(charges?|indictment|investigation)\b/i,       bonus: 14 },
     { pattern: /\blawsuit\b/i,                                             bonus:  4 },
+    { pattern: /\bvoter\s+data\b|\bsensitive\s+voter\b/i,                  bonus:  6 },
     { pattern: /\bschool\s+choice\b/i,                                     bonus:  6 },
     { pattern: /\btax\s+(credit|cut|increase|hike)\b/i,                    bonus:  5 },
     { pattern: /\bbudget\s+(cut|shortfall|crisis)\b/i,                     bonus:  6 },
@@ -5911,34 +5948,84 @@ function inferDigestDesk(row: DigestRow): 'public-safety' | 'government' | 'elec
   if (/\bweather\b|\bstorm\b|\bsnow\b|\brain\b|\bwind\b|\btornado\b|\bflood\b/.test(title)) {
     return 'weather';
   }
-  if (/\bmurder\b|\bhomicide\b|\bshooting\b|\bstabbing\b|\barrested\b|\bcharged\b|\bindicted\b|\bsexual\s+offense\b|\bamber\s+alert\b|\bmissing\s+(child|teen|person)\b|\bdrugs?\b/.test(title)) {
+  if (/\bmurder\b(?!\s+mystery)|\bhomicide\b|\bshooting\b|\bstabbing\b|\barrested\b|\bcharged\b|\bindicted\b|\bwanted\b|\bsexual\s+offense\b|\bamber\s+alert\b|\bmissing\s+(child|teen|person)\b|\bdrugs?\b|\b(service\s+members?|troops?|soldiers?)\b.{0,30}\b(killed|dead)\b|\bmilitary\s+(casualt(y|ies)|death|deaths)\b/.test(title)) {
     return 'public-safety';
   }
-  if (/\bgovernor\b|\bbeshear\b|\bveto\b|\boverride\b|\blawmakers?\b|\blegislature\b|\bgeneral\s+assembly\b|\bhouse\s+bill\b|\bsenate\s+bill\b|\bresolution\b/.test(title)) {
+  if (/\bgovernor\b|\bbeshear\b|\bveto\b|\boverride\b|\blawmakers?\b|\blegislature\b|\bgeneral\s+assembly\b|\bhouse\s+bill\b|\bsenate\s+bill\b|\bbills?\b|\bsenate\s+vote\b|\bfrankfort\b|\bresolution\b|\bvoter\s+data\b/.test(title)) {
     return 'government';
   }
 
   return 'other';
 }
 
+function isSevereWeatherDigestTitle(title: string): boolean {
+  const text = title.toLowerCase();
+  return /\b(severe\s+thunderstorm|tornado|flash\s+flood|flood\s+warning|winter\s+storm|ice\s+storm|blizzard|warning|watch|advisory|weather\s+alert|emergency)\b/.test(text);
+}
+
+function isKentuckyNationalDigestCandidate(row: DigestRow): boolean {
+  const slug = (row.slug ?? '').toLowerCase();
+  const title = row.title ?? '';
+  const slugHasKentuckyToken = /(?:^|-)kentucky(?:-|$)/.test(slug);
+  const titleHasKentucky = /\bkentucky\b|\bky\b/i.test(title);
+  if (!slugHasKentuckyToken || !titleHasKentucky) return false;
+  if (row.is_kentucky !== 1) return false;
+  return scoreArticle(row) > 0;
+}
+
+function isHardFillerDigestTitle(title: string): boolean {
+  const text = title.toLowerCase();
+  return /\b(main\s+street\s+clean\s+sweep|clean\s+sweep|ag\s+spotlight|pet\s+of\s+the\s+(day|week)|adoptable\s+pet|pet\s+adoption|find\s+a\s+new\s+friend|horse\s+club|arena\s+ride|turkey\s+season|sweet\s+sixteen|pie\s+and\s+coffee|murder\s+mystery|speakeasy|coming\s+up)\b/.test(text);
+}
+
 function selectDigestRows(scoredRows: Array<{ row: DigestRow; score: number }>, limit: number): DigestRow[] {
   const selected: Array<{ row: DigestRow; score: number }> = [];
   const deferred: Array<{ row: DigestRow; score: number }> = [];
+  const weakCandidates: Array<{ row: DigestRow; score: number }> = [];
   const topicCounts = new Map<string, number>();
   const deskCounts = new Map<string, number>();
+  let selectedNationalCount = 0;
+  const MAX_NATIONAL_LINKS = 1;
+  const DESK_CAPS: Partial<Record<'public-safety' | 'government' | 'election' | 'weather' | 'other', number>> = {
+    'public-safety': 4,
+    government: 3,
+    election: 1,
+    weather: 1,
+    other: 2,
+  };
+
+  const hasReachedDeskCap = (
+    desk: 'public-safety' | 'government' | 'election' | 'weather' | 'other',
+    options?: { allowExtraOther?: boolean },
+  ): boolean => {
+    if (desk === 'other' && options?.allowExtraOther) {
+      return (deskCounts.get('other') ?? 0) >= 3;
+    }
+    const cap = DESK_CAPS[desk];
+    return typeof cap === 'number' && (deskCounts.get(desk) ?? 0) >= cap;
+  };
 
   for (const candidate of scoredRows) {
+    if (candidate.score <= 0) {
+      weakCandidates.push(candidate);
+      continue;
+    }
+
     const topic = inferDigestTopic(candidate.row.title);
     const desk = inferDigestDesk(candidate.row);
     const sameTopicAlreadyUsed = !!topic && (topicCounts.get(topic) ?? 0) >= 1;
     const electionAlreadyUsed = desk === 'election' && (deskCounts.get(desk) ?? 0) >= 1;
+    const isNationalLink = candidate.row.is_national === 1 || candidate.row.category === 'national';
+    const nationalCapReached = isNationalLink && selectedNationalCount >= MAX_NATIONAL_LINKS;
+    const deskCapReached = hasReachedDeskCap(desk);
 
-    if (sameTopicAlreadyUsed || electionAlreadyUsed) {
+    if (sameTopicAlreadyUsed || electionAlreadyUsed || deskCapReached || nationalCapReached) {
       deferred.push(candidate);
       continue;
     }
 
     selected.push(candidate);
+    if (isNationalLink) selectedNationalCount += 1;
     if (topic) topicCounts.set(topic, (topicCounts.get(topic) ?? 0) + 1);
     deskCounts.set(desk, (deskCounts.get(desk) ?? 0) + 1);
 
@@ -5947,10 +6034,80 @@ function selectDigestRows(scoredRows: Array<{ row: DigestRow; score: number }>, 
     }
   }
 
-  for (const candidate of deferred) {
+  // Fallback: fill remaining slots from deferred items, but prefer stronger
+  // stories first and continue to avoid over-indexing low-value "other" items
+  // unless we have no alternatives left.
+  const fallback = [...deferred].sort((a, b) => b.score - a.score);
+  for (const candidate of fallback) {
+    if (candidate.score <= 0) {
+      weakCandidates.push(candidate);
+      continue;
+    }
+
+    const desk = inferDigestDesk(candidate.row);
+    const isNationalLink = candidate.row.is_national === 1 || candidate.row.category === 'national';
+    if (isNationalLink && selectedNationalCount >= MAX_NATIONAL_LINKS) continue;
+    if (hasReachedDeskCap(desk, { allowExtraOther: true })) continue;
     selected.push(candidate);
-    if (selected.length >= limit) {
-      break;
+    if (isNationalLink) selectedNationalCount += 1;
+    deskCounts.set(desk, (deskCounts.get(desk) ?? 0) + 1);
+    if (selected.length >= limit) break;
+  }
+
+  // Only use weak stories if we would otherwise return fewer than the target
+  // digest size. This keeps the "More Kentucky News" section at 4 items when
+  // enough same-day candidates exist.
+  const minimumStories = limit;
+  if (selected.length < minimumStories) {
+    const weakFallback = [...weakCandidates].sort((a, b) => b.score - a.score);
+    const softWeatherFallback: Array<{ row: DigestRow; score: number }> = [];
+    const hardFillerFallback: Array<{ row: DigestRow; score: number }> = [];
+    for (const candidate of weakFallback) {
+      const desk = inferDigestDesk(candidate.row);
+      const isSoftWeatherFeature = desk === 'weather' && !isSevereWeatherDigestTitle(candidate.row.title);
+      if (isSoftWeatherFeature) {
+        softWeatherFallback.push(candidate);
+        continue;
+      }
+      if (isHardFillerDigestTitle(candidate.row.title)) {
+        hardFillerFallback.push(candidate);
+        continue;
+      }
+      const isNationalLink = candidate.row.is_national === 1 || candidate.row.category === 'national';
+      if (isNationalLink && selectedNationalCount >= MAX_NATIONAL_LINKS) continue;
+      if (hasReachedDeskCap(desk, { allowExtraOther: true })) continue;
+      selected.push(candidate);
+      if (isNationalLink) selectedNationalCount += 1;
+      deskCounts.set(desk, (deskCounts.get(desk) ?? 0) + 1);
+      if (selected.length >= minimumStories) break;
+    }
+
+    // If we still need slots, allow softer weather feature pieces as a last
+    // resort so the digest still reaches the requested item count.
+    if (selected.length < minimumStories) {
+      for (const candidate of softWeatherFallback) {
+        const isNationalLink = candidate.row.is_national === 1 || candidate.row.category === 'national';
+        if (isNationalLink && selectedNationalCount >= MAX_NATIONAL_LINKS) continue;
+        selected.push(candidate);
+        if (isNationalLink) selectedNationalCount += 1;
+        deskCounts.set('weather', (deskCounts.get('weather') ?? 0) + 1);
+        if (selected.length >= minimumStories) break;
+      }
+    }
+
+    // Last resort: if we still cannot fill, allow hard-filler stories rather
+    // than returning fewer than the configured digest size.
+    if (selected.length < minimumStories) {
+      for (const candidate of hardFillerFallback) {
+        const desk = inferDigestDesk(candidate.row);
+        const isNationalLink = candidate.row.is_national === 1 || candidate.row.category === 'national';
+        if (isNationalLink && selectedNationalCount >= MAX_NATIONAL_LINKS) continue;
+        if (hasReachedDeskCap(desk, { allowExtraOther: true })) continue;
+        selected.push(candidate);
+        if (isNationalLink) selectedNationalCount += 1;
+        deskCounts.set(desk, (deskCounts.get(desk) ?? 0) + 1);
+        if (selected.length >= minimumStories) break;
+      }
     }
   }
 
@@ -5993,14 +6150,19 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 	).bind(`${datePrefix}%`, `${datePrefixNext}%`).all<DigestRow>();
 
 	const rows = result.results ?? [];
+	const digestRows = rows.filter((row) => {
+		const href = buildArticleUrl(BASE_URL, row.slug, row.county, row.category, !!row.is_national, row.id);
+		if (!href.includes('/news/national/')) return true;
+		return isKentuckyNationalDigestCandidate(row);
+	});
 
-	if (rows.length === 0) {
+	if (digestRows.length === 0) {
 		return when === 'morning'
 			? `Morning News Roundup – Top Stories to Start Your Day\n\nNo articles found yet for ${datePrefix}. Check back soon.`
 			: `Evening Recap – Stories You May Have Missed\n\nNo articles found yet for ${datePrefix}. Check back soon.`;
 	}
 
-	const dedupedRows = deduplicateByTitle(rows);
+	const dedupedRows = deduplicateByTitle(digestRows);
 
 	const scored = [...dedupedRows]
 		.map((r) => ({ row: r, score: scoreArticle(r) }))

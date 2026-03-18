@@ -135,6 +135,23 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
 
   const extracted = await fetchAndExtractArticle(env, source);
 
+  // After fetching, the canonical URL may differ from the source URL (e.g. an
+  // RSS feed entry from a local TV station whose og:url or <link rel="canonical">
+  // resolves to the original wire-service domain such as news.afp.com).  Check
+  // the canonical URL against the same block list so that wire-service articles
+  // cannot slip through ingestion via a redirected/syndicated URL.
+  if (
+    extracted.canonicalUrl !== normalizedUrl &&
+    isBlockedSourceUrl(extracted.canonicalUrl)
+  ) {
+    const urlHash = await sha256Hex(extracted.canonicalUrl);
+    return {
+      status: 'rejected',
+      reason: 'source blocked (canonical)',
+      urlHash,
+    };
+  }
+
   // ISSUE #1: override missing images for certain sources
   if (!extracted.imageUrl) {
     // prefer the sourceUrl for host lookup but fall back to canonical if needed

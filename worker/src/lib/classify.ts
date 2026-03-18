@@ -311,6 +311,15 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   // Genuine KY-focused PBS stories still pass the strong-text-evidence guard
   // (requires 2+ KY mentions in lead + AI confirmation).
   'pbs.org',
+
+  // afp.com / news.afp.com — Agence France-Presse international wire service.
+  // AFP content is blocked at ingestion via BLOCKED_SOURCE_HOSTNAMES but pages
+  // on other sites can resolve a canonical URL pointing to news.afp.com, which
+  // bypasses the source-block check. Adding AFP here ensures the classify step
+  // always treats these articles as national even when the canonical URL
+  // slips through the ingestion block.
+  'afp.com',
+  'news.afp.com',
 ]);
 
 // Sources that cover both Ohio and Northern Kentucky (Cincinnati/NKY border
@@ -903,13 +912,18 @@ export async function classifyArticleWithAi(
   //    is recognized as a non-KY dateline. Previously [a-z]{2,} caused "S.C." to
   //    fail the pattern because "S" is only one character before the first dot.
   // 3. Known major non-KY US cities appearing before a dash without a state
-  //    suffix (e.g. "LOS ANGELES —"). NATIONAL_WIRE_OVERRIDE_RE already flags
-  //    these articles as national wire stories but does not set hasNonKyDateline,
-  //    so the isKentucky override block never fires. This third alternative closes
-  //    that gap and ensures site-chrome KY references from local TV stations
-  //    (e.g. WHAS11) cannot keep a Los Angeles wire story tagged Kentucky.
+  //    suffix (e.g. "LOS ANGELES —", "WASHINGTON —"). NATIONAL_WIRE_OVERRIDE_RE
+  //    already flags these articles as national wire stories but does not always
+  //    set hasNonKyDateline, so the isKentucky override block never fires when
+  //    the dateline is embedded mid-paragraph rather than at a line start.
+  //    "washington" (DC) is added here because the WLKY-scraped content for AP
+  //    wire articles often presents "WASHINGTON —" as part of a larger paragraph
+  //    (e.g. "...Associated Press WASHINGTON — Markwayne...") without a newline
+  //    before the city name, making pattern 2's (?:^|\n) requirement fail.
+  //    Washington, KY is not a significant news city and would never generate a
+  //    "WASHINGTON —" wire-style dateline.
   const NON_KY_DATELINE_RE =
-    /(?:^|\n|\.\s+)WASHINGTON\s*(?:\([^)]{1,40}\))?\s*[-—–]|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)(?:[a-z]+(?:\.[a-z]{1,2})*\.?)\s*(?:\([^)]{1,30}\)\s*)?[-—–]|(?:^|\n|\.\s+)\b(?:los\s+angeles|new\s+york|chicago|miami|houston|dallas|atlanta|boston|denver|phoenix|seattle|nashville|charlotte|memphis|jacksonville|san\s+francisco|san\s+diego|austin|baltimore|san\s+antonio|las\s+vegas|indianapolis|detroit|oklahoma\s+city|raleigh|fort\s+worth|baton\s+rouge|new\s+orleans|albuquerque|tucson|minneapolis|pittsburgh|virginia\s+beach|colorado\s+springs|el\s+paso|omaha)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]/i;
+    /(?:^|\n|\.\s+)WASHINGTON\s*(?:\([^)]{1,40}\))?\s*[-—–]|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)(?:[a-z]+(?:\.[a-z]{1,2})*\.?)\s*(?:\([^)]{1,30}\)\s*)?[-—–]|(?:^|\n|\.\s+)?\b(?:washington|los\s+angeles|new\s+york|chicago|miami|houston|dallas|atlanta|boston|denver|phoenix|seattle|nashville|charlotte|memphis|jacksonville|san\s+francisco|san\s+diego|austin|baltimore|san\s+antonio|las\s+vegas|indianapolis|detroit|oklahoma\s+city|raleigh|fort\s+worth|baton\s+rouge|new\s+orleans|albuquerque|tucson|minneapolis|pittsburgh|virginia\s+beach|colorado\s+springs|el\s+paso|omaha)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]/i;
   const hasNonKyDateline = NON_KY_DATELINE_RE.test(semanticLeadText);
 
   if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline)) {
