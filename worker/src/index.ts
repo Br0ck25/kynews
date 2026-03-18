@@ -60,7 +60,7 @@ import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption, generateAiFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
-import { processNwsAlerts, processNwsProducts } from './lib/nws';
+import { processNwsAlerts, processNwsProducts, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption } from './lib/nws';
 import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
 import { fetchNwsStories } from './lib/nwsStories';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
@@ -68,6 +68,7 @@ import { isSearchBot } from './lib/isSearchBot';
 import {
 	listWeatherAlertPosts,
 	getPostedNwsAlertIds,
+	getWeatherAlertPostById,
 	insertWeatherAlertPost,
 	updateWeatherAlertPostText,
 	deleteWeatherAlertPost,
@@ -1845,15 +1846,32 @@ if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 	const article = await getArticleById(env, id);
 	if (!article) return json({ error: 'Article not found' }, 404);
 
-	const caption = generateFacebookCaption(article);
-	if (!caption) {
-		return json({ ok: false, reason: 'article not Kentucky or missing data' });
-	}
-
 	const pageId = ((env as any).FACEBOOK_PAGE_ID || '').trim();
 	const pageToken = ((env as any).FACEBOOK_PAGE_ACCESS_TOKEN || '').trim();
 	if (!pageId || !pageToken) {
 		return json({ error: 'Facebook credentials not configured' }, 500);
+	}
+
+	// If this is a weather alert article (auto-ingested from the NWS API), use
+	// the dedicated weather alert caption + photo post handler, which ensures the
+	// post matches the expected "SPECIAL WEATHER STATEMENT" format.
+	if (article.category === 'weather' && article.sourceUrl?.includes('/alerts/')) {
+		// Extract the NWS alert ID from the sourceUrl.
+		const match = article.sourceUrl.match(/alerts\/(.+)$/);
+		const alertId = match?.[1] ?? '';
+		if (alertId) {
+			const nwsAlert = await fetchNwsAlertById(alertId);
+			if (nwsAlert) {
+				await postWeatherAlertToFacebook(env, nwsAlert);
+				return json({ ok: true, weatherAlert: true });
+			}
+		}
+		// Fall back to the generic Facebook post path if we can't fetch the alert.
+	}
+
+	const caption = generateFacebookCaption(article);
+	if (!caption) {
+		return json({ ok: false, reason: 'article not Kentucky or missing data' });
 	}
 
 	// figure out what image (if any) should be used for the preview.  this is
@@ -2111,6 +2129,27 @@ if (url.pathname === '/api/admin/weather-alert-posts/delete-all' && request.meth
 	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
 	const count = await deleteAllWeatherAlertPosts(env);
 	return json({ ok: true, deleted: count });
+}
+
+// ── POST /api/admin/weather-alert-posts/post ────────────────────────────────
+// Post a saved weather alert to Facebook (uses the fixed Weather Alert image).
+if (url.pathname === '/api/admin/weather-alert-posts/post' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ id?: number; post_text?: string }>(request);
+	if (!body) return badRequest('Missing request body');
+
+	let postText = typeof body.post_text === 'string' ? body.post_text.trim() : '';
+	if (!postText) {
+		const id = Number(body.id ?? 0);
+		if (!Number.isFinite(id) || id <= 0) return badRequest('Missing post text or id');
+		const post = await getWeatherAlertPostById(env, id);
+		if (!post) return json({ error: 'Post not found' }, 404);
+		postText = post.post_text;
+	}
+	if (!postText) return badRequest('Missing post text');
+
+	const result = await postFacebookPhotoCaption(env, postText);
+	return json(result);
 }
 
 // ── GET /api/admin/digest ───────────────────────────────────────────────────

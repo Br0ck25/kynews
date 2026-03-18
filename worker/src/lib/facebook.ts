@@ -21,7 +21,10 @@ export function cleanFacebookHeadline(title: string): string {
 function splitSentences(text: string): string[] {
   // Split on sentence-ending punctuation followed by whitespace and a capital letter.
   // Uses a simple approach that avoids splitting on abbreviations like "St." or "Dr."
-  const abbrevRe = /\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Col|Gen|Rep|Sen|Prof|St|Sr|Jr|No|vs|etc|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec|a\.m|p\.m)$/i;
+  // Also matches two-part initialisms like U.S, U.K, N.Y — (?:[A-Z]\.)[A-Z] catches
+  // the stem of "U.S." after the trailing dot is stripped (leaving "U.S"), preventing
+  // "U.S. Senate" from being split into two sentences.
+  const abbrevRe = /(\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Col|Gen|Rep|Sen|Prof|St|Sr|Jr|No|vs|etc|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec|a\.m|p\.m)|(?:[A-Z]\.)[A-Z])$/;
   const results: string[] = [];
   let buf = '';
   for (let i = 0; i < text.length; i++) {
@@ -68,9 +71,6 @@ export function generateFacebookHook(summary: string = '', county?: string): str
     const words = hook.split(/\s+/);
     if (words.length > 40) {
       hook = words.slice(0, 40).join(' ') + '…';
-    }
-    if (county && !new RegExp(county, 'i').test(hook)) {
-      hook = `In ${county} County, ${hook}`;
     }
   }
 
@@ -150,7 +150,7 @@ function articleUrl(article: ArticleRecord, baseUrl = BASE_URL): string {
 /**
  * Generate a full Facebook caption using the High-Reach 4-Line News Format:
  *
- *   LINE 1 – Headline (article title, cleaned of branding, uppercased)
+ *   LINE 1 – Headline (article title, cleaned of branding)
  *   LINE 2 – What Happened (first sentence of summary, with county prefix)
  *   LINE 3 – Key Detail (second sentence)
  *   LINE 4 – What Happens Next (third sentence, if available)
@@ -163,6 +163,9 @@ export function generateFacebookCaption(article: ArticleRecord | null): string {
   const isKy = Boolean(article.county) || Boolean(article.isKentucky);
   if (!isKy) return '';
 
+  // Obituaries should not be auto-posted to Facebook
+  if (article.category === 'obituaries') return '';
+
   // LINE 1 — Headline
   const headline = cleanFacebookHeadline(article.title || '');
 
@@ -170,16 +173,11 @@ export function generateFacebookCaption(article: ArticleRecord | null): string {
   const summaryText = (article.summary || article.contentText || '').trim();
   const sentences = splitSentences(summaryText);
 
-  // LINE 2 — What Happened (first sentence, with county prefix if missing)
+  // LINE 2 — What Happened (first sentence)
   let line2 = sentences[0] || '';
   if (line2) {
     const words = line2.split(/\s+/);
     if (words.length > 40) line2 = words.slice(0, 40).join(' ') + '…';
-    const countyInHeadline = new RegExp(article.county, 'i').test(headline);
-    const countyInLine2 = new RegExp(article.county, 'i').test(line2);
-    if (article.county && !countyInHeadline && !countyInLine2) {
-      line2 = `In ${article.county} County, ${line2}`;
-    }
   }
 
   // LINE 3 — Key Detail (second sentence)
@@ -216,10 +214,11 @@ export function generateFacebookCaption(article: ArticleRecord | null): string {
 /**
  * AI-powered Facebook caption generator.
  *
- * Writes an engaging, conversational post that leads with the most interesting
- * conflict or local angle — not a press-release summary. Falls back to the
- * algorithmic `generateFacebookCaption` if AI is unavailable or returns a
- * short/malformed response.
+ * Uses the FULL article body (contentText) as source material so the model has
+ * access to all the detail, conflict, and context in the story — not just the
+ * opening summary sentences. Falls back to the algorithmic
+ * `generateFacebookCaption` if AI is unavailable or returns a short/malformed
+ * response.
  */
 export async function generateAiFacebookCaption(
   article: ArticleRecord | null,
@@ -229,8 +228,20 @@ export async function generateAiFacebookCaption(
   const algorithmicCaption = generateFacebookCaption(article);
   if (!algorithmicCaption || !env.AI) return algorithmicCaption;
 
-  const summaryText = (article!.summary || article!.contentText || '').trim();
-  if (!summaryText || summaryText.split(/\s+/).length < 20) return algorithmicCaption;
+  // Prefer the full article body over the AI summary — contentText contains
+  // the complete story including details deeper in the article that make for
+  // a far more compelling post. Fall back to summary only if body is sparse.
+  const fullBody = (article!.contentText || '').trim();
+  const summaryText = (article!.summary || '').trim();
+  const rawSource = fullBody.split(/\s+/).length >= summaryText.split(/\s+/).length
+    ? fullBody
+    : summaryText;
+
+  // Rejoin sentences that were split across a paragraph break after an
+  // abbreviation like "U.S." — handles both single (\n) and double (\n\n) breaks.
+  const sourceText = rawSource.replace(/([A-Z]\.)\n+([A-Za-z])/g, '$1 $2');
+
+  if (!sourceText || sourceText.split(/\s+/).length < 20) return algorithmicCaption;
 
   const headline = cleanFacebookHeadline(article!.title || '').toUpperCase();
   const url = articleUrl(article!);
@@ -238,11 +249,11 @@ export async function generateAiFacebookCaption(
 
   const systemPrompt = `You are a social media editor for a Kentucky local news website.
 You write Facebook posts that stop the scroll — clear, conversational, and locally relevant.
-You lead with conflict, stakes, or the "why this matters" angle.
+You lead with the most interesting conflict, stakes, or "why this matters" angle in the article.
 You NEVER add outside information, opinions, or invented facts.
-You write like a neighbor sharing news, not a press release.`;
+You write like a neighbor sharing important local news, not a press release.`;
 
-  const userPrompt = `Create an engaging Facebook news post using ONLY the information in the summary below.
+  const userPrompt = `Create an engaging Facebook news post using ONLY the information in the article text below.
 
 HEADLINE (already written — copy it exactly, do not change):
 ${headline}
@@ -250,11 +261,11 @@ ${headline}
 FORMAT YOUR RESPONSE AS:
 1. The headline on its own line (copy exactly as-is)
 2. A blank line
-3. ONE hook sentence — rewrite the opening to be conversational and draw readers in. Lead with the most interesting tension, conflict, or local stakes. Max 35 words. This should feel like a neighbor telling you news, not a wire service dispatch.
+3. ONE hook sentence — rewrite the opening in a conversational way that draws readers in. Lead with the most interesting tension, conflict, or local stakes from ANYWHERE in the article (not just the first paragraph). Max 35 words. Should feel like a neighbor sharing news, not a wire service dispatch.
 4. A blank line
-5. 2–4 bullet points using • as the bullet character. Each bullet must be a complete, self-contained sentence. Lead with the most surprising or locally relevant fact. If a fact is too long, rewrite it in fewer words — do NOT use … or ... to truncate.
+5. 2–4 bullet points using • as the bullet character. Each bullet must be a complete, self-contained sentence. Prioritize surprising, specific, or locally impactful facts — especially ones found deeper in the article. If a fact is too long, rewrite it in fewer words — do NOT use … or ... to truncate.
 6. A blank line
-7. ONE closing sentence that hints at what is still unresolved or what happens next — leave readers wanting to click. Skip this only if there is no clear unresolved element.
+7. ONE closing sentence that hints at what is still unresolved or what comes next — leave readers wanting to click for the full story. Skip only if there is truly no unresolved element.
 8. A blank line
 9. Read more: ${url}
 10. A blank line
@@ -262,14 +273,15 @@ FORMAT YOUR RESPONSE AS:
 
 RULES:
 - Total post body: 80–140 words (not counting the headline, URL, and hashtags)
-- Hook must lead with conflict, stakes, or local impact — not procedural facts
+- Hook must lead with conflict, stakes, or local impact — not who filed what or procedural facts
+- Mine the FULL article for compelling details, not just the opening sentences
 - NEVER use … or ... anywhere — cut or rewrite instead of truncating
-- Do NOT reproduce long strings of names, procedural filing details, or legal jargon unless they are the entire point of the story
-- Do NOT use long quotes
+- Skip attorney names, judge names, and filing procedures unless they are the central point of the story
+- Do NOT reproduce direct quotes longer than 6 words
 - Make it slightly incomplete so readers click through for the full story
 
-SUMMARY:
-${summaryText.slice(0, 6000)}`;
+ARTICLE TEXT:
+${sourceText.slice(0, 8000)}`;
 
   try {
     const result = (await env.AI.run(FB_MODEL, {
@@ -288,6 +300,10 @@ ${summaryText.slice(0, 6000)}`;
     // Strip <think>...</think> reasoning blocks the model may emit
     let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     if (!cleaned || cleaned.length < 80) return algorithmicCaption;
+
+    // Rejoin sentences split across a paragraph break after an abbreviation —
+    // handles both single and double newlines in the AI's output.
+    cleaned = cleaned.replace(/([A-Z]\.)\n+([A-Za-z])/g, '$1 $2');
 
     // Remove any bullet truncated with an ellipsis (… or ...) — the model
     // should not produce these per the prompt, but strip as a safety net.

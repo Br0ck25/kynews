@@ -19,6 +19,9 @@ export default function WeatherAlertsTab({ service }) {
   const [editText, setEditText] = React.useState("");
   const [savingId, setSavingId] = React.useState(null);
   const [deletingId, setDeletingId] = React.useState(null);
+  const [postingId, setPostingId] = React.useState(null);
+  const [postResults, setPostResults] = React.useState({});
+  const [postErrors, setPostErrors] = React.useState({});
   const [clearingAll, setClearingAll] = React.useState(false);
   const [copiedId, setCopiedId] = React.useState(null);
   const [manualText, setManualText] = React.useState("");
@@ -212,6 +215,24 @@ export default function WeatherAlertsTab({ service }) {
       setError(e?.errorMessage || "Failed to delete post.");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handlePostToFacebook(id) {
+    setPostErrors((prev) => ({ ...prev, [id]: "" }));
+    setPostResults((prev) => ({ ...prev, [id]: null }));
+    setPostingId(id);
+    try {
+      const res = await service.postWeatherAlertPost({ id });
+      if (res.ok) {
+        setPostResults((prev) => ({ ...prev, [id]: res }));
+      } else {
+        setPostErrors((prev) => ({ ...prev, [id]: res.error || "unknown error" }));
+      }
+    } catch (err) {
+      setPostErrors((prev) => ({ ...prev, [id]: err?.errorMessage || String(err) }));
+    } finally {
+      setPostingId(null);
     }
   }
 
@@ -837,6 +858,15 @@ export default function WeatherAlertsTab({ service }) {
 
             <Button
               size="small"
+              variant="contained"
+              color="primary"
+              disabled={postingId === post.id}
+              onClick={() => handlePostToFacebook(post.id)}
+            >
+              {postingId === post.id ? "Posting..." : "Post FB"}
+            </Button>
+            <Button
+              size="small"
               variant="outlined"
               color="secondary"
               disabled={deletingId === post.id}
@@ -845,6 +875,16 @@ export default function WeatherAlertsTab({ service }) {
               {deletingId === post.id ? "Deleting..." : "Delete"}
             </Button>
           </Box>
+          {postErrors[post.id] && (
+            <Typography color="error" variant="body2" style={{ marginTop: 8 }}>
+              {postErrors[post.id]}
+            </Typography>
+          )}
+          {postResults[post.id] && (
+            <Typography variant="body2" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
+              <strong>Facebook result:</strong> {JSON.stringify(postResults[post.id])}
+            </Typography>
+          )}
         </Paper>
       ))}
 

@@ -23,6 +23,15 @@ export async function listWeatherAlertPosts(env: Env): Promise<WeatherAlertPost[
   return result.results ?? [];
 }
 
+/** Return a single post by its id. */
+export async function getWeatherAlertPostById(env: Env, id: number): Promise<WeatherAlertPost | null> {
+  const result = await env.ky_news_db
+    .prepare('SELECT * FROM weather_alert_posts WHERE id = ?')
+    .bind(id)
+    .first<WeatherAlertPost>();
+  return result || null;
+}
+
 /** Return the set of nws_alert_ids already stored (for duplicate prevention). */
 export async function getPostedNwsAlertIds(env: Env): Promise<Set<string>> {
   const result = await env.ky_news_db

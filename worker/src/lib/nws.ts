@@ -27,6 +27,33 @@ export interface NwsAlert {
 }
 
 /** Fetch active Kentucky alerts from the NWS API. */
+function mapNwsFeatureToAlert(f: any): NwsAlert | null {
+  const p = f?.properties;
+  if (!p) return null;
+  if (p.status !== 'Actual') return null;
+  if (!isWeatherEventType(p.event ?? '')) return null;
+
+  return {
+    id: String(f.id ?? p.id ?? ''),
+    event: String(p.event ?? 'Weather Alert'),
+    headline: String(p.headline ?? p.event ?? 'Weather Alert'),
+    description: String(p.description ?? ''),
+    instruction: p.instruction ? String(p.instruction) : null,
+    areaDesc: String(p.areaDesc ?? ''),
+    severity: String(p.severity ?? 'Unknown'),
+    urgency: String(p.urgency ?? 'Unknown'),
+    sent: String(p.sent ?? p.effective ?? new Date().toISOString()),
+    effective: String(p.effective ?? new Date().toISOString()),
+    expires: String(p.expires ?? ''),
+    status: String(p.status ?? 'Actual'),
+    counties: extractKyCountiesFromAreaDesc(String(p.areaDesc ?? '')),
+    geometry: f.geometry ?? null,
+  };
+}
+
+/**
+ * Fetch active Kentucky alerts from the NWS API.
+ */
 export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
   const res = await fetch(NWS_ALERTS_URL, {
     headers: {
@@ -47,29 +74,7 @@ export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
   const features: any[] = Array.isArray(data?.features) ? data.features : [];
 
   return features
-    .map((f): NwsAlert | null => {
-      const p = f?.properties;
-      if (!p) return null;
-      if (p.status !== 'Actual') return null;
-      if (!isWeatherEventType(p.event ?? '')) return null;
-
-      return {
-        id: String(f.id ?? p.id ?? ''),
-        event: String(p.event ?? 'Weather Alert'),
-        headline: String(p.headline ?? p.event ?? 'Weather Alert'),
-        description: String(p.description ?? ''),
-        instruction: p.instruction ? String(p.instruction) : null,
-        areaDesc: String(p.areaDesc ?? ''),
-        severity: String(p.severity ?? 'Unknown'),
-        urgency: String(p.urgency ?? 'Unknown'),
-        sent: String(p.sent ?? p.effective ?? new Date().toISOString()),
-        effective: String(p.effective ?? new Date().toISOString()),
-        expires: String(p.expires ?? ''),
-        status: String(p.status ?? 'Actual'),
-        counties: extractKyCountiesFromAreaDesc(String(p.areaDesc ?? '')),
-        geometry: f.geometry ?? null,
-      };
-    })
+    .map(mapNwsFeatureToAlert)
     .filter((a): a is NwsAlert => a !== null)
     // Hard KY gate: require at least one recognized KY county, or the area
     // description must explicitly mention Kentucky or ", KY".  This prevents
@@ -78,6 +83,32 @@ export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
       a.counties.length > 0 ||
       /\bkentucky\b|,\s*ky\b/i.test(a.areaDesc)
     );
+}
+
+/**
+ * Fetch a single alert from the NWS API by its alert ID.
+ */
+export async function fetchNwsAlertById(alertId: string): Promise<NwsAlert | null> {
+  if (!alertId) return null;
+  const url = `https://api.weather.gov/alerts/${encodeURIComponent(alertId)}`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': NWS_USER_AGENT,
+      'Accept': 'application/geo+json',
+    },
+  });
+  if (!res.ok) return null;
+
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    return null;
+  }
+
+  // The response may be a single feature or a feature collection.
+  const feature = Array.isArray(data?.features) ? data.features[0] : data;
+  return mapNwsFeatureToAlert(feature);
 }
 
 /** Derive a stable KV deduplication key for an alert. */
@@ -379,9 +410,7 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const seoDescription = `${alert.event} issued for ${countyList}. Check Local KY News for details and safety instructions.`.slice(0, 300);
   const now = new Date().toISOString();
 
-  const imageAlt = `https://www.spc.noaa.gov/products/watch/ww.png`
-    ? [title, primaryCounty ? `${primaryCounty} County, Kentucky` : null].filter(Boolean).join(' — ')
-    : null;
+  const imageAlt = [title, primaryCounty ? `${primaryCounty} County, Kentucky` : null].filter(Boolean).join(' — ') || null;
 
   return {
     canonicalUrl,
@@ -413,6 +442,110 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
     alertGeojson: alert.geometry ? JSON.stringify(alert.geometry) : null,
   };
 }
+
+// ─── Facebook auto-post for weather alerts ────────────────────────────────
+
+/** Public URL for the static weather-alert banner image. */
+const WEATHER_ALERT_IMAGE_URL = 'https://localkynews.com/img/weather-alert.jpg';
+
+/** Fixed hashtag block appended to every weather alert FB post. */
+const WEATHER_ALERT_HASHTAGS = '#localkynews #kentuckyalerts #weatheralert #kentuckyweather';
+
+/**
+ * Build the Facebook post caption for an NWS alert in the format the user
+ * expects:
+ *
+ *   SPECIAL WEATHER STATEMENT
+ *
+ *   Area: Orange,  Washington,  Scott,  Jefferson,  Dubois
+ *   Expires: Mar 18, 5:00 AM EDT
+ *   Severity: Moderate
+ *
+ *   Special Weather Statement issued March 17 at 8:54PM EDT by NWS Louisville KY
+ *
+ *   <description text>
+ *
+ *   #localkynews #kentuckyalerts #weatheralert #kentuckyweather
+ */
+export function buildWeatherAlertFbCaption(alert: NwsAlert): string {
+  // Area: NWS separates areas with "; " — replace with ",  " to match expected style
+  const area = alert.areaDesc.split(/;\s*/).join(',  ');
+
+  // Expires: "Mar 18, 5:00 AM EDT"
+  let expiresLine = '';
+  if (alert.expires) {
+    expiresLine = new Date(alert.expires).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'America/New_York',
+      timeZoneName: 'short',
+    });
+  }
+
+  const lines: string[] = [
+    alert.event.toUpperCase(),
+    '',
+    `Area: ${area}`,
+  ];
+  if (expiresLine) lines.push(`Expires: ${expiresLine}`);
+  lines.push(`Severity: ${alert.severity}`);
+  lines.push('');
+  if (alert.headline) lines.push(alert.headline);
+  lines.push('');
+  lines.push(alert.description.trim());
+  lines.push('');
+  lines.push(WEATHER_ALERT_HASHTAGS);
+
+  return lines.join('\n');
+}
+
+/**
+ * Post a weather alert to the Facebook page as a photo post with the fixed
+ * weather-alert banner image.  Silently skips if Facebook credentials are not
+ * configured in the environment.
+ */
+export async function postFacebookPhotoCaption(env: Env, caption: string): Promise<any> {
+  const pageId = ((env as any).FACEBOOK_PAGE_ID || '').trim();
+  const pageToken = ((env as any).FACEBOOK_PAGE_ACCESS_TOKEN || '').trim();
+  if (!pageId || !pageToken) {
+    const msg = '[NWS-FB] Facebook credentials not configured';
+    console.log(msg);
+    return { ok: false, error: msg };
+  }
+
+  const params = new URLSearchParams({
+    url: WEATHER_ALERT_IMAGE_URL,
+    caption,
+    access_token: pageToken,
+  });
+
+  try {
+    const resp = await fetch(`https://graph.facebook.com/v19.0/${pageId}/photos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+    const data: any = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      console.error(`[NWS-FB] Photo post failed (${resp.status}):`, JSON.stringify(data));
+      return { ok: false, error: 'Facebook API error', details: data };
+    }
+    console.log(`[NWS-FB] Posted weather alert to Facebook → post id=${data?.id ?? 'unknown'}`);
+    return { ok: true, result: data };
+  } catch (err) {
+    console.error('[NWS-FB] Unexpected error posting to Facebook:', err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function postWeatherAlertToFacebook(env: Env, alert: NwsAlert): Promise<any> {
+  const caption = buildWeatherAlertFbCaption(alert);
+  return postFacebookPhotoCaption(env, caption);
+}
+
+// ─── NWS alert ingestion ───────────────────────────────────────────────────
 
 /**
  * Check the NWS API for new Kentucky alerts and publish any that haven't been
@@ -469,6 +602,11 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
       const id = await insertArticle(env, article);
       published++;
       console.log(`[NWS] Published alert: "${article.title}" → id=${id} counties=${(article.counties ?? []).join(', ')}`);
+
+      // 6. Auto-post to Facebook — failure here must never block article ingestion
+      await postWeatherAlertToFacebook(env, alert).catch((err) => {
+        console.error('[NWS-FB] Auto-post failed:', err);
+      });
     } catch (err) {
       console.error(`[NWS] Failed to publish alert ${alert.id}:`, err);
     }
@@ -768,6 +906,8 @@ export async function buildHwoArticle(product: NwsProduct): Promise<NewArticle> 
 
   const now = new Date().toISOString();
 
+  const imageAlt = `NWS Radar for ${radar.label}`;
+
   return {
     canonicalUrl,
     sourceUrl: 'https://www.weather.gov/',
@@ -789,6 +929,7 @@ export async function buildHwoArticle(product: NwsProduct): Promise<NewArticle> 
     contentText,
     contentHtml,
     imageUrl: radarUrl,
+    imageAlt,
     rawR2Key: null,
     contentHash: await sha256Hex(contentText.slice(0, 3000)),
     alertGeojson: null,

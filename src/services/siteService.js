@@ -827,6 +827,13 @@ export default class SiteService {
     });
   }
 
+  async postWeatherAlertPost({ id, post_text }) {
+    return this.request("/api/admin/weather-alert-posts/post", {
+      method: "POST",
+      body: JSON.stringify({ id, post_text }),
+    });
+  }
+
   async deleteAllWeatherAlertPosts() {
     return this.request("/api/admin/weather-alert-posts/delete-all", {
       method: "POST",
