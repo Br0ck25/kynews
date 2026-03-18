@@ -98,6 +98,38 @@ export async function isArticlePostedByScheduler(env: Env, id: number): Promise<
   return Boolean(posted[String(id)]);
 }
 
+const ADMIN_LOG_KEY = 'admin:logs';
+
+export type AdminLogEntry = {
+  ts: string;
+  message: string;
+};
+
+export async function appendAdminLog(env: Env, message: string): Promise<void> {
+  if (!env.CACHE) return;
+  try {
+    const raw = await env.CACHE.get(ADMIN_LOG_KEY, 'text');
+    const list: AdminLogEntry[] = raw ? JSON.parse(raw) : [];
+    list.push({ ts: new Date().toISOString(), message });
+    // keep most recent 200 entries
+    const trimmed = list.slice(-200);
+    await env.CACHE.put(ADMIN_LOG_KEY, JSON.stringify(trimmed), { expirationTtl: 60 * 60 * 24 * 7 });
+  } catch {
+    // ignore
+  }
+}
+
+export async function getAdminLogs(env: Env, limit = 50): Promise<AdminLogEntry[]> {
+  if (!env.CACHE) return [];
+  try {
+    const raw = await env.CACHE.get(ADMIN_LOG_KEY, 'text');
+    const list: AdminLogEntry[] = raw ? JSON.parse(raw) : [];
+    return list.slice(-Math.max(1, Math.min(limit, 200))).reverse();
+  } catch {
+    return [];
+  }
+}
+
 interface ArticleRow {
   id: number;
   canonical_url: string;

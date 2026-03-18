@@ -35,6 +35,8 @@ import {
 	getRecentTodayArticles,
 	addFacebookSchedulerPostedId,
 	getFacebookSchedulerPostedIds,
+	appendAdminLog,
+	getAdminLogs,
 	FacebookSchedulerPostHistoryItem,
 } from './lib/db';
 import {
@@ -2007,6 +2009,7 @@ if (url.pathname === '/api/admin/facebook/caption' && request.method === 'POST')
 	if (!article) return json({ error: 'Article not found' }, 404);
 
 	const caption = await generateAiFacebookCaption(article, env);
+	await appendAdminLog(env, `Caption generated for ID ${id}`);
 	return json({ ok: true, caption });
 }
 
