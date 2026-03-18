@@ -226,7 +226,12 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
   // Reject pure betting/odds/gambling articles before summarization.
   // These are CBS Sports / SportsLine model-pick articles with no
   // local news value — they should not be stored in the DB.
-  if (BETTING_CONTENT_RE.test(extracted.contentText.slice(0, 2000))) {
+  //
+  // Avoid false positives from unrelated pages that mention a generic
+  // "promo code" or similar phrasing in their boilerplate.
+  const hasBettingKeywordsInContent = BETTING_CONTENT_RE.test(extracted.contentText.slice(0, 2000));
+  const hasBettingKeywordsInTitle = BETTING_CONTENT_RE.test(extracted.title);
+  if (hasBettingKeywordsInContent && hasBettingKeywordsInTitle) {
     console.log(`[REJECTED] betting/odds content: ${extracted.title}`);
     return {
       status: 'rejected',

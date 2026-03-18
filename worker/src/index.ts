@@ -220,6 +220,10 @@ declare global {
 		ASSETS?: { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
 		// optional Facebook application ID used for OG tags in preview pages
 		FB_APP_ID?: string;
+		// optional Facebook page token for posting digests
+		FB_PAGE_TOKEN?: string;
+		// optional Facebook Page ID used for auto-posting digests
+		FB_PAGE_ID?: string;
 	}
 }
 
@@ -2197,6 +2201,56 @@ if (url.pathname === '/api/admin/digest/save' && request.method === 'POST') {
 		await env.CACHE.put(`admin:digest:${when}`, JSON.stringify(entry));
 	}
 	return json({ ok: true, when });
+}
+
+// ── GET /api/admin/digest/autopost ─────────────────────────────────────────
+// Returns the pending/suppressed/posted status for the morning/evening auto-post.
+if (url.pathname === '/api/admin/digest/autopost' && request.method === 'GET') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	if (!env.CACHE) return json({ morning: null, evening: null });
+	const [morningRaw, eveningRaw] = await Promise.all([
+		env.CACHE.get('admin:digest:morning:autopost'),
+		env.CACHE.get('admin:digest:evening:autopost'),
+	]);
+	return json({
+		morning: morningRaw ? JSON.parse(morningRaw) : null,
+		evening: eveningRaw ? JSON.parse(eveningRaw) : null,
+	});
+}
+
+// ── POST /api/admin/digest/suppress ───────────────────────────────────────
+// Suppress auto-post for a given slot (morning or evening).
+if (url.pathname === '/api/admin/digest/suppress' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ when?: string }>(request);
+	const when: 'morning' | 'evening' = body?.when === 'evening' ? 'evening' : 'morning';
+	if (!env.CACHE) return json({ error: 'No cache available' }, 500);
+	await env.CACHE.put(
+		`admin:digest:${when}:autopost`,
+		JSON.stringify({ status: 'suppressed', suppressedAt: new Date().toISOString() }),
+		{ expirationTtl: 3600 }
+	);
+	return json({ ok: true, when, status: 'suppressed' });
+}
+
+// ── POST /api/admin/digest/post-now ───────────────────────────────────────
+// Immediately post the most recent generated digest to Facebook.
+if (url.pathname === '/api/admin/digest/post-now' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ when?: string }>(request);
+	const when: 'morning' | 'evening' = body?.when === 'evening' ? 'evening' : 'morning';
+	if (!env.CACHE) return json({ error: 'No cache available' }, 500);
+	const digestRaw = await env.CACHE.get(`admin:digest:${when}`);
+	if (!digestRaw) return json({ error: 'No digest found' }, 404);
+	const digest = JSON.parse(digestRaw) as { text: string };
+	const result = await postDigestToFacebook(env, digest.text);
+	if (!result) return json({ error: 'Facebook post failed' }, 500);
+	await env.CACHE.put(
+		`admin:digest:${when}:autopost`,
+		JSON.stringify({ status: 'posted', postedAt: new Date().toISOString(), postId: result.postId }),
+		{ expirationTtl: 3600 }
+	);
+	return json({ ok: true, when, postId: result.postId });
 }
 
 // serve files from the R2 media bucket; this is intentionally *not* an admin
@@ -5495,10 +5549,118 @@ function extractKyweathercenterSearchArticleLinks(baseUrl: string, html: string,
 // Morning / Evening digest helpers
 // ---------------------------------------------------------------------------
 
+type DigestRow = {
+  id: number;
+  title: string;
+  slug: string | null;
+  county: string | null;
+  category: string;
+  is_kentucky: number;
+  is_national: number;
+};
+
+function scoreArticle(row: DigestRow, index: number): number {
+  let score = 0;
+
+  // Recency: diminishing bonus, not dominant
+  score += Math.max(0, 6 - index);
+
+  // High-value categories
+  const HIGH_VALUE = ['crime', 'government', 'emergency', 'economy', 'education', 'health', 'politics'];
+  if (HIGH_VALUE.includes((row.category ?? '').toLowerCase())) score += 8;
+
+  // Extra bump for the highest-value hard news categories
+  const HARD_NEWS = ['crime', 'government'];
+  if (HARD_NEWS.includes((row.category ?? '').toLowerCase())) score += 4;
+
+  // Local Kentucky stories preferred
+  if (row.is_kentucky) score += 5;
+
+  // Prefer local over national stories
+  if (row.is_national) score -= 12;
+
+  // Stories with a specific county are more local
+  if (row.county) score += 5;
+
+  // Penalize auto-generated weather summaries slightly so they don't always lead
+  if ((row.category ?? '').toLowerCase() === 'weather') score -= 4;
+
+  const FILLER_PATTERNS = [
+    /student achiever/i,
+    /\bspotlight\b/i,
+    /\bsponsor(ed)?\b/i,
+    /\baward(s)? winner\b/i,
+    /celebrates?\s+(st\.?\s*patrick|christmas|thanksgiving|easter|halloween)/i,
+    /\bholiday\s+(parade|event|festival|celebration)\b/i,
+    /\bfun\s+fact\b/i,
+    /\bthis\s+week('?s)?\s+(events?|things?\s+to\s+do)\b/i,
+  ];
+  if (FILLER_PATTERNS.some((p) => p.test(row.title ?? ''))) score -= 6;
+
+  return score;
+}
+
+const HOME_COUNTY = 'Calloway';
+
+function buildIntroSentence(rows: DigestRow[], when: 'morning' | 'evening'): string {
+  const topRows = rows.slice(0, 10);
+  const hasHomeCounty = topRows.some(r => r.county === HOME_COUNTY);
+  const uniqueCounties = [...new Set(topRows.map(r => r.county).filter((c): c is string => !!c))];
+  const hasMultipleRegions = uniqueCounties.length >= 3;
+  const hasStatewide = topRows.some(r => r.is_kentucky && !r.county);
+
+  if (when === 'morning') {
+    if (hasHomeCounty && hasMultipleRegions) {
+      return `From ${HOME_COUNTY} County to communities across the Commonwealth, here are the top stories making news in Kentucky this morning.`;
+    }
+    if (hasStatewide && hasMultipleRegions) {
+      return `From local communities to statewide news, here are the stories Kentucky is waking up to this morning.`;
+    }
+    if (uniqueCounties.length === 1) {
+      return `Out of ${uniqueCounties[0]} County and across the Commonwealth, here are the top stories making news in Kentucky this morning.`;
+    }
+    if (uniqueCounties.length === 2) {
+      return `From ${uniqueCounties[0]} County to ${uniqueCounties[1]} County and communities across the Commonwealth, here are the top stories making news in Kentucky this morning.`;
+    }
+    return `From across the Commonwealth, here are the top stories making news in Kentucky this morning.`;
+  } else {
+    if (hasHomeCounty && hasMultipleRegions) {
+      return `From ${HOME_COUNTY} County to communities across the Commonwealth, here are the top stories from today in Kentucky.`;
+    }
+    if (hasStatewide && hasMultipleRegions) {
+      return `From local headlines to statewide developments, here's what shaped Kentucky today.`;
+    }
+    if (uniqueCounties.length === 1) {
+      return `From ${uniqueCounties[0]} County and across the Commonwealth, here are the latest stories published today in Kentucky.`;
+    }
+    if (uniqueCounties.length === 2) {
+      return `From ${uniqueCounties[0]} County to ${uniqueCounties[1]} County and across the Commonwealth, here are the latest stories published today in Kentucky.`;
+    }
+    return `From across the Commonwealth, here are the latest stories published today in Kentucky.`;
+  }
+}
+
+function deduplicateByTitle(rows: DigestRow[]): DigestRow[] {
+  const kept: DigestRow[] = [];
+  const normalize = (t: string) =>
+    t.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter((w) => w.length >= 5);
+
+  for (const row of rows) {
+    const words = new Set(normalize(row.title));
+    const isDuplicate = kept.some((k) => {
+      const kWords = new Set(normalize(k.title));
+      const overlap = [...words].filter((w) => kWords.has(w)).length;
+      const minLen = Math.min(words.size, kWords.size);
+      return minLen > 0 && overlap / minLen >= 0.75;
+    });
+    if (!isDuplicate) kept.push(row);
+  }
+
+  return kept;
+}
+
 /**
  * Build the text of a Morning or Evening digest from today's articles.
- * Picks up to 7 "today" articles (3 top + up to 4 more) and formats them
- * into the standard Facebook post copy format. No AI required.
  */
 async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promise<string> {
 	// Determine today's date in Eastern Time
@@ -5511,17 +5673,26 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 	const day   = etParts.find((p) => p.type === 'day')?.value   ?? '';
 	const datePrefix = `${year}-${month}-${day}`;
 
+	const nextDay = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+	nextDay.setDate(nextDay.getDate() + 1);
+	const nextParts = new Intl.DateTimeFormat('en-US', {
+		timeZone: 'America/New_York',
+		year: 'numeric', month: '2-digit', day: '2-digit',
+	}).formatToParts(nextDay);
+	const nextYear  = nextParts.find((p) => p.type === 'year')?.value  ?? '';
+	const nextMonth = nextParts.find((p) => p.type === 'month')?.value ?? '';
+	const nextDay2  = nextParts.find((p) => p.type === 'day')?.value   ?? '';
+	const datePrefixNext = `${nextYear}-${nextMonth}-${nextDay2}`;
+
 	const result = await prepare(env,
 		`SELECT id, title, slug, county, category, is_kentucky, is_national
 		 FROM articles
-		 WHERE category = 'today' AND published_at LIKE ? AND slug IS NOT NULL
+		 WHERE category = 'today'
+		   AND slug IS NOT NULL
+		   AND (published_at LIKE ? OR published_at LIKE ?)
 		 ORDER BY published_at DESC
-		 LIMIT 25`,
-	).bind(`${datePrefix}%`).all<{
-		id: number; title: string; slug: string | null;
-		county: string | null; category: string;
-		is_kentucky: number; is_national: number;
-	}>();
+		 LIMIT 50`,
+	).bind(`${datePrefix}%`, `${datePrefixNext}%`).all<DigestRow>();
 
 	const rows = result.results ?? [];
 
@@ -5531,18 +5702,28 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 			: `Evening Recap – Stories You May Have Missed\n\nNo articles found yet for ${datePrefix}. Check back soon.`;
 	}
 
-	const top  = rows.slice(0, 3);
-	const more = rows.slice(3, 10);
+	const dedupedRows = deduplicateByTitle(rows);
 
-	// Unique county names from the leading articles for the intro sentence
-	const seenCounties = new Set<string>();
-	const counties: string[] = [];
-	for (const r of rows.slice(0, 5)) {
-		if (r.county && !seenCounties.has(r.county)) {
-			seenCounties.add(r.county);
-			counties.push(r.county);
+	let scored = [...dedupedRows]
+		.map((r, index) => ({ row: r, score: scoreArticle(r, index) }))
+		.sort((a, b) => b.score - a.score)
+		.map((x) => x.row);
+
+	// Pin a Calloway County story into the top 3 if one isn't already there
+	const topThreeHasCalloway = scored.slice(0, 3).some((r) => r.county === HOME_COUNTY);
+	if (!topThreeHasCalloway) {
+		const callowayIdx = scored.findIndex((r) => r.county === HOME_COUNTY);
+		if (callowayIdx > 2) {
+			// Swap the lowest-scoring of the top 3 with the first Calloway story
+			const [callowayStory] = scored.splice(callowayIdx, 1);
+			scored.splice(2, 0, callowayStory);
 		}
 	}
+
+	const top  = scored.slice(0, 3);
+	const more = scored.slice(3, 7);
+
+	const intro = buildIntroSentence(dedupedRows, when);
 
 	const buildUrl = (r: typeof rows[0]) =>
 		buildArticleUrl(BASE_URL, r.slug, r.county, r.category, !!r.is_national, r.id);
@@ -5550,19 +5731,11 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 	const parts: string[] = [];
 
 	if (when === 'morning') {
-		const intro = counties.length >= 2
-			? `From ${counties[0]} County to ${counties[1]} County and communities across the Commonwealth, here are the top stories making news in Kentucky this morning.`
-			: counties.length === 1
-			? `Out of ${counties[0]} County and across the Commonwealth, here are the top stories making news in Kentucky this morning.`
-			: `Here are the top stories making news in Kentucky this morning.`;
-
 		parts.push('Morning News Roundup – Top Stories to Start Your Day');
 		parts.push('');
 		parts.push(intro);
 		parts.push('');
-		parts.push('Here are the latest headlines from across Kentucky this morning');
-		parts.push('');
-		parts.push(' Top Stories This Morning');
+		parts.push('📰 Top Stories This Morning');
 		parts.push('');
 		for (const r of top) {
 			parts.push(`• ${r.title}`);
@@ -5570,7 +5743,7 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 			parts.push('');
 		}
 		if (more.length > 0) {
-			parts.push('  More Kentucky news this morning');
+			parts.push('📌 More Kentucky News This Morning');
 			parts.push('');
 			for (const r of more) {
 				parts.push(`• ${r.title}`);
@@ -5580,17 +5753,11 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 		}
 		parts.push('#KentuckyNews #KYMorningNews #MorningRoundup #LocalKYNews #KentuckyHeadlines #StartYourDayKY #KYNewsUpdate');
 	} else {
-		const intro = counties.length >= 2
-			? `From ${counties[0]} County to ${counties[1]} County and across the Commonwealth, here are the latest stories published today in Kentucky.`
-			: counties.length === 1
-			? `From ${counties[0]} County and across the Commonwealth, here are the latest stories published today in Kentucky.`
-			: `From across the Commonwealth, here are the latest stories published today in Kentucky.`;
-
 		parts.push('Evening Recap – Stories You May Have Missed');
 		parts.push('');
 		parts.push(intro);
 		parts.push('');
-		parts.push('  Top stories tonight');
+		parts.push('📰 Top Stories Tonight');
 		parts.push('');
 		for (const r of top) {
 			parts.push(`• ${r.title}`);
@@ -5598,7 +5765,7 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 			parts.push('');
 		}
 		if (more.length > 0) {
-			parts.push('  More Kentucky headlines');
+			parts.push('📌 More Kentucky Headlines');
 			parts.push('');
 			for (const r of more) {
 				parts.push(`• ${r.title}`);
@@ -5613,28 +5780,132 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
 }
 
 /**
- * Called from the scheduled handler every minute.
- * Only runs at exactly 6:45 AM or 6:45 PM Eastern; skips all other ticks.
+ * Post a digest to Facebook as a plain text post (with an optional thumbnail). The
+ * worker uses `FB_PAGE_TOKEN` and `FB_PAGE_ID` from secrets.
  */
+async function postDigestToFacebook(env: Env, text: string): Promise<{ postId: string } | null> {
+  if (!env.FB_PAGE_TOKEN || !env.FB_PAGE_ID) return null;
+
+  // Choose a thumbnail based on the digest type
+  const isMorning = text.includes('Morning News Roundup');
+  const isEvening = text.includes('Evening Recap');
+  const imageUrl = isMorning
+    ? `${BASE_URL}/images/Morning News Round Up.png`
+    : isEvening
+    ? `${BASE_URL}/images/Evening Recap.png`
+    : undefined;
+
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v19.0/${env.FB_PAGE_ID}/feed`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          access_token: env.FB_PAGE_TOKEN,
+          ...(imageUrl ? { picture: imageUrl } : {}),
+        }),
+      }
+    );
+    const data = (await res.json()) as any;
+    if (data?.id) return { postId: data.id };
+    console.error('[DIGEST] Facebook post failed:', JSON.stringify(data));
+    return null;
+  } catch (err) {
+    console.error('[DIGEST] Facebook post error:', err);
+    return null;
+  }
+}
+
 async function maybeRunDigest(env: Env): Promise<void> {
-	if (!env.CACHE) return;
-	const parts = new Intl.DateTimeFormat('en-US', {
-		timeZone: 'America/New_York',
-		hour12: false,
-		hour: 'numeric',
-		minute: 'numeric',
-	}).formatToParts(new Date());
-	const hour   = parseInt(parts.find((p) => p.type === 'hour')?.value   ?? '0', 10);
-	const minute = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+  if (!env.CACHE) return;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour12: false,
+    hour: 'numeric',
+    minute: 'numeric',
+  }).formatToParts(new Date());
+  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10);
+  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
 
-	if (minute !== 45) return;
-	if (hour !== 6 && hour !== 18) return;
+  // 6:45 AM — generate digest and set autopost flag to 'pending'
+  if (hour === 6 && minute === 45) {
+    const text = await generateDigestText(env, 'morning');
+    const entry = { text, generatedAt: new Date().toISOString() };
+    await env.CACHE.put('admin:digest:morning', JSON.stringify(entry));
+    await env.CACHE.put(
+      'admin:digest:morning:autopost',
+      JSON.stringify({ status: 'pending', scheduledFor: '7:00 AM', generatedAt: new Date().toISOString() }),
+      { expirationTtl: 3600 }
+    );
+    console.log(`[DIGEST] Generated morning digest, autopost pending`);
+  }
 
-	const when: 'morning' | 'evening' = hour === 6 ? 'morning' : 'evening';
-	const text = await generateDigestText(env, when);
-	const entry = { text, generatedAt: new Date().toISOString() };
-	await env.CACHE.put(`admin:digest:${when}`, JSON.stringify(entry));
-	console.log(`[DIGEST] Generated ${when} digest (${text.length} chars)`);
+  // 7:00 AM — auto-post morning if still pending
+  if (hour === 7 && minute === 0) {
+    const raw = await env.CACHE.get('admin:digest:morning:autopost');
+    if (raw) {
+      const flag = JSON.parse(raw) as { status: string };
+      if (flag.status === 'pending') {
+        const digestRaw = await env.CACHE.get('admin:digest:morning');
+        if (digestRaw) {
+          const digest = JSON.parse(digestRaw) as { text: string };
+          const result = await postDigestToFacebook(env, digest.text);
+          const newFlag = {
+            status: result ? 'posted' : 'failed',
+            postedAt: new Date().toISOString(),
+            postId: result?.postId ?? null,
+          };
+          await env.CACHE.put(
+            'admin:digest:morning:autopost',
+            JSON.stringify(newFlag),
+            { expirationTtl: 3600 }
+          );
+          console.log(`[DIGEST] Morning auto-post ${result ? 'succeeded' : 'failed'}`);
+        }
+      }
+    }
+  }
+
+  // 5:45 PM — generate evening digest and set autopost flag to 'pending'
+  if (hour === 17 && minute === 45) {
+    const text = await generateDigestText(env, 'evening');
+    const entry = { text, generatedAt: new Date().toISOString() };
+    await env.CACHE.put('admin:digest:evening', JSON.stringify(entry));
+    await env.CACHE.put(
+      'admin:digest:evening:autopost',
+      JSON.stringify({ status: 'pending', scheduledFor: '6:00 PM', generatedAt: new Date().toISOString() }),
+      { expirationTtl: 3600 }
+    );
+    console.log(`[DIGEST] Generated evening digest, autopost pending`);
+  }
+
+  // 6:00 PM — auto-post evening if still pending
+  if (hour === 18 && minute === 0) {
+    const raw = await env.CACHE.get('admin:digest:evening:autopost');
+    if (raw) {
+      const flag = JSON.parse(raw) as { status: string };
+      if (flag.status === 'pending') {
+        const digestRaw = await env.CACHE.get('admin:digest:evening');
+        if (digestRaw) {
+          const digest = JSON.parse(digestRaw) as { text: string };
+          const result = await postDigestToFacebook(env, digest.text);
+          const newFlag = {
+            status: result ? 'posted' : 'failed',
+            postedAt: new Date().toISOString(),
+            postId: result?.postId ?? null,
+          };
+          await env.CACHE.put(
+            'admin:digest:evening:autopost',
+            JSON.stringify(newFlag),
+            { expirationTtl: 3600 }
+          );
+          console.log(`[DIGEST] Evening auto-post ${result ? 'succeeded' : 'failed'}`);
+        }
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

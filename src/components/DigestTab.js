@@ -20,12 +20,18 @@ export default function DigestTab({ service }) {
   const [eveningText, setEveningText] = useState("");
   const [savingMorning, setSavingMorning] = useState(false);
   const [savingEvening, setSavingEvening] = useState(false);
+  const [postingMorning, setPostingMorning] = useState(false);
+  const [postingEvening, setPostingEvening] = useState(false);
   const [copiedMorning, setCopiedMorning] = useState(false);
   const [copiedEvening, setCopiedEvening] = useState(false);
+  const [autopost, setAutopost] = useState({ morning: null, evening: null });
   const [error, setError] = useState("");
 
   useEffect(() => {
     loadDigests();
+    loadAutopostStatus();
+    const interval = setInterval(loadAutopostStatus, 30000);
+    return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadDigests() {
@@ -39,6 +45,15 @@ export default function DigestTab({ service }) {
       setError("Failed to load digests.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadAutopostStatus() {
+    try {
+      const data = await service.getAutopostStatus();
+      if (data) setAutopost(data);
+    } catch {
+      // silent fail — autopost status is non-critical
     }
   }
 
@@ -89,6 +104,20 @@ export default function DigestTab({ service }) {
     }
   }
 
+  async function handlePostNow(when) {
+    const setPosting = when === "morning" ? setPostingMorning : setPostingEvening;
+    setPosting(true);
+    setError("");
+    try {
+      await service.postNow(when);
+      await loadAutopostStatus();
+    } catch {
+      setError(`Failed to post ${when} digest.`);
+    } finally {
+      setPosting(false);
+    }
+  }
+
   async function handleCopy(text, when) {
     try {
       await navigator.clipboard.writeText(text);
@@ -122,12 +151,19 @@ export default function DigestTab({ service }) {
   function renderSection(when) {
     const entry = when === "morning" ? morning : evening;
     const generating = when === "morning" ? generatingMorning : generatingEvening;
+    const posting = when === "morning" ? postingMorning : postingEvening;
     const editing = when === "morning" ? editingMorning : editingEvening;
     const editText = when === "morning" ? morningText : eveningText;
     const setEditText = when === "morning" ? setMorningText : setEveningText;
     const saving = when === "morning" ? savingMorning : savingEvening;
     const copied = when === "morning" ? copiedMorning : copiedEvening;
     const label = when === "morning" ? "Morning News Roundup" : "Evening Recap";
+
+    const autopostEntry = autopost[when];
+    const isPending = autopostEntry?.status === 'pending';
+    const isSuppressed = autopostEntry?.status === 'suppressed';
+    const isPosted = autopostEntry?.status === 'posted';
+    const isFailed = autopostEntry?.status === 'failed';
 
     return (
       <Paper style={{ padding: 20, marginBottom: 24 }}>
@@ -201,6 +237,19 @@ export default function DigestTab({ service }) {
               ) : null}
               {generating ? "Generating…" : "Generate New"}
             </Button>
+
+            {entry && (
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                disabled={posting}
+                onClick={() => handlePostNow(when)}
+                style={{ minWidth: 120 }}
+              >
+                Post Now
+              </Button>
+            )}
           </Box>
         </Box>
 
@@ -218,6 +267,85 @@ export default function DigestTab({ service }) {
               timeStyle: "short",
             })}
           </Typography>
+        )}
+
+        {/* Autopost status banner */}
+        {(isPending || isSuppressed || isPosted || isFailed) && (
+          <Box
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "8px 12px",
+              marginBottom: 12,
+              borderRadius: 4,
+              background: isPending
+                ? "#fff8e1"
+                : isSuppressed
+                ? "#fce4ec"
+                : isPosted
+                ? "#e8f5e9"
+                : "#ffebee",
+              border: `1px solid ${
+                isPending
+                  ? "#ffe082"
+                  : isSuppressed
+                  ? "#f48fb1"
+                  : isPosted
+                  ? "#a5d6a7"
+                  : "#ef9a9a"
+              }`,
+            }}
+          >
+            <Typography variant="body2" style={{ fontWeight: 600 }}>
+              {isPending && `⏱ Auto-posting at ${autopostEntry.scheduledFor} — click to stop`}
+              {isSuppressed && "✋ Auto-post stopped — post manually when ready"}
+              {isPosted &&
+                `✅ Posted to Facebook at ${new Date(
+                  autopostEntry.postedAt
+                ).toLocaleTimeString("en-US", {
+                  timeZone: "America/New_York",
+                  timeStyle: "short",
+                })}`}
+              {isFailed && "⚠️ Auto-post failed — please post manually"}
+            </Typography>
+            <Box style={{ display: "flex", gap: 8 }}>
+              {isPending && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  style={{ background: "#e53935", color: "#fff", fontWeight: 700 }}
+                  onClick={async () => {
+                    try {
+                      await service.suppressAutopost(when);
+                      loadAutopostStatus();
+                    } catch {
+                      setError(`Failed to suppress ${when} auto-post.`);
+                    }
+                  }}
+                >
+                  STOP AUTO-POST
+                </Button>
+              )}
+              {(isSuppressed || isFailed) && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  style={{ background: "#1976d2", color: "#fff" }}
+                  onClick={async () => {
+                    try {
+                      await service.postNow(when);
+                      loadAutopostStatus();
+                    } catch {
+                      setError(`Failed to post ${when} digest.`);
+                    }
+                  }}
+                >
+                  POST NOW
+                </Button>
+              )}
+            </Box>
+          </Box>
         )}
 
         {/* Body — edit textarea OR read-only pre block */}

@@ -991,4 +991,24 @@ export default class SiteService {
       body: JSON.stringify({ when, text }),
     });
   }
+
+  async getAutopostStatus() {
+    return this.request("/api/admin/digest/autopost");
+  }
+
+  async suppressAutopost(when) {
+    const res = await this.request("/api/admin/digest/suppress", {
+      method: "POST",
+      body: JSON.stringify({ when }),
+    });
+    return res;
+  }
+
+  async postNow(when) {
+    const res = await this.request("/api/admin/digest/post-now", {
+      method: "POST",
+      body: JSON.stringify({ when }),
+    });
+    return res;
+  }
 }
