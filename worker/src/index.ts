@@ -34,6 +34,7 @@ import {
 	setFacebookSchedulerConfig,
 	getRecentTodayArticles,
 	addFacebookSchedulerPostedId,
+	removeFacebookSchedulerPostedId,
 	getFacebookSchedulerPostedIds,
 	appendAdminLog,
 	getAdminLogs,
@@ -453,8 +454,15 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 			body: new URLSearchParams(params),
 		});
-		const postData = await postResp.json();
-		return { ok: true, result: postData };
+		const postData = await postResp.json() as any;
+		// The Graph API returns an "error" object on failure even when the HTTP
+		// status is 200, so we must check the body — not just the HTTP status code.
+		if (!postResp.ok || postData?.error) {
+			const fbMsg = postData?.error?.message || `HTTP ${postResp.status}`;
+			const fbCode = postData?.error?.code ? ` (code ${postData.error.code})` : '';
+			return { ok: false, error: `${fbMsg}${fbCode}`, result: postData };
+		}
+		return { ok: true, fbPostId: String(postData?.id ?? ''), result: postData };
 	} catch (err) {
 		return { ok: false, error: 'Failed to post to Facebook', details: String(err) };
 	}
@@ -506,16 +514,47 @@ async function runFacebookScheduler(env: Env): Promise<void> {
 		return;
 	}
 
-	eligible.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+	// Rank eligible articles using the same scoring logic as the morning/evening
+	// digest so that high-value stories (crime, government, breaking news) are
+	// always posted before filler or low-importance content.
+	const toDigestRow = (a: ArticleRecord): DigestRow => ({
+		id: a.id,
+		title: a.title,
+		slug: a.slug ?? null,
+		county: a.county ?? null,
+		category: a.category,
+		is_kentucky: a.isKentucky ? 1 : 0,
+		is_national: a.isNational ? 1 : 0,
+		published_at: a.publishedAt ?? null,
+	});
+
+	eligible.sort((a, b) => {
+		const scoreDiff = scoreArticle(toDigestRow(b)) - scoreArticle(toDigestRow(a));
+		if (scoreDiff !== 0) return scoreDiff;
+		// break ties by recency
+		return new Date(b.publishedAt ?? 0).getTime() - new Date(a.publishedAt ?? 0).getTime();
+	});
 	const article = eligible[0];
 
 	const result = await postArticleToFacebook(env, article);
+	const resultType: 'success' | 'error' | 'weather' =
+		result.ok ? ((result as any).weatherAlert ? 'weather' : 'success') : 'error';
 	const historyEntry: FacebookSchedulerPostHistoryItem = {
 		at: nowUtc.toISOString(),
 		id: article.id,
 		title: article.title,
-		result: result.ok ? (result.weatherAlert ? 'weather' : 'success') : 'error',
+		result: resultType,
+		...( resultType === 'success' && (result as any).fbPostId ? { fbPostId: (result as any).fbPostId } : {} ),
+		...( resultType === 'error' && result.error ? { error: result.error } : {} ),
 	};
+
+	// Log to the admin activity feed so the failure is visible immediately.
+	if (resultType === 'error') {
+		await appendAdminLog(env, `❌ FB scheduler post FAILED for "${article.title}" (ID ${article.id}): ${result.error ?? 'unknown error'}`);
+	} else {
+		const fbId = (result as any).fbPostId ? ` FB post ID: ${(result as any).fbPostId}` : '';
+		await appendAdminLog(env, `✅ FB scheduler posted "${article.title}" (ID ${article.id}).${fbId}`);
+	}
 
 	// Update scheduler state with last run and last post details.
 	await setFacebookSchedulerConfig(env, {
@@ -2007,6 +2046,18 @@ if (url.pathname === '/api/admin/facebook/page-posts' && request.method === 'POS
 		console.error('[FB PAGE POSTS FAILED]', msg);
 		return json({ ok: false, posts: [], pageUrl, warning: `Scrape failed: ${msg}` }, 200);
 	}
+}
+
+// DELETE /api/admin/facebook/scheduler/mark-posted/:id — remove article from the
+// scheduler's "already posted" set so it becomes eligible for retry.
+if (url.pathname.startsWith('/api/admin/facebook/scheduler/mark-posted/') && request.method === 'DELETE') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const idStr = url.pathname.split('/').pop() ?? '';
+	const id = Number(idStr);
+	if (!Number.isFinite(id) || id <= 0) return badRequest('Missing or invalid article id');
+	await removeFacebookSchedulerPostedId(env, id);
+	await appendAdminLog(env, `Admin cleared scheduler posted-ID for article ${id} — will retry`);
+	return json({ ok: true, id });
 }
 
 // GET/POST /api/admin/facebook/scheduler — configure the server-side scheduler

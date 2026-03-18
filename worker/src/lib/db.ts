@@ -22,6 +22,10 @@ export type FacebookSchedulerPostHistoryItem = {
   id: number;
   title: string;
   result: "success" | "error" | "weather";
+  /** FB post ID returned by Graph API on success */
+  fbPostId?: string;
+  /** Error message from Graph API or network on failure */
+  error?: string;
 };
 
 export type FacebookSchedulerConfig = {
@@ -90,6 +94,13 @@ export async function addFacebookSchedulerPostedId(env: Env, id: number): Promis
     }
   }
 
+  await env.CACHE.put(FB_SCHEDULER_POSTED_KEY, JSON.stringify(existing), { expirationTtl: 60 * 60 * 24 * 30 });
+}
+
+export async function removeFacebookSchedulerPostedId(env: Env, id: number): Promise<void> {
+  if (!env.CACHE) return;
+  const existing = await getFacebookSchedulerPostedIds(env);
+  delete existing[String(id)];
   await env.CACHE.put(FB_SCHEDULER_POSTED_KEY, JSON.stringify(existing), { expirationTtl: 60 * 60 * 24 * 30 });
 }
 

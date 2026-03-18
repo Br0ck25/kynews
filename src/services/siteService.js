@@ -729,6 +729,12 @@ export default class SiteService {
     });
   }
 
+  async clearFacebookSchedulerPostedId(articleId) {
+    return this.request(`/api/admin/facebook/scheduler/mark-posted/${encodeURIComponent(articleId)}`, {
+      method: "DELETE",
+    });
+  }
+
   /**
    * Discover recent post links from a public Facebook page URL.
    * Uses mbasic scraping on the backend — works for public pages without an API token.

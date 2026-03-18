@@ -2064,11 +2064,26 @@ export default function AdminPage() {
                   Recent posts:
                 </Typography>
                 {fbSchedulerConfig.lastPostingHistory.slice(-5).reverse().map((entry, i) => (
-                  <Typography key={i} variant="caption" style={{ display: "block", lineHeight: 1.3 }}>
-                    {new Date(entry.at).toLocaleString()} —
-                    {entry.result === 'success' ? ' ✅' : entry.result === 'weather' ? ' 🌦️' : ' ❌'}
-                    {` "${entry.title}" (ID ${entry.id})`}
-                  </Typography>
+                  <Box key={i} style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 2 }}>
+                    <Typography variant="caption" style={{ lineHeight: 1.3, flex: 1 }}>
+                      {new Date(entry.at).toLocaleString()} —
+                      {entry.result === 'success' ? ' ✅' : entry.result === 'weather' ? ' 🌦️' : ' ❌'}
+                      {` "${entry.title}" (ID ${entry.id})`}
+                      {entry.result === 'success' && entry.fbPostId ? <span style={{ color: '#4caf50', marginLeft: 4 }}>[FB ID: {entry.fbPostId}]</span> : null}
+                      {entry.result === 'error' && entry.error ? <span style={{ color: '#f44336', marginLeft: 4 }}>— {entry.error}</span> : null}
+                    </Typography>
+                    {entry.result === 'error' && (
+                      <Button size="small" variant="outlined" style={{ fontSize: 10, padding: "1px 6px", lineHeight: 1.4, minWidth: 0 }}
+                        onClick={async () => {
+                          try {
+                            await service.clearFacebookSchedulerPostedId(entry.id);
+                            await loadFbSchedulerConfig();
+                          } catch(e) { alert("Failed to clear: " + e); }
+                        }}>
+                        Retry
+                      </Button>
+                    )}
+                  </Box>
                 ))}
               </Box>
             )}
