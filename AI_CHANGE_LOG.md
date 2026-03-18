@@ -696,3 +696,144 @@ Only fires when the character BEFORE the period is lowercase (letter or digit). 
 | Gray News/WHNS/wire story tagged Kentucky from a KY outlet | Check `NON_KY_DATELINE_RE` pattern 2 — dotted state abbreviations with single-char first component (S.C., N.C.) need `[a-z]+` not `[a-z]{2,}` |
 | AI summary has sentences running together without spaces | Root cause is AI model joining one-sentence-per-paragraph articles; fix is in `normalizeParagraphBoundaries` with lookbehind-guarded space insertion after `[a-z0-9][.!?]` |
 | Lookbehind in Cloudflare Workers V8 | ES2018 lookbehind assertions (`(?<=...)`) are supported in V8/Workers — safe to use |
+
+---
+
+## 2026-03-17 — Four cleaning fixes: CMS byline/credit blocks, timestamp+byline lines, "Share This Story", pre-dateline teaser
+
+---
+
+### Change 30 — Strip Hearst TV CMS image credit blocks (Credit/description/Author) (2026-03-17)
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+- Added a multi-line strip in `cleanContentForSummarization` (before the existing caption strip) that removes Hearst TV CMS image credit blocks in the form `Credit: attribution\n[optional description line]\nAuthor: Name`.
+- Added standalone `Credit:` and `Author:` strips as fallbacks for cases where the block is not intact.
+- Added the same Credit/Author strips to `stripBoilerplateFromOutput` so the AI cannot echo these lines into the summary.
+
+**Articles that triggered this fix:**
+- *Kentucky's film incentive bill passes Senate* from `whas11.com` — summary began with "The House of Representatives will hear the bill next." followed by "LOUISVILLE, Ky. —", because the WHAS11 article had a credit block (`Credit: nisara - stock.adobe.com\nDirector chair and Clapper board...\nAuthor: Margaret Vancampen`) sitting between the teaser and the dateline. The AI received the teaser sentence as the first thing it saw and reproduced it as the opening of the summary.
+
+**Root cause:**
+Hearst TV (WHAS11, WLKY, WLWT) CMS emits three lines above the article body when an image is attached:
+1. `Credit: photographer/agency` — the photo credit
+2. `[image description]` — alt text or stock photo description (e.g. "Director chair and Clapper board...")
+3. `Author: Reporter Name` — article byline
+
+`cleanContentForSummarization` had no patterns for `Credit:` or `Author:` lines. The `By Name` strip requires a "By " prefix which these lack. The credit+description+author block was therefore passed intact to the AI.
+
+---
+
+### Change 31 — Strip relative-timestamp+byline lines (e.g. "1 hour ago  WNKY Staff") (2026-03-17)
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+Changed the timestamp strip regex from:
+```
+/^\d+ (?:second|minute|hour|day|week|month)s? ago\s*$/gim
+```
+to:
+```
+/^\d+\s+(?:second|minute|hour|day|week|month)s?\s+ago\b[^\n]*/gim
+```
+The old pattern required end-of-line (`$`) so it only stripped standalone timestamp lines. The new pattern strips the entire line content after the timestamp keyword (`\b[^\n]*`), including any byline text that follows on the same line.
+
+**Article that triggered this fix:**
+- *Collision reconstruction to impact traffic on Glasgow Road* from `wnky.com` — summary began with "WNKY Staff, WARREN COUNTY, Ky. –". The scraped content had "1 hour ago  WNKY Staff" as a single line (WNKY's CMS concatenates the timestamp and staff byline). The old strip missed it because "WNKY Staff" follows "ago" on the same line.
+
+---
+
+### Change 32 — Add "Share This Story" to social media strip (2026-03-17)
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+Added `Share\s+This\s+Story` to the social media boilerplate strip pattern in `cleanContentForSummarization`, so the 3-word variant is stripped in addition to the standalone "Share" word. The pattern now reads: `(?:...|Share\s+This\s+Story|Share|...)`.
+
+**Why:**
+WNKY and certain other broadcast CMS sites emit "Share This Story" as a CTA above the article body. The old pattern only matched the single word "Share", not the phrase form, so "Share This Story" survived into the cleaned content.
+
+---
+
+### Change 33 — Add late-pass teaser/callout strip after blank-line collapse (2026-03-17)
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+Added a new regex pass at the end of `cleanContentForSummarization` (immediately after the `\n{3,} → \n\n` collapse) that strips any 10–160 character line that is separated from the first KY dateline by exactly one blank line (`\n\n`). This runs after all boilerplate (Published, Updated, Facebook, Credit, Author, etc.) has been stripped, so the teaser is now adjacent to the dateline with only a blank line between.
+
+**Why:**
+The existing "caption-before-dateline" strip (at the top of the function) requires the line to be IMMEDIATELY followed by the dateline (`\n` with no blank). For Hearst TV articles, the teaser sentence ("The House of Representatives will hear the bill next.") was separated from the dateline by a credit block + Author + Published + Updated + Facebook — none of which were stripped at the time the early caption pass ran. After Change 30 handles Credit/Author/description, and the late boilerplate passes handle Published/Updated/Facebook, the teaser is now separated from the dateline by only blank lines, and `\n{3,} → \n\n` leaves exactly `\n\n`. The late pass then catches it cleanly.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| Hearst TV (WHAS11/WLKY/WLWT) article starts with wrong sentence | Check for un-stripped `Credit:` / `Author:` block above the dateline; add multi-line strip before caption pass |
+| Broadcast CMS timestamp+byline on same line ("N ago  OUTLET Staff") | Timestamp strip must use `\b[^\n]*` not `\s*$`, otherwise trailing byline survives |
+| CMS "Share This Story" leaking into AI prompt | Social media strip must include phrase variants, not just single-word forms |
+| Teaser sentence before dateline not stripped by early caption pass | Check if boilerplate (Credit/Author/Published/Updated/Facebook) is sitting between teaser and dateline at the time the early pass runs; if so, add a late pass after all boilerplate is stripped and blank lines are collapsed |
+| Order matters in `cleanContentForSummarization` | Credit/Author must be stripped BEFORE the early caption pass; the late-pass teaser strip must run AFTER `\n{3,} → \n\n` |
+
+---
+
+## 2026-03-17 — Facebook caption format overhaul
+
+---
+
+### Change 34 — Richer caption structure: ALL CAPS headline, prose+bullet layout, "Read more:" URL (2026-03-17)
+
+**File:** `worker/src/lib/facebook.ts` — `generateFacebookCaption`
+
+**What changed:**
+- Headline is now uppercased via `.toUpperCase()` after branding-strip cleaning.
+- "In County," location prefix removed — the dateline already provides location and the county is in the hashtags.
+- Summary fallback improved: if every sentence in `article.summary` has fewer than 5 words, the function falls back to `article.contentText` before extracting usable sentences.
+- Content layout now uses up to 6 sentences in three blocks:
+  - **Prose block**: sentences 1–2, truncated to 50 words each.
+  - **Bullet block**: sentences 3–5 formatted as `• sentence`, each truncated to 40 words; only appear when there are ≥ 4 usable sentences.
+  - **Closing**: sentence 6 (if present), truncated to 40 words.
+- URL is now prefixed with `"Read more: "`.
+- Obituaries return `''` immediately (no post, no hashtags).
+
+**Why:**
+The old 3-linear-sentence format gave weak context and the "In County," prefix was sometimes misleading when the article's dateline was a city rather than a county. The new layout mirrors high-reach local news post patterns: clear ALL CAPS headline for scroll-stopping impact, two opening paragraphs to set the scene, then bullet points summarising the key facts for readers who scan.
+
+---
+
+### Change 35 — Hashtag format: #WarrenCountyKY, #KentuckyNews, #KentuckyEducation; suppress for obituaries (2026-03-17)
+
+**File:** `worker/src/lib/facebook.ts` — `generateFacebookHashtags`
+
+**What changed:**
+- County tag changed from `#Warren` to `#WarrenCountyKY` (`county + "CountyKY"`).  The full-form tag is more searchable and unambiguous.
+- `#Kentucky` changed to `#KentuckyNews` — the bare state name has lower signal-to-noise on Facebook; the news variant has more relevant followers.
+- `#KYEducation` changed to `#KentuckyEducation` — consistent with the fuller format used by other tags.
+- Obituaries category returns `''` — obituary posts are personal and should not carry hashtags.
+
+---
+
+### Change 36 — Fix `generateFacebookHook` min-length guard (2026-03-17)
+
+**File:** `worker/src/lib/facebook.ts` — `generateFacebookHook`
+
+**What changed:**
+Guard changed from `wordCount < 3 || hook.length < 20` to `wordCount < 2 || hook.length < 5`.
+
+**Why:**
+The old threshold rejected 2-word sentences like "First sentence." (2 words, 15 chars) which are perfectly valid hooks. The guard's intent is to suppress single-word stubs like "Gov." (1 word) and "Hi" (1 word / 2 chars). The new thresholds correctly achieve that: ≥ 2 words AND ≥ 5 characters are required.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| Facebook posts look weak with only 1–3 sentences | Use prose + bullet layout: 2 prose paragraphs, up to 3 bullets, 1 closing — gives more information without overwhelming |
+| County hashtag unclear (`#Warren` could be many states) | Always use `#CountyNameCountyKY` format for unambiguous state-scoped discoverability |
+| `generateFacebookHook` drops legitimate 2-word sentences | Hook guard must use `< 2 words` not `< 3 words`; length guard must be tiny (< 5 chars) to catch only true stubs |
+| Obituaries should not be posted to Facebook | Return `''` from `generateFacebookCaption` and `generateFacebookHashtags` when `category === 'obituaries'` |

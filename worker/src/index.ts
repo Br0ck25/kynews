@@ -58,7 +58,7 @@ import { fetchAndParseFeed, resolveFeedUrls } from './lib/rss';
 import { classifyArticleWithAi } from './lib/classify';
 import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
-import { generateFacebookCaption } from './lib/facebook';
+import { generateFacebookCaption, generateAiFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
 import { processNwsAlerts, processNwsProducts } from './lib/nws';
 import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
@@ -1795,7 +1795,7 @@ if (url.pathname === '/api/admin/facebook/caption' && request.method === 'POST')
 	const article = await getArticleById(env, id);
 	if (!article) return json({ error: 'Article not found' }, 404);
 
-	const caption = generateFacebookCaption(article);
+	const caption = await generateAiFacebookCaption(article, env);
 	return json({ ok: true, caption });
 }
 
@@ -1868,9 +1868,9 @@ if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 			link: article.canonicalUrl || article.sourceUrl || '',
 			access_token: pageToken,
 		};
-		if (pictureUrl) {
-			params.picture = pictureUrl;
-		}
+		// Note: do NOT pass `picture` — Facebook only allows that for verified
+		// domain owners.  The worker serves proper OG meta tags so Facebook will
+		// scrape the correct image from the article URL automatically.
 
 		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
 			method: 'POST',

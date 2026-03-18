@@ -1010,6 +1010,16 @@ export function cleanContentForSummarization(text: string, title: string): strin
     t = t.replace(new RegExp(`^\\s*${escaped}\\s*\n?`, 'i'), '');
   }
 
+  // Strip Hearst TV CMS image credit blocks (WHAS11, WLKY, WLWT).
+  // These CMSes place "Credit: attribution\n[image description]\nAuthor: Name"
+  // above the article body. The combined strip removes all three lines at once
+  // so the description line does not become an orphan after Credit/Author are stripped.
+  t = t.replace(/^Credit:[^\n]*\n(?:[^\n]+\n)?Author:[^\n]*$/gm, '');
+  // Catch any standalone Credit: or Author: lines that the block pattern missed
+  // (e.g. when Credit and Author are not adjacent).
+  t = t.replace(/^Credit:\s*[^\n]*$/gim, '');
+  t = t.replace(/^Author:\s*[A-Z][^\n]*$/gim, '');
+
   // Strip short heading-like lines that appear before the dateline — these are
   // image alt text or duplicate captions from broadcast CMS pages (e.g. LEX18,
   // WKYT). They look like the article title but are not exact matches.
@@ -1044,7 +1054,7 @@ export function cleanContentForSummarization(text: string, title: string): strin
     '',
   );
 
-  t = t.replace(/^\d+ (?:second|minute|hour|day|week|month)s? ago\s*$/gim, '');
+  t = t.replace(/^\d+\s+(?:second|minute|hour|day|week|month)s?\s+ago\b[^\n]*/gim, '');
   t = t.replace(/^CLICK HERE\b.+$/gim, '');
   t = t.replace(/^Click below to jump to[:\s].+$/gim, '');
   t = t.replace(/^(?:RELATED|READ MORE|MORE|SEE ALSO|WATCH|ALSO|SIGN UP|SUBSCRIBE|DOWNLOAD)[:\s].+$/gim, '');
@@ -1056,7 +1066,7 @@ export function cleanContentForSummarization(text: string, title: string): strin
   );
   // Strip standalone "Home » Category » " breadcrumb lines that remain after the nav strip
   t = t.replace(/^(?:Home\s*[»›>|]\s*)+[^.!?\n]{0,120}(?:[»›>|][^.!?\n]{0,120})*\n?/im, '');
-  t = t.replace(/^(?:Facebook|Twitter|X|Threads|Flipboard|Comments|Print|Email|Share|Instagram)\s*$/gim, '');
+  t = t.replace(/^(?:Facebook|Twitter|X|Threads|Flipboard|Comments|Print|Email|Share\s+This\s+Story|Share|Instagram)\s*$/gim, '');
   t = t.replace(/^By\s+[A-Z][a-zA-Z .'-]{2,60}(?:Fox News|AP|Reuters|Staff|Reporter|Digital|Correspondent)?.*$/gm, '');
   t = t.replace(
     /^Published\s+\d{1,2}:\d{2}\s*(?:am|pm)\s+\w+,\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},\s+\d{4}.*$/gim,
@@ -1140,6 +1150,16 @@ export function cleanContentForSummarization(text: string, title: string): strin
   t = t.replace(/^(.+)\n\1$/gm, '$1');
   t = t.replace(/\n{3,}/g, '\n\n');
 
+  // Late-pass: strip CMS teaser/subhead/callout that sits just before the first
+  // KY dateline with only a blank line between them (after all boilerplate has
+  // been removed above). Common in Hearst TV (WHAS11, WLKY) articles whose CMS
+  // positions a forward-reference sentence (e.g. "The House will hear the bill
+  // next.") above the article image, which Readability extracts first.
+  t = t.replace(
+    /^[^\n]{10,160}\n\n(?=[A-Z][A-Z\s]{1,25},\s*(?:Ky|KY|KENTUCKY)[\s.,])/gm,
+    '',
+  );
+
   // Strip TV closed-caption transcript blocks that leaked through as plain text.
   // Two-pass: first mark each line, then remove entire runs of 3+ caps lines.
   {
@@ -1217,6 +1237,10 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   t = t.replace(/^Published\b[^\n]*$/gim, '');
   t = t.replace(/^Updated\b[^\n]*$/gim, '');
   t = t.replace(/^Photo by\b[^\n]*$/gim, '');
+  // Strip Hearst TV CMS image credit/author lines if the AI echoes them
+  t = t.replace(/^Credit:[^\n]*\n(?:[^\n]+\n)?Author:[^\n]*$/gm, '');
+  t = t.replace(/^Credit:\s*[^\n]*$/gim, '');
+  t = t.replace(/^Author:\s*[A-Z][^\n]*$/gim, '');
   t = t.replace(/\s*\(Photo(?:\s+provided|\s+courtesy(?:\s+of\s+[^)]{0,60})?|:\s*[^)]{0,60}|\/[^)]{0,60})?\)/gi, '');
   t = t.replace(/^[^\n]{10,200}\s*\((?:Photo\s+provided|Courtesy[^)]{0,60}|Provided)\)\s*$/gim, '');
   // Strip inline photo credit suffixes appended to caption sentences.
