@@ -30,6 +30,11 @@ import {
 	// push helpers
 	savePushSubscription,
 	sendPushNotification,
+	getFacebookSchedulerConfig,
+	setFacebookSchedulerConfig,
+	getRecentTodayArticles,
+	addFacebookSchedulerPostedId,
+	getFacebookSchedulerPostedIds,
 } from './lib/db';
 import {
 	HIGH_PRIORITY_SOURCE_SEEDS,
@@ -351,8 +356,151 @@ interface IngestRunOptions {
 	rotateSources?: boolean;
 }
 
+async function postArticleToFacebook(env: Env, article: ArticleRecord) {
+	const pageId = ((env as any).FACEBOOK_PAGE_ID || '').trim();
+	const pageToken = ((env as any).FACEBOOK_PAGE_ACCESS_TOKEN || '').trim();
+	if (!pageId || !pageToken) {
+		return { ok: false, error: 'Facebook credentials not configured' };
+	}
+
+	// If this is a weather alert article (auto-ingested from the NWS API), use
+	// the dedicated weather alert caption + photo post handler, which ensures the
+	// post matches the expected "SPECIAL WEATHER STATEMENT" format.
+	if (article.category === 'weather' && article.sourceUrl?.includes('/alerts/')) {
+		const match = article.sourceUrl.match(/alerts\/(.+)$/);
+		const alertId = match?.[1] ?? '';
+		if (alertId) {
+			const nwsAlert = await fetchNwsAlertById(alertId);
+			if (nwsAlert) {
+				await postWeatherAlertToFacebook(env, nwsAlert);
+				return { ok: true, weatherAlert: true };
+			}
+		}
+		// Fall back to the generic Facebook post path if we can't fetch the alert.
+	}
+
+	const caption = generateFacebookCaption(article);
+	if (!caption) {
+		return { ok: false, error: 'article not Kentucky or missing data' };
+	}
+
+	// figure out what image (if any) should be used for the preview.  this is
+	// the same value that the crawler would see when scraping the article link,
+	// and by passing it explicitly to the Graph API we override the logo fallback.
+	await selectPreviewImage(article);
+
+	try {
+		const params: Record<string, string> = {
+			message: caption,
+			link: article.canonicalUrl || article.sourceUrl || '',
+			access_token: pageToken,
+		};
+
+		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams(params),
+		});
+		const postData = await postResp.json();
+		return { ok: true, result: postData };
+	} catch (err) {
+		return { ok: false, error: 'Failed to post to Facebook', details: String(err) };
+	}
+}
+
+async function runFacebookScheduler(env: Env): Promise<void> {
+	const config = await getFacebookSchedulerConfig(env);
+	if (!config.enabled) return;
+
+	const tz = config.timezone || 'America/New_York';
+	const nowUtc = new Date();
+	const nowLocal = new Date(nowUtc.toLocaleString('en-US', { timeZone: tz }));
+	const nowHHMM = `${String(nowLocal.getHours()).padStart(2, '0')}:${String(nowLocal.getMinutes()).padStart(2, '0')}`;
+
+	const inTimeWindow = (hhmm: string, start: string, end: string) => {
+		const toMins = (s: string) => {
+			const [h, m] = s.split(':').map(Number);
+			return h * 60 + m;
+		};
+		const cur = toMins(hhmm);
+		const s = toMins(start);
+		const e = toMins(end);
+		return s <= e ? cur >= s && cur < e : cur >= s || cur < e;
+	};
+
+	if (!inTimeWindow(nowHHMM, config.start, config.end)) return;
+
+	const lastRun = config.lastRunAt ? new Date(config.lastRunAt) : null;
+	if (lastRun) {
+		const nextRun = new Date(lastRun.getTime() + (config.intervalMinutes || 60) * 60 * 1000);
+		if (nowUtc < nextRun) return;
+	}
+
+	const articles = await getRecentTodayArticles(env, 500);
+	const posted = await getFacebookSchedulerPostedIds(env);
+	const eligible = articles.filter((row) => {
+		if (row.category !== 'today') return false;
+		if (!row.publishedAt || row.publishedAt.startsWith('9999')) return false;
+		if (posted[String(row.id)]) return false;
+		const artLocal = new Date(new Date(row.publishedAt).toLocaleString('en-US', { timeZone: tz }));
+		const artTime = `${String(artLocal.getHours()).padStart(2, '0')}:${String(artLocal.getMinutes()).padStart(2, '0')}`;
+		return inTimeWindow(artTime, config.start, config.end);
+	});
+
+	if (eligible.length === 0) {
+		return;
+	}
+
+	eligible.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+	const article = eligible[0];
+
+	const result = await postArticleToFacebook(env, article);
+	await setFacebookSchedulerConfig(env, {
+		lastRunAt: nowUtc.toISOString(),
+		lastPostedId: article.id,
+		lastPostedTitle: article.title,
+	});
+
+	if (result.ok) {
+		await addFacebookSchedulerPostedId(env, article.id);
+	}
+}
+
+// Helper to choose a sensible preview image URL for an article record. Mirrors
+// the logic used when rendering OG tags for bots.
+async function selectPreviewImage(article: ArticleRecord): Promise<string | null> {
+	let previewImage = article.imageUrl || null;
+	if (!previewImage && article.contentHtml) {
+		const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
+		if (match && match[1]) previewImage = match[1];
+	}
+	if (!previewImage) {
+		try {
+			const fetchResp = await fetch((article.canonicalUrl || '') + `?_=${Date.now()}`);
+			if (fetchResp.ok) {
+				const body = await fetchResp.text();
+				const { scrapeArticleHtml } = await import('./lib/scrape');
+				const scraped = scrapeArticleHtml(article.canonicalUrl || '', body);
+				if (scraped.imageUrl) {
+					previewImage = scraped.imageUrl;
+				}
+			}
+		} catch {
+			/* ignore network errors */
+		}
+	}
+	if (previewImage && !/^https?:\/\//i.test(previewImage)) {
+		try {
+			previewImage = new URL(previewImage, article.canonicalUrl || BASE_URL).toString();
+		} catch {
+			/* ignore invalid URL */
+		}
+	}
+	return previewImage || null;
+}
+
 /** All route handling extracted so the outer fetch() can wrap it in a try/catch
- *  that guarantees CORS headers on every response, even unhandled exceptions. */
+ *  that guarantees CORS headers are present on every response, even unhandled exceptions. */
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 const url = new URL(request.url);
 
@@ -502,7 +650,8 @@ if (url.pathname === '/api/subscribe' && request.method === 'POST') {
 
 // internal API for broadcasting a notification (used by tests or admin UI)
 if (url.pathname === '/api/sendNotification' && request.method === 'POST') {
-  const payload = await parseJsonBody<{ title: string; body: string; url: string }>(request);
+  const payload = (await parseJsonBody<{ title: string; body: string; url: string }>(request)) || null;
+  if (!payload || !payload.title || !payload.body || !payload.url) return badRequest('Missing title/body/url in payload');
   await sendPushNotification(env, payload);
   return json({ success: true });
 }
@@ -819,53 +968,57 @@ if (url.pathname === '/api/admin/backfill-county' && request.method === 'POST') 
 		const before = (await getCountyCounts(env)).get(county) ?? 0;
 		const startTs = new Date().toISOString();
 		// record current URL being processed so UI can display it
-		try {
-			const rawPre = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
-			if (rawPre) {
-				const statusObjPre = JSON.parse(rawPre);
-				if (statusObjPre && statusObjPre.status === 'running') {
-					statusObjPre.currentUrl = sourceUrl;
-					await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObjPre), { expirationTtl: 7200 }).catch(() => {});
+		if (env.CACHE) {
+			try {
+				const rawPre = await (env.CACHE as any).get(BACKFILL_STATUS_KEY, 'text');
+				if (rawPre) {
+					const statusObjPre = JSON.parse(rawPre);
+					if (statusObjPre && statusObjPre.status === 'running') {
+						statusObjPre.currentUrl = sourceUrl;
+						await (env.CACHE as any).put(BACKFILL_STATUS_KEY, JSON.stringify(statusObjPre), { expirationTtl: 7200 }).catch(() => {});
+					}
 				}
-			}
-		} catch {}
-		await __testables.runIngest(env, [sourceUrl], threshold * 2, 'manual', { rotateSources: false }).catch((e) => {
+			} catch {}
+		}
+		await __testables.runIngest(env, [sourceUrl], threshold * 2, 'manual', { rotateSources: false }).catch((e: any) => {
 			console.error('runIngest error for', county, sourceUrl, e);
 			return null;
 		});
 		// update status object (same as previous code)
-		try {
-			const raw = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
-			if (raw) {
-				const statusObj = JSON.parse(raw);
-				if (statusObj && statusObj.status === 'running') {
-					statusObj.processed = (statusObj.processed || 0) + 1;
-					if (!statusObj.results) {
-						statusObj.results = [];
+		if (env.CACHE) {
+			try {
+				const raw = await (env.CACHE as any).get(BACKFILL_STATUS_KEY, 'text');
+				if (raw) {
+					const statusObj = JSON.parse(raw);
+					if (statusObj && statusObj.status === 'running') {
+						statusObj.processed = (statusObj.processed || 0) + 1;
+						if (!statusObj.results) {
+							statusObj.results = [];
+						}
+						statusObj.results.push({
+							county,
+							before,
+							after: (await getCountyCounts(env)).get(county) ?? before,
+							url: sourceUrl,
+							newArticles: (await env.ky_news_db
+								.prepare(`SELECT canonical_url FROM articles WHERE county = ? AND created_at >= ?`)
+								.bind(county, startTs)
+								.all<any>()).results.map((r: any) => r.canonical_url),
+						});
+						// the final-complete test happens when processed >= missingCount
+						if (statusObj.processed >= statusObj.missingCount) {
+							statusObj.status = 'complete';
+							statusObj.finishedAt = new Date().toISOString();
+						}
+						const ttl = statusObj.status === 'complete' ? 86400 : 7200;
+						await (env.CACHE as any).put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e: any) => {
+							console.error('status put failed for', county, e);
+						});
 					}
-					statusObj.results.push({
-						county,
-						before,
-						after: (await getCountyCounts(env)).get(county) ?? before,
-						url: sourceUrl,
-						newArticles: (await env.ky_news_db
-							.prepare(`SELECT canonical_url FROM articles WHERE county = ? AND created_at >= ?`)
-							.bind(county, startTs)
-							.all<any>()).results.map((r: any) => r.canonical_url),
-					});
-					// the final-complete test happens when processed >= missingCount
-					if (statusObj.processed >= statusObj.missingCount) {
-						statusObj.status = 'complete';
-						statusObj.finishedAt = new Date().toISOString();
-					}
-					const ttl = statusObj.status === 'complete' ? 86400 : 7200;
-					await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e) => {
-						console.error('status put failed for', county, e);
-					});
 				}
+			} catch (e) {
+				console.error('error updating status for', county, e);
 			}
-		} catch (e) {
-			console.error('error updating status for', county, e);
 		}
 		return json({ ok: true });
 	} else {
@@ -939,7 +1092,7 @@ if (url.pathname === '/api/admin/backfill-counties' && request.method === 'POST'
 		processed: 0,
 		results: [] as Array<{ county: string; before: number; after: number; newArticles: string[] }>,
 	};
-	await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(initialStatus), { expirationTtl: 7200 }).catch(() => null);
+	await (env.CACHE as any).put(BACKFILL_STATUS_KEY, JSON.stringify(initialStatus), { expirationTtl: 7200 }).catch(() => null);
 
 	// schedule a queue message for each county
 	for (const county of missing) {
@@ -967,7 +1120,7 @@ if (url.pathname === '/api/admin/backfill-status' && request.method === 'GET') {
 	if (!isAdminAuthorized(request, env)) {
 		return json({ error: 'Unauthorized' }, 401);
 	}
-	const status = await env.CACHE.get(BACKFILL_STATUS_KEY, 'json').catch(() => null);
+	const status = await (env.CACHE as any).get(BACKFILL_STATUS_KEY, 'json').catch(() => null);
 	return json({ status: status ?? null });
 }
 
@@ -976,7 +1129,8 @@ if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
 }
 
-const latest = await env.CACHE.get<IngestRunMetrics>(INGEST_METRICS_KEY, 'json').catch(() => null);
+const latestRaw = await (env.CACHE as any).get(INGEST_METRICS_KEY, 'json').catch(() => null);
+const latest = latestRaw as IngestRunMetrics | null;
 return json({ latest: latest ?? null });
 }
 
@@ -985,7 +1139,8 @@ if (!isAdminAuthorized(request, env)) {
 return json({ error: 'Unauthorized' }, 401);
 }
 
-const latest = await env.CACHE.get<IngestRunMetrics>(INGEST_METRICS_KEY, 'json').catch(() => null);
+const latestRaw = await (env.CACHE as any).get(INGEST_METRICS_KEY, 'json').catch(() => null);
+const latest = latestRaw as IngestRunMetrics | null;
 return json({
 items: latest?.rejectedSamples ?? [],
 duplicateItems: latest?.duplicateSamples ?? [],
@@ -1313,8 +1468,8 @@ if (url.pathname.match(/^\/api\/articles\/\d+\/county$/) && request.method === '
     const summaryKey = `summary:${updated.urlHash}`;
     const ttlKey = `summary-ttl:${updated.urlHash}`;
     if (env.CACHE) {
-      await env.CACHE.delete(summaryKey).catch(() => {});
-      await env.CACHE.delete(ttlKey).catch(() => {});
+      await (env.CACHE as any).delete(summaryKey).catch(() => {});
+      await (env.CACHE as any).delete(ttlKey).catch(() => {});
     }
 
     return json({ article: updated });
@@ -1443,9 +1598,9 @@ if (url.pathname.startsWith('/api/admin/articles/') && url.pathname.endsWith('/r
   const ttlKey = `summary-ttl:${article.urlHash}`;
   const feedbackKey = `feedback:${article.urlHash}`;
   if (env.CACHE) {
-    await env.CACHE.delete(summaryKey).catch(() => {});
-    await env.CACHE.delete(ttlKey).catch(() => {});
-    await env.CACHE.delete(feedbackKey).catch(() => {});
+    await (env.CACHE as any).delete(summaryKey).catch(() => {});
+    await (env.CACHE as any).delete(ttlKey).catch(() => {});
+    await (env.CACHE as any).delete(feedbackKey).catch(() => {});
   }
 
   // refetch article content; omit feedPublishedAt so isManualIngest=true uses
@@ -1635,7 +1790,7 @@ if (url.pathname === '/api/admin/article/clear-cache' && request.method === 'POS
           const fingerprint = await sha256Hex(
             scraped.contentText.split(/\s+/).slice(0, 150).join(' ').toLowerCase()
           );
-          await env.CACHE.delete(`cfp:${fingerprint}`).catch(() => {});
+          await (env.CACHE as any).delete(`cfp:${fingerprint}`).catch(() => {});
           cleared.push(`cfp:${fingerprint.slice(0, 8)}...`);
         }
       } catch {
@@ -1649,7 +1804,7 @@ if (url.pathname === '/api/admin/article/clear-cache' && request.method === 'POS
     const hashKey = urlHashOverride ?? (canonical ? await sha256Hex(canonical) : null);
     if (hashKey) {
       for (const prefix of ['summary:', 'summary-ttl:', 'feedback:']) {
-        await env.CACHE.delete(`${prefix}${hashKey}`).catch(() => {});
+        await (env.CACHE as any).delete(`${prefix}${hashKey}`).catch(() => {});
         cleared.push(`${prefix}${hashKey.slice(0, 8)}...`);
       }
     }
@@ -1787,6 +1942,36 @@ if (url.pathname === '/api/admin/facebook/page-posts' && request.method === 'POS
 	}
 }
 
+// GET/POST /api/admin/facebook/scheduler — configure the server-side scheduler
+if (url.pathname === '/api/admin/facebook/scheduler' && request.method === 'GET') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+	const config = await getFacebookSchedulerConfig(env);
+	return json({ ok: true, ...config });
+}
+
+if (url.pathname === '/api/admin/facebook/scheduler' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+	const body = (await parseJsonBody<{
+		enabled?: boolean;
+		start?: string;
+		end?: string;
+		intervalMinutes?: number;
+	}>(request)) || {};
+
+	const updates: any = {};
+	if (typeof body.enabled === 'boolean') updates.enabled = body.enabled;
+	if (typeof body.start === 'string') updates.start = body.start;
+	if (typeof body.end === 'string') updates.end = body.end;
+	if (typeof body.intervalMinutes === 'number') updates.intervalMinutes = Math.max(1, Math.min(1440, Math.floor(body.intervalMinutes)));
+
+	const config = await setFacebookSchedulerConfig(env, updates);
+	return json({ ok: true, ...config });
+}
+
 // new endpoint to generate a caption for an article for Facebook autoposting
 if (url.pathname === '/api/admin/facebook/caption' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) {
@@ -1804,38 +1989,6 @@ if (url.pathname === '/api/admin/facebook/caption' && request.method === 'POST')
 	return json({ ok: true, caption });
 }
 
-// helper reused by several endpoints: choose a sensible preview image URL for an
-// article record.  This mirrors the logic used when rendering OG tags for bots.
-async function selectPreviewImage(article: ArticleRecord): Promise<string | null> {
-	let previewImage = article.imageUrl || null;
-	if (!previewImage && article.contentHtml) {
-		const match = article.contentHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
-		if (match && match[1]) previewImage = match[1];
-	}
-	if (!previewImage) {
-		try {
-			const fetchResp = await fetch((article.canonicalUrl || '') + `?_=${Date.now()}`);
-			if (fetchResp.ok) {
-				const body = await fetchResp.text();
-				const { scrapeArticleHtml } = await import('./lib/scrape');
-				const scraped = scrapeArticleHtml(article.canonicalUrl || '', body);
-				if (scraped.imageUrl) {
-					previewImage = scraped.imageUrl;
-				}
-			}
-		} catch {
-			/* ignore network errors */
-		}
-	}
-	if (previewImage && !/^https?:\/\//i.test(previewImage)) {
-		try {
-			previewImage = new URL(previewImage, article.canonicalUrl || BASE_URL).toString();
-		} catch {
-			/* ignore invalid URL */
-		}
-	}
-	return previewImage || null;
-}
 
 // optionally post the generated caption link to a Facebook page using Graph API
 if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
@@ -1850,60 +2003,11 @@ if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 	const article = await getArticleById(env, id);
 	if (!article) return json({ error: 'Article not found' }, 404);
 
-	const pageId = ((env as any).FACEBOOK_PAGE_ID || '').trim();
-	const pageToken = ((env as any).FACEBOOK_PAGE_ACCESS_TOKEN || '').trim();
-	if (!pageId || !pageToken) {
-		return json({ error: 'Facebook credentials not configured' }, 500);
+	const result = await postArticleToFacebook(env, article);
+	if (result.ok) {
+		return json(result);
 	}
-
-	// If this is a weather alert article (auto-ingested from the NWS API), use
-	// the dedicated weather alert caption + photo post handler, which ensures the
-	// post matches the expected "SPECIAL WEATHER STATEMENT" format.
-	if (article.category === 'weather' && article.sourceUrl?.includes('/alerts/')) {
-		// Extract the NWS alert ID from the sourceUrl.
-		const match = article.sourceUrl.match(/alerts\/(.+)$/);
-		const alertId = match?.[1] ?? '';
-		if (alertId) {
-			const nwsAlert = await fetchNwsAlertById(alertId);
-			if (nwsAlert) {
-				await postWeatherAlertToFacebook(env, nwsAlert);
-				return json({ ok: true, weatherAlert: true });
-			}
-		}
-		// Fall back to the generic Facebook post path if we can't fetch the alert.
-	}
-
-	const caption = generateFacebookCaption(article);
-	if (!caption) {
-		return json({ ok: false, reason: 'article not Kentucky or missing data' });
-	}
-
-	// figure out what image (if any) should be used for the preview.  this is
-	// the same value that the crawler would see when scraping the article link,
-	// and by passing it explicitly to the Graph API we override the logo fallback.
-	const pictureUrl = await selectPreviewImage(article);
-
-	// perform Graph API request
-	try {
-		const params: Record<string, string> = {
-			message: caption,
-			link: article.canonicalUrl || article.sourceUrl || '',
-			access_token: pageToken,
-		};
-		// Note: do NOT pass `picture` — Facebook only allows that for verified
-		// domain owners.  The worker serves proper OG meta tags so Facebook will
-		// scrape the correct image from the article URL automatically.
-
-		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-			body: new URLSearchParams(params),
-		});
-		const postData = await postResp.json();
-		return json({ ok: true, result: postData });
-	} catch (err) {
-		return json({ error: 'Failed to post to Facebook', details: String(err) }, 500);
-	}
+	return json({ error: result.error || 'Failed to post to Facebook', details: result.details }, 500);
 }
 
 // POST /api/admin/nws-alerts/run — manually trigger NWS alert ingestion
@@ -2162,8 +2266,8 @@ if (url.pathname === '/api/admin/digest' && request.method === 'GET') {
 	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
 	if (!env.CACHE) return json({ morning: null, evening: null });
 	const [morningRaw, eveningRaw] = await Promise.all([
-		env.CACHE.get('admin:digest:morning'),
-		env.CACHE.get('admin:digest:evening'),
+		(env.CACHE as any).get('admin:digest:morning'),
+		(env.CACHE as any).get('admin:digest:evening'),
 	]);
 	return json({
 		morning: morningRaw ? JSON.parse(morningRaw) : null,
@@ -2181,7 +2285,7 @@ if (url.pathname === '/api/admin/digest/generate' && request.method === 'POST') 
 	const text = await generateDigestText(env, when);
 	const entry = { text, generatedAt: new Date().toISOString() };
 	if (env.CACHE) {
-		await env.CACHE.put(`admin:digest:${when}`, JSON.stringify(entry));
+		await (env.CACHE as any).put(`admin:digest:${when}`, JSON.stringify(entry));
 	}
 	return json({ ok: true, when, ...entry });
 }
@@ -2198,7 +2302,7 @@ if (url.pathname === '/api/admin/digest/save' && request.method === 'POST') {
 	if (!text) return badRequest('text is required');
 	const entry = { text, generatedAt: new Date().toISOString() };
 	if (env.CACHE) {
-		await env.CACHE.put(`admin:digest:${when}`, JSON.stringify(entry));
+		await (env.CACHE as any).put(`admin:digest:${when}`, JSON.stringify(entry));
 	}
 	return json({ ok: true, when });
 }
@@ -2209,8 +2313,8 @@ if (url.pathname === '/api/admin/digest/autopost' && request.method === 'GET') {
 	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
 	if (!env.CACHE) return json({ morning: null, evening: null });
 	const [morningRaw, eveningRaw] = await Promise.all([
-		env.CACHE.get('admin:digest:morning:autopost'),
-		env.CACHE.get('admin:digest:evening:autopost'),
+		(env.CACHE as any).get('admin:digest:morning:autopost'),
+		(env.CACHE as any).get('admin:digest:evening:autopost'),
 	]);
 	return json({
 		morning: morningRaw ? JSON.parse(morningRaw) : null,
@@ -2225,7 +2329,7 @@ if (url.pathname === '/api/admin/digest/suppress' && request.method === 'POST') 
 	const body = await parseJsonBody<{ when?: string }>(request);
 	const when: 'morning' | 'evening' = body?.when === 'evening' ? 'evening' : 'morning';
 	if (!env.CACHE) return json({ error: 'No cache available' }, 500);
-	await env.CACHE.put(
+	await (env.CACHE as any).put(
 		`admin:digest:${when}:autopost`,
 		JSON.stringify({ status: 'suppressed', suppressedAt: new Date().toISOString() }),
 		{ expirationTtl: 3600 }
@@ -2240,13 +2344,13 @@ if (url.pathname === '/api/admin/digest/post-now' && request.method === 'POST') 
 	const body = await parseJsonBody<{ when?: string }>(request);
 	const when: 'morning' | 'evening' = body?.when === 'evening' ? 'evening' : 'morning';
 	if (!env.CACHE) return json({ error: 'No cache available' }, 500);
-	const digestRaw = await env.CACHE.get(`admin:digest:${when}`);
+	const digestRaw = await (env.CACHE as any).get(`admin:digest:${when}`);
 	if (!digestRaw) return json({ error: 'No digest found' }, 404);
 	const digest = JSON.parse(digestRaw) as { text: string };
 	const result = await postDigestToFacebook(env, digest.text, when);
 	if (!result) return json({ error: 'Facebook post failed' }, 500);
 	if ('error' in result) return json({ error: 'Facebook post failed', details: result.error }, 500);
-	await env.CACHE.put(
+	await (env.CACHE as any).put(
 		`admin:digest:${when}:autopost`,
 		JSON.stringify({ status: 'posted', postedAt: new Date().toISOString(), postId: result.postId }),
 		{ expirationTtl: 3600 }
@@ -4226,7 +4330,7 @@ async function generateSitemap(env: Env): Promise<string> {
 	const cacheKey = 'sitemap:main';
 	const baseUrl = BASE_URL;
 	if (env.CACHE) {
-		const cached = await env.CACHE.get(cacheKey).catch(() => null);
+		const cached = await (env.CACHE as any).get(cacheKey).catch(() => null);
 		if (cached) return cached;
 	}
 
@@ -4360,7 +4464,7 @@ ${[...staticXml, ...urls, ...countyXml, ...requestedStaticXml].join('\n')}
 </urlset>`;
 
 	if (env.CACHE) {
-		await env.CACHE.put(cacheKey, xml, { expirationTtl: 3600 }).catch(() => {});
+		await (env.CACHE as any).put(cacheKey, xml, { expirationTtl: 3600 }).catch(() => {});
 	}
 	return xml;
 }
@@ -4374,7 +4478,7 @@ async function generateNewsSitemap(env: Env): Promise<string> {
 	const cacheKey = 'sitemap:news';
 	const baseUrl = BASE_URL;
 	if (env.CACHE) {
-		const cached = await env.CACHE.get(cacheKey).catch(() => null);
+		const cached = await (env.CACHE as any).get(cacheKey).catch(() => null);
 		if (cached) return cached;
 	}
 
@@ -4455,7 +4559,7 @@ ${items.join('\n')}
 </urlset>`;
 
 	if (env.CACHE) {
-		await env.CACHE.put(cacheKey, xml, { expirationTtl: 3600 }).catch(() => {});
+		await (env.CACHE as any).put(cacheKey, xml, { expirationTtl: 3600 }).catch(() => {});
 	}
 	return xml;
 }
@@ -4682,6 +4786,11 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
       }
     }).catch((err) => console.error('[SPC] processSpcFeed threw', err))
   );
+
+  // Run the Facebook auto-post scheduler (configured via the admin UI).
+  ctx.waitUntil(
+    runFacebookScheduler(env).catch((err: any) => console.error('[FB_SCHEDULER] error', err))
+  );
 },
 
 // forward queue events to our exported handler
@@ -4769,7 +4878,7 @@ const metrics: IngestRunMetrics = {
 };
 
 const rotationKey = `${INGEST_ROTATION_KEY_PREFIX}${trigger}`;
-await env.CACHE.put(rotationKey, String(nextOffset), { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => null);
+await (env.CACHE as any).put(rotationKey, String(nextOffset), { expirationTtl: 60 * 60 * 24 * 30 }).catch(() => null);
 }
 
 // escape characters that would break HTML attributes
@@ -4857,7 +4966,7 @@ async function performBackfillCounty(env: Env, county: string, threshold: number
 	});
 	// update status
 	try {
-		const raw = await env.CACHE.get(BACKFILL_STATUS_KEY, 'text');
+		const raw = await (env.CACHE as any).get(BACKFILL_STATUS_KEY, 'text');
 		if (raw) {
 			const statusObj = JSON.parse(raw);
 			if (statusObj && statusObj.status === 'running') {
@@ -4869,7 +4978,7 @@ async function performBackfillCounty(env: Env, county: string, threshold: number
 					statusObj.finishedAt = new Date().toISOString();
 				}
 				const ttl = statusObj.status === 'complete' ? 86400 : 7200;
-				await env.CACHE.put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e) => {
+				await (env.CACHE as any).put(BACKFILL_STATUS_KEY, JSON.stringify(statusObj), { expirationTtl: ttl }).catch((e: any) => {
 					console.error('status put failed for', county, e);
 				});
 			}
@@ -4955,7 +5064,7 @@ async function selectSourcesForRun(
 	}
 
 	const rotationKey = `${INGEST_ROTATION_KEY_PREFIX}${trigger}`;
-	const rawOffset = await env.CACHE.get(rotationKey).catch(() => null);
+	const rawOffset = await (env.CACHE as any).get(rotationKey).catch(() => null);
 	const parsedOffset = Number.parseInt(rawOffset || '0', 10);
 	const startOffset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset % sourcesAvailable : 0;
 
@@ -6075,18 +6184,18 @@ async function maybeRunDigest(env: Env): Promise<void> {
   // never silently prevent the morning post from firing.
   if (hour === 6 && minute >= 30) {
     const generatedKey = `admin:digest:morning:generated:${todayEt}`;
-    const alreadyGenerated = await env.CACHE.get(generatedKey);
+    const alreadyGenerated = await (env.CACHE as any).get(generatedKey);
     if (!alreadyGenerated) {
       const text = await generateDigestText(env, 'morning');
       const entry = { text, generatedAt: new Date().toISOString() };
-      await env.CACHE.put('admin:digest:morning', JSON.stringify(entry));
-      await env.CACHE.put(
+      await (env.CACHE as any).put('admin:digest:morning', JSON.stringify(entry));
+      await (env.CACHE as any).put(
         'admin:digest:morning:autopost',
         JSON.stringify({ status: 'pending', scheduledFor: '7:00 AM', generatedAt: new Date().toISOString() }),
         { expirationTtl: 7200 },
       );
       // Mark as generated for today so later ticks in this window are no-ops.
-      await env.CACHE.put(generatedKey, '1', { expirationTtl: 3600 * 8 });
+      await (env.CACHE as any).put(generatedKey, '1', { expirationTtl: 3600 * 8 });
       console.log(`[DIGEST] Generated morning digest for ${todayEt}, autopost pending at 7:00 AM`);
     }
   }
@@ -6096,11 +6205,11 @@ async function maybeRunDigest(env: Env): Promise<void> {
   // transitions from 'pending' → 'posted'|'failed' on the first successful
   // attempt, so later ticks in the window are automatically skipped.
   if (hour === 7 && minute <= 14) {
-    const raw = await env.CACHE.get('admin:digest:morning:autopost');
+    const raw = await (env.CACHE as any).get('admin:digest:morning:autopost');
     if (raw) {
       const flag = JSON.parse(raw) as { status: string };
       if (flag.status === 'pending') {
-        const digestRaw = await env.CACHE.get('admin:digest:morning');
+        const digestRaw = await (env.CACHE as any).get('admin:digest:morning');
         if (digestRaw) {
           const digest = JSON.parse(digestRaw) as { text: string };
           const result = await postDigestToFacebook(env, digest.text, 'morning');
@@ -6110,7 +6219,7 @@ async function maybeRunDigest(env: Env): Promise<void> {
             postedAt: new Date().toISOString(),
             postId: isSuccess ? (result as { postId: string }).postId : null,
           };
-          await env.CACHE.put(
+          await (env.CACHE as any).put(
             'admin:digest:morning:autopost',
             JSON.stringify(newFlag),
             { expirationTtl: 7200 },
@@ -6124,28 +6233,28 @@ async function maybeRunDigest(env: Env): Promise<void> {
   // ── EVENING GENERATE: 5:30–5:59 PM ET ─────────────────────────────────────
   if (hour === 17 && minute >= 30) {
     const generatedKey = `admin:digest:evening:generated:${todayEt}`;
-    const alreadyGenerated = await env.CACHE.get(generatedKey);
+    const alreadyGenerated = await (env.CACHE as any).get(generatedKey);
     if (!alreadyGenerated) {
       const text = await generateDigestText(env, 'evening');
       const entry = { text, generatedAt: new Date().toISOString() };
-      await env.CACHE.put('admin:digest:evening', JSON.stringify(entry));
-      await env.CACHE.put(
+      await (env.CACHE as any).put('admin:digest:evening', JSON.stringify(entry));
+      await (env.CACHE as any).put(
         'admin:digest:evening:autopost',
         JSON.stringify({ status: 'pending', scheduledFor: '6:00 PM', generatedAt: new Date().toISOString() }),
         { expirationTtl: 7200 },
       );
-      await env.CACHE.put(generatedKey, '1', { expirationTtl: 3600 * 8 });
+      await (env.CACHE as any).put(generatedKey, '1', { expirationTtl: 3600 * 8 });
       console.log(`[DIGEST] Generated evening digest for ${todayEt}, autopost pending at 6:00 PM`);
     }
   }
 
   // ── EVENING POST: 6:00–6:14 PM ET ─────────────────────────────────────────
   if (hour === 18 && minute <= 14) {
-    const raw = await env.CACHE.get('admin:digest:evening:autopost');
+    const raw = await (env.CACHE as any).get('admin:digest:evening:autopost');
     if (raw) {
       const flag = JSON.parse(raw) as { status: string };
       if (flag.status === 'pending') {
-        const digestRaw = await env.CACHE.get('admin:digest:evening');
+        const digestRaw = await (env.CACHE as any).get('admin:digest:evening');
         if (digestRaw) {
           const digest = JSON.parse(digestRaw) as { text: string };
           const result = await postDigestToFacebook(env, digest.text, 'evening');
@@ -6155,7 +6264,7 @@ async function maybeRunDigest(env: Env): Promise<void> {
             postedAt: new Date().toISOString(),
             postId: isSuccess ? (result as { postId: string }).postId : null,
           };
-          await env.CACHE.put(
+          await (env.CACHE as any).put(
             'admin:digest:evening:autopost',
             JSON.stringify(newFlag),
             { expirationTtl: 7200 },

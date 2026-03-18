@@ -714,6 +714,22 @@ export default class SiteService {
   }
 
   /**
+   * Get or set the scheduler config used by the backend cron job.
+   */
+  async getFacebookSchedulerConfig() {
+    return this.request("/api/admin/facebook/scheduler", {
+      method: "GET",
+    });
+  }
+
+  async setFacebookSchedulerConfig(config) {
+    return this.request("/api/admin/facebook/scheduler", {
+      method: "POST",
+      body: JSON.stringify(config),
+    });
+  }
+
+  /**
    * Discover recent post links from a public Facebook page URL.
    * Uses mbasic scraping on the backend — works for public pages without an API token.
    * Returns { ok, posts: [{ postUrl, message, imageUrl, publishedAt }], pageUrl, warning? }

@@ -10,6 +10,85 @@ import { normalizeCanonicalUrl } from './http';
 // plenty good enough since schemas rarely change during runtime.
 const _columnExistsCache = new Map<string, boolean>();
 
+// -------------------------------------------------------------------------------
+// Facebook Auto-Post Scheduler (KV-backed configuration / state)
+// -------------------------------------------------------------------------------
+
+const FB_SCHEDULER_CONF_KEY = "fb_scheduler_config";
+const FB_SCHEDULER_POSTED_KEY = "fb_scheduler_posted";
+
+export type FacebookSchedulerConfig = {
+  enabled: boolean;
+  start: string;
+  end: string;
+  intervalMinutes: number;
+  timezone: string;
+  lastRunAt?: string;
+  lastPostedId?: number;
+  lastPostedTitle?: string;
+};
+
+const DEFAULT_FACEBOOK_SCHEDULER_CONFIG: FacebookSchedulerConfig = {
+  enabled: false,
+  start: "23:00",
+  end: "06:00",
+  intervalMinutes: 60,
+  timezone: "America/New_York",
+};
+
+async function parseJson<T>(raw: string | null): Promise<T | null> {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function getFacebookSchedulerConfig(env: Env): Promise<FacebookSchedulerConfig> {
+  if (!env.CACHE) return DEFAULT_FACEBOOK_SCHEDULER_CONFIG;
+  const raw = await env.CACHE.get(FB_SCHEDULER_CONF_KEY);
+  const parsed = await parseJson<Partial<FacebookSchedulerConfig>>(raw);
+  return { ...DEFAULT_FACEBOOK_SCHEDULER_CONFIG, ...(parsed || {}) };
+}
+
+export async function setFacebookSchedulerConfig(env: Env, config: Partial<FacebookSchedulerConfig>): Promise<FacebookSchedulerConfig> {
+  if (!env.CACHE) return { ...DEFAULT_FACEBOOK_SCHEDULER_CONFIG, ...config };
+  const existing = await getFacebookSchedulerConfig(env);
+  const next = { ...existing, ...config };
+  await env.CACHE.put(FB_SCHEDULER_CONF_KEY, JSON.stringify(next));
+  return next;
+}
+
+export async function getFacebookSchedulerPostedIds(env: Env): Promise<Record<string, string>> {
+  if (!env.CACHE) return {};
+  const raw = await env.CACHE.get(FB_SCHEDULER_POSTED_KEY);
+  const parsed = await parseJson<Record<string, string>>(raw);
+  return parsed || {};
+}
+
+export async function addFacebookSchedulerPostedId(env: Env, id: number): Promise<void> {
+  if (!env.CACHE) return;
+  const now = new Date().toISOString();
+  const existing = await getFacebookSchedulerPostedIds(env);
+  existing[String(id)] = now;
+
+  // Remove entries older than 30 days to keep the payload small.
+  const cutoff = Date.now() - 1000 * 60 * 60 * 24 * 30;
+  for (const [key, ts] of Object.entries(existing)) {
+    if (new Date(ts).getTime() < cutoff) {
+      delete existing[key];
+    }
+  }
+
+  await env.CACHE.put(FB_SCHEDULER_POSTED_KEY, JSON.stringify(existing), { expirationTtl: 60 * 60 * 24 * 30 });
+}
+
+export async function isArticlePostedByScheduler(env: Env, id: number): Promise<boolean> {
+  const posted = await getFacebookSchedulerPostedIds(env);
+  return Boolean(posted[String(id)]);
+}
+
 interface ArticleRow {
   id: number;
   canonical_url: string;
@@ -257,6 +336,22 @@ export async function getTopArticlesByCategory(env: Env, category: string, limit
 
   const rows = await prepare(env, query).bind(...binds, safeLimit).all<TopArticlesRow>();
   return rows.results ?? [];
+}
+
+export async function getRecentTodayArticles(env: Env, limit = 200): Promise<ArticleRecord[]> {
+  const safeLimit = Math.min(Math.max(Math.floor(limit || 0), 1), 200);
+  const nowIso = new Date().toISOString();
+  const rows = await prepare(env, `
+    SELECT *
+    FROM articles
+    WHERE category = 'today' AND published_at <= ?
+    ORDER BY published_at DESC, id DESC
+    LIMIT ?
+  `)
+    .bind(nowIso, safeLimit)
+    .all<ArticleRow>();
+
+  return (rows.results ?? []).map(mapArticleRow);
 }
 
 export async function getArticleById(env: Env, id: number): Promise<ArticleRecord | null> {
