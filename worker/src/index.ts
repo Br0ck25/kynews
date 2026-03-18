@@ -262,6 +262,49 @@ function normalizeOgImage(imageUrl: string | null | undefined): string {
 }
 
 /**
+ * Return a URL that points to an image served from our domain.
+ *
+ * Facebook prefers preview images that are hosted on the same domain as the
+ * shared URL. When our article's author-provided image is hosted on a third-
+ * party site, we proxy it through our R2 bucket via /api/media/ so Facebook
+ * uses a LocalKYNews-hosted image instead.
+ */
+async function getFacebookProxyImageUrl(env: Env, imageUrl: string | null | undefined): Promise<string | null> {
+	if (!imageUrl) return null;
+	if (imageUrl.startsWith(BASE_URL)) return imageUrl;
+	if (!env.CACHE || !env.ky_news_media) return null;
+
+	try {
+		const hash = await sha256Hex(imageUrl);
+		const cacheKey = `facebook:image-proxy:${hash}`;
+		const cached = await env.CACHE.get<string>(cacheKey);
+		if (cached) return cached;
+
+		const resp = await fetch(imageUrl, { redirect: 'follow' });
+		if (!resp.ok) return null;
+		const contentType = resp.headers.get('content-type') || '';
+		if (!contentType.startsWith('image/')) return null;
+		const buffer = await resp.arrayBuffer();
+
+		const urlObj = new URL(imageUrl);
+		const extMatch = urlObj.pathname.match(/\.([a-z0-9]+)$/i);
+		const ext = extMatch ? extMatch[1].toLowerCase() : 'jpg';
+		const safeExt = /^(jpg|jpeg|png|webp|gif|avif|svg|bmp)$/.test(ext) ? ext : 'jpg';
+
+		const key = `facebook-image-proxy/${hash}.${safeExt}`;
+		await env.ky_news_media.put(key, buffer, {
+			httpMetadata: { contentType },
+		});
+
+		const proxyUrl = `${BASE_URL}/api/media/${key}`;
+		await env.CACHE.put(cacheKey, proxyUrl, { expirationTtl: 60 * 60 * 24 * 30 });
+		return proxyUrl;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Return an HTML <section class="related"> block listing up to 5 recent published
  * articles from the same county, for crawler-visible internal links.
  * Returns an empty string when fewer than 2 related articles exist.
@@ -391,6 +434,7 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 	// the same value that the crawler would see when scraping the article link,
 	// and by passing it explicitly to the Graph API we override the logo fallback.
 	const pictureUrl = await selectPreviewImage(article);
+	const facebookImageUrl = await getFacebookProxyImageUrl(env, pictureUrl);
 
 	try {
 		const params: Record<string, string> = {
@@ -400,8 +444,8 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 		};
 		// Including an explicit picture URL helps Facebook generate a proper image preview,
 		// and avoids relying on Facebook scraping our page (which sometimes returns access denied).
-		if (pictureUrl && pictureUrl.startsWith(BASE_URL)) {
-			params.picture = pictureUrl;
+		if (facebookImageUrl) {
+			params.picture = facebookImageUrl;
 		}
 
 		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
