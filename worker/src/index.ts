@@ -35,6 +35,7 @@ import {
 	getRecentTodayArticles,
 	addFacebookSchedulerPostedId,
 	getFacebookSchedulerPostedIds,
+	FacebookSchedulerPostHistoryItem,
 } from './lib/db';
 import {
 	HIGH_PRIORITY_SOURCE_SEEDS,
@@ -387,7 +388,7 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 	// figure out what image (if any) should be used for the preview.  this is
 	// the same value that the crawler would see when scraping the article link,
 	// and by passing it explicitly to the Graph API we override the logo fallback.
-	await selectPreviewImage(article);
+	const pictureUrl = await selectPreviewImage(article);
 
 	try {
 		const params: Record<string, string> = {
@@ -395,6 +396,11 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 			link: article.canonicalUrl || article.sourceUrl || '',
 			access_token: pageToken,
 		};
+		// Including an explicit picture URL helps Facebook generate a proper image preview,
+		// and avoids relying on Facebook scraping our page (which sometimes returns access denied).
+		if (pictureUrl && pictureUrl.startsWith(BASE_URL)) {
+			params.picture = pictureUrl;
+		}
 
 		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
 			method: 'POST',
@@ -414,8 +420,7 @@ async function runFacebookScheduler(env: Env): Promise<void> {
 
 	const tz = config.timezone || 'America/New_York';
 	const nowUtc = new Date();
-	const nowLocal = new Date(nowUtc.toLocaleString('en-US', { timeZone: tz }));
-	const nowHHMM = `${String(nowLocal.getHours()).padStart(2, '0')}:${String(nowLocal.getMinutes()).padStart(2, '0')}`;
+	const nowHHMM = nowUtc.toLocaleTimeString('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' });
 
 	const inTimeWindow = (hhmm: string, start: string, end: string) => {
 		const toMins = (s: string) => {
@@ -442,8 +447,12 @@ async function runFacebookScheduler(env: Env): Promise<void> {
 		if (row.category !== 'today') return false;
 		if (!row.publishedAt || row.publishedAt.startsWith('9999')) return false;
 		if (posted[String(row.id)]) return false;
-		const artLocal = new Date(new Date(row.publishedAt).toLocaleString('en-US', { timeZone: tz }));
-		const artTime = `${String(artLocal.getHours()).padStart(2, '0')}:${String(artLocal.getMinutes()).padStart(2, '0')}`;
+		const artTime = new Date(row.publishedAt).toLocaleTimeString('en-US', {
+			timeZone: tz,
+			hour12: false,
+			hour: '2-digit',
+			minute: '2-digit',
+		});
 		return inTimeWindow(artTime, config.start, config.end);
 	});
 
@@ -455,10 +464,22 @@ async function runFacebookScheduler(env: Env): Promise<void> {
 	const article = eligible[0];
 
 	const result = await postArticleToFacebook(env, article);
+	const historyEntry: FacebookSchedulerPostHistoryItem = {
+		at: nowUtc.toISOString(),
+		id: article.id,
+		title: article.title,
+		result: result.ok ? (result.weatherAlert ? 'weather' : 'success') : 'error',
+	};
+
+	// Update scheduler state with last run and last post details.
 	await setFacebookSchedulerConfig(env, {
 		lastRunAt: nowUtc.toISOString(),
 		lastPostedId: article.id,
 		lastPostedTitle: article.title,
+		lastPostingHistory: [
+			...(await getFacebookSchedulerConfig(env)).lastPostingHistory ?? [],
+			historyEntry,
+		].slice(-10),
 	});
 
 	if (result.ok) {

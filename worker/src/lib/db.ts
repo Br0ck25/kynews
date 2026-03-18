@@ -17,6 +17,13 @@ const _columnExistsCache = new Map<string, boolean>();
 const FB_SCHEDULER_CONF_KEY = "fb_scheduler_config";
 const FB_SCHEDULER_POSTED_KEY = "fb_scheduler_posted";
 
+export type FacebookSchedulerPostHistoryItem = {
+  at: string; // ISO timestamp
+  id: number;
+  title: string;
+  result: "success" | "error" | "weather";
+};
+
 export type FacebookSchedulerConfig = {
   enabled: boolean;
   start: string;
@@ -26,6 +33,7 @@ export type FacebookSchedulerConfig = {
   lastRunAt?: string;
   lastPostedId?: number;
   lastPostedTitle?: string;
+  lastPostingHistory?: FacebookSchedulerPostHistoryItem[];
 };
 
 const DEFAULT_FACEBOOK_SCHEDULER_CONFIG: FacebookSchedulerConfig = {
@@ -34,6 +42,7 @@ const DEFAULT_FACEBOOK_SCHEDULER_CONFIG: FacebookSchedulerConfig = {
   end: "06:00",
   intervalMinutes: 60,
   timezone: "America/New_York",
+  lastPostingHistory: [],
 };
 
 async function parseJson<T>(raw: string | null): Promise<T | null> {

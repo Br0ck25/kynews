@@ -2058,6 +2058,21 @@ export default function AdminPage() {
               {fbSchedulerConfig.lastPostedTitle ? ` — last posted: "${fbSchedulerConfig.lastPostedTitle}" (ID ${fbSchedulerConfig.lastPostedId})` : ""}
             </Typography>
 
+            {fbSchedulerConfig.lastPostingHistory && fbSchedulerConfig.lastPostingHistory.length > 0 && (
+              <Box style={{ marginTop: 8, maxHeight: 160, overflowY: "auto", padding: 8, background: "rgba(0,0,0,0.04)", borderRadius: 4 }}>
+                <Typography variant="caption" style={{ fontWeight: 600, display: "block", marginBottom: 4 }}>
+                  Recent posts:
+                </Typography>
+                {fbSchedulerConfig.lastPostingHistory.slice(-5).reverse().map((entry, i) => (
+                  <Typography key={i} variant="caption" style={{ display: "block", lineHeight: 1.3 }}>
+                    {new Date(entry.at).toLocaleString()} —
+                    {entry.result === 'success' ? ' ✅' : entry.result === 'weather' ? ' 🌦️' : ' ❌'}
+                    {` "${entry.title}" (ID ${entry.id})`}
+                  </Typography>
+                ))}
+              </Box>
+            )}
+
             {fbSchedulerLoading && (
               <Box style={{ marginTop: 10 }}>
                 <CircularProgress size={18} /> <span style={{ marginLeft: 8 }}>Saving...</span>
