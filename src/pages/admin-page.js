@@ -214,6 +214,16 @@ export default function AdminPage() {
   const [rowRegenErrors, setRowRegenErrors] = useState({});
   const [rowRegenLoadingId, setRowRegenLoadingId] = useState(null);
 
+  // --- Facebook Auto-Post Scheduler ---
+  const [fbSchedulerStart, setFbSchedulerStart] = useState("23:00");
+  const [fbSchedulerEnd, setFbSchedulerEnd] = useState("06:00");
+  const [fbSchedulerInterval, setFbSchedulerInterval] = useState(60);
+  const [fbSchedulerRunning, setFbSchedulerRunning] = useState(false);
+  const [fbSchedulerLog, setFbSchedulerLog] = useState([]);
+  const fbSchedulerTimerRef = useRef(null);
+  const fbSchedulerPostedIds = useRef(new Set());
+  const fbSchedulerCtxRef = useRef({});
+
   const handleCheckUpdates = async () => {
     setCheckingUpdates(true);
     setCheckUpdatesError("");
@@ -354,6 +364,105 @@ export default function AdminPage() {
     }
   };
 
+  // Helper: check if a local-time HH:MM falls within [startHHMM, endHHMM] window.
+  // Handles overnight windows (start > end, e.g. 23:00–06:00).
+  const inTimeWindow = (hhmm, startHHMM, endHHMM) => {
+    const toMins = (s) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
+    const cur = toMins(hhmm);
+    const s = toMins(startHHMM);
+    const e = toMins(endHHMM);
+    return s <= e ? cur >= s && cur < e : cur >= s || cur < e;
+  };
+
+  const startFbScheduler = () => {
+    if (fbSchedulerTimerRef.current) return;
+    fbSchedulerPostedIds.current = new Set();
+
+    const tick = async () => {
+      const { articleRows: rows, fbSchedulerStart: start, fbSchedulerEnd: end, fbSchedulerInterval: intervalMins } = fbSchedulerCtxRef.current;
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString();
+      const nowHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+      if (!inTimeWindow(nowHHMM, start, end)) {
+        setFbSchedulerLog((prev) => [
+          `[${timeStr}] Outside window (${start}–${end}) — waiting…`,
+          ...prev.slice(0, 49),
+        ]);
+        return;
+      }
+
+      const eligible = (rows || []).filter((row) => {
+        if (row.category !== "today") return false;
+        if (fbSchedulerPostedIds.current.has(row.id)) return false;
+        if (!row.publishedAt || row.publishedAt.startsWith("9999")) return false;
+        const d = new Date(row.publishedAt);
+        if (isNaN(d.getTime())) return false;
+        const artHHMM = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        return inTimeWindow(artHHMM, start, end);
+      });
+
+      if (eligible.length === 0) {
+        setFbSchedulerLog((prev) => [
+          `[${timeStr}] No eligible unposted articles in window — nothing to post.`,
+          ...prev.slice(0, 49),
+        ]);
+        return;
+      }
+
+      eligible.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+      const article = eligible[0];
+
+      setFbSchedulerLog((prev) => [
+        `[${timeStr}] Posting: "${article.title}" (ID: ${article.id})…`,
+        ...prev.slice(0, 49),
+      ]);
+
+      try {
+        const res = await service.facebookPost(article.id);
+        fbSchedulerPostedIds.current.add(article.id);
+        if (res?.ok) {
+          setFbSchedulerLog((prev) => [
+            `[${timeStr}] ✓ Posted: "${article.title}"`,
+            ...prev.slice(0, 49),
+          ]);
+        } else {
+          setFbSchedulerLog((prev) => [
+            `[${timeStr}] ✗ Failed: ${res?.error || res?.reason || "unknown error"} (ID ${article.id})`,
+            ...prev.slice(0, 49),
+          ]);
+        }
+      } catch (err) {
+        setFbSchedulerLog((prev) => [
+          `[${timeStr}] ✗ Error posting ID ${article.id}: ${String(err)}`,
+          ...prev.slice(0, 49),
+        ]);
+      }
+    };
+
+    // Run once immediately, then on the configured interval
+    tick();
+    const intervalMs = (Number(fbSchedulerCtxRef.current.fbSchedulerInterval) || 60) * 60 * 1000;
+    fbSchedulerTimerRef.current = setInterval(tick, intervalMs);
+    setFbSchedulerRunning(true);
+    setFbSchedulerLog((prev) => [
+      `[${new Date().toLocaleTimeString()}] Scheduler started — window: ${fbSchedulerCtxRef.current.fbSchedulerStart}–${fbSchedulerCtxRef.current.fbSchedulerEnd}, interval: ${fbSchedulerCtxRef.current.fbSchedulerInterval} min`,
+      ...prev.slice(0, 49),
+    ]);
+  };
+
+  const stopFbScheduler = () => {
+    if (fbSchedulerTimerRef.current) {
+      clearInterval(fbSchedulerTimerRef.current);
+      fbSchedulerTimerRef.current = null;
+    }
+    setFbSchedulerRunning(false);
+    setFbSchedulerLog((prev) => [
+      `[${new Date().toLocaleTimeString()}] Scheduler stopped.`,
+      ...prev.slice(0, 49),
+    ]);
+  };
+
   const handleDiagPost = async () => {
     setFbDiagError("");
     setFbDiagPostResult(null);
@@ -482,6 +591,15 @@ export default function AdminPage() {
       window.removeEventListener("scroll", handleScroll);
     };
   }, [activeTab, loadMoreArticles]);
+
+  // Clean up the scheduler timer when the component unmounts
+  useEffect(() => {
+    return () => {
+      if (fbSchedulerTimerRef.current) {
+        clearInterval(fbSchedulerTimerRef.current);
+      }
+    };
+  }, []);
 
   const applyFilter = async () => {
     if (!authorized) return;
@@ -1100,6 +1218,10 @@ export default function AdminPage() {
   // ---------------------------------------------------------------------------
   const draftCount = articleRows.filter(isDraftArticle).length;
   const visibleArticles = showDraftsOnly ? articleRows.filter(isDraftArticle) : articleRows;
+
+  // Keep scheduler context ref in sync with latest state so the interval
+  // callback always reads current values without stale closure issues.
+  fbSchedulerCtxRef.current = { articleRows, fbSchedulerStart, fbSchedulerEnd, fbSchedulerInterval };
 
   // ---------------------------------------------------------------------------
   // Login screen
@@ -1896,6 +2018,115 @@ export default function AdminPage() {
       {activeTab === 2 && (
         <Box>
           <Typography variant="h6" gutterBottom>Articles</Typography>
+
+          {/* ── FB Auto-Post Scheduler ─────────────────────────────────── */}
+          <Paper style={{
+            padding: 16,
+            marginBottom: 16,
+            border: fbSchedulerRunning ? "2px solid #4caf50" : "1px solid #e0e0e0",
+            background: fbSchedulerRunning ? "#f1fff4" : "#fff",
+          }}>
+            <Box style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Typography variant="subtitle1" style={{ fontWeight: 700, fontSize: 15 }}>
+                Facebook Auto-Post Scheduler
+              </Typography>
+              {fbSchedulerRunning && (
+                <Chip
+                  label="● RUNNING"
+                  size="small"
+                  style={{ background: "#4caf50", color: "#fff", fontWeight: 700, letterSpacing: 0.5 }}
+                />
+              )}
+            </Box>
+
+            <Box style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 }}>
+              <TextField
+                label="Start Time"
+                type="time"
+                size="small"
+                value={fbSchedulerStart}
+                onChange={(e) => setFbSchedulerStart(e.target.value)}
+                disabled={fbSchedulerRunning}
+                InputLabelProps={{ shrink: true }}
+                inputProps={{ step: 300 }}
+                style={{ width: 130 }}
+                variant="outlined"
+              />
+              <TextField
+                label="End Time"
+                type="time"
+                size="small"
+                value={fbSchedulerEnd}
+                onChange={(e) => setFbSchedulerEnd(e.target.value)}
+                disabled={fbSchedulerRunning}
+                InputLabelProps={{ shrink: true }}
+                inputProps={{ step: 300 }}
+                style={{ width: 130 }}
+                variant="outlined"
+              />
+              <TextField
+                label="Interval (minutes)"
+                type="number"
+                size="small"
+                value={fbSchedulerInterval}
+                onChange={(e) => setFbSchedulerInterval(Math.max(1, parseInt(e.target.value, 10) || 60))}
+                disabled={fbSchedulerRunning}
+                inputProps={{ min: 1, max: 1440 }}
+                style={{ width: 150 }}
+                variant="outlined"
+              />
+              <Button
+                variant="contained"
+                onClick={startFbScheduler}
+                disabled={fbSchedulerRunning}
+                style={{
+                  background: fbSchedulerRunning ? undefined : "#388e3c",
+                  color: fbSchedulerRunning ? undefined : "#fff",
+                  minWidth: 80,
+                }}
+              >
+                Start
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={stopFbScheduler}
+                disabled={!fbSchedulerRunning}
+                style={{ minWidth: 80, borderColor: "#c62828", color: fbSchedulerRunning ? "#c62828" : undefined }}
+              >
+                Stop
+              </Button>
+            </Box>
+
+            {!fbSchedulerRunning && fbSchedulerLog.length === 0 && (
+              <Typography variant="caption" style={{ color: "#888" }}>
+                Posts one unposted "today" article per interval whose publish time falls within the configured window.
+                Articles already posted this session are skipped.
+              </Typography>
+            )}
+
+            {fbSchedulerLog.length > 0 && (
+              <Box style={{
+                background: "#1e1e1e",
+                borderRadius: 4,
+                padding: "8px 12px",
+                maxHeight: 160,
+                overflowY: "auto",
+                fontFamily: "monospace",
+                fontSize: 12,
+              }}>
+                {fbSchedulerLog.map((entry, i) => (
+                  <div key={i} style={{
+                    color: entry.includes("✗") ? "#ef9a9a" : entry.includes("✓") ? "#a5d6a7" : "#bbb",
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                  }}>
+                    {entry}
+                  </div>
+                ))}
+              </Box>
+            )}
+          </Paper>
+          {/* ────────────────────────────────────────────────────────────── */}
 
           <Box style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
             <FormControl variant="outlined" size="small" style={{ minWidth: 180 }}>
