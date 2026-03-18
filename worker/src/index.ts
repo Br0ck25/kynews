@@ -2243,8 +2243,9 @@ if (url.pathname === '/api/admin/digest/post-now' && request.method === 'POST') 
 	const digestRaw = await env.CACHE.get(`admin:digest:${when}`);
 	if (!digestRaw) return json({ error: 'No digest found' }, 404);
 	const digest = JSON.parse(digestRaw) as { text: string };
-	const result = await postDigestToFacebook(env, digest.text);
+	const result = await postDigestToFacebook(env, digest.text, when);
 	if (!result) return json({ error: 'Facebook post failed' }, 500);
+	if ('error' in result) return json({ error: 'Facebook post failed', details: result.error }, 500);
 	await env.CACHE.put(
 		`admin:digest:${when}:autopost`,
 		JSON.stringify({ status: 'posted', postedAt: new Date().toISOString(), postId: result.postId }),
@@ -5573,6 +5574,26 @@ function scoreArticle(row: DigestRow, index: number): number {
   const HARD_NEWS = ['crime', 'government'];
   if (HARD_NEWS.includes((row.category ?? '').toLowerCase())) score += 4;
 
+  // Statewide stories with no county miss the county bonus — partially
+  // compensate when the story is clearly high-value government/political
+  // so important statewide news can still compete with local stories.
+  const STATEWIDE_BOOST_PATTERNS = [
+    /\bgovernor\b/i,
+    /\blegislature\b|\blegislative\b/i,
+    /\bgeneral\s+assembly\b/i,
+    /\bstate\s+(senate|house|budget|police|trooper)\b/i,
+    /\bsupreme\s+court\b/i,
+    /\battorney\s+general\b/i,
+    /\bky\s+department\b|\bkentucky\s+department\b/i,
+  ];
+  if (
+    !row.county &&
+    row.is_kentucky &&
+    STATEWIDE_BOOST_PATTERNS.some((p) => p.test(row.title ?? ''))
+  ) {
+    score += 4;
+  }
+
   // Local Kentucky stories preferred
   if (row.is_kentucky) score += 5;
 
@@ -5783,43 +5804,88 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
  * Post a digest to Facebook as a plain text post (with an optional thumbnail). The
  * worker uses `FB_PAGE_TOKEN` and `FB_PAGE_ID` from secrets.
  */
-async function postDigestToFacebook(env: Env, text: string): Promise<{ postId: string } | null> {
-  const fbToken = (env as any).FB_PAGE_TOKEN as string | undefined;
-  const fbPageId = (env as any).FB_PAGE_ID as string | undefined;
+async function postDigestToFacebook(env: Env, text: string, when?: 'morning' | 'evening'): Promise<{ postId: string } | { error: string } | null> {
+  // Support both the new FB_PAGE_* env vars and legacy FACEBOOK_PAGE_* vars used
+  // for weather alert posting.
+  const fbToken =
+    (env as any).FB_PAGE_TOKEN || (env as any).FACEBOOK_PAGE_ACCESS_TOKEN;
+  const fbPageId = (env as any).FB_PAGE_ID || (env as any).FACEBOOK_PAGE_ID;
   if (!fbToken || !fbPageId) return null;
 
-  // Choose a thumbnail based on the digest type
-  const isMorning = text.includes('Morning News Roundup');
-  const isEvening = text.includes('Evening Recap');
-  const imageUrl = isMorning
-    ? `${BASE_URL}/images/Morning News Round Up.png`
-    : isEvening
-    ? `${BASE_URL}/images/Evening Recap.png`
+  // Resolve the digest type from the explicit param first, then fall back to
+  // inspecting the generated text so scheduled posts also get the right image.
+  const resolvedWhen = when ??
+    (text.includes('Morning News Roundup') ? 'morning' :
+     text.includes('Evening Recap')        ? 'evening' : undefined);
+
+  const imageUrl = resolvedWhen === 'morning'
+    ? `${BASE_URL}/img/morning-news-round-up.png`
+    : resolvedWhen === 'evening'
+    ? `${BASE_URL}/img/evening-recap.png`
     : undefined;
 
+  // ── Attempt 1: photo post with branded image ───────────────────────────────
+  // If imageUrl is defined, try /photos first so the post has the branded
+  // thumbnail.  If Facebook can't fetch the image (e.g. not yet deployed),
+  // it returns a non-ok response and we fall through to a plain text post.
+  if (imageUrl) {
+    try {
+      const params = new URLSearchParams({
+        access_token: fbToken,
+        caption: text,
+        url: imageUrl,
+      });
+      const res = await fetch(
+        `https://graph.facebook.com/v19.0/${fbPageId}/photos`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params,
+        }
+      );
+      const data = (await res.json()) as any;
+      if (res.ok && data?.id) {
+        console.log(`[DIGEST] Photo post succeeded → id=${data.id}`);
+        return { postId: data.id };
+      }
+      // Photo post failed — log the reason and fall through to plain text.
+      console.warn('[DIGEST] Photo post failed, falling back to text post:', JSON.stringify(data));
+    } catch (err) {
+      console.warn('[DIGEST] Photo post threw, falling back to text post:', String(err));
+    }
+  }
+
+  // ── Attempt 2: plain text feed post ────────────────────────────────────────
   try {
     const params = new URLSearchParams({
       access_token: fbToken,
-      caption: text,
-      ...(imageUrl ? { url: imageUrl } : {}),
+      message: text,
     });
-
     const res = await fetch(
-      `https://graph.facebook.com/v19.0/${fbPageId}/photos`,
+      `https://graph.facebook.com/v19.0/${fbPageId}/feed`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params,
       }
     );
-
     const data = (await res.json()) as any;
-    if (data?.id) return { postId: data.id };
-    console.error('[DIGEST] Facebook photo post failed:', JSON.stringify(data));
-    return null;
+    if (!res.ok) {
+      const msg = JSON.stringify(data);
+      console.error('[DIGEST] Text feed post failed:', msg);
+      return { error: msg };
+    }
+    if (data?.id) {
+      console.log(`[DIGEST] Text feed post succeeded → id=${data.id}`);
+      return { postId: data.id };
+    }
+    const msg = JSON.stringify(data);
+    console.error('[DIGEST] Text feed post returned no id:', msg);
+    return { error: msg };
   } catch (err) {
-    console.error('[DIGEST] Facebook post error:', err);
-    return null;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[DIGEST] Text feed post error:', err);
+    return { error: msg };
   }
 }
 
@@ -5856,18 +5922,19 @@ async function maybeRunDigest(env: Env): Promise<void> {
         const digestRaw = await env.CACHE.get('admin:digest:morning');
         if (digestRaw) {
           const digest = JSON.parse(digestRaw) as { text: string };
-          const result = await postDigestToFacebook(env, digest.text);
+          const result = await postDigestToFacebook(env, digest.text, 'morning');
+          const isSuccess = result && !('error' in result);
           const newFlag = {
-            status: result ? 'posted' : 'failed',
+            status: isSuccess ? 'posted' : 'failed',
             postedAt: new Date().toISOString(),
-            postId: result?.postId ?? null,
+            postId: isSuccess ? (result as { postId: string }).postId : null,
           };
           await env.CACHE.put(
             'admin:digest:morning:autopost',
             JSON.stringify(newFlag),
             { expirationTtl: 3600 }
           );
-          console.log(`[DIGEST] Morning auto-post ${result ? 'succeeded' : 'failed'}`);
+          console.log(`[DIGEST] Morning auto-post ${isSuccess ? 'succeeded' : 'failed'}`);
         }
       }
     }
@@ -5895,18 +5962,19 @@ async function maybeRunDigest(env: Env): Promise<void> {
         const digestRaw = await env.CACHE.get('admin:digest:evening');
         if (digestRaw) {
           const digest = JSON.parse(digestRaw) as { text: string };
-          const result = await postDigestToFacebook(env, digest.text);
+          const result = await postDigestToFacebook(env, digest.text, 'evening');
+          const isSuccess = result && !('error' in result);
           const newFlag = {
-            status: result ? 'posted' : 'failed',
+            status: isSuccess ? 'posted' : 'failed',
             postedAt: new Date().toISOString(),
-            postId: result?.postId ?? null,
+            postId: isSuccess ? (result as { postId: string }).postId : null,
           };
           await env.CACHE.put(
             'admin:digest:evening:autopost',
             JSON.stringify(newFlag),
             { expirationTtl: 3600 }
           );
-          console.log(`[DIGEST] Evening auto-post ${result ? 'succeeded' : 'failed'}`);
+          console.log(`[DIGEST] Evening auto-post ${isSuccess ? 'succeeded' : 'failed'}`);
         }
       }
     }
