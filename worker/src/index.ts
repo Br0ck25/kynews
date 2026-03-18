@@ -5784,7 +5784,9 @@ async function generateDigestText(env: Env, when: 'morning' | 'evening'): Promis
  * worker uses `FB_PAGE_TOKEN` and `FB_PAGE_ID` from secrets.
  */
 async function postDigestToFacebook(env: Env, text: string): Promise<{ postId: string } | null> {
-  if (!env.FB_PAGE_TOKEN || !env.FB_PAGE_ID) return null;
+  const fbToken = (env as any).FB_PAGE_TOKEN as string | undefined;
+  const fbPageId = (env as any).FB_PAGE_ID as string | undefined;
+  if (!fbToken || !fbPageId) return null;
 
   // Choose a thumbnail based on the digest type
   const isMorning = text.includes('Morning News Roundup');
@@ -5796,21 +5798,24 @@ async function postDigestToFacebook(env: Env, text: string): Promise<{ postId: s
     : undefined;
 
   try {
+    const params = new URLSearchParams({
+      access_token: fbToken,
+      caption: text,
+      ...(imageUrl ? { url: imageUrl } : {}),
+    });
+
     const res = await fetch(
-      `https://graph.facebook.com/v19.0/${env.FB_PAGE_ID}/feed`,
+      `https://graph.facebook.com/v19.0/${fbPageId}/photos`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          access_token: env.FB_PAGE_TOKEN,
-          ...(imageUrl ? { picture: imageUrl } : {}),
-        }),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params,
       }
     );
+
     const data = (await res.json()) as any;
     if (data?.id) return { postId: data.id };
-    console.error('[DIGEST] Facebook post failed:', JSON.stringify(data));
+    console.error('[DIGEST] Facebook photo post failed:', JSON.stringify(data));
     return null;
   } catch (err) {
     console.error('[DIGEST] Facebook post error:', err);
