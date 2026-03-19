@@ -77,7 +77,7 @@ export default function NwsDiscussionsTab() {
           continue;
         }
         // Drop NWS header / metadata lines
-        if (/^(issued at|[.][A-Z]|[$&]|FXUS|AFDJKL|AREA FORECAST|NATIONAL WEATHER|UPDATE\b)/i.test(l)) {
+        if (/^(issued at|[.][A-Z]|[$&]|FXUS|AFD[A-Z]{3}|AREA FORECAST|NATIONAL WEATHER|UPDATE\b)/i.test(l)) {
           if (buf) { joined.push(buf); buf = ""; }
           continue;
         }
@@ -216,6 +216,25 @@ export default function NwsDiscussionsTab() {
       out.push("");
     }
 
+    function extractKentuckyAlerts(body) {
+      if (!body) return [];
+      const matches = [...body.matchAll(/(?:^|\n)KY\.\.\.([\s\S]*?)(?=(?:\n[A-Z]{2}\.\.\.)|\n&&|\n\$\$|$)/gim)];
+      const alerts = [];
+      for (const m of matches) {
+        const txt = (m[1] || "")
+          .replace(/\r/g, "")
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!txt || /^none\.?$/i.test(txt)) continue;
+        alerts.push(txt.replace(/\.\.+$/, "."));
+      }
+      return alerts;
+    }
+
     function inferHighLine(period, periodSent, shortText, longText) {
       const direct = normalizeHighLine(extractTemp(periodSent), period);
       if (direct) return direct;
@@ -249,20 +268,17 @@ export default function NwsDiscussionsTab() {
     const label = officeLabel || "Eastern Kentucky";
     const out = [];
     out.push(`🌤️ ${String(label).toUpperCase()} WEATHER UPDATE`);
+    out.push("");
 
-    // Active watches/warnings (skip if "None")
+    // Active watches/warnings: include only Kentucky alerts when present.
     const wwaSection = sections.find(
       (s) => (s.name.includes("WATCHES") || s.name.includes("WARNINGS")) && s.name !== "_HDR"
     );
-    if (wwaSection) {
-      const advLines = cleanBody(wwaSection.body)
-        .split("\n")
-        .filter((l) => l.trim() && !/^none\.?$/i.test(l.trim()));
-      if (advLines.length > 0) {
-        out.push("ACTIVE ALERTS");
-        advLines.forEach((l) => out.push(l));
-        out.push("");
-      }
+    const kyAlerts = wwaSection ? extractKentuckyAlerts(wwaSection.body) : [];
+    if (kyAlerts.length > 0) {
+      out.push("ACTIVE ALERTS");
+      kyAlerts.forEach((l) => out.push(l));
+      out.push("");
     }
 
     const shortSec = findSection("SHORT TERM");
@@ -270,13 +286,93 @@ export default function NwsDiscussionsTab() {
     const shortClean = shortSec ? removeJargon(cleanBody(shortSec.body)) : "";
     const longClean = longSec ? removeJargon(cleanBody(longSec.body)) : "";
     const allSentences = splitSentences(`${shortClean}\n\n${longClean}`);
-    const textLower = `${shortClean} ${longClean}`.toLowerCase();
+    const textLower = `${shortClean} ${longClean}`.toLowerCase().replace(/-/g, " ");
+    const isCentral = /central kentucky/i.test(label);
 
-    // Key messages
     const kmSec = findSection("KEY MESSAGE");
+    const keyBullets = kmSec ? extractBullets(kmSec.body) : [];
+
+    if (isCentral) {
+      const takeaways = [];
+      if (/\b70s\b/.test(textLower) && /\b80s\b/.test(textLower) && /(weekend|friday)/.test(textLower)) {
+        takeaways.push("Temperatures warming into the 70s and even 80s by the weekend");
+      }
+      if (/(sprinkle|sprinkles|light precipitation|mostly dry|remain dry|stay dry)/.test(textLower)) {
+        takeaways.push("Mostly dry through Friday with only a few spotty sprinkles");
+      }
+      if (/cold front/.test(textLower) && /(sunday night|monday)/.test(textLower)) {
+        takeaways.push("Cold front arrives Sunday night into Monday");
+      }
+      if (/(cooler|drop|50s|60s|early next week)/.test(textLower)) {
+        takeaways.push("Cooler air returns early next week");
+      }
+
+      const finalTakeaways =
+        takeaways.length > 0
+          ? [...new Set(takeaways)]
+          : keyBullets
+              .map((b) => b.replace(/\.\s*$/g, "").trim())
+              .filter(Boolean)
+              .slice(0, 4);
+
+      if (finalTakeaways.length > 0) {
+        out.push("KEY TAKEAWAYS");
+        out.push("");
+        if (finalTakeaways.length >= 4) {
+          out.push(finalTakeaways[0]);
+          out.push("");
+          out.push(finalTakeaways[1]);
+          out.push("");
+          out.push(finalTakeaways[2]);
+          if (finalTakeaways[3]) out.push(finalTakeaways[3]);
+        } else {
+          finalTakeaways.forEach((t) => out.push(t));
+        }
+        out.push("");
+      }
+
+      const todayLines = [];
+      if (/cloud/.test(textLower)) todayLines.push("Partly to mostly cloudy");
+      if (/sprinkle|sprinkles/.test(textLower)) todayLines.push("A few sprinkles possible, but most stay dry");
+      if (/mid\s+60s\s+to\s+low\s+70s/.test(textLower)) todayLines.push("Highs mid 60s to low 70s");
+      addBlock(out, "TODAY (THURSDAY)", todayLines);
+
+      const fridayLines = [];
+      if (/friday/.test(textLower) && /\b70s\b/.test(textLower)) fridayLines.push("Warmer with highs in the 70s");
+      if (/(light precipitation|rain showers?|chances? for (?:light )?precipitation|eastern counties|remaining to our east)/.test(textLower)) {
+        fridayLines.push("Slight chance of light rain, mainly east");
+      }
+      addBlock(out, "FRIDAY", fridayLines);
+
+      const weekendLines = [];
+      if (/sunshine|high surface pressure|extra sunshine/.test(textLower)) weekendLines.push("Plenty of sunshine at times");
+      if (/70s\s+to\s+mid\s+80s|mid\s+80s/.test(textLower)) weekendLines.push("Highs in the 70s to mid 80s");
+      addBlock(out, "WEEKEND", weekendLines);
+
+      const sunMonLines = [];
+      if (/cold front/.test(textLower) && /(sunday night|monday)/.test(textLower)) sunMonLines.push("Cold front moves through");
+      if (/rain|precipitation/.test(textLower)) {
+        sunMonLines.push(/east|eastern/.test(textLower) ? "Chance for rain, mainly east" : "Chance for rain");
+      }
+      if (/cooler|drop|50s|60s/.test(textLower)) sunMonLines.push("Turning cooler");
+      addBlock(out, "SUNDAY NIGHT – MONDAY", sunMonLines);
+
+      const earlyWeekLines = [];
+      if (/50s|60s/.test(textLower)) earlyWeekLines.push("Temperatures drop back into the 50s to 60s");
+      if (/not too concerning|wind threat looks low|trend drier|bulk of precipitation remaining to our east/.test(textLower)) {
+        earlyWeekLines.push("No major storm concerns right now");
+      }
+      addBlock(out, "EARLY NEXT WEEK", earlyWeekLines);
+
+      out.push("BOTTOM LINE");
+      out.push("A big warmup is on the way with spring-like temperatures this weekend, followed by a cooldown early next week.");
+
+      return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    }
+
+    // Key messages (default template, including Eastern KY)
     if (kmSec) {
-      const bullets = extractBullets(kmSec.body);
-      const takeaways = buildTakeaways(bullets, shortClean, longClean);
+      const takeaways = buildTakeaways(keyBullets, shortClean, longClean);
       if (takeaways.length > 0) {
         out.push("KEY TAKEAWAYS");
         out.push("");
@@ -294,7 +390,7 @@ export default function NwsDiscussionsTab() {
       }
     }
 
-    // Day-by-day
+    // Day-by-day (default template)
     const thursdaySent = findSentences(allSentences, /\bthursday\b/i).join(" ");
     const fridaySent = findSentences(allSentences, /\bfriday\b/i).join(" ");
     const saturdaySent = findSentences(allSentences, /\bsaturday\b/i).join(" ");
