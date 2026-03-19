@@ -4460,7 +4460,58 @@ if (url.pathname === '/sitemap-news.xml' && request.method === 'GET') {
 	});
 }
 
+// GET /api/trimarc — proxy the TRIMARC Louisville traffic RSS feed (CORS bypass)
+if (url.pathname === '/api/trimarc' && request.method === 'GET') {
+	try {
+		const res = await fetch('https://www.trimarc.org/rss/trimarcrss.xml', {
+			headers: { 'User-Agent': 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)' },
+		});
+		if (!res.ok) return json({ error: 'Failed to fetch TRIMARC feed', status: res.status }, 502);
+		const xml = await res.text();
+		const items = parseTrimarcRss(xml);
+		return json({ items }, 200, { 'Cache-Control': 'public, max-age=60, s-maxage=60' });
+	} catch (err) {
+		return json({ error: String(err) }, 500);
+	}
+}
+
 return json({ error: 'Not found' }, 404);
+}
+
+// ─── TRIMARC RSS parser ───────────────────────────────────────────────────────
+
+function parseTrimarcRss(xml: string): Array<{ title: string; description: string; link: string; pubDate: string; guid: string }> {
+	const items: Array<{ title: string; description: string; link: string; pubDate: string; guid: string }> = [];
+	const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
+	let match: RegExpExecArray | null;
+
+	function tagVal(block: string, tag: string): string {
+		const m = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(block);
+		return m ? m[1] : '';
+	}
+
+	function decodeXmlStr(s: string): string {
+		return s
+			.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+			.replace(/&amp;/g, '&')
+			.replace(/&lt;/g, '<')
+			.replace(/&gt;/g, '>')
+			.replace(/&quot;/g, '"')
+			.replace(/&#39;/g, "'")
+			.trim();
+	}
+
+	while ((match = itemRegex.exec(xml)) !== null) {
+		const block = match[1];
+		const title       = decodeXmlStr(tagVal(block, 'title'));
+		const description = decodeXmlStr(tagVal(block, 'description'));
+		const link        = decodeXmlStr(tagVal(block, 'link'));
+		const pubDate     = tagVal(block, 'pubDate').trim();
+		const guid        = decodeXmlStr(tagVal(block, 'guid')) || link;
+		items.push({ title, description, link, pubDate, guid });
+	}
+
+	return items;
 }
 
 // ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ const SavedPage = lazy(() => import("./pages/saved-page"));
 const PostPage = lazy(() => import("./pages/post-page"));
 const FavoritesPage = lazy(() => import("./pages/favorites-page"));
 const AdminPage = lazy(() => import("./pages/admin-page"));
+const TrafficPage = lazy(() => import("./pages/traffic-page"));
 const AboutPage = lazy(() => import("./pages/about-page"));
 const ContactPage = lazy(() => import("./pages/contact-page"));
 const EditorialPolicyPage = lazy(() => import("./pages/editorial-policy-page"));
@@ -92,6 +93,7 @@ const SECTIONS = [
   { title: "Sports", url: "/sports" },
   { title: "Weather", url: "/weather" },
   { title: "Schools", url: "/schools" },
+  { title: "Traffic", url: "/traffic" },
 ];
 
 function App() {
@@ -135,6 +137,9 @@ function App() {
                     </Route>
                     <Route path="/schools">
                       <SchoolsPage />
+                    </Route>
+                    <Route path="/traffic">
+                      <TrafficPage />
                     </Route>
                     <Route path="/search">
                       <SearchPage />
