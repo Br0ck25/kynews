@@ -144,10 +144,18 @@ export default function TrimarcTrafficHub() {
     }
   }
 
-  // Filter items for the active tab
-  const classifiedItems = React.useMemo(() => {
-    return items.map((item) => ({ ...item, _category: classifyItem(item) }));
+  // Sort newest-first, then classify
+  const sortedItems = React.useMemo(() => {
+    return [...items].sort((a, b) => {
+      const da = Date.parse(a.pubDate || "") || 0;
+      const db = Date.parse(b.pubDate || "") || 0;
+      return db - da;
+    });
   }, [items]);
+
+  const classifiedItems = React.useMemo(() => {
+    return sortedItems.map((item) => ({ ...item, _category: classifyItem(item) }));
+  }, [sortedItems]);
 
   const visibleItems = React.useMemo(() => {
     if (activeTab === "all") return classifiedItems;
