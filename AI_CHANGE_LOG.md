@@ -199,6 +199,42 @@ The `ALWAYS_NATIONAL_SOURCES` block has a `strongTextEvidence` exception: an art
 
 ### Change 11 — Reject obituary articles in `ingestSingleUrl`
 
+---
+
+### Change 12 — Assign counties when a KY dateline city is present (even without "County" text)
+
+**Files:** `worker/src/lib/geo.ts`, `worker/src/lib/classify.ts`
+
+**What changed:**
+- `detectCity()` now treats a known Kentucky city followed by an em-dash/ndash (`—`, `–`, `-`) near the top of the article as a valid dateline signal.
+- The classifier now treats a detected KY city (unless it is a known ambiguous city like Louisville/Lexington) as strong enough evidence to assign the corresponding county, even if the text does not explicitly include the phrase "X County".
+
+**Why:**
+Local stories frequently use datelines like "LEXINGTON —" or "GLASGOW, Ky. —" without explicitly repeating the county name. The previous logic required an explicit "County" mention before assigning a county, causing many valid local stories to be tagged only as "Kentucky" with no county.
+
+---
+
+### Change 13 — Guard D1 inserts against undefined bind values
+
+**File:** `worker/src/lib/db.ts`
+
+**What changed:**
+- `insertArticle()` now converts any `undefined` bind values to `null` before sending them to Cloudflare D1.
+
+**Why:**
+D1 rejects undefined values but many tests (and some edge-case insert paths) may omit optional fields. This makes the insert path more robust and prevents sporadic test failures.
+
+---
+
+### Change 14 — Add regression tests for county tagging on common KY datelines
+
+**File:** `worker/test/index.spec.ts`
+
+**What changed:**
+- Added regression tests ensuring stories datelined in KY (e.g., "LEXINGTON —", "GLASGOW, Ky. —") are tagged with the correct county.
+
+
+
 **File:** `worker/src/lib/ingest.ts`
 
 **What changed:**

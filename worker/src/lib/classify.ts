@@ -789,13 +789,19 @@ export async function classifyArticleWithAi(
   // in a list like "Grayson, Meade and Hardin counties"), treat the county
   // information as explicit even if the first detected county doesn't include
   // the word "County" itself.
-  const hasExplicitCountyMention = baseGeo.counties.some((county) =>
-    COUNTY_PATTERNS.some((p) => p.county === county && p.pattern.test(semanticText)),
-  );
+  const hasExplicitCountyMention =
+    baseGeo.counties.some((county) =>
+      COUNTY_PATTERNS.some((p) => p.county === county && p.pattern.test(semanticText)),
+    ) ||
+    // Treat a detected Kentucky city (from a dateline or other strong location signal)
+    // as implicit county evidence unless the city is known to be ambiguous.
+    (baseGeo.city &&
+      baseGeo.county &&
+      !HIGH_AMBIGUITY_CITIES.has(baseGeo.city.toLowerCase()));
 
-  // If the article explicitly lists counties (even in a shared suffix list),
+  // If the article explicitly (or via a strong dateline signal) lists counties,
   // avoid falling back to the source default county (e.g. Jefferson for wave3.com)
-  // because the story is clearly about other counties.
+  // because the story is clearly about another county.
   const shouldAvoidDefaultCounty = hasExplicitCountyMention && baseGeo.counties.length > 0;
   if (shouldAvoidDefaultCounty) {
     allowedSourceDefaultCounty = null;

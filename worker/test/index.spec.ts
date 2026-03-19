@@ -647,9 +647,10 @@ async function ensureSchemaAndFixture() {
 			await ensureSchemaAndFixture();
 			const now = new Date().toISOString();
 			await insertArticle(env, {
-				urlHash: 'hash-multi2',
-				title: 'Secondary county test',
-				author: null,
+			canonicalUrl: 'https://example.com/secondary-county',
+			sourceUrl: 'https://example.com',
+			urlHash: 'hash-multi2',
+			title: 'Secondary county test',
 				publishedAt: now,
 				category: 'today',
 				isKentucky: true,
@@ -1230,6 +1231,55 @@ describe('classification utilities', () => {
 				'LOUISVILLE, Ky. (WDRB) — A man crashed into Twig and Leaf on Bardstown Road on March 18, 2026.\n' +
 				'Louisville Metro Police were called to the 2100 block of Bardstown Road just before 7 p.m. for a vehicle into a building, department spokesperson Dwight Mitchell said.\n' +
 				'That\'s near Douglass Boulevard in the Deer Park neighborhood.\n',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Jefferson');
+	});
+
+	it('classifies a Harlan Enterprise state tournament story as Harlan County', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://harlanenterprise.net/2026/03/18/jaguars-limit-warren-central-to-29-percent-shooting-in-sweet-16-win/',
+			title: 'Jaguars limit Warren Central to 29 percent shooting in Sweet 16 win',
+			content:
+				'Sports Writer LEXINGTON — Whether it was good defense or bad offense or something in between, the North Laurel Jaguars earned a trip to the Elite Eight in the UK Health Care Sweet 16 by making shooting difficult for 4th Region champ Warren Central on the way to a 52-38 victory Wednesday afternoon at Rupp Arena.\n' +
+				'The Dragons were limited to 29 percent (14 of 48) shooting in only their fourth loss in 30 games this season.\n',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Harlan');
+	});
+
+	it('classifies a federal press release mentioning Woodford County as Woodford County', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.justice.gov/usao-edky/press-release',
+			title: 'Woodford County woman sentenced for fentanyl trafficking resulting in serious bodily injury',
+			content:
+				'FRANKFORT, Ky. – A Versailles, Ky., woman, Melissa Wilhoite, 40, was sentenced on Wednesday to 180 months by U.S. District Judge Gregory Van Tatenhove for two counts of distribution of fentanyl resulting in serious bodily injury.\n' +
+				'The investigation was conducted by the DEA and Versailles Police Department.\n' +
+				'Woodford County detention center staff reported the incident to investigators.\n',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Woodford');
+	});
+
+	it('classifies a Glasgow crash story as Barren County', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.wnky.com/juvenile-dies-from-injuries-sustained-in-glasgow-crash/',
+			title: 'Juvenile dies from injuries sustained in Glasgow crash',
+			content:
+				'GLASGOW, Ky. – A juvenile is dead after sustaining injuries in a Glasgow crash earlier this month.\n' +
+				'According to a release by the Kentucky State Police on Wednesday, the juvenile that was an occupant in a vehicle died Tuesday, March 17 due to his injuries.\n',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Barren');
+	});
+
+	it('classifies a WHAS story with a Louisville dateline as Jefferson County', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.whas11.com/article/news/local/louisville-metro-police-lmpd-investigation-copper-wire-theft-va-hospital-brownsboro-road/417-71ae49e2-c8e9-4ac7-8a9d-4af24e439ba3',
+			title: 'Louisville Metro Police investigating copper wire theft at VA hospital on Brownsboro Road',
+			content:
+				'LOUISVILLE, Ky. — Louisville Metro Police is investigating a copper wire theft that happened Feb. 1 at the Veterans Affairs hospital being built on Brownsboro Road.\n' +
+				'The stolen wire was supposed to be used for the VA hospital\'s electrical system.\n',
 		});
 		expect(classification.isKentucky).toBe(true);
 		expect(classification.county).toBe('Jefferson');

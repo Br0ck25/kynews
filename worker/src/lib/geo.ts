@@ -541,6 +541,19 @@ export function detectCity(input) {
     // normal algorithm rather than trusting an unknown dateline.
   }
 
+  // Quick dateline heuristic: some stories use an AP-style dateline like
+  // "LEXINGTON —" or "Glasgow —" without including a state abbreviation.
+  // Treat a known Kentucky city followed by a dash near the top of the article
+  // as a valid location signal.
+  const earlyText = raw.slice(0, 200);
+  for (const { city } of SORTED_CITY_ENTRIES) {
+    if (city === 'frankfort') continue; // frankfort is statewide, not a story location
+    const re = new RegExp(`\\b${escapeRegExp(city)}\\s*[-—–]`, 'i');
+    if (re.test(earlyText)) {
+      return city;
+    }
+  }
+
   // ignore frankfort dateline – not a story location
   if (DATELINE_CITY_RE.test(raw)) return null;
   const normalized = normalizeForSearch(raw);

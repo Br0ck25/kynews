@@ -560,7 +560,9 @@ async function bumpRssVersion(env: Env): Promise<void> {
 }
 
 export async function insertArticle(env: Env, article: NewArticle): Promise<number> {
+  // Debug: ensure required fields are present (should not be undefined)
   const normalizedCounty = normalizeCountyName(article.county);
+
 
   // Generate a structured SEO slug for every new insertion.
   // This overwrites any slug set by the caller so all new articles use the
@@ -570,6 +572,35 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
   article.slug = await ensureUniqueSlug(env, baseSlug);
 
   try {
+    const bindValues = [
+      article.canonicalUrl,
+      article.sourceUrl,
+      article.urlHash,
+      article.title,
+      article.author,
+      article.publishedAt,
+      article.category,
+      article.isKentucky ? 1 : 0,
+      article.isNational ? 1 : 0,
+      normalizedCounty,
+      article.city,
+      article.summary,
+      article.seoDescription,
+      article.rawWordCount,
+      article.summaryWordCount,
+      article.contentText,
+      article.contentHtml,
+      article.imageUrl,
+      article.imageAlt ?? null,
+      article.imageWidth ?? null,
+      article.imageHeight ?? null,
+      article.rawR2Key ?? null,
+      article.slug ?? null,
+      article.contentHash ?? null,
+      article.alertGeojson ?? null,
+      article.localIntro ?? null,
+    ].map((v) => (v === undefined ? null : v));
+
     const result = await prepare(env,
         `INSERT INTO articles (
           canonical_url,
@@ -600,34 +631,7 @@ export async function insertArticle(env: Env, article: NewArticle): Promise<numb
           local_intro
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .bind(
-        article.canonicalUrl,
-        article.sourceUrl,
-        article.urlHash,
-        article.title,
-        article.author,
-        article.publishedAt,
-        article.category,
-        article.isKentucky ? 1 : 0,
-        article.isNational ? 1 : 0,
-        normalizedCounty,
-        article.city,
-        article.summary,
-        article.seoDescription,
-        article.rawWordCount,
-        article.summaryWordCount,
-        article.contentText,
-        article.contentHtml,
-        article.imageUrl,
-        article.imageAlt ?? null,
-        article.imageWidth ?? null,
-        article.imageHeight ?? null,
-        article.rawR2Key,
-        article.slug ?? null,
-        article.contentHash ?? null,
-        article.alertGeojson ?? null,
-        article.localIntro ?? null,
-      )
+      .bind(...bindValues)
       .run();
 
     const articleId = Number(result.meta.last_row_id ?? 0);
