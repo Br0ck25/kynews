@@ -123,68 +123,95 @@ export default function NwsDiscussionsTab() {
       return null;
     }
 
-    function weatherConditions(para) {
+    function splitSentences(textIn) {
+      return (textIn || "")
+        .replace(/\n+/g, " ")
+        .split(/(?<=[.!?])\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    function findSentences(sentences, pattern) {
+      return sentences.filter((s) => pattern.test(s));
+    }
+
+    function normalizeHighLine(tempRange, period) {
+      if (!tempRange) return "";
+      const t = tempRange
+        .replace(/\bmiddle\b/gi, "mid")
+        .replace(/-/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const low = t.toLowerCase();
+
+      if (period === "THURSDAY" && /\b60s?\b/.test(low)) return "Highs in the 60s";
+      if (/upper\s+60s?\s+(?:to|or|and)\s+mid\s+70s?/.test(low)) return "Highs upper 60s to mid 70s";
+      if (/low(?:er)?\s+(?:to\s+)?mid\s+70s?/.test(low)) return "Highs in the low to mid 70s";
+
+      return `Highs ${t}`;
+    }
+
+    function extractBullets(body) {
+      const kmLines = (body || "").split("\n").map((l) => l.trim());
       const bullets = [];
-      const p = para.toLowerCase();
-      if (/t-?storm|thunder.?storm/.test(p)) {
-        bullets.push(/isolated|stray|brief|few|slight/.test(p) ? "Isolated storm possible" : "Storms possible");
-      } else if (/shower/.test(p)) {
-        const qualifier = /stray|isolated|slight|chance/.test(p) ? "Slight chance of showers" : "Showers possible";
-        bullets.push(qualifier);
+      let current = "";
+      for (const l of kmLines) {
+        if (/^-\s/.test(l)) {
+          if (current) bullets.push(current.replace(/\s+/g, " ").trim());
+          current = l.replace(/^-\s*/, "");
+        } else if (current && l && !/^(issued at|\.|[$&]|FXUS|AFD)/i.test(l)) {
+          current += " " + l;
+        } else {
+          if (current) {
+            bullets.push(current.replace(/\s+/g, " ").trim());
+            current = "";
+          }
+        }
       }
-      if (/gusty|gusts/.test(p)) bullets.push("Gusty winds expected");
-      else if (/\bwindy\b/.test(p)) bullets.push("Windy");
-      if (!bullets.length && /\bmostly sunny\b|\bclear\b/.test(p)) bullets.push("Mostly sunny");
+      if (current) bullets.push(current.replace(/\s+/g, " ").trim());
       return bullets;
     }
 
-    // ── 3. Day-by-day extraction ──────────────────────────────────────────────
-    const DAY_EMOJI = {
-      TONIGHT: "🌙", OVERNIGHT: "🌙", TOMORROW: "🌤️", "TOMORROW NIGHT": "🌙",
-      "FRIDAY NIGHT": "🌩️", "SATURDAY NIGHT": "🌙", "SUNDAY NIGHT": "🌩️",
-      "MONDAY NIGHT": "🌙", "TUESDAY NIGHT": "🌙", "WEDNESDAY NIGHT": "🌙", "THURSDAY NIGHT": "🌙",
-      MONDAY: "🌤️", TUESDAY: "🌤️", WEDNESDAY: "🌦️",
-      THURSDAY: "🌤️", FRIDAY: "🌬️", SATURDAY: "☀️", SUNDAY: "☀️",
-    };
-    // Match "FRIDAY NIGHT" before "FRIDAY"
-    const DAY_RE = /\b((?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY) NIGHT|TONIGHT|OVERNIGHT|TOMORROW NIGHT|TOMORROW|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)\b/gi;
+    function buildTakeaways(bullets, shortText, longText) {
+      const joined = (bullets.join(" ") + " " + shortText + " " + longText)
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+      const takeaways = [];
 
-    function extractDays(forecastText) {
-      // Split on preserved paragraph breaks
-      const paras = forecastText
-        .split(/\n\n+/)
-        .map((p) => p.replace(/\n/g, " ").replace(/\s+/g, " ").trim())
-        .filter(Boolean);
-
-      const result = [];
-      const seen = new Set();
-      for (const para of paras) {
-        DAY_RE.lastIndex = 0;
-        const found = [];
-        let m;
-        while ((m = DAY_RE.exec(para)) !== null) {
-          const d = m[1].toUpperCase();
-          if (!found.includes(d)) found.push(d);
-        }
-        if (!found.length) continue;
-        const day = found.find((d) => !seen.has(d));
-        if (!day) continue;
-        seen.add(day);
-        const lines = [];
-        const highT = extractTemp(para);
-        if (highT) lines.push(`Highs ${highT}`);
-        lines.push(...weatherConditions(para));
-        if (lines.length > 0) {
-          result.push({ header: `${DAY_EMOJI[day] || "🌤️"} ${day}`, lines });
-        }
+      if (/\b70s?\b/.test(joined) && /(warm|highs?|soar|climb|rise|above normal)/.test(joined)) {
+        takeaways.push("Warmup into the 70s by Friday and the weekend");
       }
-      return result;
+      if (/(gusty|windy|increase in winds?|stronger sustained winds?)/.test(joined) && /\bfriday\b/.test(joined)) {
+        takeaways.push("Gusty winds develop Friday");
+      }
+      if (/\bfriday\b/.test(joined) && /(showers?|rain)/.test(joined) && /(storm|thunder)/.test(joined)) {
+        takeaways.push("Showers and a few storms possible Friday night");
+      }
+      if (/(late weekend|sunday|monday)/.test(joined) && /(showers?|storms?|thunder)/.test(joined)) {
+        takeaways.push("Another round of storms late Sunday into Monday");
+      }
+
+      if (takeaways.length === 0) {
+        return bullets
+          .map((b) => b.replace(/^the\s+/i, "").replace(/\.\s*$/g, "").trim())
+          .filter(Boolean)
+          .slice(0, 4);
+      }
+      return [...new Set(takeaways)];
     }
 
-    // ── 4. Assemble the post ──────────────────────────────────────────────────
+    function addBlock(out, title, lines) {
+      const cleanLines = (lines || []).map((l) => (l || "").trim()).filter(Boolean);
+      if (cleanLines.length === 0) return;
+      out.push(title);
+      cleanLines.forEach((l) => out.push(l));
+      out.push("");
+    }
+
+    // ── 3. Assemble the post ──────────────────────────────────────────────────
     const label = officeLabel || "Eastern Kentucky";
     const out = [];
-    out.push(`🌤️ ${label} Weather Update`);
+    out.push(`🌤️ ${String(label).toUpperCase()} WEATHER UPDATE`);
     out.push("");
 
     // Active watches/warnings (skip if "None")
@@ -196,67 +223,95 @@ export default function NwsDiscussionsTab() {
         .split("\n")
         .filter((l) => l.trim() && !/^none\.?$/i.test(l.trim()));
       if (advLines.length > 0) {
-        out.push("⚠️ ACTIVE ALERTS:");
+        out.push("ACTIVE ALERTS");
         advLines.forEach((l) => out.push(l));
         out.push("");
       }
     }
 
-    // Key Messages → KEY TAKEAWAYS
-    // Bullets in AFDs are word-wrapped, so we must re-join continuation lines
+    const shortSec = findSection("SHORT TERM");
+    const longSec = findSection("LONG TERM");
+    const shortClean = shortSec ? removeJargon(cleanBody(shortSec.body)) : "";
+    const longClean = longSec ? removeJargon(cleanBody(longSec.body)) : "";
+    const allSentences = splitSentences(`${shortClean}\n\n${longClean}`);
+    const textLower = `${shortClean} ${longClean}`.toLowerCase();
+
+    // Key messages
     const kmSec = findSection("KEY MESSAGE");
     if (kmSec) {
-      const kmLines = kmSec.body.split("\n").map((l) => l.trim());
-      const bullets = [];
-      let current = "";
-      for (const l of kmLines) {
-        if (/^-\s/.test(l)) {
-          if (current) bullets.push(current.replace(/\s+/g, " ").trim());
-          current = l.replace(/^-\s*/, "");
-        } else if (current && l && !/^(issued at|\.|[$&])/i.test(l)) {
-          // continuation of previous bullet
-          current += " " + l;
-        } else {
-          if (current) { bullets.push(current.replace(/\s+/g, " ").trim()); current = ""; }
-        }
-      }
-      if (current) bullets.push(current.replace(/\s+/g, " ").trim());
-      if (bullets.length > 0) {
-        out.push("KEY TAKEAWAYS:");
-        bullets.forEach((b) => out.push("- " + b));
-        out.push("");
-      }
+      const bullets = extractBullets(kmSec.body);
+      const takeaways = buildTakeaways(bullets, shortClean, longClean);
+      if (takeaways.length > 0) addBlock(out, "KEY TAKEAWAYS", takeaways);
     }
 
-    // SHORT TERM + LONG TERM → WHAT TO EXPECT (day-by-day)
-    const fSecs = sections.filter(
-      (s) => s.name.startsWith("SHORT TERM") || s.name.startsWith("LONG TERM")
-    );
-    if (fSecs.length > 0) {
-      const combined = fSecs.map((s) => removeJargon(cleanBody(s.body))).join("\n\n");
-      const days = extractDays(combined);
-      if (days.length > 0) {
-        out.push("WHAT TO EXPECT:");
-        out.push("");
-        for (const d of days) {
-          out.push(d.header + ":");
-          d.lines.forEach((l) => out.push(l));
-          out.push("");
-        }
-      }
+    // Day-by-day
+    const thursdaySent = findSentences(allSentences, /\bthursday\b/i).join(" ");
+    const fridaySent = findSentences(allSentences, /\bfriday\b/i).join(" ");
+    const saturdaySent = findSentences(allSentences, /\bsaturday\b/i).join(" ");
+    const sundaySent = findSentences(allSentences, /\bsunday\b/i).join(" ");
+    const mondaySent = findSentences(allSentences, /\bmonday\b/i).join(" ");
+    const sunMonSent = `${sundaySent} ${mondaySent} ${longClean}`.replace(/\s+/g, " ").trim();
 
-      // Bottom line: last substantive sentence of the long-term section
-      const lastClean = removeJargon(cleanBody(fSecs[fSecs.length - 1].body))
-        .replace(/\n/g, " ")
-        .replace(/\s+/g, " ");
-      const sents = lastClean
-        .split(/(?<=[.!?])\s+/)
-        .map((s) => s.trim())
-        .filter((s) => s.length > 50 && !/^(as of|issued)/i.test(s));
-      if (sents.length > 0) {
-        out.push("BOTTOM LINE:");
-        out.push(sents[sents.length - 1]);
+    const thursdayLines = [];
+    if (thursdaySent || /\bthursday\b/.test(textLower)) {
+      thursdayLines.push("Partly sunny and warmer");
+      const t = extractTemp(thursdaySent || shortClean);
+      const highLine = normalizeHighLine(t, "THURSDAY");
+      if (highLine) thursdayLines.push(highLine);
+    }
+    addBlock(out, "THURSDAY", thursdayLines);
+
+    const fridayLines = [];
+    if (fridaySent || /\bfriday\b/.test(textLower)) {
+      fridayLines.push(/gusty|windy/.test(fridaySent.toLowerCase()) ? "Windy and much warmer" : "Much warmer");
+      const t = extractTemp(fridaySent || longClean);
+      const highLine = normalizeHighLine(t, "FRIDAY");
+      if (highLine) fridayLines.push(highLine);
+      if (/\bfriday\b/.test(textLower) && /(showers?|rain)/.test(textLower) && /(storm|thunder)/.test(textLower)) {
+        fridayLines.push("Slight chance of showers/storms late");
       }
+    }
+    addBlock(out, "FRIDAY", fridayLines);
+
+    const saturdayLines = [];
+    if (saturdaySent || /\bsaturday\b/.test(textLower)) {
+      saturdayLines.push(/dry|nil chances|mostly dry|weaker gradient/.test(saturdaySent.toLowerCase()) ? "Dry and warm" : "Warm");
+      const t = extractTemp(saturdaySent || longClean);
+      const highLine = normalizeHighLine(t, "SATURDAY");
+      if (highLine) saturdayLines.push(highLine);
+    }
+    addBlock(out, "SATURDAY", saturdayLines);
+
+    const sundayLines = [];
+    if (sundaySent || /\bsunday\b/.test(textLower)) {
+      sundayLines.push(/very warm|15 to 20 degrees above normal|even higher highs/.test(textLower) ? "Very warm" : "Warm");
+      if (/end the weekend|late weekend|sun evening|sunday night/.test(textLower) && /(showers?|storm|thunder)/.test(textLower)) {
+        sundayLines.push("Storm chances return late");
+      }
+    }
+    addBlock(out, "SUNDAY", sundayLines);
+
+    const sunMonLines = [];
+    if (/sunday|monday|late weekend/.test(textLower)) {
+      if (/(showers?|storm|thunder)/.test(sunMonSent.toLowerCase())) {
+        sunMonLines.push("Better chance for showers and storms");
+      }
+      if (/east of i-75/.test(sunMonSent.toLowerCase())) {
+        sunMonLines.push("Greatest chances east of I-75");
+      }
+    }
+    addBlock(out, "SUNDAY NIGHT - MONDAY", sunMonLines);
+
+    let bottomLine = "";
+    if (/\b70s?\b/.test(textLower) && /(showers?|rain|storms?|thunder)/.test(textLower)) {
+      bottomLine = "Spring warmth is here, but multiple chances for rain and storms return this weekend.";
+    } else {
+      const longSents = splitSentences(longClean).filter((s) => s.length > 45);
+      bottomLine = longSents[longSents.length - 1] || "";
+    }
+    if (bottomLine) {
+      out.push("BOTTOM LINE");
+      out.push(bottomLine);
     }
 
     return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
