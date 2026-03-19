@@ -24,13 +24,13 @@ function splitSentences(text: string): string[] {
   // Also matches two-part initialisms like U.S, U.K, N.Y — (?:[A-Z]\.)[A-Z] catches
   // the stem of "U.S." after the trailing dot is stripped (leaving "U.S"), preventing
   // "U.S. Senate" from being split into two sentences.
-  const abbrevRe = /(\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Col|Gen|Rep|Sen|Prof|St|Sr|Jr|No|vs|etc|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec|a\.m|p\.m)|(?:[A-Z]\.)[A-Z])$/;
+  const abbrevRe = /(\b(?:Mr|Mrs|Ms|Dr|Gov|Lt|Col|Gen|Rep|Sen|Prof|St|Sr|Jr|No|vs|etc|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|Ky|a\.m|p\.m)|(?:[A-Z]\.)[A-Z])$/;
   const results: string[] = [];
   let buf = '';
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     buf += ch;
-    if (!/[.!?]/.test(ch)) continue;
+    if (!/[.!?\u2026]/.test(ch)) continue;
     // skip past closing quotes/parens
     let j = i + 1;
     while (j < text.length && /['")\u201d\u2019]/.test(text[j])) { buf += text[j]; j++; }
@@ -48,6 +48,108 @@ function splitSentences(text: string): string[] {
   }
   if (buf.trim()) results.push(buf.trim());
   return results;
+}
+
+function normalizeCaptionSourceText(text: string): string {
+  if (!text) return '';
+  let t = text
+    .replace(/\r\n/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .trim();
+
+  // Strip common lead-in labels/teasers that are not article prose.
+  t = t.replace(/^\s*Summary\s*:?\s*/i, '');
+  t = t.replace(/^\s*Update\s*\([^)]{1,120}\)\s*:\s*/i, '');
+  t = t.replace(
+    /^\s*\d{1,2}:\d{2}\s*[AP]M\s*(?:[A-Z]{2,4}\s+)?[A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}\s*/i,
+    '',
+  );
+
+  // Remove recurring resource-disclaimer lines that can crowd out real story detail.
+  t = t
+    .replace(/^\s*This story discusses suicide\.\s*/i, '')
+    .replace(/^\s*If you or someone you know is struggling with suicidal thoughts[^.]*\.\s*/i, '')
+    .replace(/^\s*A directory of mental health providers[^.]*\.\s*/i, '');
+
+  // Some wire summaries collapse sentence boundaries: "bill.The", "organizations.Gov".
+  t = t.replace(/([A-Za-z0-9][.!?])([A-Z])/g, '$1 $2');
+
+  // Flatten spacing/newlines for stable sentence splitting.
+  t = t.replace(/\s+/g, ' ').trim();
+  return t;
+}
+
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function stripOuterQuotes(text: string): string {
+  return text.trim().replace(/^[`"'“”‘’]+|[`"'“”‘’]+$/g, '').trim();
+}
+
+function isDatelineStub(text: string): boolean {
+  return /^(?:[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,4}),\s*(?:Ky|KY|Kentucky)\.?$/.test(text);
+}
+
+function isLikelySentenceFragment(text: string, words: number): boolean {
+  if (/^On\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?$/i.test(text)) {
+    return true;
+  }
+  const quoteCount = (text.match(/["“”]/g) || []).length;
+  if (quoteCount % 2 === 1 && words < 12) {
+    return true;
+  }
+  return false;
+}
+
+function isBoilerplateCaptionSentence(text: string): boolean {
+  return (
+    /^Summary$/i.test(text) ||
+    /^What you need to know\b/i.test(text) ||
+    /^This story discusses suicide\.?$/i.test(text) ||
+    /^If you or someone you know is struggling with suicidal thoughts/i.test(text) ||
+    /^A directory of mental health providers/i.test(text) ||
+    /988\s*(Suicide and Crisis Lifeline|lifeline)/i.test(text) ||
+    /988lifeline\.org/i.test(text) ||
+    /mentalhealthlou\.com/i.test(text)
+  );
+}
+
+function isUsableCaptionSentence(sentence: string, strict = true): boolean {
+  const text = stripOuterQuotes(sentence);
+  if (!text) return false;
+  if (isBoilerplateCaptionSentence(text)) return false;
+  if (isDatelineStub(text)) return false;
+  if (/[.][.][.]|\u2026/.test(text)) return false;
+  if (/https?:\/\//i.test(text)) return false;
+  if (/[A-Za-z]/.test(text) === false) return false;
+
+  const words = countWords(text);
+  if (words < (strict ? 5 : 3)) return false;
+  if (strict && words > 65) return false;
+  if (isLikelySentenceFragment(text, words)) return false;
+  if (strict && /[:;,\-]\s*$/.test(text)) return false;
+  return true;
+}
+
+function collectCaptionSentences(text: string, strict = true): string[] {
+  const normalized = normalizeCaptionSourceText(text);
+  if (!normalized) return [];
+  return splitSentences(normalized)
+    .map((s) => stripOuterQuotes(s))
+    .filter((s) => isUsableCaptionSentence(s, strict));
+}
+
+function dedupeSentences(input: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const sentence of input) {
+    const key = sentence.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(sentence.trim());
+  }
+  return out;
 }
 
 /**
@@ -169,30 +271,25 @@ export function generateFacebookCaption(article: ArticleRecord | null): string {
   // LINE 1 — Headline
   const headline = cleanFacebookHeadline(article.title || '');
 
-  // Extract sentences from the summary (fall back to contentText if summary is sparse)
-  const summaryText = (article.summary || article.contentText || '').trim();
-  const sentences = splitSentences(summaryText);
-
-  // LINE 2 — What Happened (first sentence)
-  let line2 = sentences[0] || '';
-  if (line2) {
-    const words = line2.split(/\s+/);
-    if (words.length > 40) line2 = words.slice(0, 40).join(' ') + '…';
+  // Prefer summary sentences, but fill gaps from body text when summary lines are
+  // teaser-like, truncated, or otherwise low quality.
+  const summaryStrict = collectCaptionSentences(article.summary || '', true);
+  const contentStrict = collectCaptionSentences(article.contentText || '', true);
+  let sentences = dedupeSentences([...summaryStrict, ...contentStrict]);
+  if (sentences.length < 2) {
+    const summaryLoose = collectCaptionSentences(article.summary || '', false);
+    const contentLoose = collectCaptionSentences(article.contentText || '', false);
+    sentences = dedupeSentences([...sentences, ...summaryLoose, ...contentLoose]);
   }
 
-  // LINE 3 — Key Detail (second sentence)
-  let line3 = sentences[1] || '';
-  if (line3) {
-    const words = line3.split(/\s+/);
-    if (words.length > 40) line3 = words.slice(0, 40).join(' ') + '…';
-  }
+  // LINE 2 — What Happened (first complete sentence)
+  const line2 = sentences[0] || '';
 
-  // LINE 4 — What Happens Next (third sentence, optional)
-  let line4 = sentences[2] || '';
-  if (line4) {
-    const words = line4.split(/\s+/);
-    if (words.length > 40) line4 = words.slice(0, 40).join(' ') + '…';
-  }
+  // LINE 3 — Key Detail (second complete sentence)
+  const line3 = sentences[1] || '';
+
+  // LINE 4 — What Happens Next (third complete sentence, optional)
+  const line4 = sentences[2] || '';
 
   // Article URL (always points at our site)
   const url = articleUrl(article);

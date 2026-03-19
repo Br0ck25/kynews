@@ -431,23 +431,18 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 		return { ok: false, error: 'article not Kentucky or missing data' };
 	}
 
-	// figure out what image (if any) should be used for the preview.  this is
-	// the same value that the crawler would see when scraping the article link,
-	// and by passing it explicitly to the Graph API we override the logo fallback.
-	const pictureUrl = await selectPreviewImage(article);
-	const facebookImageUrl = await getFacebookProxyImageUrl(env, pictureUrl);
+	// Always link to our own article page on localkynews.com so traffic goes
+	// through our site. Facebook's scraper will pick up og:image from our page.
+	// Do NOT pass the `picture` param — it requires domain verification in
+	// Facebook Business Manager (app ownership check) and causes code 100 errors.
+	const ourArticleUrl = buildArticleUrl(BASE_URL, article.slug, article.county, article.category, article.isNational, article.id);
 
 	try {
 		const params: Record<string, string> = {
 			message: caption,
-			link: article.canonicalUrl || article.sourceUrl || '',
+			link: ourArticleUrl,
 			access_token: pageToken,
 		};
-		// Including an explicit picture URL helps Facebook generate a proper image preview,
-		// and avoids relying on Facebook scraping our page (which sometimes returns access denied).
-		if (facebookImageUrl) {
-			params.picture = facebookImageUrl;
-		}
 
 		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
 			method: 'POST',

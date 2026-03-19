@@ -1019,3 +1019,166 @@ When a legitimate KY-AP story starts with "FRANKFORT, Ky. (AP) —", pattern 2 o
 | `isNationalWireStory = true` but `hasNonKyDateline = false` | Root cause: NON_KY_DATELINE_RE required `(?:^|\n|\.\s+)` before the city name but WLKY/Hearst CMS often presents byline + dateline as one paragraph without a newline; fix is to add the city to pattern 3 with optional line-start prefix |
 | `WASHINGTON —` dateline inline (no preceding newline) | Add `washington` to pattern 3 city list with `(?:^|\n|\.\s+)?` (optional prefix); the `[-—–]` after the city is specific enough to avoid false matches on "Washington Street" |
 | AP wire story on a local TV station (WLKY, WHAS11) tagged Kentucky | Trace whether `isNationalWireStory` fired AND whether `hasNonKyDateline` fired; both must be true for the override to work — if the dateline is inline (no line break), only pattern 3 catches it |
+
+---
+
+## 2026-03-18 — Three fixes: abcnews.com hostname, CNN byline detection, Orlando/Tampa/Tallahassee city lists
+
+---
+
+### Change 42 — Add `abcnews.com` to `ALWAYS_NATIONAL_SOURCES` (2026-03-18)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+```diff
+- // abcnews.go.com — ABC network news, national coverage.
+- 'abcnews.go.com',
++ // abcnews.go.com / abcnews.com — ABC network news, national coverage.
++ // Both hostnames are used by ABC News.
++ 'abcnews.go.com',
++ 'abcnews.com',
+```
+
+**Article that triggered this fix:**
+- *US and allied radar sites in the Middle East struck at least 10 times* from `abcnews.com` — tagged Kentucky despite being an international wire story with zero Kentucky content.
+
+**Root cause:**
+`ALWAYS_NATIONAL_SOURCES` contained `'abcnews.go.com'` but not `'abcnews.com'`. ABC News serves content from both hostnames (`abcnews.com` often resolves directly without the `.go.` subdomain). When a URL is `https://abcnews.com/...`, `new URL(...).hostname` returns `abcnews.com`, which was not in the set. The article was processed through the full classification pipeline, and WLKY/other KY outlet site-chrome leakage (or any stray KY mention in the article's navigation) was sufficient to push `isKentucky = true`.
+
+**Why safe:**
+`ALWAYS_NATIONAL_SOURCES` has a strong-text-evidence exception in the merge step: AI + geo detector must both agree on Kentucky before a story from an always-national source is kept as KY. Genuine ABC News content set in Kentucky (rare as ABC national) would still pass that bar.
+
+---
+
+### Change 43 — Detect major national network byline (e.g. "By Name, CNN") as wire signal (2026-03-18)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Added an `isMajorNetworkByline` check immediately after the `hasNonKyDateline` override block:
+
+```typescript
+const isMajorNetworkByline =
+  /\bBy\s+[A-Za-z]{2,20}(?:\s+[A-Za-z]{2,20}){0,3},\s*(?:CNN|NBC\s+News|ABC\s+News|CBS\s+News)\b/i
+    .test(semanticLeadText);
+if (fallback.isKentucky && isMajorNetworkByline && !baseGeo.county && !baseGeo.city) {
+  fallback.isKentucky = false;
+  fallback.county = null;
+  fallback.counties = [];
+}
+```
+
+**Article that triggered this fix:**
+- *TSA workers face reality of working without pay as passengers unaware of the shutdown see long lines* from `wlky.com` (CNN story, "By Alexandra Skores, CNN") — tagged Kentucky despite being a CNN national story about Atlanta, Houston, Denver, and Seattle airports with zero Kentucky content.
+
+**Root cause:**
+The existing `NATIONAL_WIRE_OVERRIDE_RE` catches CNN via `\bcnn\s*[-—–]` (the dateline form "CNN —") and `\(cnn\s+newsource\)` (the parenthetical syndication credit). It does NOT catch byline-attributed CNN stories in the format "By Alexandra Skores, CNN" (a comma-separated attribution with no dash). Without a matching wire pattern, `isNationalWireStory = false`. The TSA article also has no non-KY city dateline at the start (it begins with "More than a third of the security screeners at Hartsfield-Jackson Atlanta…"). Since both `isNationalWireStory` and `hasNonKyDateline` are false, the `fallback.isKentucky = false` override block never fires.
+
+The `mergedIsKentucky` merge is `fallback.isKentucky || (aiIsKentucky && aiGeo.isKentucky)`. Because `fallback.isKentucky = true` (from site-chrome KY signal), the AI cannot override it regardless of what it returns.
+
+**Why the condition `!baseGeo.county && !baseGeo.city` is safe:**
+If a genuine KY story filed by a CNN reporter has a KY dateline or KY location in the text, `detectKentuckyGeo` will return county or city values — `baseGeo.county` or `baseGeo.city` will be non-null — and the forced-national block will NOT fire. The block only fires when the article text contains no explicit KY location, i.e. it is a syndicated national story on a local outlet with only site-chrome KY signals.
+
+---
+
+### Change 44 — Add `orlando`, `tampa`, `tallahassee` to `NON_KY_DATELINE_RE` pattern 3 (2026-03-18)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Added `orlando`, `tampa`, and `tallahassee` to pattern 3 of `NON_KY_DATELINE_RE` (the known-non-KY city list with optional line-start prefix):
+
+```diff
+- ...|colorado\s+springs|el\s+paso|omaha)\s*...
++ ...|colorado\s+springs|el\s+paso|omaha|orlando|tampa|tallahassee)\s*...
+```
+
+Note: `tallahassee` and `orlando` were already present in `NATIONAL_WIRE_OVERRIDE_RE`'s first city list but were missing from `NON_KY_DATELINE_RE` pattern 3.
+
+**Article that triggered this fix:**
+- *Florida hospital sues to evict a patient who won't leave room 5 months after discharge* from `wlky.com` (AP story, "MIKE SCHNEIDER ORLANDO, Fla. —") — tagged Kentucky despite being a Florida AP story with zero Kentucky content.
+
+---
+
+### Change 45 — Reject `owensborotimes.com/record/...` pages (2026-03-18)
+
+**File:** `worker/src/lib/ingest.ts`
+
+**What changed:**
+- Added a reject rule in `ingestSingleUrl` to reject any URL on `owensborotimes.com` whose path includes `/record/`. These pages are public-record permit/transaction listings, not editorial news stories.
+
+**Example rejected URL:**
+- `https://owensborotimes.com/record/permits-august-27-2025-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2`
+
+**Why:**
+Owensboro Times publishes a series of automated public-record listings under `/record/...` (permits, licenses, etc.). These are not meant to be summarized as news and should never be ingested into the system.
+
+**Root cause:**
+The AP byline format on WLKY sometimes presents as `MIKE SCHNEIDER ORLANDO, Fla. —` on a single line (no newline between the byline and the dateline). In this case:
+- `NATIONAL_WIRE_OVERRIDE_RE` pattern 2 (`(?:^|\n|\.\s+)[CITY], STATE —`) does NOT match because "ORLANDO" is not preceded by `^`, `\n`, or `.\s+` — it's preceded by "SCHNEIDER " (a space after a word end, not a sentence boundary).
+- `NON_KY_DATELINE_RE` pattern 2 also requires `(?:^|\n|\.\s+)` prefix and fails for the same reason.
+- `NATIONAL_WIRE_OVERRIDE_RE` first city list DOES include `orlando` with `\b` (no prefix requirement), so `isNationalWireStory = true` fires. BUT the override block requires `hasNonKyDateline = true` as well — and since pattern 3 of `NON_KY_DATELINE_RE` did not include `orlando`, `hasNonKyDateline = false`. With only one of the two conditions met, the `fallback.isKentucky = false` override never fires.
+
+Adding `orlando|tampa|tallahassee` to `NON_KY_DATELINE_RE` pattern 3 (which has an optional `(?:^|\n|\.\s+)?` prefix) ensures that `hasNonKyDateline = true` whenever `ORLANDO —` or `ORLANDO, Fla. —` appears anywhere in the lead text, closing the gap between the two guards.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| National outlet with two hostnames (e.g. `abcnews.go.com` / `abcnews.com`) | Add BOTH hostnames to `ALWAYS_NATIONAL_SOURCES`; URL normalization via `new URL(...).hostname` will return whichever the page is served from |
+| CNN (or NBC/ABC/CBS) wire story syndicated on local TV with `By Name, CNN` byline | `NATIONAL_WIRE_OVERRIDE_RE` only catches `CNN —` dateline form; add `isMajorNetworkByline` check that fires when brand byline is present AND no KY geo found in text |
+| `isNationalWireStory = true` from NATIONAL_WIRE_OVERRIDE_RE first city list but `hasNonKyDateline = false` | City is in NATIONAL_WIRE_OVERRIDE_RE but missing from NON_KY_DATELINE_RE pattern 3; add it to both so the override block fires |
+| Florida AP story with `CITY, Fla. —` dateline inline (no newline before city) | Add major Florida cities (`orlando`, `tampa`, `tallahassee`) to NON_KY_DATELINE_RE pattern 3 with its optional prefix — the `\b` anchor is enough to catch inline occurrences |
+
+---
+
+### Change 46 — Strip transcript redaction markers (*** ) before summarization (2026-03-18)
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+- Added regex cleanup in both `cleanContentForSummarization` and `stripBoilerplateFromOutput` that removes long runs of asterisks (`***`, `****`, etc.) and collapses surrounding whitespace.
+
+**Why:**
+Some scraped content includes embedded video transcripts with redaction markers like `***` (e.g. "being *** coach"), which leaked into the AI summary. These tokens provide no editorial value and make summaries look broken. The fix removes them before the text is sent to the model and also cleans them from the final AI output.
+
+---
+
+### Change 47 — Strip AP “FILE -” photo captions and station-id header lines (2026-03-18)
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+- Added a regex to `cleanContentForSummarization()` that removes lines starting with `FILE -` (common AP/AFP photo caption labels) before the text is sent to the AI.
+- Added a regex to both `cleanContentForSummarization()` and `stripBoilerplateFromOutput()` to remove standalone station header lines like `WHAS11`, `WLKY`, `WDRB`, etc. These often appear as a second header line above the dateline and were being pulled into summaries.
+
+**Why:**
+Some wire/photo caption formats include a standalone `FILE - ...` line immediately before the story lead; this line is not part of the news narrative and should not be treated as the opening sentence of a summary. Likewise, broadcast station IDs are boilerplate that can end up as the first phrase of a summary if not stripped.
+
+---
+
+### Change 48 — Default `wektradio.com` articles to Todd County (2026-03-18)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Added `wektradio.com` to `SOURCE_DEFAULT_COUNTY` with a default of `Todd`.
+
+**Why:**
+Articles from WK&T Radio frequently refer to Todd County locations (e.g. Todd County Extension Arena) but often do not mention "Kentucky" explicitly. Without a default county, these articles were being tagged as Kentucky with no county assigned. The source default provides a safe fallback so the story appears under the correct county feed.
+
+---
+
+### Change 49 — Allow Louisville-dateline stories to inherit the source default county (2026-03-18)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Removed the special-case suppression that blocked the source default county for articles that begin with a "Louisville, Ky." dateline.
+
+**Why:**
+Louisville datelines are common, and many Louisville stories are indeed about Jefferson County even when the text does not explicitly mention county names. Preventing the default county from applying left valid Louisville stories tagged only as "Kentucky" with no county, reducing the usefulness of county-based filtering.
+

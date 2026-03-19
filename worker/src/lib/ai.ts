@@ -1005,6 +1005,13 @@ export function cleanContentForSummarization(text: string, title: string): strin
   // Strip "Source: ORG." image credit prefix lines e.g. "Source: SKYCTC."
   t = t.replace(/^Source:\s*[^\n.]{1,80}(?:\.|(?=\n))\s*/gim, '');
 
+  // Strip standalone station IDs (e.g. "WHAS11" or "WLKY") that sometimes appear as
+  // a second header line above the dateline and get pulled into the summary.
+  t = t.replace(/^(?:WHAS11|WLKY|WDRB|WKYT|WAVE\s*3|WLWT|WTVQ|WBKO|WNKY|WYMT)\s*$/gim, '');
+
+  // Strip AP wire photo caption lines like "FILE - The exterior photo of ..."
+  t = t.replace(/^FILE\s*[-–—]\s*[^\n]*\n?/gim, '');
+
   if (title) {
     const escaped = title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     t = t.replace(new RegExp(`^\\s*${escaped}\\s*\n?`, 'i'), '');
@@ -1185,6 +1192,11 @@ export function cleanContentForSummarization(text: string, title: string): strin
     t = rawLines.filter((_, i) => !removeIdx.has(i)).join('\n');
   }
 
+  // Remove long sequences of asterisks (often present in embedded transcripts
+  // where the speaker's name or audio is redacted with "***").
+  // Keep the surrounding text readable by collapsing surrounding whitespace.
+  t = t.replace(/\s*\*{2,}\s*/g, ' ');
+
   return t.trim();
 }
 
@@ -1209,6 +1221,14 @@ export function stripBoilerplateFromOutput(text: string, title: string): string 
   t = t.replace(/(^|\n)\s*\d+\/\d+\s[^\n]{0,300}\n/g, '$1\n');
 
   t = t.replace(/^\s*Summary\s*\n?/gim, '');
+
+  // Strip standalone station IDs (e.g. "WHAS11" or "WLKY") that may appear in AI output.
+  t = t.replace(/^(?:WHAS11|WLKY|WDRB|WKYT|WAVE\s*3|WLWT|WTVQ|WBKO|WNKY|WYMT)\s*$/gim, '');
+
+  // Strip AP wire photo caption lines like "FILE - The exterior photo of ..."
+  t = t.replace(/^FILE\s*[-–—]\s*[^\n]*\n?/gim, '');
+
+  t = t.replace(/\s*\*{2,}\s*/g, ' ');
   t = t.replace(/^Skip\s+to\s+content\b[^\n]*/gim, '');
   t = t.replace(/^[^\n]{3,80}\([A-Z][^)]{3,60}\/\s*(?:Wikipedia|CC\s+BY|Wikimedia|AP|Getty|Reuters)[^)]*\)\s*$/gm, '');
   t = t.replace(/^Source:\s*[^\n.]{1,80}(?:\.|(?=\n))\s*/gim, '');

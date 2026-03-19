@@ -1208,6 +1208,33 @@ describe('classification utilities', () => {
 		expect(detectCounty(text, text)).toBeNull();
 	});
 
+	it('classifies a Todd County 4-H event as Kentucky with Todd county', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.wektradio.com/2026/03/18/4-h-horse-club-arena-ride-coming-up/',
+			title: '4-H Horse Club Arena Ride Coming Up',
+			content:
+				'Kentucky 4-H Horse Club members will be busy this spring with educational clinics and show preparations.\n' +
+				'The next horse club meeting will be held on Friday, March 20th at the Todd County Extension Arena from 2-4 p.m., located at the extension offices at 240 Pond River Road.\n' +
+				'This is a curriculum day for the Todd County School District and students will be out of school.\n' +
+				'Any students between the ages of nine and 19 and are interested in horses are invited to get involved with the horse club.\n',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Todd');
+	});
+
+	it('classifies a WDRB Louisville crash story as Jefferson County', async () => {
+		const classification = await classifyArticleWithAi(env, {
+			url: 'https://www.wdrb.com/news/driver-crashes-into-restaurant-near-the-highlands-after-suffering-medical-emergency-police-say/article_adc331ae-b62e-4824-8dda-382f987aacf7.html',
+			title: 'Driver crashes into restaurant near the Highlands after suffering medical emergency, police say',
+			content:
+				'LOUISVILLE, Ky. (WDRB) — A man crashed into Twig and Leaf on Bardstown Road on March 18, 2026.\n' +
+				'Louisville Metro Police were called to the 2100 block of Bardstown Road just before 7 p.m. for a vehicle into a building, department spokesperson Dwight Mitchell said.\n' +
+				'That\'s near Douglass Boulevard in the Deer Park neighborhood.\n',
+		});
+		expect(classification.isKentucky).toBe(true);
+		expect(classification.county).toBe('Jefferson');
+	});
+
 	it('treats Greenville as ambiguous county name', () => {
 		const text = 'Greenville police department announced new measures in Kentucky.';
 		// although "Greenville" appears alongside Kentucky, it should not
@@ -3568,6 +3595,42 @@ describe('title similarity dedupe', () => {
 			isKentucky: true,
 		});
 		expect(capObit).not.toMatch(/#/);
+	});
+
+	it('facebook caption filters fragmented sentence stubs and avoids hard truncation artifacts', () => {
+		const cap = generateFacebookCaption({
+			id: 21,
+			title: 'KY prison workers face charges in drug trafficking case',
+			county: 'Crittenden',
+			slug: 'crittenden-ky-prison-workers-face-charges-drug-trafficking-case-crittenden',
+			category: 'today',
+			isKentucky: true,
+			summary:
+				'The Kentucky State Police say current and former employees at two Kentucky state prisons are among those facing charges stemming from separate investigations. After Eastern Kentucky Correctional Complex officials discovered illegal drugs inside the prison at West Liberty, investigators arrested five people on twenty-two charges related to trafficking, official misconduct, money laundering and organized crime. On Sept. 7, 2025, EKCC contacted KSP.',
+		});
+
+		expect(cap).not.toMatch(/\n\nOn Sept\.\n\n/);
+		expect(cap).not.toContain('…');
+		expect(cap).toContain('twenty-two charges related to trafficking');
+	});
+
+	it('facebook caption skips suicide-resource boilerplate and keeps real story detail', () => {
+		const cap = generateFacebookCaption({
+			id: 22,
+			title: 'Records reveal details about final hours of the man who died in Louisville jail last month',
+			county: 'Jefferson',
+			category: 'today',
+			isKentucky: true,
+			summary:
+				'This story discusses suicide. If you or someone you know is struggling with suicidal thoughts, you can reach the 988 Suicide and Crisis Lifeline by phone at 988, or online at https://988lifeline.org/. A directory of mental health providers in Jefferson County is available at mentalhealthlou.com. On Feb. 26, Louisville Metro Department of Corrections officers said they found Juan Miguel Munoz Penalver dead in the city jail just before 4:30 a.m. that morning.',
+			contentText:
+				'On Feb. 26, Louisville Metro Department of Corrections officers said they found Juan Miguel Munoz Penalver dead in the city jail just before 4:30 a.m. that morning. This week, records provided new details about the days he spent behind bars.',
+		});
+
+		expect(cap).toContain('On Feb. 26, Louisville Metro Department of Corrections officers');
+		expect(cap).not.toContain('This story discusses suicide.');
+		expect(cap).not.toContain('988 Suicide and Crisis Lifeline');
+		expect(cap).not.toContain('mentalhealthlou.com');
 	});
 
 it('scrapes a public post using crawler UA (share link)', async () => {

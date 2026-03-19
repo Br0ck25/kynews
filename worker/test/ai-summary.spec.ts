@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { summarizeArticle, isScheduleOrScoresArticle } from '../src/lib/ai';
+import { summarizeArticle, cleanContentForSummarization, isScheduleOrScoresArticle } from '../src/lib/ai';
 
 function makeEnv(aiResponse: string): Env {
   return {
@@ -40,6 +40,22 @@ describe('summary sanitization', () => {
     expect(result.summary).not.toMatch(/Photo by/i);
     expect(result.summary).not.toContain('&#160;');
     expect(result.summary).toContain('Daviess County');
+  });
+
+  it('strips AP-style "FILE -" photo caption lines before summarization', () => {
+    const cleaned = cleanContentForSummarization(
+      'FILE - The exterior photo of the Kentucky State Capitol in Frankfort, Ky., is shown on April 7, 2021.\nLOUISVILLE, Ky. — Test content.',
+      'Test title',
+    );
+
+    expect(cleaned).not.toContain('FILE -');
+    expect(cleaned).toContain('LOUISVILLE, Ky. —');
+  });
+
+  it('strips standalone station header lines like WHAS11 before summarization', () => {
+    const cleaned = cleanContentForSummarization('WHAS11\nLOUISVILLE, Ky. — Test content.', 'Test title');
+    expect(cleaned).not.toContain('WHAS11');
+    expect(cleaned).toContain('LOUISVILLE, Ky. —');
   });
 
   it('merges paragraph breaks that split a sentence after abbreviations', async () => {

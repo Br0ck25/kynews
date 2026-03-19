@@ -215,8 +215,11 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   // nbcnews.com — national broadcaster's website, not a local KY source.
   'nbcnews.com',
 
-  // abcnews.go.com — ABC network news, national coverage.
+  // abcnews.go.com / abcnews.com — ABC network news, national coverage.
+  // Both hostnames are used by ABC News (abcnews.com redirects to and/or
+  // serves content independently of abcnews.go.com).
   'abcnews.go.com',
+  'abcnews.com',
 
   // cbsnews.com — national news network site.
   'cbsnews.com',
@@ -408,6 +411,7 @@ const SOURCE_DEFAULT_COUNTY: Record<string, string | null> = {
   'murrayledger.com': 'Calloway',
   'mayfield-messenger.com': 'Graves',
   'owensborotimes.com': 'Daviess',  // Owensboro Times — Daviess County hyperlocal
+  'wektradio.com': 'Todd',        // WK&T Radio — Todd County coverage
   // Louisville Metro
   'wdrb.com': 'Jefferson',
   'wave3.com': 'Jefferson',
@@ -472,7 +476,7 @@ const KY_HARD_NEGATIVES: RegExp[] = [
 // This prevents local outlets from tagging such wire stories with their
 // home county.  Example: "GILBERT, Ariz. —" or "TULSA, Okla. (AP) —".
 export const NATIONAL_WIRE_OVERRIDE_RE =
-  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\(wdtv\/gray\s+news\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[A-Za-z]{1,4}(?:\.[A-Za-z]{1,4})?\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]\s*|(?:^|\n|\.\s+)[A-Z][A-Z\s]{1,25},\s*(?:United Arab Emirates|Afghanistan|Albania|Algeria|Argentina|Australia|Austria|Azerbaijan|Bahrain|Bangladesh|Belarus|Belgium|Bolivia|Bosnia|Brazil|Cambodia|Canada|Chile|China|Colombia|Croatia|Cuba|Cyprus|Denmark|Ecuador|Egypt|Ethiopia|Finland|France|Germany|Ghana|Greece|Guatemala|Haiti|Honduras|Hungary|India|Indonesia|Iran|Iraq|Ireland|Israel|Italy|Jamaica|Japan|Jordan|Kazakhstan|Kenya|Kuwait|Lebanon|Libya|Malaysia|Mali|Mexico|Moldova|Morocco|Myanmar|Nepal|Netherlands|New Zealand|Nicaragua|Nigeria|North Korea|Norway|Oman|Pakistan|Palestine|Panama|Paraguay|Peru|Philippines|Poland|Portugal|Qatar|Romania|Russia|Saudi Arabia|Senegal|Serbia|Somalia|South Africa|South Korea|Spain|Sri Lanka|Sudan|Sweden|Switzerland|Syria|Taiwan|Tanzania|Thailand|Tunisia|Turkey|Uganda|Ukraine|United Kingdom|Uruguay|Venezuela|Vietnam|Yemen|Zimbabwe)\s*)/i;
+  /(?:\b(?:washington|new\s+york|austin|memphis|louisville(?!\s*,?\s*ky)|jacksonville|columbus(?!\s*,?\s*ohio)|fort\s+worth|el\s+paso|san\s+antonio|san\s+jose|baltimore|milwaukee|albuquerque|tucson|fresno|omaha|richmond,?\s+va|richmond,?\s+virginia|virginia\s+beach|colorado\s+springs|atlanta|charlotte|nashville|chicago|los\s+angeles|houston|dallas|miami|denver|phoenix|seattle|boston|detroit|minneapolis|st\.\s*louis|kansas\s+city|las\s+vegas|san\s+francisco|san\s+diego|portland|sacramento|salt\s+lake\s+city|indianapolis|cleveland|pittsburgh|raleigh|jackson,?\s+miss|montgomery,?\s+ala|tallahassee|orlando|tampa|little\s+rock|oklahoma\s+city|baton\s+rouge|new\s+orleans)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]\s*|\b(?:ap|reuters|afp)\s*[-—–]\s*|\bthe\s+associated\s+press\s*[-—–]|\bnbc\s+news\s*[-—–]|\bcnn\s*[-—–]|\babc\s+news\s*[-—–]|\bcbs\s+news\s*[-—–]|\bfox\s+news\s*[-—–]|\bdubai\s*[-—–]\s*united\s+arab|\bfrom\s+(?:new\s+york|washington|london|dubai|tel\s+aviv|jerusalem|paris|berlin|beijing|moscow|tokyo)|\bthe\s+associated\s+press\s+(?:reported|contributed|report)\b|\btold\s+the\s+associated\s+press\b|\baccording\s+to\s+the\s+associated\s+press\b|\bwire\s+service\b|\(anf(?:\/gray\s+news)?\)\s*[-—–]?\s*|\(wdtv\/gray\s+news\)\s*[-—–]?\s*|\([^)]*gray\s+news[^)]*\)\s*[-—–]?\s*|\(investigatetv\)\s*[-—–]?\s*|\(gray\s+television\)\s*[-—–]?\s*|\(nexstar\s+media\s+wire\)\s*[-—–]?\s*|\(cnn\s+newsource\)\s*[-—–]?\s*|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)[A-Za-z]{1,4}(?:\.[A-Za-z]{1,4})?\.?\s*(?:\([^)]{1,30}\)\s*)?[-—–]\s*|(?:^|\n|\.\s+)[A-Z][A-Z\s]{1,25},\s*(?:United Arab Emirates|Afghanistan|Albania|Algeria|Argentina|Australia|Austria|Azerbaijan|Bahrain|Bangladesh|Belarus|Belgium|Bolivia|Bosnia|Brazil|Cambodia|Canada|Chile|China|Colombia|Croatia|Cuba|Cyprus|Denmark|Ecuador|Egypt|Ethiopia|Finland|France|Germany|Ghana|Greece|Guatemala|Haiti|Honduras|Hungary|India|Indonesia|Iran|Iraq|Ireland|Israel|Italy|Jamaica|Japan|Jordan|Kazakhstan|Kenya|Kuwait|Lebanon|Libya|Malaysia|Mali|Mexico|Moldova|Morocco|Myanmar|Nepal|Netherlands|New Zealand|Nicaragua|Nigeria|North Korea|Norway|Oman|Pakistan|Palestine|Panama|Paraguay|Peru|Philippines|Poland|Portugal|Qatar|Romania|Russia|Saudi Arabia|Senegal|Serbia|Somalia|South Africa|South Korea|Spain|Sri Lanka|Sudan|Sweden|Switzerland|Syria|Taiwan|Tanzania|Thailand|Tunisia|Turkey|Uganda|Ukraine|United Kingdom|Uruguay|Venezuela|Vietnam|Yemen|Zimbabwe)\s*)/i;
 
 
 /**
@@ -789,18 +793,10 @@ export async function classifyArticleWithAi(
     COUNTY_PATTERNS.some((p) => p.county === county && p.pattern.test(semanticText)),
   );
 
-  // Some stories (e.g. a Louisville dateline crash report) are clearly KY but
-  // not tied to a specific county.  In those cases we should not fall back to
-  // the source's default county even though the city is in
-  // HIGH_AMBIGUITY_CITIES and would otherwise trigger the fallback.
-  const isLouisvilleDateline = /\bLOUISVILLE,?\s*Ky\b/i.test(semanticLeadText);
-
   // If the article explicitly lists counties (even in a shared suffix list),
   // avoid falling back to the source default county (e.g. Jefferson for wave3.com)
   // because the story is clearly about other counties.
-  const shouldAvoidDefaultCounty =
-    (hasExplicitCountyMention && baseGeo.counties.length > 0) ||
-    isLouisvilleDateline;
+  const shouldAvoidDefaultCounty = hasExplicitCountyMention && baseGeo.counties.length > 0;
   if (shouldAvoidDefaultCounty) {
     allowedSourceDefaultCounty = null;
   }
@@ -923,12 +919,25 @@ export async function classifyArticleWithAi(
   //    Washington, KY is not a significant news city and would never generate a
   //    "WASHINGTON —" wire-style dateline.
   const NON_KY_DATELINE_RE =
-    /(?:^|\n|\.\s+)WASHINGTON\s*(?:\([^)]{1,40}\))?\s*[-—–]|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)(?:[a-z]+(?:\.[a-z]{1,2})*\.?)\s*(?:\([^)]{1,30}\)\s*)?[-—–]|(?:^|\n|\.\s+)?\b(?:washington|los\s+angeles|new\s+york|chicago|miami|houston|dallas|atlanta|boston|denver|phoenix|seattle|nashville|charlotte|memphis|jacksonville|san\s+francisco|san\s+diego|austin|baltimore|san\s+antonio|las\s+vegas|indianapolis|detroit|oklahoma\s+city|raleigh|fort\s+worth|baton\s+rouge|new\s+orleans|albuquerque|tucson|minneapolis|pittsburgh|virginia\s+beach|colorado\s+springs|el\s+paso|omaha)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]/i;
+    /(?:^|\n|\.\s+)WASHINGTON\s*(?:\([^)]{1,40}\))?\s*[-—–]|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)(?:[a-z]+(?:\.[a-z]{1,2})*\.?)\s*(?:\([^)]{1,30}\)\s*)?[-—–]|(?:^|\n|\.\s+)?\b(?:washington|los\s+angeles|new\s+york|chicago|miami|houston|dallas|atlanta|boston|denver|phoenix|seattle|nashville|charlotte|memphis|jacksonville|san\s+francisco|san\s+diego|austin|baltimore|san\s+antonio|las\s+vegas|indianapolis|detroit|oklahoma\s+city|raleigh|fort\s+worth|baton\s+rouge|new\s+orleans|albuquerque|tucson|minneapolis|pittsburgh|virginia\s+beach|colorado\s+springs|el\s+paso|omaha|orlando|tampa|tallahassee)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]/i;
   const hasNonKyDateline = NON_KY_DATELINE_RE.test(semanticLeadText);
 
   if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline)) {
     // Override: treat as national despite KY mentions in the body.
     // A presidential trip that stops in KY is still a national story filed from DC.
+    fallback.isKentucky = false;
+    fallback.county = null;
+    fallback.counties = [];
+  }
+
+  // Major national network byline (e.g. "By Alexandra Skores, CNN") on a local
+  // station's website. The article is a wire/network piece syndicated onto a KY
+  // outlet (WLKY, WHAS11, etc.) but has no explicit KY city or county in the body.
+  // These do not have a traditional dateline so hasNonKyDateline cannot catch them;
+  // instead, the brand attribution itself is the signal.
+  const isMajorNetworkByline =
+    /\bBy\s+[A-Za-z]{2,20}(?:\s+[A-Za-z]{2,20}){0,3},\s*(?:CNN|NBC\s+News|ABC\s+News|CBS\s+News)\b/i.test(semanticLeadText);
+  if (fallback.isKentucky && isMajorNetworkByline && !baseGeo.county && !baseGeo.city) {
     fallback.isKentucky = false;
     fallback.county = null;
     fallback.counties = [];

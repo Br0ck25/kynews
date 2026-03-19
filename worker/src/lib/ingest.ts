@@ -122,6 +122,23 @@ export async function ingestSingleUrl(env: Env, source: IngestSource): Promise<I
     };
   }
 
+  // Reject record/permit listing pages from Owensboro Times (these are
+  // public-record data dumps, not editorial news stories).
+  try {
+    const parsed = new URL(normalizedUrl);
+    const host = parsed.hostname.replace(/^www\./, '');
+    if (host === 'owensborotimes.com' && /(?:^|\/)record(?:\/|$)/i.test(parsed.pathname)) {
+      const urlHash = await sha256Hex(normalizedUrl);
+      return {
+        status: 'rejected',
+        reason: 'record listing',
+        urlHash,
+      };
+    }
+  } catch {
+    // ignore URL parse errors; let later logic handle malformed URLs.
+  }
+
   const sourceUrlHash = await sha256Hex(normalizedUrl);
   const preflightDuplicate = await findArticleByHash(env, sourceUrlHash);
   if (preflightDuplicate) {
