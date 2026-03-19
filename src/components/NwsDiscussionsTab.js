@@ -45,42 +45,185 @@ export default function NwsDiscussionsTab() {
   const [copiedId, setCopiedId] = React.useState(null);
   const [copiedFbId, setCopiedFbId] = React.useState(null);
 
-  function cleanTextForFacebook(raw) {
-    if (!raw) return "";
-    const lines = raw.replace(/\r\n/g, "\n").split("\n").map((l) => l.trim());
-    const out = [];
-    for (const line of lines) {
-      if (!line) {
-        if (out.length === 0 || out[out.length - 1] === "") continue;
-        out.push("");
-        continue;
-      }
-      // Drop common NWS metadata lines that aren't useful in a Facebook post
-      if (/^(FXUS|AFD|SYNOPSIS|AREA FORECAST DISCUSSION|NATIONAL WEATHER SERVICE|PREV DISCUSSION)/i.test(line)) {
-        continue;
-      }
-      // Drop separator lines
-      if (/^[\-=_~*\s]+$/.test(line)) continue;
-      out.push(line);
+  function formatForFacebook(rawText, officeLabel) {
+    if (!rawText) return "";
+    const text = rawText.replace(/\r\n/g, "\n");
+
+    // ── 1. Split AFD into named sections (separated by && on its own line) ──
+    const rawChunks = text.split(/\n+&&(?:\n+|$)/);
+    const sections = [];
+    for (const chunk of rawChunks) {
+      const hm = chunk.match(/\n*\.([\w /\-]+?)\.{2,}/);
+      sections.push({
+        name: hm ? hm[1].trim().toUpperCase().replace(/\s+/g, " ") : "_HDR",
+        body: chunk,
+      });
     }
-    const cleaned = out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-    return cleaned;
+    const findSection = (prefix) => sections.find((s) => s.name.startsWith(prefix));
+
+    // ── 2. Helpers ────────────────────────────────────────────────────────────
+    function stripMeta(body) {
+      return body
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l)
+        .filter((l) => !/^issued at/i.test(l))
+        .filter((l) => !/^[.][A-Z]/.test(l))
+        .filter((l) => !/^[\$&]/.test(l))
+        .join("\n");
+    }
+
+    function removeJargon(s) {
+      return s
+        .replace(/\b(BUFKIT|QPF|PoPs?|NBM|CWA|ENS|GEFS|NDFD|T\/Td|CAA|ASOS|SAF|FXUS|TAF|progg?ed|sfc\b|aloft|\d+mb|\d{2,3}Z\b|MOS|BUFR|deterministic|insolation|issuance|trough|shortwave|vort|theta-e|dewpoint|dew point|omega|helicity|hodograph)\b/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+    }
+
+    function extractHighTemp(sentence) {
+      const m = sentence.match(
+        /high[s]?\b[^.!?]{0,120}?((?:(?:low|mid|middle|upper|lower)\s+(?:to\s+)?)+\d{2}s?(?:\s+(?:to|and|or)\s+(?:(?:low|mid|middle|upper|lower)\s+)?\d{2}s?)?|\d{2}(?:\s+to\s+\d{2})?s?)/i
+      );
+      return m ? m[1].replace(/\s+/g, " ").trim() : null;
+    }
+
+    function weatherConditions(para) {
+      const bullets = [];
+      const p = para.toLowerCase();
+      if (/t-?storm|thunder.?storm/.test(p)) {
+        bullets.push(/isolated|stray|brief|few|slight/.test(p) ? "Isolated storm possible" : "Storms possible");
+      } else if (/shower/.test(p)) {
+        bullets.push("Showers possible");
+      }
+      if (/\bwind[y]?\b|\bgust/.test(p)) bullets.push("Gusty winds expected");
+      if (!bullets.length && /\bsunny\b|\bclear\b/.test(p)) bullets.push("Mostly sunny");
+      return bullets;
+    }
+
+    // ── 3. Day-by-day extraction ──────────────────────────────────────────────
+    const DAY_EMOJI = {
+      TONIGHT: "🌙", OVERNIGHT: "🌙", TOMORROW: "🌤️", "TOMORROW NIGHT": "🌙",
+      "FRIDAY NIGHT": "🌩️", "SATURDAY NIGHT": "🌙", "SUNDAY NIGHT": "🌙",
+      "MONDAY NIGHT": "🌙", "TUESDAY NIGHT": "🌙", "WEDNESDAY NIGHT": "🌙", "THURSDAY NIGHT": "🌙",
+      MONDAY: "🌤️", TUESDAY: "🌤️", WEDNESDAY: "🌦️",
+      THURSDAY: "🌤️", FRIDAY: "🌬️", SATURDAY: "☀️", SUNDAY: "☀️",
+    };
+    const DAY_RE = /\b((?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY) NIGHT|TONIGHT|OVERNIGHT|TOMORROW NIGHT|TOMORROW|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)\b/gi;
+
+    function extractDays(forecastText) {
+      const paras = forecastText
+        .split(/\n\s*\n/)
+        .map((p) => p.replace(/\n/g, " ").replace(/\s+/g, " ").trim())
+        .filter(Boolean);
+      const result = [];
+      const seen = new Set();
+      for (const para of paras) {
+        DAY_RE.lastIndex = 0;
+        const found = [];
+        let m;
+        while ((m = DAY_RE.exec(para)) !== null) {
+          const d = m[1].toUpperCase();
+          if (!found.includes(d)) found.push(d);
+        }
+        if (!found.length) continue;
+        const day = found.find((d) => !seen.has(d));
+        if (!day) continue;
+        seen.add(day);
+        const lines = [];
+        const highT = extractHighTemp(para);
+        if (highT) lines.push(`Highs ${highT}`);
+        lines.push(...weatherConditions(para));
+        if (lines.length > 0) {
+          result.push({ header: `${DAY_EMOJI[day] || "🌤️"} ${day}`, lines });
+        }
+      }
+      return result;
+    }
+
+    // ── 4. Assemble the post ──────────────────────────────────────────────────
+    const label = officeLabel || "Eastern Kentucky";
+    const out = [];
+    out.push(`🌤️ ${label} Weather Update`);
+    out.push("");
+
+    // Active watches/warnings (skip if "None")
+    const wwaSection = sections.find(
+      (s) => (s.name.includes("WATCHES") || s.name.includes("WARNINGS")) && s.name !== "_HDR"
+    );
+    if (wwaSection) {
+      const advLines = stripMeta(wwaSection.body)
+        .split("\n")
+        .filter((l) => !/^none\.?$/i.test(l));
+      if (advLines.length > 0) {
+        out.push("⚠️ ACTIVE ALERTS:");
+        advLines.forEach((l) => out.push(l));
+        out.push("");
+      }
+    }
+
+    // Key Messages → KEY TAKEAWAYS
+    const kmSec = findSection("KEY MESSAGE");
+    if (kmSec) {
+      const bullets = kmSec.body
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.startsWith("-") && l.length > 3);
+      if (bullets.length > 0) {
+        out.push("KEY TAKEAWAYS:");
+        bullets.forEach((b) => out.push(b));
+        out.push("");
+      }
+    }
+
+    // SHORT TERM + LONG TERM → WHAT TO EXPECT (day-by-day)
+    const fSecs = sections.filter(
+      (s) => s.name.startsWith("SHORT TERM") || s.name.startsWith("LONG TERM")
+    );
+    if (fSecs.length > 0) {
+      const combined = fSecs.map((s) => removeJargon(stripMeta(s.body))).join("\n\n");
+      const days = extractDays(combined);
+      if (days.length > 0) {
+        out.push("WHAT TO EXPECT:");
+        out.push("");
+        for (const d of days) {
+          out.push(d.header + ":");
+          d.lines.forEach((l) => out.push(l));
+          out.push("");
+        }
+      }
+
+      // Bottom line: last substantive sentence of the last forecast section
+      const lastClean = removeJargon(stripMeta(fSecs[fSecs.length - 1].body))
+        .replace(/\n/g, " ")
+        .replace(/\s+/g, " ");
+      const sents = lastClean
+        .split(/(?<=[.!?])\s+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 50);
+      if (sents.length > 0) {
+        out.push("BOTTOM LINE:");
+        out.push(sents[sents.length - 1]);
+      }
+    }
+
+    return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
   function copyForFacebook(pid) {
     const text = texts[pid] || "";
-    const cleaned = cleanTextForFacebook(text);
+    const office = OFFICES.find((o) => o.id === activeOffice);
+    const formatted = formatForFacebook(text, office ? office.sublabel : undefined);
     const markCopied = () => {
       setCopiedFbId(pid);
       setTimeout(() => setCopiedFbId(null), 2000);
     };
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(cleaned).then(markCopied).catch(() => {
-        fallbackCopy(cleaned);
+      navigator.clipboard.writeText(formatted).then(markCopied).catch(() => {
+        fallbackCopy(formatted);
         markCopied();
       });
     } else {
-      fallbackCopy(cleaned);
+      fallbackCopy(formatted);
       markCopied();
     }
   }
