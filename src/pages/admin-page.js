@@ -1230,7 +1230,6 @@ export default function AdminPage() {
             "Storm Reports",
             "Weather",
             "Morning/Evening",
-            "Article Testing",
             "Traffic / TRIMARC",
           ].map((label, i) => (
             <Box
@@ -1969,8 +1968,37 @@ export default function AdminPage() {
       {/* ================================================================ */}
       {activeTab === 2 && (
         <Box>
-          <Typography variant="h6" gutterBottom>Articles</Typography>
+          {/* ── Articles sub-tab bar ───────────────────────────────────── */}
+          <Paper square style={{ marginBottom: 16 }}>
+            <Box role="tablist" style={{ display: "flex", borderBottom: "1px solid rgba(0,0,0,0.12)" }}>
+              {["Articles", "Facebook Auto-Post Scheduler", "Article Testing"].map((label, i) => (
+                <Box
+                  key={i}
+                  role="tab"
+                  aria-selected={articlesSubTab === i}
+                  tabIndex={0}
+                  onClick={() => setArticlesSubTab(i)}
+                  style={{
+                    padding: "10px 16px",
+                    cursor: "pointer",
+                    fontWeight: articlesSubTab === i ? 700 : 400,
+                    color: articlesSubTab === i ? "#1976d2" : "rgba(0,0,0,0.54)",
+                    borderBottom: articlesSubTab === i ? "2px solid #1976d2" : "2px solid transparent",
+                    fontSize: 13,
+                    userSelect: "none",
+                    transition: "color 0.15s, border-bottom-color 0.15s",
+                  }}
+                >
+                  {label}
+                </Box>
+              ))}
+            </Box>
+          </Paper>
 
+          {/* ── Sub-tab 1: Facebook Auto-Post Scheduler ─────────────────── */}
+          {articlesSubTab === 1 && (
+          <>
+          <Typography variant="h6" gutterBottom>Facebook Auto-Post Scheduler</Typography>
           {/* ── FB Auto-Post Scheduler ─────────────────────────────────── */}
           <Paper style={{
             padding: 16,
@@ -2099,7 +2127,18 @@ export default function AdminPage() {
               </Box>
             )}
           </Paper>
-          {/* ────────────────────────────────────────────────────────────── */}
+          </>
+          )}
+
+          {/* ── Sub-tab 2: Article Testing ──────────────────────────────── */}
+          {articlesSubTab === 2 && (
+            <ArticleTestingTab service={service} />
+          )}
+
+          {/* ── Sub-tab 0: Articles ─────────────────────────────────────── */}
+          {articlesSubTab === 0 && (
+          <>
+          <Typography variant="h6" gutterBottom>Articles</Typography>
 
           <Box style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
             <FormControl variant="outlined" size="small" style={{ minWidth: 180 }}>
@@ -2464,6 +2503,8 @@ export default function AdminPage() {
 
           {/* Sentinel element used for infinite scrolling */}
           <div ref={articlesSentinelRef} style={{ height: 1 }} />
+          </>
+          )}
         </Box>
       )}
 
@@ -2577,18 +2618,9 @@ export default function AdminPage() {
       )}
 
       {/* ================================================================ */}
-      {/* TAB 10 — Article Testing                                         */}
+      {/* TAB 10 — Traffic / TRIMARC                                       */}
       {/* ================================================================ */}
       {activeTab === 10 && (
-        <Box>
-          <ArticleTestingTab service={service} />
-        </Box>
-      )}
-
-      {/* ================================================================ */}
-      {/* TAB 11 — Traffic / TRIMARC                                       */}
-      {/* ================================================================ */}
-      {activeTab === 11 && (
         <Box>
           <TrimarcTrafficHub />
         </Box>
