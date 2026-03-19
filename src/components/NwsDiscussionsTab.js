@@ -112,17 +112,20 @@ export default function NwsDiscussionsTab() {
         .replace(/(\d{2}s?)\s*-\s*(\d{2}s?)/g, "$1 to $2")
         .replace(/\s+/g, " ")
         .trim();
-      const RANGE = /(?:(?:low|mid|middle|upper|lower)\s+(?:to\s+)?){1,2}\d{2}s?(?:\s+(?:to|or|and)\s+(?:(?:low|mid|middle|upper|lower)\s+)?\d{2}s?)?|\d{2}s?\s+to\s+\d{2}s?/i;
-      // Prefer a sentence that contains "high"
-      const highSent = normalizedPara.match(/high[s]?[^.!?]{0,200}/i);
-      if (highSent) {
-        const m = highSent[0].match(RANGE);
-        if (m) return m[0].replace(/\s+/g, " ").trim();
-      }
-      // Fall back: any temperature sentence with "low/mid/upper Xs"
-      const tempSent = normalizedPara.match(/temp[^.!?]{0,200}/i);
-      if (tempSent) {
-        const m = tempSent[0].match(RANGE);
+      const RANGE = /(?:(?:low|mid|middle|upper|lower)\s+(?:to\s+)?){1,2}\d{2}s?(?:\s+(?:to|or|and)\s+(?:(?:low|mid|middle|upper|lower)\s+)?\d{2}s?)?|\d{2}s?\s+to\s+\d{2}s?|\b(?:low|mid|upper|lower)\s+\d{2}s?\b/i;
+      const sentences = normalizedPara
+        .split(/(?<=[.!?])\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      // Prioritize true "high/highs" sentences, not words like "higher".
+      const priority = [
+        ...sentences.filter((s) => /\bhighs?\b/i.test(s)),
+        ...sentences.filter((s) => /\btemperatures?\b/i.test(s)),
+        ...sentences,
+      ];
+      for (const sentence of priority) {
+        const m = sentence.match(RANGE);
         if (m) return m[0].replace(/\s+/g, " ").trim();
       }
       return null;
@@ -225,12 +228,14 @@ export default function NwsDiscussionsTab() {
         if (/\b60s\b/.test(shortLower) || /highs[^.]{0,180}60s/.test(shortLower)) return "Highs in the 60s";
       }
       if (period === "FRIDAY") {
+        if (/upper\s+60s\s+to\s+mid\s+70s/.test(allLower)) return "Highs upper 60s to mid 70s";
         if (/friday[^.]{0,200}upper\s+60s\s+to\s+mid\s+70s/.test(longLower) || /highs[^.]{0,200}upper\s+60s\s+to\s+mid\s+70s/.test(longLower)) {
           return "Highs upper 60s to mid 70s";
         }
         if (/friday[^.]{0,200}\b70s\b/.test(allLower)) return "Highs in the 70s";
       }
       if (period === "SATURDAY") {
+        if (/low\s+to\s+mid\s+70s/.test(allLower)) return "Highs in the low to mid 70s";
         if (/saturday[^.]{0,200}low\s+to\s+mid\s+70s/.test(longLower) || /highs[^.]{0,200}low\s+to\s+mid\s+70s/.test(longLower)) {
           return "Highs in the low to mid 70s";
         }
@@ -244,7 +249,6 @@ export default function NwsDiscussionsTab() {
     const label = officeLabel || "Eastern Kentucky";
     const out = [];
     out.push(`🌤️ ${String(label).toUpperCase()} WEATHER UPDATE`);
-    out.push("");
 
     // Active watches/warnings (skip if "None")
     const wwaSection = sections.find(
@@ -276,7 +280,16 @@ export default function NwsDiscussionsTab() {
       if (takeaways.length > 0) {
         out.push("KEY TAKEAWAYS");
         out.push("");
-        takeaways.forEach((t) => out.push(t));
+        if (takeaways.length === 4) {
+          out.push(takeaways[0]);
+          out.push("");
+          out.push(takeaways[1]);
+          out.push(takeaways[2]);
+          out.push("");
+          out.push(takeaways[3]);
+        } else {
+          takeaways.forEach((t) => out.push(t));
+        }
         out.push("");
       }
     }
