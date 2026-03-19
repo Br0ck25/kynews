@@ -2143,6 +2143,82 @@ if (url.pathname.startsWith('/api/admin/facebook/scheduler/mark-posted/') && req
 	return json({ ok: true, id });
 }
 
+// Helper: resolve a local article ID from a user-provided URL.
+// Supports LocalKYNews URLs (including query param ?articleId=), as well as canonical/source URLs.
+async function resolveArticleIdFromUrl(env: Env, inputUrl: string): Promise<number | null> {
+	const trimmed = (inputUrl || '').trim();
+	if (!trimmed) return null;
+
+	// Try to interpret the input as a URL. If it's a relative path, resolve against our base URL.
+	let parsed: URL | null = null;
+	try {
+		parsed = new URL(trimmed);
+	} catch {
+		try {
+			parsed = new URL(trimmed, BASE_URL);
+		} catch {
+			parsed = null;
+		}
+	}
+
+	// If it's our own site, try to parse the slug or articleId query param.
+	if (parsed) {
+		const baseOrigin = new URL(BASE_URL).origin;
+		if (parsed.origin === baseOrigin) {
+			const idParam = parsed.searchParams.get('articleId');
+			if (idParam) {
+				const parsedId = Number(idParam);
+				if (Number.isFinite(parsedId) && parsedId > 0) return parsedId;
+			}
+
+			const pathSegments = parsed.pathname.split('/').filter(Boolean);
+			const newsIndex = pathSegments.indexOf('news');
+			if (newsIndex !== -1 && pathSegments.length > newsIndex + 2) {
+				const slug = pathSegments[pathSegments.length - 1];
+				if (slug) {
+					const article = await getArticleBySlug(env, slug);
+					if (article) return article.id;
+				}
+			}
+		}
+	}
+
+	// Fall back to finding by canonical/source URL.
+	const normalized = normalizeCanonicalUrl(trimmed);
+	if (normalized) {
+		const row: any = await prepare(env,
+			`SELECT id FROM articles WHERE canonical_url = ? OR source_url = ? LIMIT 1`
+		).bind(normalized, normalized).first();
+		if (row?.id) return Number(row.id);
+	}
+
+	return null;
+}
+
+// POST /api/admin/facebook/scheduler/mark-posted — tell the scheduler to skip an article
+// (useful when you've already posted it manually).
+if (url.pathname === '/api/admin/facebook/scheduler/mark-posted' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ url?: string; id?: number }>(request);
+	let id: number | null = null;
+	if (body?.id) {
+		const parsed = Number(body.id);
+		if (Number.isFinite(parsed) && parsed > 0) id = parsed;
+	}
+	if (!id && body?.url) {
+		const urlStr = body.url.trim();
+		if (urlStr) {
+			id = await resolveArticleIdFromUrl(env, urlStr);
+		}
+	}
+	if (!id) {
+		return badRequest('Could not locate an article for the provided url or id. Provide a valid local article URL or article id.');
+	}
+	await addFacebookSchedulerPostedId(env, id);
+	await appendAdminLog(env, `Admin marked article ${id} as posted for scheduler (url: ${body?.url ?? ''})`);
+	return json({ ok: true, id });
+}
+
 // GET/POST /api/admin/facebook/scheduler — configure the server-side scheduler
 if (url.pathname === '/api/admin/facebook/scheduler' && request.method === 'GET') {
 	if (!isAdminAuthorized(request, env)) {

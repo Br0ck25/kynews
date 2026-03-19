@@ -229,6 +229,10 @@ export default function AdminPage() {
   });
   const [fbSchedulerLoading, setFbSchedulerLoading] = useState(false);
   const [fbSchedulerError, setFbSchedulerError] = useState("");
+  const [fbSchedulerSkipUrl, setFbSchedulerSkipUrl] = useState("");
+  const [fbSchedulerSkipLoading, setFbSchedulerSkipLoading] = useState(false);
+  const [fbSchedulerSkipError, setFbSchedulerSkipError] = useState("");
+  const [fbSchedulerSkipSuccess, setFbSchedulerSkipSuccess] = useState("");
   const [articlesSubTab, setArticlesSubTab] = useState(0);
 
   const loadFbSchedulerConfig = async () => {
@@ -282,6 +286,30 @@ export default function AdminPage() {
 
   const handleStartScheduler = () => updateFbSchedulerConfig({ enabled: true });
   const handleStopScheduler = () => updateFbSchedulerConfig({ enabled: false });
+
+  const handleMarkAlreadyPosted = async () => {
+    setFbSchedulerSkipError("");
+    setFbSchedulerSkipSuccess("");
+    if (!fbSchedulerSkipUrl.trim()) {
+      setFbSchedulerSkipError("Enter a valid local article URL to mark as already posted.");
+      return;
+    }
+
+    setFbSchedulerSkipLoading(true);
+    try {
+      const res = await service.markFacebookSchedulerPostedUrl(fbSchedulerSkipUrl.trim());
+      if (res.ok) {
+        setFbSchedulerSkipSuccess(`Marked article ${res.id} as posted; scheduler will skip it.`);
+        setFbSchedulerSkipUrl("");
+      } else {
+        setFbSchedulerSkipError(res.error || "Unable to mark posted.");
+      }
+    } catch (err) {
+      setFbSchedulerSkipError(err?.errorMessage || String(err));
+    } finally {
+      setFbSchedulerSkipLoading(false);
+    }
+  };
 
   const handleCheckUpdates = async () => {
     setCheckingUpdates(true);
@@ -2090,6 +2118,36 @@ export default function AdminPage() {
               Last run: {fbSchedulerConfig.lastRunAt ? new Date(fbSchedulerConfig.lastRunAt).toLocaleString() : "never"}
               {fbSchedulerConfig.lastPostedTitle ? ` — last posted: "${fbSchedulerConfig.lastPostedTitle}" (ID ${fbSchedulerConfig.lastPostedId})` : ""}
             </Typography>
+
+            <Box style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start", marginTop: 8, marginBottom: 8 }}>
+              <TextField
+                label="Already posted article URL"
+                value={fbSchedulerSkipUrl}
+                onChange={(e) => setFbSchedulerSkipUrl(e.target.value)}
+                size="small"
+                variant="outlined"
+                style={{ minWidth: 340 }}
+                helperText="The scheduler will skip this article in future runs."
+              />
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleMarkAlreadyPosted}
+                disabled={fbSchedulerSkipLoading}
+              >
+                {fbSchedulerSkipLoading ? "Marking…" : "Mark as posted"}
+              </Button>
+            </Box>
+            {fbSchedulerSkipError && (
+              <Typography variant="body2" color="error" style={{ marginBottom: 8 }}>
+                {fbSchedulerSkipError}
+              </Typography>
+            )}
+            {fbSchedulerSkipSuccess && (
+              <Typography variant="body2" style={{ marginBottom: 8, color: "#4caf50" }}>
+                {fbSchedulerSkipSuccess}
+              </Typography>
+            )}
 
             {fbSchedulerConfig.lastPostingHistory && fbSchedulerConfig.lastPostingHistory.length > 0 && (
               <Box style={{ marginTop: 8, maxHeight: 160, overflowY: "auto", padding: 8, background: "rgba(0,0,0,0.04)", borderRadius: 4 }}>
