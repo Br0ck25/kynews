@@ -44,6 +44,7 @@ import StormReportsTab from "../components/StormReportsTab";
 import WeatherForecastTab from "../components/WeatherForecastTab";
 import DigestTab from "../components/DigestTab";
 import ArticleTestingTab from "../components/ArticleTestingTab";
+import TrimarcTrafficHub from "../components/TrimarcTrafficHub";
 
 // `SiteService` already handles environment configuration internally.
 const service = new SiteService();
@@ -228,6 +229,7 @@ export default function AdminPage() {
   });
   const [fbSchedulerLoading, setFbSchedulerLoading] = useState(false);
   const [fbSchedulerError, setFbSchedulerError] = useState("");
+  const [articlesSubTab, setArticlesSubTab] = useState(0);
 
   const loadFbSchedulerConfig = async () => {
     setFbSchedulerLoading(true);
@@ -1229,6 +1231,7 @@ export default function AdminPage() {
             "Weather",
             "Morning/Evening",
             "Article Testing",
+            "Traffic / TRIMARC",
           ].map((label, i) => (
             <Box
               key={i}
@@ -2579,6 +2582,15 @@ export default function AdminPage() {
       {activeTab === 10 && (
         <Box>
           <ArticleTestingTab service={service} />
+        </Box>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB 11 — Traffic / TRIMARC                                       */}
+      {/* ================================================================ */}
+      {activeTab === 11 && (
+        <Box>
+          <TrimarcTrafficHub />
         </Box>
       )}
     </Box>
