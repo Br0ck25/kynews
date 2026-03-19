@@ -987,6 +987,94 @@ if (url.pathname === '/api/admin/ingest-url' && request.method === 'POST') {
   }
 }
 
+// ── POST /api/admin/article-test ────────────────────────────────────────────
+// Fetch an external URL, then use AI to rewrite it as original reporting.
+// Removes all attribution phrases ("According to X", "X said in a social media post", etc.)
+// PREVIEW ONLY — nothing is saved to the database or published.
+if (url.pathname === '/api/admin/article-test' && request.method === 'POST') {
+  if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+
+  const body = await parseJsonBody<{ url?: string }>(request);
+  const testUrl = (body?.url || '').trim();
+  if (!testUrl || !isHttpUrl(testUrl)) return badRequest('A valid http(s) URL is required.');
+
+  let extracted;
+  try {
+    extracted = await fetchAndExtractArticle(env, { url: testUrl, sourceUrl: testUrl, allowShortContent: true });
+  } catch (err: any) {
+    return badRequest(`Could not fetch article: ${err?.message || 'Unknown error'}`);
+  }
+
+  const articleContent = (extracted.contentText || '').trim();
+  if (!articleContent) return badRequest('No readable article content found at that URL.');
+
+  const REWRITE_MODEL = '@cf/zai-org/glm-4.7-flash' as keyof AiModels;
+
+  const systemPrompt = `You are an editor for LocalKYNews.com, a Kentucky local news website.
+Your job is to rewrite news articles as original, first-person reporting by our newsroom.
+
+When the source article uses any of these attribution patterns, remove them and state the facts directly:
+- "According to [agency]" → remove, state the fact directly
+- "[Agency] said in a social media post" → remove, state the fact directly
+- "[Agency] says / said / announced" → remove, state the fact directly
+- "officials say / officials said" → remove, state the fact directly
+- "crews say / crews said" → remove, state the fact directly
+- "the department said / the department says" → remove, state the fact directly
+- "said in a statement / said in a news release" → remove, state the fact directly
+- "per [agency]" → remove
+
+Write the article as if our newsroom is directly reporting these facts.
+
+Rules:
+- Do NOT link back to or credit the original news outlet
+- Do NOT use any attribution opener — name subjects directly and state facts as established events
+- Keep all facts, names, locations, dates, and figures exactly as in the source
+- Write in clean, professional local news style in third-person
+- Preserve direct quotes from named officials (fire chiefs, mayors, etc.) using quotation marks
+- Output exactly two things, separated by a single blank line:
+  1. A news headline (one concise line)
+  2. The full rewritten article body (multiple paragraphs, no headers or labels)
+- Do not add any label like "Headline:" or "Body:" — output only the headline then the body`;
+
+  const userPrompt = `Rewrite this as an original LocalKYNews.com article:\n\nOriginal headline: ${extracted.title}\n\n${articleContent.slice(0, 8000)}`;
+
+  try {
+    const aiRaw = (await env.AI.run(REWRITE_MODEL, {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.2,
+      max_completion_tokens: 2000,
+    })) as { response?: string; result?: { response?: string }; output_text?: string };
+
+    const rawText = (
+      aiRaw?.response ||
+      aiRaw?.result?.response ||
+      aiRaw?.output_text ||
+      ''
+    ).trim();
+
+    if (!rawText) return json({ ok: false, error: 'AI returned an empty response.' });
+
+    // First non-empty line is the headline; everything after is the body
+    const lines = rawText.split('\n');
+    const headlineIdx = lines.findIndex((l) => l.trim().length > 0);
+    const rewrittenTitle = headlineIdx >= 0 ? lines[headlineIdx].trim() : extracted.title;
+    const rewrittenBody = lines.slice(headlineIdx + 1).join('\n').trim();
+
+    return json({
+      ok: true,
+      originalTitle: extracted.title,
+      originalUrl: testUrl,
+      rewrittenTitle,
+      rewrittenBody,
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: `AI rewrite failed: ${err?.message || 'Unknown error'}` });
+  }
+}
+
 // New preview endpoint: run the ingest pipeline but do not write anything.
 // Clients can call this to fetch a draft of title/summary/category etc.
 if (url.pathname === '/api/admin/ingest-url-preview' && request.method === 'POST') {

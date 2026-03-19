@@ -864,6 +864,19 @@ export default class SiteService {
 
   // ── End Weather Alert Posts ────────────────────────────────────────────────
 
+  /**
+   * Fetch a URL and have AI rewrite it as an original LocalKYNews article.
+   * Removes attribution language ("According to X", "X said in a social media post", etc.)
+   * Preview only — nothing is saved or published.
+   * Returns { ok, originalTitle, originalUrl, rewrittenTitle, rewrittenBody }
+   */
+  async testArticleRewrite(articleUrl) {
+    return this.request("/api/admin/article-test", {
+      method: "POST",
+      body: JSON.stringify({ url: articleUrl }),
+    });
+  }
+
   setAdminPanelKey(value) {
     const key = String(value || "").trim();
     if (!key) {

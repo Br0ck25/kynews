@@ -43,6 +43,7 @@ import NwsDiscussionsTab from "../components/NwsDiscussionsTab";
 import StormReportsTab from "../components/StormReportsTab";
 import WeatherForecastTab from "../components/WeatherForecastTab";
 import DigestTab from "../components/DigestTab";
+import ArticleTestingTab from "../components/ArticleTestingTab";
 
 // `SiteService` already handles environment configuration internally.
 const service = new SiteService();
@@ -1227,6 +1228,7 @@ export default function AdminPage() {
             "Storm Reports",
             "Weather",
             "Morning/Evening",
+            "Article Testing",
           ].map((label, i) => (
             <Box
               key={i}
@@ -2568,6 +2570,15 @@ export default function AdminPage() {
             Morning Round Up &amp; Evening Recap
           </Typography>
           <DigestTab service={service} />
+        </Box>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB 10 — Article Testing                                         */}
+      {/* ================================================================ */}
+      {activeTab === 10 && (
+        <Box>
+          <ArticleTestingTab service={service} />
         </Box>
       )}
     </Box>
