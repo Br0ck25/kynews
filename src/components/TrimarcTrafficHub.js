@@ -19,28 +19,26 @@ const TABS = [
 ];
 
 function classifyItem(item) {
-  const desc = (item.description || "").toLowerCase();
-  const title = (item.title || "").toLowerCase();
-  const combined = `${desc} ${title}`;
+  const type = (item.incidentType || item.description || "").toLowerCase();
+  const location = (item.location || item.title || "").toLowerCase();
 
   if (
-    combined.includes("disabled vehicle-occupied") ||
-    combined.includes("disabled vehicle occupied")
+    type.includes("disabled vehicle-occupied") ||
+    type.includes("disabled vehicle occupied")
   ) return "disabled";
 
   if (
-    combined.includes("maintenance") ||
-    combined.includes("freeway maintenance")
+    type.includes("maintenance") ||
+    type.includes("freeway maintenance")
   ) return "maintenance";
 
   if (
-    combined.includes("construction") ||
-    combined.includes("road work") ||
-    combined.includes("roadwork") ||
-    combined.includes("lane closure")
+    type.includes("construction") ||
+    type.includes("road work") ||
+    type.includes("roadwork") ||
+    location.includes("lane closure")
   ) return "construction";
 
-  // Default: show in All only
   return "other";
 }
 
@@ -73,12 +71,17 @@ function buildFacebookText(item) {
   const lines = [];
   lines.push("🚧 TRIMARC Louisville Traffic Alert");
   lines.push("");
-  if (item.title) lines.push(item.title);
-  if (item.description) lines.push(item.description);
-  if (item.pubDate) lines.push(`📅 ${fmtPubDate(item.pubDate)}`);
-  if (item.link) lines.push(`🔗 ${item.link}`);
+  if (item.incidentType) lines.push(`🚨 ${item.incidentType}`);
+  if (item.location)     lines.push(`📍 ${item.location}`);
+  if (item.county)       lines.push(`🏛️ ${item.county}, Kentucky`);
+  if (item.notes)        lines.push(`📝 ${item.notes}`);
+  if (item.reportNumber) lines.push(`🔢 Report #: ${item.reportNumber}`);
+  if (item.pubDate)      lines.push(`📅 ${fmtPubDate(item.pubDate)}`);
   lines.push("");
-  lines.push("#LouisvilleTraffic #KentuckyTraffic #TRIMARC #RoadConditions");
+  const countyTag = item.county
+    ? "#" + item.county.replace(/\s+County$/i, "").replace(/\s+/g, "") + "County"
+    : "";
+  lines.push(`#LouisvilleTraffic #KentuckyTraffic #TRIMARC${countyTag ? " " + countyTag : ""} #RoadConditions`);
   return lines.join("\n");
 }
 
@@ -279,13 +282,13 @@ export default function TrimarcTrafficHub() {
           return (
             <Paper key={id} style={{ marginBottom: 10, overflow: "hidden" }}>
               <Box style={{ padding: "12px 16px" }}>
-                {/* Category chip + title row */}
+                {/* Category chip + incident type headline */}
                 <Box
                   style={{
                     display: "flex",
                     alignItems: "flex-start",
                     gap: 10,
-                    marginBottom: 6,
+                    marginBottom: 8,
                   }}
                 >
                   <span
@@ -302,22 +305,31 @@ export default function TrimarcTrafficHub() {
                   >
                     {catStyle.label}
                   </span>
-                  <Typography
-                    variant="subtitle2"
-                    style={{ flex: 1, fontWeight: 600, lineHeight: 1.3 }}
-                  >
-                    {item.title || "(No title)"}
-                  </Typography>
+                  {item.reportNumber && (
+                    <Typography variant="caption" color="textSecondary" style={{ flexShrink: 0, paddingTop: 2 }}>
+                      Report #{item.reportNumber}
+                    </Typography>
+                  )}
                 </Box>
 
-                {/* Description */}
-                {item.description && (
-                  <Typography
-                    variant="body2"
-                    color="textPrimary"
-                    style={{ marginBottom: 6, lineHeight: 1.5 }}
-                  >
-                    {item.description}
+                {/* Location */}
+                {item.location && (
+                  <Typography variant="subtitle2" style={{ fontWeight: 600, marginBottom: 4 }}>
+                    📍 {item.location}
+                  </Typography>
+                )}
+
+                {/* County */}
+                {item.county && (
+                  <Typography variant="body2" color="textSecondary" style={{ marginBottom: 4 }}>
+                    🏛️ {item.county}, Kentucky
+                  </Typography>
+                )}
+
+                {/* Notes / CCTV details */}
+                {item.notes && (
+                  <Typography variant="body2" color="textPrimary" style={{ marginBottom: 6, lineHeight: 1.5 }}>
+                    📝 {item.notes}
                   </Typography>
                 )}
 
@@ -328,7 +340,9 @@ export default function TrimarcTrafficHub() {
                     alignItems: "center",
                     gap: 12,
                     flexWrap: "wrap",
-                    marginTop: 4,
+                    marginTop: 6,
+                    paddingTop: 6,
+                    borderTop: "1px solid rgba(0,0,0,0.06)",
                   }}
                 >
                   {item.pubDate && (

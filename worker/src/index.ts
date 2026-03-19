@@ -4556,8 +4556,22 @@ return json({ error: 'Not found' }, 404);
 
 // ─── TRIMARC RSS parser ───────────────────────────────────────────────────────
 
-function parseTrimarcRss(xml: string): Array<{ title: string; description: string; link: string; pubDate: string; guid: string }> {
-	const items: Array<{ title: string; description: string; link: string; pubDate: string; guid: string }> = [];
+interface TrimarcItem {
+	title: string;
+	description: string;
+	link: string;
+	pubDate: string;
+	guid: string;
+	// Parsed structured fields
+	reportNumber: string;  // e.g. "282626"  (before " : " in title)
+	location: string;      // e.g. "I-71/75 North Ramp from Donaldson Hwy. in Kenton County"
+	county: string;        // e.g. "Kenton County"  (extracted from location)
+	incidentType: string;  // e.g. "Disabled Vehicle-Occupied"  (before " : " in description)
+	notes: string;         // e.g. "May be viewed on CCTV_06_75_1838"  (after " : " in description)
+}
+
+function parseTrimarcRss(xml: string): TrimarcItem[] {
+	const items: TrimarcItem[] = [];
 	const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
 	let match: RegExpExecArray | null;
 
@@ -4584,7 +4598,22 @@ function parseTrimarcRss(xml: string): Array<{ title: string; description: strin
 		const link        = decodeXmlStr(tagVal(block, 'link'));
 		const pubDate     = tagVal(block, 'pubDate').trim();
 		const guid        = decodeXmlStr(tagVal(block, 'guid')) || link;
-		items.push({ title, description, link, pubDate, guid });
+
+		// Title format: "{reportNumber} : {location}"
+		const titleColonIdx = title.indexOf(' : ');
+		const reportNumber = titleColonIdx !== -1 ? title.substring(0, titleColonIdx).trim() : '';
+		const location     = titleColonIdx !== -1 ? title.substring(titleColonIdx + 3).trim() : title;
+
+		// Extract county from "... in {Name} County" at end of location
+		const countyMatch = location.match(/\bin\s+([A-Za-z][A-Za-z\s]*?)\s+County\b/i);
+		const county = countyMatch ? `${countyMatch[1].trim()} County` : '';
+
+		// Description format: "{incidentType} : {notes}"
+		const descColonIdx = description.indexOf(' : ');
+		const incidentType = descColonIdx !== -1 ? description.substring(0, descColonIdx).trim() : description;
+		const notes        = descColonIdx !== -1 ? description.substring(descColonIdx + 3).trim() : '';
+
+		items.push({ title, description, link, pubDate, guid, reportNumber, location, county, incidentType, notes });
 	}
 
 	return items;
