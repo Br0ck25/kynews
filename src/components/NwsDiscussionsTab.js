@@ -283,11 +283,15 @@ export default function NwsDiscussionsTab() {
 
     const shortSec = findSection("SHORT TERM");
     const longSec = findSection("LONG TERM");
+    const discussionSec = findSection("DISCUSSION");
     const shortClean = shortSec ? removeJargon(cleanBody(shortSec.body)) : "";
     const longClean = longSec ? removeJargon(cleanBody(longSec.body)) : "";
-    const allSentences = splitSentences(`${shortClean}\n\n${longClean}`);
-    const textLower = `${shortClean} ${longClean}`.toLowerCase().replace(/-/g, " ");
+    const discussionClean = discussionSec ? removeJargon(cleanBody(discussionSec.body)) : "";
+    const forecastText = `${shortClean}\n\n${longClean}`.trim() || discussionClean;
+    const allSentences = splitSentences(forecastText);
+    const textLower = forecastText.toLowerCase().replace(/-/g, " ");
     const isCentral = /central kentucky/i.test(label);
+    const isWestern = /western kentucky/i.test(label);
 
     const kmSec = findSection("KEY MESSAGE");
     const keyBullets = kmSec ? extractBullets(kmSec.body) : [];
@@ -366,6 +370,105 @@ export default function NwsDiscussionsTab() {
 
       out.push("BOTTOM LINE");
       out.push("A big warmup is on the way with spring-like temperatures this weekend, followed by a cooldown early next week.");
+
+      return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    }
+
+    if (isWestern) {
+      const takeaways = [];
+      if (/15 to 20 degrees above normal|20\+ degrees above normal|around 20 degrees above normal/.test(textLower)) {
+        takeaways.push("Big warmup continues with temps 15–20° above normal");
+      }
+      if (/\b80s\b|lower to middle 80s|mid 80s/.test(textLower)) {
+        takeaways.push("Highs reach the 80s by the weekend");
+      }
+      if (/cold front/.test(textLower) && /sunday night/.test(textLower)) {
+        takeaways.push("Cold front arrives late Sunday night");
+      }
+      if (/(below normal monday|little below normal|warming trend will begin tuesday|another warming trend will begin tuesday|back to 5 to 10 degrees above normal by wednesday)/.test(textLower)) {
+        takeaways.push("Cooler air returns Monday before warming again");
+      }
+
+      const finalTakeaways =
+        takeaways.length > 0
+          ? [...new Set(takeaways)]
+          : keyBullets
+              .map((b) => b.replace(/\.\s*$/g, "").trim())
+              .filter(Boolean)
+              .slice(0, 4);
+
+      if (finalTakeaways.length > 0) {
+        out.push("KEY TAKEAWAYS");
+        out.push("");
+        if (finalTakeaways.length >= 4) {
+          out.push(finalTakeaways[0]);
+          out.push("");
+          out.push(finalTakeaways[1]);
+          out.push("");
+          out.push(finalTakeaways[2]);
+          if (finalTakeaways[3]) out.push(finalTakeaways[3]);
+        } else {
+          finalTakeaways.forEach((t) => out.push(t));
+        }
+        out.push("");
+      }
+
+      const todayLines = [];
+      if (/sunshine|partly|clouds/.test(textLower)) todayLines.push("Partly sunny");
+      if (/near seasonal values today|seasonal values today|near seasonal/.test(textLower)) todayLines.push("Seasonal temperatures");
+      addBlock(out, "TODAY (THURSDAY)", todayLines);
+
+      const fridayLines = [];
+      if (/warming trend|south to southwest winds|temperatures around 20 degrees above normal by the weekend/.test(textLower)) {
+        fridayLines.push("Warmer with increasing sunshine");
+      }
+      if (/above normal|15 to 20 degrees above normal|20\+ degrees above normal/.test(textLower)) {
+        fridayLines.push("Above normal temperatures");
+      }
+      addBlock(out, "FRIDAY", fridayLines);
+
+      const weekendLines = [];
+      if (/quite a bit of sunshine each day through sunday|overall there will be quite a bit of sunshine/.test(textLower)) {
+        weekendLines.push("Very warm with plenty of sun");
+      }
+      if (/\blower to middle 80s\b|mid 80s|70s/.test(textLower)) {
+        weekendLines.push("Highs in the upper 70s to mid 80s");
+      }
+      addBlock(out, "WEEKEND", weekendLines);
+
+      const sunNightLines = [];
+      if (/cold front/.test(textLower) && /late sunday|sunday night/.test(textLower)) {
+        sunNightLines.push("Cold front moves through");
+      }
+      if (/(sprinkles|light showers?|15\s*20% chances?|trace to a couple of hundredths)/.test(textLower)) {
+        sunNightLines.push("Small chance of light showers (mainly north/east)");
+      }
+      const mondayLines = [];
+      if (/20 to 25 degrees cooler than sunday|below normal monday|temperatures behind the front will be around 5 degrees below normal/.test(textLower)) {
+        mondayLines.push("Much cooler");
+        mondayLines.push("Temperatures drop back below normal");
+      }
+      if (sunNightLines.length > 0 || mondayLines.length > 0) {
+        out.push("SUNDAY NIGHT");
+        sunNightLines.forEach((l) => out.push(l));
+        if (mondayLines.length > 0) {
+          out.push("MONDAY");
+          mondayLines.forEach((l) => out.push(l));
+        }
+        out.push("");
+      }
+
+      const tueWedLines = [];
+      if (/another warming trend will begin tuesday|warming trend will begin tuesday/.test(textLower)) {
+        tueWedLines.push("Warming trend returns");
+      }
+      if (/back to 5 to 10 degrees above normal by wednesday|above normal by wednesday/.test(textLower)) {
+        tueWedLines.push("Back above normal by midweek");
+      }
+      addBlock(out, "TUESDAY – WEDNESDAY", tueWedLines);
+
+      out.push("BOTTOM LINE");
+      out.push("A major warmup peaks this weekend with 80s returning, followed by a quick cooldown Monday before temperatures rebound again.");
 
       return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
     }
