@@ -2256,23 +2256,9 @@ describe('structured search source extraction', () => {
 		expect(__testables.isRobotsBypassAllowed('https://www.wymt.com/search/?query=Jefferson')).toBe(true);
 	});
 
-	it('recognizes and extracts kyweathercenter.com search results', () => {
-		const html = `
-			<div>
-				<a href="https://kyweathercenter.com/?p=12345">Post link</a>
-				<a href="https://kyweathercenter.com/?page_id=1">Page link</a>
-			</div>
-		`;
-
-		const links = __testables.extractStructuredSearchLinks(
-			'https://kyweathercenter.com/?s=kentucky',
-			html,
-			10,
-		);
-
-		expect(links).toEqual(['https://kyweathercenter.com/?p=12345']);
-		expect(__testables.isStructuredSearchSource('https://kyweathercenter.com/')).toBe(true);
-		expect(__testables.isRobotsBypassAllowed('https://kyweathercenter.com/')).toBe(true);
+	it('does not treat kyweathercenter.com as a structured search source or bypass robots', () => {
+		expect(__testables.isStructuredSearchSource('https://kyweathercenter.com/')).toBe(false);
+		expect(__testables.isRobotsBypassAllowed('https://kyweathercenter.com/')).toBe(false);
 	});
 
 	it('buildCountySearchUrls returns correct URLs for Fayette county', () => {

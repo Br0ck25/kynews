@@ -237,7 +237,7 @@ declare global {
 }
 
 const STRUCTURED_SEARCH_SOURCE_URLS = new Set<string>([
-	'https://kyweathercenter.com/', // custom WordPress search source (no RSS)
+	// Add non-RSS search sources here if needed.
 ]);
 
 const ROBOTS_BYPASS_URLS = new Set<string>([
@@ -5269,6 +5269,10 @@ function isHttpUrl(input: string): boolean {
     if (host === 'kyschools.us' || host.endsWith('.kyschools.us')) {
       return false;
     }
+    // kyweathercenter.com is no longer a trusted source and should be skipped.
+    if (host === 'kyweathercenter.com' || host === 'www.kyweathercenter.com') {
+      return false;
+    }
     return parsed.protocol === 'http:' || parsed.protocol === 'https:';
   } catch {
     return false;
@@ -5468,6 +5472,12 @@ rejectedSamples: [],
 duplicateSamples: [],
 insertedSamples: [],
 };
+
+// Explicitly skip sources that we no longer ingest (e.g. deprecated or banned).
+if (!isHttpUrl(sourceUrl)) {
+	status.errors.push('source URL is not allowed');
+	return status;
+}
 
 try {
 const forceStructuredSearchFallback = isStructuredSearchSource(sourceUrl);
@@ -5878,7 +5888,6 @@ const TRUSTED_NEWS_DOMAINS = new Set([
 	'www.wkms.org',
 	'wfpl.org',
 	'kentuckylantern.com',
-	'kyweathercenter.com', // newly trusted weather source
 	'kycir.org',
 	'stateline.org',
 	'www.pbs.org',
@@ -5927,16 +5936,6 @@ function extractStructuredSearchLinks(sourceUrl: string, html: string, maxLinks:
 	// Support any wymt.com search query (e.g. county-specific backfill searches)
 	if (isWymtSearchUrl(normalized)) {
 		return extractWymtSearchArticleLinks(sourceUrl, html, maxLinks);
-	}
-
-	// Support kyweathercenter.com WordPress search pages (query string ?p=NNNNN)
-	try {
-		const { hostname } = new URL(normalized);
-		if (hostname === 'kyweathercenter.com' || hostname === 'www.kyweathercenter.com') {
-			return extractKyweathercenterSearchArticleLinks(sourceUrl, html, maxLinks);
-		}
-	} catch {
-		// ignore malformed URL
 	}
 
 	return [];
@@ -5989,30 +5988,6 @@ function extractWymtSearchArticleLinks(baseUrl: string, html: string, maxLinks: 
 
 	return [...results];
 }
-
-function extractKyweathercenterSearchArticleLinks(baseUrl: string, html: string, maxLinks: number): string[] {
-	const results = new Set<string>();
-
-	for (const match of html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>/gi)) {
-		const href = (match[1] || '').trim();
-		if (!href) continue;
-
-		try {
-			const resolved = new URL(href, baseUrl);
-			const host = resolved.hostname.toLowerCase();
-			if (host !== 'kyweathercenter.com' && host !== 'www.kyweathercenter.com') continue;
-			if (!/\?p=\d+/i.test(resolved.search)) continue;
-			resolved.hash = '';
-			results.add(resolved.toString());
-			if (results.size >= maxLinks) break;
-		} catch {
-			// ignore invalid urls
-		}
-	}
-
-	return [...results];
-}
-
 
 
 

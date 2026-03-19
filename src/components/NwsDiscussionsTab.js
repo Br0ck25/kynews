@@ -43,6 +43,47 @@ export default function NwsDiscussionsTab() {
   const [texts, setTexts] = React.useState({});
   const [loadingId, setLoadingId] = React.useState(null);
   const [copiedId, setCopiedId] = React.useState(null);
+  const [copiedFbId, setCopiedFbId] = React.useState(null);
+
+  function cleanTextForFacebook(raw) {
+    if (!raw) return "";
+    const lines = raw.replace(/\r\n/g, "\n").split("\n").map((l) => l.trim());
+    const out = [];
+    for (const line of lines) {
+      if (!line) {
+        if (out.length === 0 || out[out.length - 1] === "") continue;
+        out.push("");
+        continue;
+      }
+      // Drop common NWS metadata lines that aren't useful in a Facebook post
+      if (/^(FXUS|AFD|SYNOPSIS|AREA FORECAST DISCUSSION|NATIONAL WEATHER SERVICE|PREV DISCUSSION)/i.test(line)) {
+        continue;
+      }
+      // Drop separator lines
+      if (/^[\-=_~*\s]+$/.test(line)) continue;
+      out.push(line);
+    }
+    const cleaned = out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    return cleaned;
+  }
+
+  function copyForFacebook(pid) {
+    const text = texts[pid] || "";
+    const cleaned = cleanTextForFacebook(text);
+    const markCopied = () => {
+      setCopiedFbId(pid);
+      setTimeout(() => setCopiedFbId(null), 2000);
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(cleaned).then(markCopied).catch(() => {
+        fallbackCopy(cleaned);
+        markCopied();
+      });
+    } else {
+      fallbackCopy(cleaned);
+      markCopied();
+    }
+  }
 
   React.useEffect(() => {
     load();
@@ -296,13 +337,22 @@ export default function NwsDiscussionsTab() {
                     >
                       {texts[p.id]}
                     </Paper>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => copy(p.id)}
-                    >
-                      {copiedId === p.id ? "Copied!" : "Copy Text"}
-                    </Button>
+                    <Box style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => copy(p.id)}
+                      >
+                        {copiedId === p.id ? "Copied!" : "Copy Text"}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => copyForFacebook(p.id)}
+                      >
+                        {copiedFbId === p.id ? "Copied!" : "Copy for Facebook"}
+                      </Button>
+                    </Box>
                   </>
                 )}
               </Box>

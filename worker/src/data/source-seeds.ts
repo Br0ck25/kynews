@@ -83,7 +83,7 @@ export const MASTER_SOURCE_SEEDS: string[] = [
 	'https://www.popularmechanics.com/rss/all.xml/',
 	'https://www.wektradio.com/feed/',
 	'https://www.weather.gov/rss',
-	'https://kyweathercenter.com/',
+
 	'http://feeds.kentucky.statenews.net/rss/7dea3e4d4c76f3fa',
 	'https://www.tompkinsvillenews.com/feed/',
 	'https://lexingtonky.news/feed/',
@@ -107,7 +107,7 @@ export const HIGH_PRIORITY_SOURCE_SEEDS: string[] = [
   'https://www.lex18.com/news/covering-kentucky.rss',
 	'https://mountain-topmedia.com/feed/',
 	'https://www.weather.gov/rss',
-	'https://kyweathercenter.com/',
+
 	'https://api.weather.gov/alerts/active?area=KY',
 ];
 

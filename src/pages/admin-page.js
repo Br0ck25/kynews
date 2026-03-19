@@ -68,13 +68,30 @@ export default function AdminPage() {
     if (typeof window === "undefined") return 0;
     const stored = window.localStorage.getItem("adminActiveTab");
     const parsed = parseInt(stored, 10);
-    return Number.isFinite(parsed) ? parsed : 0;
+    if (!Number.isFinite(parsed)) return 0;
+    // Previously the "Article Testing" tab lived at index 10; map it into the
+    // Articles tab so users don't get stuck on a now-removed tab.
+    if (parsed === 10) return 2;
+    return parsed;
   });
 
   const setActiveTabAndPersist = (value) => {
     setActiveTab(value);
     if (typeof window !== "undefined") {
       window.localStorage.setItem("adminActiveTab", String(value));
+    }
+  };
+
+  const [articlesSubTab, setArticlesSubTab] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    const stored = window.localStorage.getItem("adminArticlesSubTab");
+    const parsed = parseInt(stored, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+  const setArticlesSubTabAndPersist = (value) => {
+    setArticlesSubTab(value);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("adminArticlesSubTab", String(value));
     }
   };
 
@@ -230,6 +247,10 @@ export default function AdminPage() {
   const [fbSchedulerLoading, setFbSchedulerLoading] = useState(false);
   const [fbSchedulerError, setFbSchedulerError] = useState("");
 
+  const [fbSchedulerMarkUrl, setFbSchedulerMarkUrl] = useState("");
+  const [fbSchedulerMarkResult, setFbSchedulerMarkResult] = useState(null);
+  const [fbSchedulerMarkLoading, setFbSchedulerMarkLoading] = useState(false);
+
   const loadFbSchedulerConfig = async () => {
     setFbSchedulerLoading(true);
     setFbSchedulerError("");
@@ -281,6 +302,25 @@ export default function AdminPage() {
 
   const handleStartScheduler = () => updateFbSchedulerConfig({ enabled: true });
   const handleStopScheduler = () => updateFbSchedulerConfig({ enabled: false });
+
+  const handleMarkUrlAsPosted = async () => {
+    setFbSchedulerMarkLoading(true);
+    setFbSchedulerMarkResult(null);
+    try {
+      const res = await service.markFacebookSchedulerPostedUrl(fbSchedulerMarkUrl);
+      if (res.ok) {
+        setFbSchedulerMarkResult({ success: true, message: `Marked article ID ${res.id} as posted.` });
+        setFbSchedulerMarkUrl("");
+        await loadFbSchedulerConfig();
+      } else {
+        setFbSchedulerMarkResult({ success: false, message: res.error || "Unable to mark URL." });
+      }
+    } catch (err) {
+      setFbSchedulerMarkResult({ success: false, message: err?.errorMessage || String(err) });
+    } finally {
+      setFbSchedulerMarkLoading(false);
+    }
+  };
 
   const handleCheckUpdates = async () => {
     setCheckingUpdates(true);
@@ -517,7 +557,7 @@ export default function AdminPage() {
 
   // Infinite scroll: load more articles as the user scrolls near the bottom of the table.
   useEffect(() => {
-    if (activeTab !== 2) return;
+    if (activeTab !== 2 || articlesSubTab !== 0) return;
     const el = articlesSentinelRef.current;
     if (!el) return;
 
@@ -550,7 +590,7 @@ export default function AdminPage() {
       if (observer) observer.disconnect();
       window.removeEventListener("scroll", handleScroll);
     };
-  }, [activeTab, loadMoreArticles]);
+  }, [activeTab, articlesSubTab, loadMoreArticles]);
 
   const applyFilter = async () => {
     if (!authorized) return;
@@ -1229,7 +1269,6 @@ export default function AdminPage() {
             "Storm Reports",
             "Weather",
             "Morning/Evening",
-            "Article Testing",
             "Traffic / TRIMARC",
           ].map((label, i) => (
             <Box
@@ -1970,7 +2009,23 @@ export default function AdminPage() {
         <Box>
           <Typography variant="h6" gutterBottom>Articles</Typography>
 
-          {/* ── FB Auto-Post Scheduler ─────────────────────────────────── */}
+          <Tabs
+            value={articlesSubTab}
+            onChange={(_, v) => setArticlesSubTabAndPersist(v)}
+            indicatorColor="primary"
+            textColor="primary"
+            variant="scrollable"
+            scrollButtons="auto"
+            style={{ marginBottom: 16 }}
+          >
+            <Tab label="Articles" />
+            <Tab label="Facebook Auto-Post Scheduler" />
+            <Tab label="Article Testing" />
+          </Tabs>
+
+          {articlesSubTab === 1 && (
+            <>
+              {/* ── FB Auto-Post Scheduler ─────────────────────────────────── */}
           <Paper style={{
             padding: 16,
             marginBottom: 16,
@@ -2057,7 +2112,45 @@ export default function AdminPage() {
             <Typography variant="caption" style={{ color: "#555", display: "block", marginBottom: 6 }}>
               Scheduler will post one unposted "today" article per interval when the publish time falls within the configured window.
             </Typography>
-            <Typography variant="caption" style={{ color: "#555", display: "block" }}>
+
+            <Box style={{ marginTop: 12, padding: 12, border: '1px dashed rgba(0,0,0,0.2)', borderRadius: 4 }}>
+              <Typography variant="subtitle2" style={{ marginBottom: 8 }}>Mark an article as already posted</Typography>
+              <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>
+                Paste a Local KY News article URL here and click "Mark as Posted". The scheduler will then skip that article.
+              </Typography>
+              <Box style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <TextField
+                  label="Article URL"
+                  variant="outlined"
+                  size="small"
+                  value={fbSchedulerMarkUrl}
+                  onChange={(e) => setFbSchedulerMarkUrl(e.target.value)}
+                  style={{ flex: 1, minWidth: 260 }}
+                  disabled={fbSchedulerMarkLoading}
+                />
+                <Button
+                  variant="contained"
+                  color="primary"
+                  disabled={fbSchedulerMarkLoading || !fbSchedulerMarkUrl.trim()}
+                  onClick={handleMarkUrlAsPosted}
+                >
+                  {fbSchedulerMarkLoading ? 'Marking…' : 'Mark as Posted'}
+                </Button>
+              </Box>
+              {fbSchedulerMarkResult && (
+                <Typography
+                  variant="body2"
+                  style={{
+                    marginTop: 10,
+                    color: fbSchedulerMarkResult.success ? '#2e7d32' : '#d32f2f',
+                  }}
+                >
+                  {fbSchedulerMarkResult.message}
+                </Typography>
+              )}
+            </Box>
+
+            <Typography variant="caption" style={{ color: "#555", display: "block", marginTop: 10 }}>
               Last run: {fbSchedulerConfig.lastRunAt ? new Date(fbSchedulerConfig.lastRunAt).toLocaleString() : "never"}
               {fbSchedulerConfig.lastPostedTitle ? ` — last posted: "${fbSchedulerConfig.lastPostedTitle}" (ID ${fbSchedulerConfig.lastPostedId})` : ""}
             </Typography>
@@ -2099,8 +2192,11 @@ export default function AdminPage() {
             )}
           </Paper>
           {/* ────────────────────────────────────────────────────────────── */}
-
-          <Box style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+            </>
+          )}
+          {articlesSubTab === 0 && (
+            <>
+              <Box style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
             <FormControl variant="outlined" size="small" style={{ minWidth: 180 }}>
               <InputLabel>Category</InputLabel>
               <Select
@@ -2463,8 +2559,17 @@ export default function AdminPage() {
 
           {/* Sentinel element used for infinite scrolling */}
           <div ref={articlesSentinelRef} style={{ height: 1 }} />
+        </>
+      )}
+
+      {articlesSubTab === 2 && (
+        <Box>
+          <ArticleTestingTab service={service} />
         </Box>
       )}
+
+    </Box>
+  )}
 
       {/* ================================================================ */}
       {/* TAB 3 — Blocked                                                  */}
@@ -2576,18 +2681,9 @@ export default function AdminPage() {
       )}
 
       {/* ================================================================ */}
-      {/* TAB 10 — Article Testing                                         */}
+      {/* TAB 10 — Traffic / TRIMARC                                       */}
       {/* ================================================================ */}
       {activeTab === 10 && (
-        <Box>
-          <ArticleTestingTab service={service} />
-        </Box>
-      )}
-
-      {/* ================================================================ */}
-      {/* TAB 11 — Traffic / TRIMARC                                       */}
-      {/* ================================================================ */}
-      {activeTab === 11 && (
         <Box>
           <TrimarcTrafficHub />
         </Box>

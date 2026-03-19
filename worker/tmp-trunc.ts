@@ -118,7 +118,7 @@ declare global {
 }
 
 const STRUCTURED_SEARCH_SOURCE_URLS = new Set<string>([
-	'https://kyweathercenter.com/', // custom WordPress search source (no RSS)
+	// Add non-RSS search sources here if needed.
 ]);
 
 const ROBOTS_BYPASS_URLS = new Set<string>([
