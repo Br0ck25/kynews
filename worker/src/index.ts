@@ -69,7 +69,7 @@ import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption, generateAiFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
-import { processNwsAlerts, processNwsProducts, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption } from './lib/nws';
+import { processNwsAlerts, processNwsProducts, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl } from './lib/nws';
 import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
 import { fetchNwsStories } from './lib/nwsStories';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
@@ -2449,16 +2449,19 @@ if (url.pathname === '/api/admin/weather-alert-posts/post' && request.method ===
 	if (!body) return badRequest('Missing request body');
 
 	let postText = typeof body.post_text === 'string' ? body.post_text.trim() : '';
+	let alertEvent: string | undefined;
 	if (!postText) {
 		const id = Number(body.id ?? 0);
 		if (!Number.isFinite(id) || id <= 0) return badRequest('Missing post text or id');
 		const post = await getWeatherAlertPostById(env, id);
 		if (!post) return json({ error: 'Post not found' }, 404);
 		postText = post.post_text;
+		alertEvent = post.event;
 	}
 	if (!postText) return badRequest('Missing post text');
 
-	const result = await postFacebookPhotoCaption(env, postText);
+	const imageUrl = alertEvent ? getWeatherAlertImageUrl(alertEvent) : undefined;
+	const result = await postFacebookPhotoCaption(env, postText, imageUrl);
 	return json(result);
 }
 

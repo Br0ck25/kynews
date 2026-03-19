@@ -445,8 +445,49 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
 
 // ─── Facebook auto-post for weather alerts ────────────────────────────────
 
-/** Public URL for the static weather-alert banner image. */
+/** Public URL for the default weather-alert banner image (fallback). */
 const WEATHER_ALERT_IMAGE_URL = 'https://localkynews.com/img/weather-alert.jpg';
+
+/** Base URL for the public image folder. */
+const IMG_BASE = 'https://localkynews.com/img';
+
+/**
+ * Return the public URL of the banner image that best represents the given
+ * NWS alert event type.  Falls back to the generic weather-alert banner when
+ * no specific image is available.
+ */
+export function getWeatherAlertImageUrl(event: string): string {
+  const map: Record<string, string> = {
+    'Tornado Warning':               `${IMG_BASE}/tornado-warning.png`,
+    'Tornado Watch':                 `${IMG_BASE}/Tornado-Watch.png`,
+    'Severe Thunderstorm Warning':   `${IMG_BASE}/Severe-Thunderstorm-Warning.png`,
+    'Severe Thunderstorm Watch':     `${IMG_BASE}/Severe-Thunderstorm-Watch.png`,
+    'Flash Flood Warning':           `${IMG_BASE}/Flash-Flood-Warning.png`,
+    'Flash Flood Watch':             `${IMG_BASE}/Flash-Flood-Watch.png`,
+    'Flood Warning':                 `${IMG_BASE}/Flood-Statement.png`,
+    'Flood Watch':                   `${IMG_BASE}/Flood-Statement.png`,
+    'Flood Advisory':                `${IMG_BASE}/Flood-Statement.png`,
+    'Winter Storm Warning':          `${IMG_BASE}/Winter-Storm-Warning.png`,
+    'Winter Storm Watch':            `${IMG_BASE}/Winter-Storm-Watch.png`,
+    'Winter Weather Advisory':       `${IMG_BASE}/Winter-Weather-Advisory.png`,
+    'Ice Storm Warning':             `${IMG_BASE}/Ice-Storm-Warning.png`,
+    'Blizzard Warning':              `${IMG_BASE}/Blizzard-Warning.png`,
+    'High Wind Warning':             `${IMG_BASE}/Wind-Advisory.png`,
+    'High Wind Watch':               `${IMG_BASE}/Wind-Advisory.png`,
+    'Wind Advisory':                 `${IMG_BASE}/Wind-Advisory.png`,
+    'Excessive Heat Warning':        `${IMG_BASE}/Extreme-Heat-Warning.png`,
+    'Excessive Heat Watch':          `${IMG_BASE}/Extreme-Heat-Warning.png`,
+    'Heat Advisory':                 `${IMG_BASE}/Heat-Advisory.png`,
+    'Dense Fog Advisory':            `${IMG_BASE}/Dense-Fog-Advisory.png`,
+    'Freeze Warning':                `${IMG_BASE}/Frost-Advisory.png`,
+    'Frost Advisory':                `${IMG_BASE}/Frost-Advisory.png`,
+    'Special Weather Statement':     `${IMG_BASE}/Special-Weather-Statement.png`,
+    'Significant Weather Advisory':  `${IMG_BASE}/Significant-Weather-Advisory.png`,
+    'Red Flag Warning':              `${IMG_BASE}/Red-Flag-Warning.png`,
+    'Rip Current Statement':         `${IMG_BASE}/Rip-Current-Statement.png`,
+  };
+  return map[event] ?? WEATHER_ALERT_IMAGE_URL;
+}
 
 /** Fixed hashtag block appended to every weather alert FB post. */
 const WEATHER_ALERT_HASHTAGS = '#localkynews #kentuckyalerts #weatheralert #kentuckyweather';
@@ -502,11 +543,12 @@ export function buildWeatherAlertFbCaption(alert: NwsAlert): string {
 }
 
 /**
- * Post a weather alert to the Facebook page as a photo post with the fixed
- * weather-alert banner image.  Silently skips if Facebook credentials are not
- * configured in the environment.
+ * Post a weather alert to the Facebook page as a photo post.
+ * Uses the event-specific banner image when provided, otherwise falls back to
+ * the generic weather-alert banner.  Silently skips if Facebook credentials
+ * are not configured in the environment.
  */
-export async function postFacebookPhotoCaption(env: Env, caption: string): Promise<any> {
+export async function postFacebookPhotoCaption(env: Env, caption: string, imageUrl?: string): Promise<any> {
   const pageId = ((env as any).FACEBOOK_PAGE_ID || '').trim();
   const pageToken = ((env as any).FACEBOOK_PAGE_ACCESS_TOKEN || '').trim();
   if (!pageId || !pageToken) {
@@ -516,7 +558,7 @@ export async function postFacebookPhotoCaption(env: Env, caption: string): Promi
   }
 
   const params = new URLSearchParams({
-    url: WEATHER_ALERT_IMAGE_URL,
+    url: imageUrl ?? WEATHER_ALERT_IMAGE_URL,
     caption,
     access_token: pageToken,
   });
@@ -542,7 +584,8 @@ export async function postFacebookPhotoCaption(env: Env, caption: string): Promi
 
 export async function postWeatherAlertToFacebook(env: Env, alert: NwsAlert): Promise<any> {
   const caption = buildWeatherAlertFbCaption(alert);
-  return postFacebookPhotoCaption(env, caption);
+  const imageUrl = getWeatherAlertImageUrl(alert.event);
+  return postFacebookPhotoCaption(env, caption, imageUrl);
 }
 
 // ─── NWS alert ingestion ───────────────────────────────────────────────────
