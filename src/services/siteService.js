@@ -884,6 +884,18 @@ export default class SiteService {
     });
   }
 
+  /**
+   * Format a raw NWS Area Forecast Discussion into a Facebook-ready weather post
+   * using the Worker AI endpoint and office-specific templates.
+   * Returns { ok: true, formatted }.
+   */
+  async formatNwsDiscussionForFacebook({ rawText, officeLabel, officeId }) {
+    return this.request("/api/admin/nws-discussion/facebook-format", {
+      method: "POST",
+      body: JSON.stringify({ rawText, officeLabel, officeId }),
+    });
+  }
+
   setAdminPanelKey(value) {
     const key = String(value || "").trim();
     if (!key) {

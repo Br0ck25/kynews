@@ -34,7 +34,7 @@ function fmtTime(dateStr) {
   }
 }
 
-export default function NwsDiscussionsTab() {
+export default function NwsDiscussionsTab({ service }) {
   const [byOffice, setByOffice] = React.useState({});
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -44,6 +44,7 @@ export default function NwsDiscussionsTab() {
   const [loadingId, setLoadingId] = React.useState(null);
   const [copiedId, setCopiedId] = React.useState(null);
   const [copiedFbId, setCopiedFbId] = React.useState(null);
+  const [formattingFbId, setFormattingFbId] = React.useState(null);
 
   function formatForFacebook(rawText, officeLabel) {
     if (!rawText) return "";
@@ -566,10 +567,30 @@ export default function NwsDiscussionsTab() {
     return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
-  function copyForFacebook(pid) {
+  async function copyForFacebook(pid) {
     const text = texts[pid] || "";
     const office = OFFICES.find((o) => o.id === activeOffice);
-    const formatted = formatForFacebook(text, office ? office.sublabel : undefined);
+    let formatted = formatForFacebook(text, office ? office.sublabel : undefined);
+
+    if (service && typeof service.formatNwsDiscussionForFacebook === "function" && text.trim()) {
+      try {
+        setFormattingFbId(pid);
+        const aiResult = await service.formatNwsDiscussionForFacebook({
+          rawText: text,
+          officeLabel: office ? office.sublabel : undefined,
+          officeId: office ? office.id : undefined,
+        });
+        if (aiResult?.ok && typeof aiResult.formatted === "string" && aiResult.formatted.trim()) {
+          formatted = aiResult.formatted.trim();
+        }
+      } catch (err) {
+        // Fall back to deterministic local formatter if AI formatting fails.
+        console.warn("[NWS Discussion] AI Facebook formatting failed; using local formatter.", err);
+      } finally {
+        setFormattingFbId(null);
+      }
+    }
+
     const markCopied = () => {
       setCopiedFbId(pid);
       setTimeout(() => setCopiedFbId(null), 2000);
@@ -849,8 +870,11 @@ export default function NwsDiscussionsTab() {
                         size="small"
                         variant="outlined"
                         onClick={() => copyForFacebook(p.id)}
+                        disabled={formattingFbId === p.id}
                       >
-                        {copiedFbId === p.id ? "Copied!" : "Copy for Facebook"}
+                        {copiedFbId === p.id
+                          ? "Copied!"
+                          : (formattingFbId === p.id ? "Formatting..." : "Copy for Facebook")}
                       </Button>
                     </Box>
                   </>

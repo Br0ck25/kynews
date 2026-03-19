@@ -2601,7 +2601,7 @@ export default function AdminPage() {
       {/* ================================================================ */}
       {activeTab === 6 && (
         <Box>
-          <NwsDiscussionsTab />
+          <NwsDiscussionsTab service={service} />
         </Box>
       )}
 

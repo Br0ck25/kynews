@@ -1075,6 +1075,146 @@ Rules:
   }
 }
 
+// ── POST /api/admin/nws-discussion/facebook-format ─────────────────────────
+// AI formatter for NWS Area Forecast Discussions copied from the admin UI.
+// Returns plain-text Facebook post content in strict office-specific templates.
+if (url.pathname === '/api/admin/nws-discussion/facebook-format' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	if (!env.AI) return json({ error: 'AI binding is unavailable' }, 500);
+
+	const body = await parseJsonBody<{ rawText?: string; officeLabel?: string; officeId?: string }>(request);
+	const rawText = String(body?.rawText || '').trim();
+	const officeId = String(body?.officeId || '').trim().toUpperCase();
+	const officeLabelInput = String(body?.officeLabel || '').trim();
+
+	if (!rawText) return badRequest('Missing rawText');
+
+	let officeLabel = officeLabelInput;
+	if (!officeLabel) {
+		if (officeId === 'KJKL') officeLabel = 'Eastern Kentucky';
+		else if (officeId === 'KLMK') officeLabel = 'Central Kentucky';
+		else if (officeId === 'KPAH') officeLabel = 'Western Kentucky';
+	}
+	if (!officeLabel) officeLabel = 'Eastern Kentucky';
+
+	const upperLabel = officeLabel.toUpperCase();
+	const FORMAT_MODEL = '@cf/zai-org/glm-4.7-flash' as keyof AiModels;
+
+	const templateRules = /CENTRAL KENTUCKY/i.test(upperLabel)
+		? `TEMPLATE (use exactly these section headings):
+🌤️ CENTRAL KENTUCKY WEATHER UPDATE
+
+KEY TAKEAWAYS
+
+TODAY (THURSDAY)
+FRIDAY
+WEEKEND
+SUNDAY NIGHT – MONDAY
+EARLY NEXT WEEK
+
+BOTTOM LINE`
+		: /WESTERN KENTUCKY/i.test(upperLabel)
+		? `TEMPLATE (use exactly these section headings):
+🌤️ WESTERN KENTUCKY WEATHER UPDATE
+
+KEY TAKEAWAYS
+
+TODAY (THURSDAY)
+FRIDAY
+WEEKEND
+SUNDAY NIGHT
+MONDAY
+TUESDAY – WEDNESDAY
+
+BOTTOM LINE`
+		: `TEMPLATE (use exactly these section headings):
+🌤️ EASTERN KENTUCKY WEATHER UPDATE
+
+KEY TAKEAWAYS
+
+THURSDAY
+FRIDAY
+SATURDAY
+SUNDAY
+SUNDAY NIGHT – MONDAY
+
+BOTTOM LINE`;
+
+	const systemPrompt = `You are the Local KY News weather social media editor.
+Rewrite Area Forecast Discussion (AFD) text into a publication-ready Facebook post.
+
+Hard rules:
+- Plain text only. No markdown, no bullets symbols, no hashtags.
+- Use ONLY facts in the AFD text; do not add outside facts.
+- Keep wording clear and local-news style.
+- Keep each section concise with short lines.
+- Show ACTIVE ALERTS only when the Kentucky line has a real alert.
+- If Kentucky alerts are "None", omit ACTIVE ALERTS entirely.
+- Use an en dash in headings where shown (for example: SUNDAY NIGHT – MONDAY, TUESDAY – WEDNESDAY).
+- Output only the final post text.
+
+${templateRules}`;
+
+	const userPrompt = `Office label: ${officeLabel}
+
+AFD TEXT:
+${rawText.slice(0, 14000)}`;
+
+	try {
+		const aiRaw = (await env.AI.run(FORMAT_MODEL, {
+			messages: [
+				{ role: 'system', content: systemPrompt },
+				{ role: 'user', content: userPrompt },
+			],
+			temperature: 0.1,
+			seed: 42,
+			max_completion_tokens: 1800,
+		})) as { response?: string; result?: { response?: string }; output_text?: string };
+
+		let formatted = (
+			aiRaw?.response ||
+			aiRaw?.result?.response ||
+			aiRaw?.output_text ||
+			''
+		).trim();
+
+		if (!formatted) return json({ error: 'AI returned an empty response' }, 500);
+
+		formatted = formatted
+			.replace(/\r\n/g, '\n')
+			.replace(/^#{1,6}\s+/gm, '')
+			.replace(/\*\*/g, '')
+			.replace(/\n{3,}/g, '\n\n')
+			.trim();
+
+		// Force a deterministic header line in case model casing drifts.
+		const expectedHeader = `🌤️ ${upperLabel} WEATHER UPDATE`;
+		const lines = formatted.split('\n');
+		if (lines.length === 0 || !/WEATHER UPDATE/i.test(lines[0])) {
+			formatted = `${expectedHeader}\n\n${formatted}`;
+		} else {
+			lines[0] = expectedHeader;
+			formatted = lines.join('\n');
+		}
+
+		// Never publish a "None" alerts block.
+		formatted = formatted
+			.replace(/(^|\n)ACTIVE ALERTS\s*\n(?:[^\n]*None\.?\s*\n?)+/gi, '$1')
+			.replace(/\n{3,}/g, '\n\n')
+			.trim();
+
+		// Ensure bottom-line sentence ends cleanly.
+		formatted = formatted.replace(/(BOTTOM LINE\s*\n[^\n]*?)(?=\s*$)/, (m) => {
+			const t = m.trimEnd();
+			return /[.!?]$/.test(t) ? t : `${t}.`;
+		});
+
+		return json({ ok: true, formatted });
+	} catch (err: any) {
+		return json({ error: `AI formatting failed: ${err?.message || 'Unknown error'}` }, 500);
+	}
+}
+
 // New preview endpoint: run the ingest pipeline but do not write anything.
 // Clients can call this to fetch a draft of title/summary/category etc.
 if (url.pathname === '/api/admin/ingest-url-preview' && request.method === 'POST') {
