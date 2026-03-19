@@ -50,10 +50,10 @@ export default function NwsDiscussionsTab() {
     const text = rawText.replace(/\r\n/g, "\n");
 
     // ── 1. Split AFD into named sections (separated by && on its own line) ──
-    const rawChunks = text.split(/\n+&&(?:\n+|$)/);
+    const rawChunks = text.split(/\n&&\s*\n/);
     const sections = [];
     for (const chunk of rawChunks) {
-      const hm = chunk.match(/\n*\.([\w /\-]+?)\.{2,}/);
+      const hm = chunk.match(/^\s*\.([\w /\-]+?)\.\.\./m);
       sections.push({
         name: hm ? hm[1].trim().toUpperCase().replace(/\s+/g, " ") : "_HDR",
         body: chunk,
@@ -61,30 +61,66 @@ export default function NwsDiscussionsTab() {
     }
     const findSection = (prefix) => sections.find((s) => s.name.startsWith(prefix));
 
-    // ── 2. Helpers ────────────────────────────────────────────────────────────
-    function stripMeta(body) {
-      return body
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l)
-        .filter((l) => !/^issued at/i.test(l))
-        .filter((l) => !/^[.][A-Z]/.test(l))
-        .filter((l) => !/^[\$&]/.test(l))
-        .join("\n");
+    // ── 2. Preserve blank-line paragraph structure, strip only NWS metadata ──
+    function cleanBody(body) {
+      // Re-join word-wrapped lines within a paragraph (lines that don't start
+      // a new paragraph or bullet), then preserve paragraph breaks.
+      const rawLines = body.split("\n");
+      const joined = [];
+      let buf = "";
+      for (const raw of rawLines) {
+        const l = raw.trim();
+        // Blank line → flush buffer and record paragraph break
+        if (!l) {
+          if (buf) { joined.push(buf); buf = ""; }
+          joined.push("");
+          continue;
+        }
+        // Drop NWS header / metadata lines
+        if (/^(issued at|[.][A-Z]|[$&]|FXUS|AFDJKL|AREA FORECAST|NATIONAL WEATHER|UPDATE\b)/i.test(l)) {
+          if (buf) { joined.push(buf); buf = ""; }
+          continue;
+        }
+        // Bullet lines (start with "-") are their own paragraph
+        if (/^-/.test(l)) {
+          if (buf) { joined.push(buf); buf = ""; }
+          buf = l;
+          joined.push(buf); buf = "";
+          continue;
+        }
+        // Continuation of current paragraph
+        buf = buf ? buf + " " + l : l;
+      }
+      if (buf) joined.push(buf);
+      // Collapse runs of blank lines to a single blank line
+      return joined.join("\n").replace(/\n{3,}/g, "\n\n").trim();
     }
 
     function removeJargon(s) {
       return s
-        .replace(/\b(BUFKIT|QPF|PoPs?|NBM|CWA|ENS|GEFS|NDFD|T\/Td|CAA|ASOS|SAF|FXUS|TAF|progg?ed|sfc\b|aloft|\d+mb|\d{2,3}Z\b|MOS|BUFR|deterministic|insolation|issuance|trough|shortwave|vort|theta-e|dewpoint|dew point|omega|helicity|hodograph)\b/gi, "")
+        .replace(/\b(BUFKIT|QPF|PoPs?|NBM|CWA|ENS|GEFS|NDFD|T\/Td|CAA|ASOS|SAF|FXUS|TAF|progg?ed|sfc|aloft|\d+\s*mb|\d{2,3}Z\b|MOS|BUFR|deterministic|insolation|trough|shortwave|vort|theta-e|dewpoint|dew point|omega|helicity|hodograph|virga|escarpment|Pottsville)\b/gi, "")
         .replace(/\s{2,}/g, " ")
         .trim();
     }
 
-    function extractHighTemp(sentence) {
-      const m = sentence.match(
-        /high[s]?\b[^.!?]{0,120}?((?:(?:low|mid|middle|upper|lower)\s+(?:to\s+)?)+\d{2}s?(?:\s+(?:to|and|or)\s+(?:(?:low|mid|middle|upper|lower)\s+)?\d{2}s?)?|\d{2}(?:\s+to\s+\d{2})?s?)/i
-      );
-      return m ? m[1].replace(/\s+/g, " ").trim() : null;
+    // Extract a temperature range from a paragraph.
+    // Handles: "highs in the low to mid 60s", "temperatures will peak in the mid to upper 40s",
+    //          "highs reaching the low to mid-60s", "highs in the upper 60s to mid 70s"
+    function extractTemp(para) {
+      const RANGE = /(?:(?:low|mid|middle|upper|lower)\s+(?:to\s+)?){1,2}\d{2}s?(?:\s+(?:to|or|and)\s+(?:(?:low|mid|middle|upper|lower)\s+)?\d{2}s?)?|\d{2}s?\s+to\s+\d{2}s?/i;
+      // Prefer a sentence that contains "high"
+      const highSent = para.match(/high[s]?[^.!?]{0,160}/i);
+      if (highSent) {
+        const m = highSent[0].match(RANGE);
+        if (m) return m[0].replace(/\s+/g, " ").trim();
+      }
+      // Fall back: any temperature sentence with "low/mid/upper Xs"
+      const tempSent = para.match(/temp[^.!?]{0,160}/i);
+      if (tempSent) {
+        const m = tempSent[0].match(RANGE);
+        if (m) return m[0].replace(/\s+/g, " ").trim();
+      }
+      return null;
     }
 
     function weatherConditions(para) {
@@ -93,28 +129,33 @@ export default function NwsDiscussionsTab() {
       if (/t-?storm|thunder.?storm/.test(p)) {
         bullets.push(/isolated|stray|brief|few|slight/.test(p) ? "Isolated storm possible" : "Storms possible");
       } else if (/shower/.test(p)) {
-        bullets.push("Showers possible");
+        const qualifier = /stray|isolated|slight|chance/.test(p) ? "Slight chance of showers" : "Showers possible";
+        bullets.push(qualifier);
       }
-      if (/\bwind[y]?\b|\bgust/.test(p)) bullets.push("Gusty winds expected");
-      if (!bullets.length && /\bsunny\b|\bclear\b/.test(p)) bullets.push("Mostly sunny");
+      if (/gusty|gusts/.test(p)) bullets.push("Gusty winds expected");
+      else if (/\bwindy\b/.test(p)) bullets.push("Windy");
+      if (!bullets.length && /\bmostly sunny\b|\bclear\b/.test(p)) bullets.push("Mostly sunny");
       return bullets;
     }
 
     // ── 3. Day-by-day extraction ──────────────────────────────────────────────
     const DAY_EMOJI = {
       TONIGHT: "🌙", OVERNIGHT: "🌙", TOMORROW: "🌤️", "TOMORROW NIGHT": "🌙",
-      "FRIDAY NIGHT": "🌩️", "SATURDAY NIGHT": "🌙", "SUNDAY NIGHT": "🌙",
+      "FRIDAY NIGHT": "🌩️", "SATURDAY NIGHT": "🌙", "SUNDAY NIGHT": "🌩️",
       "MONDAY NIGHT": "🌙", "TUESDAY NIGHT": "🌙", "WEDNESDAY NIGHT": "🌙", "THURSDAY NIGHT": "🌙",
       MONDAY: "🌤️", TUESDAY: "🌤️", WEDNESDAY: "🌦️",
       THURSDAY: "🌤️", FRIDAY: "🌬️", SATURDAY: "☀️", SUNDAY: "☀️",
     };
+    // Match "FRIDAY NIGHT" before "FRIDAY"
     const DAY_RE = /\b((?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY) NIGHT|TONIGHT|OVERNIGHT|TOMORROW NIGHT|TOMORROW|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)\b/gi;
 
     function extractDays(forecastText) {
+      // Split on preserved paragraph breaks
       const paras = forecastText
-        .split(/\n\s*\n/)
+        .split(/\n\n+/)
         .map((p) => p.replace(/\n/g, " ").replace(/\s+/g, " ").trim())
         .filter(Boolean);
+
       const result = [];
       const seen = new Set();
       for (const para of paras) {
@@ -130,7 +171,7 @@ export default function NwsDiscussionsTab() {
         if (!day) continue;
         seen.add(day);
         const lines = [];
-        const highT = extractHighTemp(para);
+        const highT = extractTemp(para);
         if (highT) lines.push(`Highs ${highT}`);
         lines.push(...weatherConditions(para));
         if (lines.length > 0) {
@@ -151,9 +192,9 @@ export default function NwsDiscussionsTab() {
       (s) => (s.name.includes("WATCHES") || s.name.includes("WARNINGS")) && s.name !== "_HDR"
     );
     if (wwaSection) {
-      const advLines = stripMeta(wwaSection.body)
+      const advLines = cleanBody(wwaSection.body)
         .split("\n")
-        .filter((l) => !/^none\.?$/i.test(l));
+        .filter((l) => l.trim() && !/^none\.?$/i.test(l.trim()));
       if (advLines.length > 0) {
         out.push("⚠️ ACTIVE ALERTS:");
         advLines.forEach((l) => out.push(l));
@@ -162,15 +203,27 @@ export default function NwsDiscussionsTab() {
     }
 
     // Key Messages → KEY TAKEAWAYS
+    // Bullets in AFDs are word-wrapped, so we must re-join continuation lines
     const kmSec = findSection("KEY MESSAGE");
     if (kmSec) {
-      const bullets = kmSec.body
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l.startsWith("-") && l.length > 3);
+      const kmLines = kmSec.body.split("\n").map((l) => l.trim());
+      const bullets = [];
+      let current = "";
+      for (const l of kmLines) {
+        if (/^-\s/.test(l)) {
+          if (current) bullets.push(current.replace(/\s+/g, " ").trim());
+          current = l.replace(/^-\s*/, "");
+        } else if (current && l && !/^(issued at|\.|[$&])/i.test(l)) {
+          // continuation of previous bullet
+          current += " " + l;
+        } else {
+          if (current) { bullets.push(current.replace(/\s+/g, " ").trim()); current = ""; }
+        }
+      }
+      if (current) bullets.push(current.replace(/\s+/g, " ").trim());
       if (bullets.length > 0) {
         out.push("KEY TAKEAWAYS:");
-        bullets.forEach((b) => out.push(b));
+        bullets.forEach((b) => out.push("- " + b));
         out.push("");
       }
     }
@@ -180,7 +233,7 @@ export default function NwsDiscussionsTab() {
       (s) => s.name.startsWith("SHORT TERM") || s.name.startsWith("LONG TERM")
     );
     if (fSecs.length > 0) {
-      const combined = fSecs.map((s) => removeJargon(stripMeta(s.body))).join("\n\n");
+      const combined = fSecs.map((s) => removeJargon(cleanBody(s.body))).join("\n\n");
       const days = extractDays(combined);
       if (days.length > 0) {
         out.push("WHAT TO EXPECT:");
@@ -192,14 +245,14 @@ export default function NwsDiscussionsTab() {
         }
       }
 
-      // Bottom line: last substantive sentence of the last forecast section
-      const lastClean = removeJargon(stripMeta(fSecs[fSecs.length - 1].body))
+      // Bottom line: last substantive sentence of the long-term section
+      const lastClean = removeJargon(cleanBody(fSecs[fSecs.length - 1].body))
         .replace(/\n/g, " ")
         .replace(/\s+/g, " ");
       const sents = lastClean
         .split(/(?<=[.!?])\s+/)
         .map((s) => s.trim())
-        .filter((s) => s.length > 50);
+        .filter((s) => s.length > 50 && !/^(as of|issued)/i.test(s));
       if (sents.length > 0) {
         out.push("BOTTOM LINE:");
         out.push(sents[sents.length - 1]);
