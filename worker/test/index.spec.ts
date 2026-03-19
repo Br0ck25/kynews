@@ -5216,6 +5216,34 @@ describe('digest ranking', () => {
 		expect(__testables.scoreArticle(entertainmentStory)).toBeLessThanOrEqual(0);
 	});
 
+	it('does not treat basketball "percent shooting" sweet-16 recaps as crime shooting stories', () => {
+		const hardNewsCrimeStory = {
+			id: 15,
+			title: 'One charged in W Sixth Street Shooting — Fayette County, KY',
+			slug: 'one-charged-w-sixth-street-shooting',
+			county: 'Fayette',
+			category: 'today',
+			is_kentucky: 1,
+			is_national: 0,
+			published_at: null,
+		};
+		const sportsRecapStory = {
+			id: 16,
+			title: 'Jaguars limit Warren Central to 29 percent shooting in Sweet 16 win',
+			slug: 'jaguars-limit-warren-central-29-percent-shooting-sweet-16-win-2026',
+			county: null,
+			category: 'today',
+			is_kentucky: 1,
+			is_national: 0,
+			published_at: null,
+		};
+
+		expect(__testables.scoreArticle(hardNewsCrimeStory)).toBeGreaterThan(
+			__testables.scoreArticle(sportsRecapStory),
+		);
+		expect(__testables.scoreArticle(sportsRecapStory)).toBeLessThanOrEqual(0);
+	});
+
 	it('prioritizes service-member casualty headlines over routine policy items', () => {
 		const serviceMemberCasualtyStory = {
 			id: 13,
@@ -5954,6 +5982,133 @@ describe('digest ranking', () => {
 			expect(
 				nationalLinks.every((line) => /\/news\/national\/(?:.*-)?kentucky(?:-|$)/.test(line)),
 			).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('evening digest prefers hard-news incidents over sports slideshow and entertainment recap items', async () => {
+		await ensureSchemaAndFixture();
+		await env.ky_news_db.prepare(`DELETE FROM articles`).run();
+		await env.ky_news_db.prepare(`DELETE FROM article_counties`).run();
+
+		const insertDigestArticle = async (article: {
+			urlHash: string;
+			title: string;
+			publishedAt: string;
+			county: string | null;
+			isKentucky: number;
+			isNational: number;
+			slug: string;
+		}) => {
+			await env.ky_news_db.prepare(`
+				INSERT INTO articles (
+					canonical_url, source_url, url_hash, title, author, published_at, category,
+					is_kentucky, is_national, county, city, summary, seo_description, raw_word_count,
+					summary_word_count, content_text, content_html, image_url, raw_r2_key, slug, content_hash
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`).bind(
+				`https://example.com/${article.slug}`,
+				'https://example.com',
+				article.urlHash,
+				article.title,
+				null,
+				article.publishedAt,
+				'today',
+				article.isKentucky,
+				article.isNational,
+				article.county,
+				null,
+				'Summary',
+				'SEO description',
+				150,
+				80,
+				'Content body for digest ranking test',
+				'<p>Content body for digest ranking test</p>',
+				null,
+				null,
+				article.slug,
+				`${article.urlHash}-content`,
+			).run();
+		};
+
+		await insertDigestArticle({
+			urlHash: 'evening-juvenile-crash',
+			title: 'Juvenile killed when vehicle swerves to miss deer, hits SUV — Barren County, KY',
+			publishedAt: '2026-03-19T02:20:00.000Z',
+			county: 'Barren',
+			isKentucky: 1,
+			isNational: 0,
+			slug: 'juvenile-killed-vehicle-swerves-miss-deer-hits-suv-barren-county-ky-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'evening-indiana-fines',
+			title: 'Automatic fines coming to Indiana drivers caught speeding in work zones',
+			publishedAt: '2026-03-19T02:05:00.000Z',
+			county: null,
+			isKentucky: 0,
+			isNational: 0,
+			slug: 'automatic-fines-coming-indiana-drivers-caught-speeding-work-zones',
+		});
+		await insertDigestArticle({
+			urlHash: 'evening-wku-slideshow',
+			title: 'SLIDE SHOW: WKU drops home game to Louisville — Warren County, KY',
+			publishedAt: '2026-03-19T01:59:00.000Z',
+			county: 'Warren',
+			isKentucky: 1,
+			isNational: 0,
+			slug: 'slide-show-wku-drops-home-game-louisville-warren-county-ky-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'evening-sweet-16',
+			title: 'Cougars conquer the Cardinals in Sweet 16 as Rupp Arena is painted orange — Grayson County, KY',
+			publishedAt: '2026-03-19T01:47:00.000Z',
+			county: 'Grayson',
+			isKentucky: 1,
+			isNational: 0,
+			slug: 'cougars-conquer-cardinals-sweet-16-rupp-arena-painted-orange-grayson-county-ky-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'evening-louisville-fire',
+			title: "Woman charged in Louisville apartment fire allegedly said she was 'going to kill everybody' — Jefferson County, KY",
+			publishedAt: '2026-03-19T01:32:00.000Z',
+			county: 'Jefferson',
+			isKentucky: 1,
+			isNational: 0,
+			slug: 'woman-charged-louisville-apartment-fire-going-to-kill-everybody-jefferson-county-ky-2026',
+		});
+		await insertDigestArticle({
+			urlHash: 'evening-survivor-50',
+			title: 'Survivor 50 Zac Brown Episode Ends With Epic Blindside — Who Was Voted Out? — McLean County, KY',
+			publishedAt: '2026-03-19T01:30:00.000Z',
+			county: 'McLean',
+			isKentucky: 1,
+			isNational: 0,
+			slug: 'survivor-50-zac-brown-episode-ends-epic-blindside-who-was-voted-out-mclean-county-ky-2026',
+		});
+
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-03-19T03:00:00.000Z'));
+
+		try {
+			const text = await __testables.generateDigestText(env as any, 'evening');
+			const bullets = text
+				.split('\n')
+				.filter((line) => line.startsWith('• '))
+				.map((line) => line.slice(2).trim());
+
+			expect(bullets).toContain('Juvenile killed when vehicle swerves to miss deer, hits SUV — Barren County, KY');
+			expect(bullets).toContain(
+				"Woman charged in Louisville apartment fire allegedly said she was 'going to kill everybody' — Jefferson County, KY",
+			);
+			expect(bullets).not.toContain('SLIDE SHOW: WKU drops home game to Louisville — Warren County, KY');
+			expect(bullets).not.toContain(
+				'Cougars conquer the Cardinals in Sweet 16 as Rupp Arena is painted orange — Grayson County, KY',
+			);
+			expect(bullets).not.toContain('Automatic fines coming to Indiana drivers caught speeding in work zones');
+			expect(bullets).not.toContain(
+				'Survivor 50 Zac Brown Episode Ends With Epic Blindside — Who Was Voted Out? — McLean County, KY',
+			);
 		} finally {
 			vi.useRealTimers();
 		}
