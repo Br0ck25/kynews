@@ -107,15 +107,20 @@ export default function NwsDiscussionsTab() {
     // Handles: "highs in the low to mid 60s", "temperatures will peak in the mid to upper 40s",
     //          "highs reaching the low to mid-60s", "highs in the upper 60s to mid 70s"
     function extractTemp(para) {
+      const normalizedPara = (para || "")
+        .replace(/([a-z])-(\d{2}s?)/gi, "$1 $2")
+        .replace(/(\d{2}s?)\s*-\s*(\d{2}s?)/g, "$1 to $2")
+        .replace(/\s+/g, " ")
+        .trim();
       const RANGE = /(?:(?:low|mid|middle|upper|lower)\s+(?:to\s+)?){1,2}\d{2}s?(?:\s+(?:to|or|and)\s+(?:(?:low|mid|middle|upper|lower)\s+)?\d{2}s?)?|\d{2}s?\s+to\s+\d{2}s?/i;
       // Prefer a sentence that contains "high"
-      const highSent = para.match(/high[s]?[^.!?]{0,160}/i);
+      const highSent = normalizedPara.match(/high[s]?[^.!?]{0,200}/i);
       if (highSent) {
         const m = highSent[0].match(RANGE);
         if (m) return m[0].replace(/\s+/g, " ").trim();
       }
       // Fall back: any temperature sentence with "low/mid/upper Xs"
-      const tempSent = para.match(/temp[^.!?]{0,160}/i);
+      const tempSent = normalizedPara.match(/temp[^.!?]{0,200}/i);
       if (tempSent) {
         const m = tempSent[0].match(RANGE);
         if (m) return m[0].replace(/\s+/g, " ").trim();
@@ -208,6 +213,33 @@ export default function NwsDiscussionsTab() {
       out.push("");
     }
 
+    function inferHighLine(period, periodSent, shortText, longText) {
+      const direct = normalizeHighLine(extractTemp(periodSent), period);
+      if (direct) return direct;
+
+      const shortLower = (shortText || "").toLowerCase().replace(/-/g, " ");
+      const longLower = (longText || "").toLowerCase().replace(/-/g, " ");
+      const allLower = `${shortLower} ${longLower}`;
+
+      if (period === "THURSDAY") {
+        if (/\b60s\b/.test(shortLower) || /highs[^.]{0,180}60s/.test(shortLower)) return "Highs in the 60s";
+      }
+      if (period === "FRIDAY") {
+        if (/friday[^.]{0,200}upper\s+60s\s+to\s+mid\s+70s/.test(longLower) || /highs[^.]{0,200}upper\s+60s\s+to\s+mid\s+70s/.test(longLower)) {
+          return "Highs upper 60s to mid 70s";
+        }
+        if (/friday[^.]{0,200}\b70s\b/.test(allLower)) return "Highs in the 70s";
+      }
+      if (period === "SATURDAY") {
+        if (/saturday[^.]{0,200}low\s+to\s+mid\s+70s/.test(longLower) || /highs[^.]{0,200}low\s+to\s+mid\s+70s/.test(longLower)) {
+          return "Highs in the low to mid 70s";
+        }
+        if (/saturday[^.]{0,200}\b70s\b/.test(allLower)) return "Highs in the 70s";
+      }
+
+      return "";
+    }
+
     // ── 3. Assemble the post ──────────────────────────────────────────────────
     const label = officeLabel || "Eastern Kentucky";
     const out = [];
@@ -241,7 +273,12 @@ export default function NwsDiscussionsTab() {
     if (kmSec) {
       const bullets = extractBullets(kmSec.body);
       const takeaways = buildTakeaways(bullets, shortClean, longClean);
-      if (takeaways.length > 0) addBlock(out, "KEY TAKEAWAYS", takeaways);
+      if (takeaways.length > 0) {
+        out.push("KEY TAKEAWAYS");
+        out.push("");
+        takeaways.forEach((t) => out.push(t));
+        out.push("");
+      }
     }
 
     // Day-by-day
@@ -255,8 +292,7 @@ export default function NwsDiscussionsTab() {
     const thursdayLines = [];
     if (thursdaySent || /\bthursday\b/.test(textLower)) {
       thursdayLines.push("Partly sunny and warmer");
-      const t = extractTemp(thursdaySent || shortClean);
-      const highLine = normalizeHighLine(t, "THURSDAY");
+      const highLine = inferHighLine("THURSDAY", thursdaySent || shortClean, shortClean, longClean);
       if (highLine) thursdayLines.push(highLine);
     }
     addBlock(out, "THURSDAY", thursdayLines);
@@ -264,8 +300,7 @@ export default function NwsDiscussionsTab() {
     const fridayLines = [];
     if (fridaySent || /\bfriday\b/.test(textLower)) {
       fridayLines.push(/gusty|windy/.test(fridaySent.toLowerCase()) ? "Windy and much warmer" : "Much warmer");
-      const t = extractTemp(fridaySent || longClean);
-      const highLine = normalizeHighLine(t, "FRIDAY");
+      const highLine = inferHighLine("FRIDAY", fridaySent || longClean, shortClean, longClean);
       if (highLine) fridayLines.push(highLine);
       if (/\bfriday\b/.test(textLower) && /(showers?|rain)/.test(textLower) && /(storm|thunder)/.test(textLower)) {
         fridayLines.push("Slight chance of showers/storms late");
@@ -276,8 +311,7 @@ export default function NwsDiscussionsTab() {
     const saturdayLines = [];
     if (saturdaySent || /\bsaturday\b/.test(textLower)) {
       saturdayLines.push(/dry|nil chances|mostly dry|weaker gradient/.test(saturdaySent.toLowerCase()) ? "Dry and warm" : "Warm");
-      const t = extractTemp(saturdaySent || longClean);
-      const highLine = normalizeHighLine(t, "SATURDAY");
+      const highLine = inferHighLine("SATURDAY", saturdaySent || longClean, shortClean, longClean);
       if (highLine) saturdayLines.push(highLine);
     }
     addBlock(out, "SATURDAY", saturdayLines);
@@ -300,7 +334,7 @@ export default function NwsDiscussionsTab() {
         sunMonLines.push("Greatest chances east of I-75");
       }
     }
-    addBlock(out, "SUNDAY NIGHT - MONDAY", sunMonLines);
+    addBlock(out, "SUNDAY NIGHT – MONDAY", sunMonLines);
 
     let bottomLine = "";
     if (/\b70s?\b/.test(textLower) && /(showers?|rain|storms?|thunder)/.test(textLower)) {
@@ -311,7 +345,7 @@ export default function NwsDiscussionsTab() {
     }
     if (bottomLine) {
       out.push("BOTTOM LINE");
-      out.push(bottomLine);
+      out.push(bottomLine.replace(/\.\.+$/, "."));
     }
 
     return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
