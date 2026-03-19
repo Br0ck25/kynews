@@ -328,6 +328,7 @@ export default function NwsDiscussionsTab() {
           out.push(finalTakeaways[1]);
           out.push("");
           out.push(finalTakeaways[2]);
+          out.push("");
           if (finalTakeaways[3]) out.push(finalTakeaways[3]);
         } else {
           finalTakeaways.forEach((t) => out.push(t));
@@ -406,6 +407,7 @@ export default function NwsDiscussionsTab() {
           out.push(finalTakeaways[1]);
           out.push("");
           out.push(finalTakeaways[2]);
+          out.push("");
           if (finalTakeaways[3]) out.push(finalTakeaways[3]);
         } else {
           finalTakeaways.forEach((t) => out.push(t));
@@ -452,6 +454,7 @@ export default function NwsDiscussionsTab() {
         out.push("SUNDAY NIGHT");
         sunNightLines.forEach((l) => out.push(l));
         if (mondayLines.length > 0) {
+          out.push("");
           out.push("MONDAY");
           mondayLines.forEach((l) => out.push(l));
         }
