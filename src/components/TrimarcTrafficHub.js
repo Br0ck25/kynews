@@ -16,11 +16,14 @@ const TABS = [
   { id: "construction", label: "🚧 Construction / Road Work" },
   { id: "maintenance",  label: "🔧 Freeway Maintenance" },
   { id: "disabled",     label: "🚗 Disabled Vehicle-Occupied" },
+  { id: "crash",        label: "💥 Crash" },
 ];
 
 function classifyItem(item) {
   const type = (item.incidentType || item.description || "").toLowerCase();
   const location = (item.location || item.title || "").toLowerCase();
+
+  if (type.includes("crash")) return "crash";
 
   if (
     type.includes("disabled vehicle-occupied") ||
@@ -90,6 +93,7 @@ const CATEGORY_STYLES = {
   disabled:     { background: "#ef5350", color: "#fff", label: "Disabled Vehicle-Occupied" },
   maintenance:  { background: "#ff9800", color: "#000", label: "Freeway Maintenance" },
   construction: { background: "#fbc02d", color: "#000", label: "Construction / Road Work" },
+  crash:        { background: "#d32f2f", color: "#fff", label: "Crash" },
   other:        { background: "#78909c", color: "#fff", label: "Other" },
 };
 
@@ -152,11 +156,12 @@ export default function TrimarcTrafficHub() {
 
   // Badge counts per tab
   const counts = React.useMemo(() => {
-    const c = { all: classifiedItems.length, construction: 0, maintenance: 0, disabled: 0 };
+    const c = { all: classifiedItems.length, construction: 0, maintenance: 0, disabled: 0, crash: 0 };
     for (const item of classifiedItems) {
       if (item._category === "construction") c.construction++;
       else if (item._category === "maintenance") c.maintenance++;
       else if (item._category === "disabled") c.disabled++;
+      else if (item._category === "crash") c.crash++;
     }
     return c;
   }, [classifiedItems]);
