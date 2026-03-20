@@ -28,6 +28,7 @@ const SavedPage = lazy(() => import("./pages/saved-page"));
 const PostPage = lazy(() => import("./pages/post-page"));
 const FavoritesPage = lazy(() => import("./pages/favorites-page"));
 const AdminPage = lazy(() => import("./pages/admin-page"));
+const LiveWeatherAlertsPage = lazy(() => import("./pages/live-weather-alerts-page"));
 const AboutPage = lazy(() => import("./pages/about-page"));
 const ContactPage = lazy(() => import("./pages/contact-page"));
 const EditorialPolicyPage = lazy(() => import("./pages/editorial-policy-page"));
@@ -185,6 +186,9 @@ function App() {
                     </Route>
                     <Route path="/admin">
                       <AdminPage />
+                    </Route>
+                    <Route path="/live-weather-alerts">
+                      <LiveWeatherAlertsPage />
                     </Route>
                     <Route path="/about">
                       <AboutPage />
