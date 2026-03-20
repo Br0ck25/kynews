@@ -69,7 +69,7 @@ import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption, generateAiFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
-import { processNwsAlerts, processNwsProducts, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl, buildWeatherAlertFbCaption, getLiveAlertAutopostFlag, setLiveAlertAutopostFlag, getLiveAlertAutopostStart, setLiveAlertAutopostStart } from './lib/nws';
+import { processNwsAlerts, processNwsProducts, processLiveAlertsNationwide, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl, buildWeatherAlertFbCaption, getLiveAlertAutopostFlag, setLiveAlertAutopostFlag, getLiveAlertAutopostStart, setLiveAlertAutopostStart } from './lib/nws';
 import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
 import { fetchNwsStories } from './lib/nwsStories';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
@@ -5450,6 +5450,12 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
     processNwsAlerts(env).then(({ published, skipped }) => {
       console.log(`[NWS] Tick complete: ${published} published, ${skipped} skipped`);
     }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
+  );
+
+  // Post ALL active US alerts to the Live Weather Alerts Facebook page
+  ctx.waitUntil(
+    processLiveAlertsNationwide(env)
+      .catch((err) => console.error('[LIVE-ALERTS-FB] processLiveAlertsNationwide threw', err))
   );
 
   // Also fetch hazardous weather outlook products from the three offices

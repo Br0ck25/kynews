@@ -553,6 +553,13 @@ export function isStatewideKyPoliticalStory(text: string): boolean {
   // "governor" is covered by hasPoliticalSignal already; this catches the
   // abbreviated form which the hasPoliticalSignal regex misses.
   if (hasFrankfortDateline && /\bgov\.\s+[A-Z]/i.test(text)) return true;
+  // Kentucky Concurrent and Joint Resolutions from the General Assembly are always
+  // statewide legislative actions — they are never single-county stories.
+  // "Senate Concurrent Resolution 172" creating a task force is a state-level action;
+  // people quoted from various KY counties should not drive county assignment.
+  if (/\b(?:Senate|House)\s+(?:Concurrent|Joint)\s+Resolution\b|\b(?:SCR|HCR|SJR|HJR)\s+\d+\b/i.test(text) && hasPoliticalSignal) {
+    return true;
+  }
   // Explicit roundup language
   if (/\bwhat\s+kentuckians?\s+said\b|\bkentucky\s+(?:lawmakers?|delegation|legislators?|congressional\s+(?:delegation|members?))\b|\breactions?\s+from\s+kentucky\b/i.test(text)) {
     return true;
@@ -569,9 +576,10 @@ export function isStatewideKyPoliticalStory(text: string): boolean {
   const uniqueDistricts = new Set(districtMatches.map((m) => m.toLowerCase()));
   if (uniqueDistricts.size >= 3) return true;
 
-  // bills plus Frankfort/statewide context
-  if (/\b(?:House|Senate)\s+Bill\b/i.test(text)) {
-    if (/\bfrankfort\b|\bstatewide\b|\ball\s+of\s+kentucky\b|\bconference\s+committee\b|\bbiennium\b|\btwo-year[^.]{0,30}budget\b|\bexecutive\s+branch\s+budget\b|\bgovernor'?s\s+desk\b|\bheading\s+to\s+the\s+governor\b|\bfull\s+senate\b|\bfull\s+house\b/i.test(text)) {
+  // bills plus Frankfort/statewide context — also matches bill abbreviations (HB/SB/HR/SR)
+  // so that "HB 500" and "SB 40" are treated the same as "House Bill 500" / "Senate Bill 40".
+  if (/\b(?:House|Senate)\s+(?:Concurrent\s+|Joint\s+)?(?:Bill|Resolution)\b|\b(?:HB|SB|HR|SR)\s+\d+\b/i.test(text)) {
+    if (/\bfrankfort\b|\bstatewide\b|\ball\s+of\s+kentucky\b|\bconference\s+committee\b|\bbiennium\b|\btwo-year[^.]{0,30}budget\b|\bexecutive\s+branch\s+budget\b|\bgovernor'?s\s+desk\b|\bheading\s+to\s+the\s+governor\b|\bheads?\s+to\s+(?:the\s+)?governor\b|\bawaits?\s+(?:consideration\s+(?:by|of)\s+)?(?:the\s+)?governor\b|\bpassed\s+both\s+(?:the\s+)?(?:house\s+and\s+senate|senate\s+and\s+house|chambers)\b|\bacross\s+(?:the\s+)?commonwealth\b|\ball\s+\d+\s+counties\b|\bfull\s+senate\b|\bfull\s+house\b/i.test(text)) {
       return true;
     }
     // A bill before a committee is statewide legislation regardless of reporter's dateline

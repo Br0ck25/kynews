@@ -58,6 +58,7 @@ export function classifyAlertCategory(event: string): LiveAlertCategory {
 }
 
 const NWS_ALERTS_URL = 'https://api.weather.gov/alerts/active?area=KY';
+const NWS_ALL_ALERTS_URL = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert,update';
 const NWS_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
 
 export interface NwsAlert {
@@ -135,6 +136,35 @@ export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
       a.counties.length > 0 ||
       /\bkentucky\b|,\s*ky\b/i.test(a.areaDesc)
     );
+}
+
+/**
+ * Fetch ALL active NWS alerts nationwide (no state gate).
+ * Used exclusively for the Live Weather Alerts Facebook page auto-posting.
+ * Article ingestion is still KY-only via fetchActiveKyAlerts().
+ */
+export async function fetchAllActiveAlerts(): Promise<NwsAlert[]> {
+  const res = await fetch(NWS_ALL_ALERTS_URL, {
+    headers: {
+      'User-Agent': NWS_USER_AGENT,
+      'Accept': 'application/geo+json',
+    },
+  });
+
+  if (!res.ok) return [];
+
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    return [];
+  }
+
+  const features: any[] = Array.isArray(data?.features) ? data.features : [];
+
+  return features
+    .map(mapNwsFeatureToAlert)
+    .filter((a): a is NwsAlert => a !== null);
 }
 
 /**
@@ -702,13 +732,6 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
   }
 
   for (const alert of alerts) {
-    // Auto-post to the Live Weather Alerts Facebook page for every active alert.
-    // postLiveAlertToFacebook has its own KV dedup key so each alert only
-    // posts once, regardless of whether it was already ingested as an article.
-    await postLiveAlertToFacebook(env, alert).catch((err) => {
-      console.error('[LIVE-ALERTS-FB] Auto-post failed:', err);
-    });
-
     try {
       // 1. KV dedup — skip if we've already published this NWS alert ID
       const isNew = await markAlertIfNew(env, alert.id);
@@ -839,6 +862,31 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
   } catch (err) {
     console.error('[LIVE-ALERTS-FB] Unexpected error:', err);
   }
+}
+
+/**
+ * Check ALL active NWS alerts nationwide and post any that haven't been
+ * seen before to the Live Weather Alerts Facebook page.
+ * Called from the scheduled handler separately from processNwsAlerts so that
+ * the article ingestion pipeline (KY-only) and the Live Alerts FB feed
+ * (all US) remain fully independent.
+ */
+export async function processLiveAlertsNationwide(env: Env): Promise<void> {
+  let alerts: NwsAlert[];
+  try {
+    alerts = await fetchAllActiveAlerts();
+  } catch (err) {
+    console.error('[LIVE-ALERTS-FB] fetchAllActiveAlerts failed', err);
+    return;
+  }
+
+  for (const alert of alerts) {
+    await postLiveAlertToFacebook(env, alert).catch((err) => {
+      console.error(`[LIVE-ALERTS-FB] Unexpected error for "${alert.event}":`, err);
+    });
+  }
+
+  console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts`);
 }
 
 // ─── NWS product (HWO) ingestion ──────────────────────────────────────────

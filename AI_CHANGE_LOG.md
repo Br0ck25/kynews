@@ -1558,3 +1558,75 @@ linknky.com (LINK nky) articles use a CMS pattern where a "What you need to know
 | Governor's press release from Frankfort with abbreviated "Gov." title | Extend `isStatewideKyPoliticalStory` Gov.-abbreviation check; `hasPoliticalSignal` only catches full "governor" |
 | Statewide law-enforcement/health warning "targeting Kentuckians" from local outlet | Add `targeting Kentuckians` as statewide signal; these always affect the entire Commonwealth |
 | CMS "What you need to know" bullet list before article body | Strip in `cleanContentForSummarization`; prevents summary from parroting teaser bullets |
+
+---
+
+## 2026-03-20 — Three false county assignments from statewide KY legislation/policy
+
+---
+
+### Change 62 — Recognize Kentucky Concurrent/Joint Resolutions as statewide (2026-03-20)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Added a new check in `isStatewideKyPoliticalStory` immediately after the Frankfort-dateline block:
+```typescript
+if (/\b(?:Senate|House)\s+(?:Concurrent|Joint)\s+Resolution\b|\b(?:SCR|HCR|SJR|HJR)\s+\d+\b/i.test(text) && hasPoliticalSignal) {
+  return true;
+}
+```
+
+**Articles that triggered this fix:**
+- *GOP lawmaker seeks 'comprehensive review' of KY optometrists' oversight* from `kentuckylantern.com` — tagged Kentucky + Hancock County + **Scott County**. Scott County came from the geo detector picking up "Georgetown" (Georgetown, KY = Scott County) as the home city of a quoted ophthalmologist. The article is about "Senate Concurrent Resolution 172" creating a statewide task force — entirely statewide legislation. The county tags should clear.
+
+**Root cause:**
+`isStatewideKyPoliticalStory` checked for `\b(?:House|Senate)\s+Bill\b` but NOT for Concurrent or Joint Resolutions. The article had `hasPoliticalSignal = true` (General Assembly, state Senate, attorney general) and strong statewide legislative context, but without the Frankfort dateline AND the bill phrase, no statewide path triggered. Georgetown → Scott County survived as an erroneously assigned county.
+
+**Effect:**
+When `isStatewideKyPoliticalStory` returns `true`, all county/city assignments are cleared. The article is tagged Kentucky-only with no county, which is correct for statewide legislative resolutions whose quoted sources happen to be from various counties.
+
+---
+
+### Change 63 — Bill abbreviations (HB/SB/HR/SR) and additional governor-passage signals in statewide check (2026-03-20)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+In `isStatewideKyPoliticalStory`, extended both the bill-detection regex and the statewide-suffix regex:
+
+```diff
+- if (/\b(?:House|Senate)\s+Bill\b/i.test(text)) {
++ if (/\b(?:House|Senate)\s+(?:Concurrent\s+|Joint\s+)?(?:Bill|Resolution)\b|\b(?:HB|SB|HR|SR)\s+\d+\b/i.test(text)) {
+
+- if (/\bfrankfort\b|...\bheading\s+to\s+the\s+governor\b|\bfull\s+senate\b|\bfull\s+house\b/i.test(text)) {
++ if (/\bfrankfort\b|...\bheading\s+to\s+the\s+governor\b|\bheads?\s+to\s+(?:the\s+)?governor\b|\bawaits?\s+(?:consideration\s+(?:by|of)\s+)?(?:the\s+)?governor\b|\bpassed\s+both\s+(?:the\s+)?(?:house\s+and\s+senate|senate\s+and\s+house|chambers)\b|\bacross\s+(?:the\s+)?commonwealth\b|\ball\s+\d+\s+counties\b|\bfull\s+senate\b|\bfull\s+house\b/i.test(text)) {
+```
+
+**Articles that triggered this fix:**
+
+1. *Kentucky state budget change could force the shutdown of Dolly Parton's Imagination Library program* from `lex18.com` — tagged Kentucky + **Fayette County**. The article is about "HB 500", a budget bill affecting all 120 Kentucky counties and every child in the state. Fayette County was assigned via `lex18.com`'s source-default county because "HB 500" (bill abbreviation) did not match `\b(?:House|Senate)\s+Bill\b` and "across the Commonwealth" did not match the statewide-suffix check.
+
+2. *Boswell's bill shifting library board appointments to local control heads to governor* from `owensborotimes.com` — tagged Kentucky + **Floyd County** (source: Readability sidebar bleed). The article mentions "Senate Bill 40" (which matched the bill regex) but then checks for a statewide signal. "heads to governor" (in the title) and "Having passed both the House and Senate, SB 40 now awaits consideration by the governor" (in the body) were not in the statewide-suffix check, so the bill branch fell through without returning `true`, and the sidebar-bleed Floyd County survived.
+
+**New signals added to the statewide-suffix check and their coverage:**
+
+| New signal | Catches |
+|---|---|
+| `heads? to (the )?governor` | Bill titles/subheads like "SB 40 heads to governor" |
+| `awaits? (consideration by/of )?(the )?governor` | "awaits consideration by the governor" in article body |
+| `passed both (the )?(house and senate\|chambers)` | "Having passed both the House and Senate, …" |
+| `across (the )?commonwealth` | "the program expanded across the Commonwealth" |
+| `all \d+ counties` | "all 120 counties" — explicitly statewide programs |
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| Kentucky Senate/House Concurrent or Joint Resolution | Always statewide; people quoted from various counties must not drive county assignment |
+| Bill abbreviation (HB/SB/HR/SR + number) in a Kentucky article | Treat identically to "House Bill"/"Senate Bill" in statewide-suffix check |
+| Bill that "heads to governor" or "passed both chambers" | Final-passage language always means statewide; add as statewide suffix signals |
+| Program covering "all 120 counties" or "across the Commonwealth" | Explicitly statewide; no county should be assigned |
+| Source default county surviving on a statewide program article | Root cause is missing statewide-signal coverage in `isStatewideKyPoliticalStory`; fix the function, not the source map |
