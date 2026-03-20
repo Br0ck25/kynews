@@ -69,7 +69,7 @@ import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption, generateAiFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
-import { processNwsAlerts, processNwsProducts, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl, buildWeatherAlertFbCaption } from './lib/nws';
+import { processNwsAlerts, processNwsProducts, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl, buildWeatherAlertFbCaption, getLiveAlertAutopostFlag, setLiveAlertAutopostFlag, getLiveAlertAutopostStart, setLiveAlertAutopostStart } from './lib/nws';
 import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
 import { fetchNwsStories } from './lib/nwsStories';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
@@ -2559,6 +2559,48 @@ if (url.pathname === '/api/admin/facebook/exchange-token' && request.method === 
 		pageAccessToken: String(pageTokenData.access_token),
 		instruction: 'Run: npx wrangler secret put LIVE_ALERTS_PAGE_ACCESS_TOKEN  and paste this token.',
 	});
+}
+
+// GET /api/admin/live-alerts/autopost — read the three category auto-post flags
+if (url.pathname === '/api/admin/live-alerts/autopost' && request.method === 'GET') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const [warnings, watches, others, startDate] = await Promise.all([
+		getLiveAlertAutopostFlag(env, 'warnings'),
+		getLiveAlertAutopostFlag(env, 'watches'),
+		getLiveAlertAutopostFlag(env, 'others'),
+		getLiveAlertAutopostStart(env),
+	]);
+	return json({ warnings, watches, others, startDateTime: startDate?.toISOString() ?? null });
+}
+
+// POST /api/admin/live-alerts/autopost — set one or more category auto-post flags
+// Body: { warnings?: boolean, watches?: boolean, others?: boolean, startDateTime?: string | null }
+if (url.pathname === '/api/admin/live-alerts/autopost' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ warnings?: boolean; watches?: boolean; others?: boolean; startDateTime?: string | null }>(request);
+	if (!body) return badRequest('Missing request body');
+	const updates: Promise<void>[] = [];
+	if (typeof body.warnings === 'boolean') updates.push(setLiveAlertAutopostFlag(env, 'warnings', body.warnings));
+	if (typeof body.watches  === 'boolean') updates.push(setLiveAlertAutopostFlag(env, 'watches',  body.watches));
+	if (typeof body.others   === 'boolean') updates.push(setLiveAlertAutopostFlag(env, 'others',   body.others));
+	if (body.startDateTime !== undefined) {
+		if (body.startDateTime === null || body.startDateTime === '') {
+			updates.push(setLiveAlertAutopostStart(env, null));
+		} else {
+			const dt = new Date(body.startDateTime);
+			if (Number.isNaN(dt.valueOf())) return badRequest('Invalid startDateTime');
+			updates.push(setLiveAlertAutopostStart(env, dt.toISOString()));
+		}
+	}
+	if (updates.length === 0) return badRequest('Provide at least one of: warnings, watches, others, startDateTime');
+	await Promise.all(updates);
+	const [warnings, watches, others, startDate] = await Promise.all([
+		getLiveAlertAutopostFlag(env, 'warnings'),
+		getLiveAlertAutopostFlag(env, 'watches'),
+		getLiveAlertAutopostFlag(env, 'others'),
+		getLiveAlertAutopostStart(env),
+	]);
+	return json({ ok: true, warnings, watches, others, startDateTime: startDate?.toISOString() ?? null });
 }
 
 // POST /api/admin/nws-alerts/run — manually trigger NWS alert ingestion

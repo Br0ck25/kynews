@@ -13,6 +13,8 @@ import {
   AccordionSummary,
   AccordionDetails,
   Chip,
+  Switch,
+  FormControlLabel,
 } from "@material-ui/core";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import SiteService from "../services/siteService";
@@ -343,6 +345,169 @@ function TokenManagementPanel() {
   );
 }
 
+// ── Auto-Post Settings Panel ─────────────────────────────────────────────────
+function AutoPostSettingsPanel() {
+  const [settings, setSettings] = useState({ warnings: true, watches: true, others: true, startDateTime: null });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null); // which key is being saved
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    service.getLiveAlertAutopostSettings()
+      .then(data => {
+        if (data && typeof data.warnings === "boolean") {
+          setSettings({
+            warnings: data.warnings,
+            watches: data.watches,
+            others: data.others,
+            startDateTime: data.startDateTime || null,
+          });
+        }
+      })
+      .catch(err => setError(err?.message || "Failed to load settings"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleToggle = async (key) => {
+    const newValue = !settings[key];
+    setSaving(key);
+    setError(null);
+    try {
+      const updated = await service.setLiveAlertAutopostSettings({ [key]: newValue });
+      if (updated && typeof updated[key] === "boolean") {
+        setSettings(prev => ({ ...prev, [key]: updated[key] }));
+      } else {
+        setSettings(prev => ({ ...prev, [key]: newValue }));
+      }
+    } catch (err) {
+      setError(err?.message || "Failed to save setting");
+    }
+    setSaving(null);
+  };
+
+  const rows = [
+    { key: "warnings", label: "Warning Auto-Post", description: "Tornado Warning, Flash Flood Warning, Winter Storm Warning, etc." },
+    { key: "watches",  label: "Watch Auto-Post",   description: "Tornado Watch, Flash Flood Watch, Winter Storm Watch, etc." },
+    { key: "others",   label: "Other Alerts Auto-Post", description: "Advisories, Statements, Outlooks, and all other alert types." },
+  ];
+
+  const setStartDateTime = async (value) => {
+    setSaving('startDateTime');
+    setError(null);
+    try {
+      const updated = await service.setLiveAlertAutopostSettings({ startDateTime: value });
+      setSettings(prev => ({ ...prev, startDateTime: updated?.startDateTime ?? value }));
+    } catch (err) {
+      setError(err?.message || "Failed to save start datetime");
+    }
+    setSaving(null);
+  };
+
+  const setNow = () => {
+    const nowUtc = new Date().toISOString().slice(0, 16);
+    setSettings(prev => ({ ...prev, startDateTime: nowUtc }));
+    setStartDateTime(nowUtc);
+  };
+
+  return (
+    <Accordion style={{ marginBottom: 16 }}>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Typography variant="subtitle2" style={{ fontWeight: 600 }}>⚙️ Auto-Post Settings</Typography>
+      </AccordionSummary>
+      <AccordionDetails>
+        <Box style={{ width: "100%" }}>
+          <Typography variant="body2" color="textSecondary" style={{ marginBottom: 12, fontSize: 12 }}>
+            Control which alert categories are automatically posted to the Live Weather Alerts Facebook page.
+            Manual posting is unaffected — only scheduled auto-posting is controlled here.
+          </Typography>
+
+          {loading && <CircularProgress size={20} />}
+
+          {!loading && rows.map(({ key, label, description }) => (
+            <Box
+              key={key}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 0",
+                borderBottom: "1px solid #e0e0e0",
+              }}
+            >
+              <Box>
+                <Typography variant="body2" style={{ fontWeight: 500 }}>{label}</Typography>
+                <Typography variant="caption" color="textSecondary">{description}</Typography>
+              </Box>
+              <Box style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {saving === key && <CircularProgress size={16} />}
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings[key]}
+                      onChange={() => handleToggle(key)}
+                      disabled={saving !== null}
+                      color="primary"
+                    />
+                  }
+                  label={
+                    <Typography variant="caption" style={{ color: settings[key] ? "#1b5e20" : "#b71c1c", fontWeight: 600 }}>
+                      {settings[key] ? "Enabled" : "Disabled"}
+                    </Typography>
+                  }
+                />
+              </Box>
+            </Box>
+          ))}
+
+          <Box style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid #e0e0e0" }}>
+            <Typography variant="subtitle2" style={{ fontWeight: 600 }}>Start date/time for auto-post</Typography>
+            <Typography variant="caption" style={{ color: "#555", display: "block", marginBottom: 8 }}>
+              Only alerts with sent time on or after this value will be auto-posted (UTC). Clears for no date filter.
+            </Typography>
+            <Box style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <TextField
+                type="datetime-local"
+                value={settings.startDateTime || ""}
+                onChange={(e) => setSettings(prev => ({ ...prev, startDateTime: e.target.value }))}
+                onBlur={(e) => setStartDateTime(e.target.value || null)}
+                size="small"
+                variant="outlined"
+                style={{ minWidth: 240 }}
+                InputLabelProps={{ shrink: true }}
+                disabled={saving !== null}
+              />
+              <Button variant="outlined" size="small" onClick={setNow} disabled={saving !== null}>
+                Set now
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => { setSettings(prev => ({ ...prev, startDateTime: null })); setStartDateTime(null); }}
+                disabled={saving !== null}
+              >
+                Clear
+              </Button>
+            </Box>
+            {settings.startDateTime && (
+              <Typography variant="caption" style={{ color: "#555", marginTop: 6 }}>
+                Current auto-post start: {settings.startDateTime}
+              </Typography>
+            )}
+          </Box>
+
+          {saving === 'startDateTime' && <Typography variant="caption" style={{ color: "#1b5e20", marginTop: 8 }}>Saving start date/time...</Typography>}
+
+          {error && (
+            <Box style={{ marginTop: 10, padding: "8px 12px", background: "#fdecea", border: "1px solid #ef9a9a", borderRadius: 4 }}>
+              <Typography variant="body2" color="error" style={{ fontSize: 12 }}>❌ {error}</Typography>
+            </Box>
+          )}
+        </Box>
+      </AccordionDetails>
+    </Accordion>
+  );
+}
+
 // ── Main tab component ────────────────────────────────────────────────────────
 export default function AdminLiveWeatherAlertsTab() {
   const [selectedArea, setSelectedArea] = useState("KY");
@@ -386,6 +551,7 @@ export default function AdminLiveWeatherAlertsTab() {
       </Typography>
 
       <TokenManagementPanel />
+      <AutoPostSettingsPanel />
 
       {/* Controls */}
       <Box style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>

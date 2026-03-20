@@ -5,6 +5,58 @@ import { sha256Hex, normalizeCanonicalUrl } from './http';
 import { findArticleByHash, insertArticle } from './db';
 // ingestSingleUrl intentionally not imported — HWO products are built directly
 
+// ─── Live Weather Alerts Facebook auto-post KV flag keys ─────────────────
+// Three independent flags controlling which alert categories are auto-posted
+// to the separate "Live Weather Alerts" Facebook page.
+export const LIVE_ALERT_AUTOPOST_KEYS = {
+  warnings: 'live:alerts:autopost:warnings',
+  watches:  'live:alerts:autopost:watches',
+  others:   'live:alerts:autopost:others',
+} as const;
+
+export const LIVE_ALERT_AUTOPOST_START_KEY = 'live:alerts:autopost:start';
+
+export type LiveAlertCategory = keyof typeof LIVE_ALERT_AUTOPOST_KEYS;
+
+/** Returns true (default) when the KV flag is absent or set to any value other than "false". */
+export async function getLiveAlertAutopostFlag(env: Env, category: LiveAlertCategory): Promise<boolean> {
+  if (!env.CACHE) return true;
+  const raw = await (env.CACHE as any).get(LIVE_ALERT_AUTOPOST_KEYS[category]);
+  if (raw === null || raw === undefined) return true;
+  return String(raw).toLowerCase() !== 'false';
+}
+
+/** Returns start Date for which alerts are eligible for auto-posting. */
+export async function getLiveAlertAutopostStart(env: Env): Promise<Date | null> {
+  if (!env.CACHE) return null;
+  const raw = await (env.CACHE as any).get(LIVE_ALERT_AUTOPOST_START_KEY);
+  if (!raw) return null;
+  const parsed = new Date(String(raw));
+  return Number.isNaN(parsed.valueOf()) ? null : parsed;
+}
+
+export async function setLiveAlertAutopostStart(env: Env, value: string | null): Promise<void> {
+  if (!env.CACHE) return;
+  if (!value) {
+    await (env.CACHE as any).delete(LIVE_ALERT_AUTOPOST_START_KEY);
+    return;
+  }
+  await (env.CACHE as any).put(LIVE_ALERT_AUTOPOST_START_KEY, String(value));
+}
+
+export async function setLiveAlertAutopostFlag(env: Env, category: LiveAlertCategory, enabled: boolean): Promise<void> {
+  if (!env.CACHE) return;
+  await (env.CACHE as any).put(LIVE_ALERT_AUTOPOST_KEYS[category], enabled ? 'true' : 'false');
+}
+
+/** Classify an NWS event string into one of the three categories. */
+export function classifyAlertCategory(event: string): LiveAlertCategory {
+  const lower = event.toLowerCase();
+  if (lower.includes('warning')) return 'warnings';
+  if (lower.includes('watch'))   return 'watches';
+  return 'others';
+}
+
 const NWS_ALERTS_URL = 'https://api.weather.gov/alerts/active?area=KY';
 const NWS_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
 
@@ -689,9 +741,15 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
       published++;
       console.log(`[NWS] Published alert: "${article.title}" → id=${id} counties=${(article.counties ?? []).join(', ')}`);
 
-      // 6. Auto-post to Facebook — failure here must never block article ingestion
+      // 6a. Auto-post to Local KY News Facebook page — failure must never block ingestion
       await postWeatherAlertToFacebook(env, alert).catch((err) => {
         console.error('[NWS-FB] Auto-post failed:', err);
+      });
+
+      // 6b. Auto-post to the separate Live Weather Alerts Facebook page,
+      //     but only if the per-category flag is enabled.
+      await postLiveAlertToFacebook(env, alert).catch((err) => {
+        console.error('[LIVE-ALERTS-FB] Auto-post failed:', err);
       });
     } catch (err) {
       console.error(`[NWS] Failed to publish alert ${alert.id}:`, err);
@@ -699,6 +757,71 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
   }
 
   return { published, skipped };
+}
+
+/**
+ * Post an NWS alert to the Live Weather Alerts Facebook page.
+ * Reads the per-category KV flag before posting; silently skips when the
+ * flag is disabled or the LIVE_ALERTS_PAGE_* secrets are not configured.
+ */
+export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promise<void> {
+  const livePageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
+  const livePageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
+  if (!livePageId || !livePageToken) return; // secrets not configured — skip silently
+
+  const category = classifyAlertCategory(alert.event);
+  const enabled  = await getLiveAlertAutopostFlag(env, category);
+  if (!enabled) {
+    console.log(`[LIVE-ALERTS-FB] Skipping "${alert.event}" — ${category} auto-post is disabled`);
+    return;
+  }
+
+  const startDate = await getLiveAlertAutopostStart(env);
+  if (startDate) {
+    const alertSent = new Date(alert.sent);
+    if (Number.isNaN(alertSent.valueOf())) {
+      console.warn(`[LIVE-ALERTS-FB] alert.sent invalid, cannot date-check: ${alert.sent}`);
+    } else if (alertSent.getTime() < startDate.getTime()) {
+      console.log(`[LIVE-ALERTS-FB] Skipping "${alert.event}" from ${alertSent.toISOString()} (before start ${startDate.toISOString()})`);
+      return;
+    }
+  }
+
+  const caption  = buildWeatherAlertFbCaption(alert);
+  const imageUrl = getWeatherAlertImageUrl(alert.event);
+
+  try {
+    if (imageUrl) {
+      const params = new URLSearchParams({ caption, url: imageUrl, access_token: livePageToken });
+      const resp = await fetch(`https://graph.facebook.com/v19.0/${livePageId}/photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params,
+      });
+      const data: any = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        console.error(`[LIVE-ALERTS-FB] Photo post failed (${resp.status}):`, JSON.stringify(data));
+      } else {
+        console.log(`[LIVE-ALERTS-FB] Posted "${alert.event}" → id=${data?.id ?? 'unknown'}`);
+      }
+    } else {
+      // Text-only fallback when no banner image is mapped for this event type
+      const params = new URLSearchParams({ message: caption, access_token: livePageToken });
+      const resp = await fetch(`https://graph.facebook.com/v19.0/${livePageId}/feed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params,
+      });
+      const data: any = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        console.error(`[LIVE-ALERTS-FB] Feed post failed (${resp.status}):`, JSON.stringify(data));
+      } else {
+        console.log(`[LIVE-ALERTS-FB] Posted "${alert.event}" (text-only) → id=${data?.id ?? 'unknown'}`);
+      }
+    }
+  } catch (err) {
+    console.error('[LIVE-ALERTS-FB] Unexpected error:', err);
+  }
 }
 
 // ─── NWS product (HWO) ingestion ──────────────────────────────────────────

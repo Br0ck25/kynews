@@ -1080,6 +1080,17 @@ export default class SiteService {
     });
   }
 
+  async getLiveAlertAutopostSettings() {
+    return this.request("/api/admin/live-alerts/autopost");
+  }
+
+  async setLiveAlertAutopostSettings(settings) {
+    return this.request("/api/admin/live-alerts/autopost", {
+      method: "POST",
+      body: JSON.stringify(settings),
+    });
+  }
+
   async exchangeFacebookToken(shortLivedToken) {
     return this.request("/api/admin/facebook/exchange-token", {
       method: "POST",
