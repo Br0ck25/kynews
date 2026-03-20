@@ -294,13 +294,16 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   // (moved to COUNTY_REQUIRES_EXPLICIT_EVIDENCE so we only assign a county when
   // it is explicitly mentioned in the article text.)
 
-  // wlky.com — previously always-national to prevent AP wire leakage.
-  // Removed (see Change 27, 2026-03-17): genuine Kentucky legislative/local
-  // stories filed under a FRANKFORT, Ky. dateline were being tagged national.
-  // NON_KY_DATELINE_RE (pattern 3) now catches AP wire datelines without a
-  // state suffix (e.g. "LOS ANGELES —"), so the always-national guard is no
-  // longer necessary. SOURCE_DEFAULT_COUNTY updated to Jefferson.
-  // 'wlky.com',
+  // wlky.com — Louisville CBS affiliate.  Re-added to always-national (2026-03-19)
+  // because AP wire stories (Trump commemorative coin, dinosaur discoveries,
+  // Alabama student, Epstein hearing, Tina Turner catalog, etc.) published on
+  // WLKY were leaking through as Kentucky content with random county assignments.
+  // NON_KY_DATELINE_RE alone was insufficient when the wire dateline appeared
+  // outside the first 2200-char lead window.  The strong-text-evidence guard
+  // (relevance.mentionCount >= 2 AND AI confirms isKentucky: true) protects
+  // genuine Louisville/Frankfort stories — the dateline + article body keeps
+  // mentionCount ≥ 2 for real local stories.
+  'wlky.com',
 
   // aginguntold.com — national aging/health news service; stories are set
   // across the US (Charlotte, Atlanta, etc.) and never Kentucky-specific.
@@ -323,6 +326,18 @@ const ALWAYS_NATIONAL_SOURCES = new Set<string>([
   // slips through the ingestion block.
   'afp.com',
   'news.afp.com',
+
+  // ipm.org (WFIU/WTIU) — Indiana Public Media; content is Indiana-focused
+  // (IN state laws, Bloomington/Indiana city stories) and should never be
+  // classified as Kentucky news.  An Indiana animal-abuse-law article was
+  // incorrectly tagged Kentucky + Rowan County (2026-03-19).
+  'ipm.org',
+
+  // theroamreport.com — national outdoor/travel publication; articles span
+  // multiple US states (Appalachian Trail, national parks, etc.) and are never
+  // Kentucky-specific. Tagged Kentucky + Madison County for a national parks
+  // ranking article with no Kentucky content (2026-03-19).
+  'theroamreport.com',
 ]);
 
 // Sources that cover both Ohio and Northern Kentucky (Cincinnati/NKY border
@@ -352,6 +367,13 @@ const COUNTY_REQUIRES_EXPLICIT_EVIDENCE = new Set<string>([  // note: pbs.org mo
   // wtvq.com publishes local KY stories but also injects national wire content.
   // Only assign a county when the article explicitly mentions a county.
   'wtvq.com',
+  // kychamberbottomline.com — Kentucky Chamber of Commerce legislative/business
+  // roundups always cover all of KY; county only when explicitly named in the text.
+  'kychamberbottomline.com',
+  // lpm.org — Louisville Public Media (formerly WFPL); covers all of KY statewide;
+  // county only when explicitly named (prevents Shelbyville → Shelby County from
+  // a quoted lawmaker's hometown being assigned as the story's primary county).
+  'lpm.org',
 ]);
 
 
@@ -524,8 +546,22 @@ export function isStatewideKyPoliticalStory(text: string): boolean {
   const hasFrankfortDateline = /\bfrankfort,?\s*ky\.?\s*[-—–(]/i.test(text);
   const hasPoliticalSignal = /\b(?:governor|legislature|lawmakers?|legislators?|general\s+assembly|state\s+(?:house|senate|budget|government|agency|department)|house\s+bill|senate\s+bill|rep\.|senator|legislation|policy|bill\s+would|signed\s+into\s+law|executive\s+order|state\s+budget|fiscal\s+year|appropriat|attorney\s+general|court\s+of\s+appeals|circuit\s+court|supreme\s+court|parole\s+board|statewide|across\s+(?:the\s+)?kentucky|across\s+(?:the\s+)?state|all\s+(?:of\s+)?kentucky|kentucky\s+(?:agencies|organizations|counties|communities|residents|families|children)|state\s+(?:funding|grant|award|contract|program|initiative|board|commission|office|law|statute|regulation)|state-?wide|cabinet\s+for|department\s+of)\b/i.test(text);
   if (hasFrankfortDateline && hasPoliticalSignal) return true;
+
+  // Governor's office announcement (abbreviated "Gov.") from Frankfort —
+  // e.g. "FRANKFORT, Ky. – Gov. Andy Beshear announced..." is a statewide
+  // press release regardless of which KY outlet picked it up.  The full word
+  // "governor" is covered by hasPoliticalSignal already; this catches the
+  // abbreviated form which the hasPoliticalSignal regex misses.
+  if (hasFrankfortDateline && /\bgov\.\s+[A-Z]/i.test(text)) return true;
   // Explicit roundup language
   if (/\bwhat\s+kentuckians?\s+said\b|\bkentucky\s+(?:lawmakers?|delegation|legislators?|congressional\s+(?:delegation|members?))\b|\breactions?\s+from\s+kentucky\b/i.test(text)) {
+    return true;
+  }
+  // Statewide alert/warning language — articles targeting ALL Kentuckians
+  // (e.g. FBI Louisville warning all Kentuckians about scams, health advisories).
+  // "targeting Kentuckians", "across Kentucky" without a specific single-city
+  // focus are reliable signals that the story has no single-county scope.
+  if (/\btargeting\s+(?:all\s+)?kentuckians?\b|\bacross\s+(?:all\s+of\s+)?kentucky\b/i.test(text)) {
     return true;
   }
   // detect three or more distinct legislative districts
@@ -535,7 +571,7 @@ export function isStatewideKyPoliticalStory(text: string): boolean {
 
   // bills plus Frankfort/statewide context
   if (/\b(?:House|Senate)\s+Bill\b/i.test(text)) {
-    if (/\bfrankfort\b|\bstatewide\b|\ball\s+of\s+kentucky\b/i.test(text)) {
+    if (/\bfrankfort\b|\bstatewide\b|\ball\s+of\s+kentucky\b|\bconference\s+committee\b|\bbiennium\b|\btwo-year[^.]{0,30}budget\b|\bexecutive\s+branch\s+budget\b|\bgovernor'?s\s+desk\b|\bheading\s+to\s+the\s+governor\b|\bfull\s+senate\b|\bfull\s+house\b/i.test(text)) {
       return true;
     }
     // A bill before a committee is statewide legislation regardless of reporter's dateline
@@ -927,7 +963,21 @@ export async function classifyArticleWithAi(
     /(?:^|\n|\.\s+)WASHINGTON\s*(?:\([^)]{1,40}\))?\s*[-—–]|(?:^|\n|\.\s+)[A-Z][A-Za-z\s]{1,25},\s*(?!ky\b|kentucky\b)(?:[a-z]+(?:\.[a-z]{1,2})*\.?)\s*(?:\([^)]{1,30}\)\s*)?[-—–]|(?:^|\n|\.\s+)?\b(?:washington|los\s+angeles|new\s+york|chicago|miami|houston|dallas|atlanta|boston|denver|phoenix|seattle|nashville|charlotte|memphis|jacksonville|san\s+francisco|san\s+diego|austin|baltimore|san\s+antonio|las\s+vegas|indianapolis|detroit|oklahoma\s+city|raleigh|fort\s+worth|baton\s+rouge|new\s+orleans|albuquerque|tucson|minneapolis|pittsburgh|virginia\s+beach|colorado\s+springs|el\s+paso|omaha|orlando|tampa|tallahassee)\s*(?:,\s*[a-z]{2,6}\.?\s*)?(?:\([^)]{1,30}\)\s*)?[-—–]/i;
   const hasNonKyDateline = NON_KY_DATELINE_RE.test(semanticLeadText);
 
-  if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline)) {
+  // Wire story with no genuine KY geo signal in the article body — Kentucky
+  // mentions exist only in site-chrome (navigation, sidebar, footer).
+  // Example: WYMT (Eastern KY station) syndicating a Gray News USPS story;
+  // "(Gray News) -" triggers isNationalWireStory but there is no "Kentucky" or
+  // "Ky." keyword anywhere in the article — county names detected from sidebar
+  // links (e.g. "Floyd County crash victim...") push baseIsKentucky to true, yet
+  // the article has zero organic KY language (mentionCount === 0).
+  // Using mentionCount === 0 (rather than also checking !detectedKyGeo.county)
+  // ensures that sidebar-bleed county names without any "Kentucky"/"Ky." text
+  // in the article body are correctly stripped.  A genuine local KY brief such
+  // as "PIKEVILLE, Ky. (AP) — ..." will always have at least one "Ky." mention
+  // in its dateline, so mentionCount >= 1 and this guard does not fire.
+  const hasNoKyBodySignal = relevance.mentionCount === 0;
+
+  if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline || hasNoKyBodySignal)) {
     // Override: treat as national despite KY mentions in the body.
     // A presidential trip that stops in KY is still a national story filed from DC.
     fallback.isKentucky = false;

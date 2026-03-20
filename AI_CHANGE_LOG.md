@@ -1218,3 +1218,343 @@ Articles from WK&T Radio frequently refer to Todd County locations (e.g. Todd Co
 **Why:**
 Louisville datelines are common, and many Louisville stories are indeed about Jefferson County even when the text does not explicitly mention county names. Preventing the default county from applying left valid Louisville stories tagged only as "Kentucky" with no county, reducing the usefulness of county-based filtering.
 
+---
+
+## 2026-03-19 — Four fixes: WLKY wire bleed, Indiana PM false KY, budget county, kychamberbottomline county
+
+---
+
+### Change 50 — Re-add `wlky.com` to `ALWAYS_NATIONAL_SOURCES` (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+- Uncommented `'wlky.com'` in `ALWAYS_NATIONAL_SOURCES`.
+
+**Articles that triggered this fix:**
+- *US Mint can begin producing Trump commemorative gold coin* (AP/WLKY) — tagged **Kentucky + Union County**. No KY content; set in Washington DC.
+- *'Hell heron': Paleontologists discover odd new dinosaur species* (CNN/WLKY) — tagged **Kentucky + Madison County**. No KY content; set in Niger.
+- *Body of Alabama student missing in Barcelona found at sea* (WVTM/WLKY) — tagged **Kentucky + Campbell County**. No KY content; set in Spain.
+- *Epstein's former attorney tells House panel he didn't know about the abuse* (AP/WLKY) — tagged **Kentucky + Hickman County**. No KY content; set in Washington DC.
+- *Tina Turner's name, image, likeness and most music catalog rights acquired by Pophouse* (AP/WLKY) — tagged **Kentucky + Kenton County**. No KY content.
+
+**Root cause:**
+Change 27 (2026-03-17) removed `wlky.com` from `ALWAYS_NATIONAL_SOURCES` to allow genuine Louisville/Frankfort stories to be tagged as Kentucky. The rationale was that Change 25 (adding major non-KY cities to `NON_KY_DATELINE_RE` pattern 3) and Change 41 (adding `washington` with optional line-start) would catch AP wire datelines. However, many WLKY-published AP wire articles present the wire dateline and byline as a single paragraph block rather than as a line-start token, placing the critical text outside the 2,200-character `semanticLeadText` window. In those cases, `isNationalWireStory = false`, `hasNonKyDateline = false`, and `isMajorNetworkByline = false` — all three guards miss the article. WLKY's scraped page content always includes Kentucky mentions in site-chrome (navigation, related-article sidebar links), which satisfies `baseIsKentucky = true`. The sidebar links also inject county names, which pass `isCountyEvidenced` (literal text match) and get assigned as the story's county — producing the random county assignments observed (Union, Madison, Campbell, Hickman, Kenton).
+
+**Why re-adding is safe:**
+The `ALWAYS_NATIONAL_SOURCES` merge guard allows genuine KY stories through when `relevance.mentionCount >= 2` AND the AI returns `isKentucky: true`. For legitimate Louisville/Frankfort stories:
+- `LOUISVILLE, Ky. —` dateline + article body → mentionCount ≥ 2 → passes the guard.
+- `FRANKFORT, Ky. (AP) —` legislative story → mentionCount ≥ 2 → passes the guard.
+For pure AP wire stories (Trump coin, dinosaur, etc.):
+- After the nav-line filter removes site-chrome Kentucky mentions, mentionCount is 0 or 1 → fails the guard → correctly national.
+
+**Mirrors:** Change 10 (original addition), Change 27 (removal), this change (re-addition).
+
+---
+
+### Change 51 — Add `ipm.org` to `ALWAYS_NATIONAL_SOURCES` (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+```diff
++ // ipm.org (WFIU/WTIU) — Indiana Public Media
++ 'ipm.org',
+```
+
+**Article that triggered this fix:**
+- *New state law to increase penalties for animal abuse, neglect* from `ipm.org` — tagged **Kentucky + Rowan County**. The article is entirely about an Indiana state law (House Enrolled Act 1165) with an Indiana lawmaker and Indiana Animal Care director quoted. No Kentucky content.
+
+**Root cause:**
+`ipm.org` (Indiana Public Media, home of WFIU/WTIU in Bloomington, IN) was not in any classification list. The article body mentioned "Indiana" many times but also included "Kentucky" in site-chrome navigation or related-article links (likely "Kentucky News" or "KY" tags in WFIU's topic sidebar). These site-chrome mentions satisfied `baseIsKentucky = true`. The AI, receiving only the first 800 characters (which includes Indiana-focused content), still returned `isKentucky: true` — possibly because "Bloomington" can be confused with Kentucky by the model, or because the navigation sidebar appeared early in the scraped text. Rowan County assignment likely came from a sidebar link to Morehead State University news or a related Rowan County article in ipm.org's sidebar.
+
+**Why safe:**
+`ipm.org` is Indiana Public Media. It covers Indiana news and public radio. No article from this source would legitimately be a Kentucky-primary story.
+
+---
+
+### Change 52 — Add `conference committee`, `biennium`, `two-year budget`, `executive branch budget` to statewide bill check (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts` — `isStatewideKyPoliticalStory`
+
+**What changed:**
+```diff
+- if (/\bfrankfort\b|\bstatewide\b|\ball\s+of\s+kentucky\b/i.test(text)) {
++ if (/\bfrankfort\b|\bstatewide\b|\ball\s+of\s+kentucky\b|\bconference\s+committee\b|\bbiennium\b|\btwo-year[^.]{0,30}budget\b|\bexecutive\s+branch\s+budget\b/i.test(text)) {
+```
+
+**Article that triggered this fix:**
+- *Senate Passes Two-Year Budget Plan, Sends Proposal Back to House* from `kychamberbottomline.com` — tagged **Kentucky + Madison County**. The story is a statewide KY legislative budget; no connection to Madison County.
+
+**Root cause:**
+`isStatewideKyPoliticalStory` detected `House Bill 500/503/504/900` in the text (triggering the bill check), then required one of `frankfort` / `statewide` / `all of kentucky` to be present. The kychamberbottomline.com article used neither; it said "conference committee" and described a "two-year executive branch budget" — both unambiguous statewide signals. Without any match, `isStatewideKyPolitics` returned `false`, the county suppression did not fire, and the AI hallucinated (or picked up from sidebar) Madison County.
+
+**New signals added:**
+| Signal | Rationale |
+|---|---|
+| `\bconference\s+committee\b` | A conference committee only exists when both chambers of a legislature must reconcile competing bills — inherently statewide |
+| `\bbiennium\b` | Two-year budget cycle terminology; always refers to state-level budgeting |
+| `\btwo-year[^.]{0,30}budget\b` | Phrase form of biennium budget; used by chamber/policy publications |
+| `\bexecutive\s+branch\s+budget\b` | The formal name of the KY state budget; unambiguously statewide |
+
+---
+
+### Change 53 — Add `kychamberbottomline.com` to `COUNTY_REQUIRES_EXPLICIT_EVIDENCE` (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+```diff
++ // kychamberbottomline.com — Kentucky Chamber of Commerce legislative/business
++ // roundups always cover all of KY; county only when explicitly named in the text.
++ 'kychamberbottomline.com',
+```
+
+**Why:**
+The Kentucky Chamber Bottomline publishes statewide Kentucky business and legislative news. Its articles cover all 120 counties and should never receive a county tag derived from AI hallucination or sidebar leakage. Requiring an explicit "X County" mention in the article text ensures county tags only appear when the story is actually about a specific county.
+
+---
+
+### Investigation note — Spring break travel article from `wnky.com` is correctly tagged (2026-03-19)
+
+**Article:** *How spring break travel plans could impact your vacation* from `wnky.com`
+**Tagged:** Kentucky + Warren County
+
+**Finding:**
+This tagging is **correct and intentional**. The article:
+- Has a `BOWLING GREEN, Ky.` dateline (Warren County).
+- Quotes a named local representative: "Lynda Lambert with AAA East Central" — a regional AAA office serving the Bowling Green/south-central Kentucky market.
+- Was filed specifically from a Bowling Green local affinity, not from a national AAA wire release.
+
+No fix needed. Warren County is the correct county for WNKY (Bowling Green market) stories with a Bowling Green dateline and a local source on camera.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| Local TV station removed from `ALWAYS_NATIONAL_SOURCES` for KY false-national | Re-add after confirming `NON_KY_DATELINE_RE` cannot reliably catch all wire dateline formats from that CMS; the strong-text-evidence guard is the correct baseline protection for genuine KY stories |
+| Non-KY public media outlet (Indiana, Ohio, etc.) not in any list | Add to `ALWAYS_NATIONAL_SOURCES`; sidebar/nav "Kentucky" links will always leak KY tags otherwise |
+| KY state budget article not detected as statewide | Add `conference committee`, `biennium`, `two-year budget`, `executive branch budget` to the bill-context check in `isStatewideKyPoliticalStory`; Frankfort dateline is NOT required for statewide budget coverage |
+| Statewide KY policy source (chamber, trade publication) getting hallucinated county | Add to `COUNTY_REQUIRES_EXPLICIT_EVIDENCE`; these sources never cover a single county |
+
+---
+
+### Change 54 — Add `governor's desk`, `full senate`, `full house` to statewide bill check (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts` — `isStatewideKyPoliticalStory`
+
+**What changed:**
+```diff
+- if (/\bfrankfort\b|\bstatewide\b|...|\bexecutive\s+branch\s+budget\b/i.test(text)) {
++ if (/\bfrankfort\b|\bstatewide\b|...|\bexecutive\s+branch\s+budget\b|\bgovernor'?s\s+desk\b|\bheading\s+to\s+the\s+governor\b|\bfull\s+senate\b|\bfull\s+house\b/i.test(text)) {
+```
+
+**Article that triggered this fix:**
+- *18-year-old Kentuckians could carry concealed guns under bill moving toward final passage* from `lpm.org` — tagged **Kentucky + Shelby County**. The article (House Bill 312) is a statewide Kentucky gun bill. Shelby County was assigned because the text says "GOP Sen. Aaron Reed of Shelbyville" — `detectCity` found "shelbyville" → Shelby County. No connection to actual story geography.
+
+**Root cause:**
+The bill check in `isStatewideKyPoliticalStory` fired for "House Bill 312" then required one of `frankfort|statewide|conference committee|biennium|two-year budget|executive branch budget` to be present. The article used "heading to the governor's desk" and "needs only pass the full Senate" — neither matched the existing patterns.
+
+**New signals added:**
+| Signal | Rationale |
+|---|---|
+| `\bgovernor'?s\s+desk\b` | Bill reaching the governor's desk = passed both chambers = statewide |
+| `\bheading\s+to\s+the\s+governor\b` | Phrase variant of the above |
+| `\bfull\s+senate\b` | Vote by the full chamber = statewide legislative action |
+| `\bfull\s+house\b` | Same for House chamber |
+
+---
+
+### Change 55 — Add `lpm.org` to `COUNTY_REQUIRES_EXPLICIT_EVIDENCE` (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+```diff
++ // lpm.org — Louisville Public Media (formerly WFPL); covers all of KY statewide;
++ // county only when explicitly named.
++ 'lpm.org',
+```
+
+**Why:**
+Louisville Public Media (`lpm.org`) is the successor brand to WFPL and covers all of Kentucky (state legislature, statewide policy, Louisville metro). A senator's hometown ("Shelbyville") in a statewide gun bill article should not produce a Shelby County tag. Requiring an explicit "Shelby County" mention prevents hometown-based county hallucinations.
+
+---
+
+### Change 56 — Add `theroamreport.com` to `ALWAYS_NATIONAL_SOURCES` (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+```diff
++ // theroamreport.com — national outdoor/travel publication
++ 'theroamreport.com',
+```
+
+**Article that triggered this fix:**
+- *The Appalachian Trail Makes History With Its First Appearance on the Most Visited National Parks List* from `theroamreport.com` — tagged **Kentucky + Madison County**. The article covers 14 US states and never mentions Kentucky.
+
+**Root cause:**
+`theroamreport.com` had no classification entry. Site-chrome Kentucky mentions (navigation links) caused `baseIsKentucky = true`. AI (or geo detector) produced Madison County — likely from the Appalachian Trail article mentioning Virginia/Blue Ridge context, combined with WYMT/KY sidebar bleed. Zero Kentucky content in the article body.
+
+---
+
+### Change 57 — Expand `isNationalWireStory` strip: clear KY when no genuine geo signal (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Added a third condition to the `isNationalWireStory` Kentucky-strip block:
+```diff
+- if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline)) {
++ const hasNoKyBodySignal =
++   !detectedKyGeo.county && !detectedKyGeo.city && relevance.mentionCount < 2;
++ if (isNationalWireStory && (hasOnlyPoliticianKyMention || hasNonKyDateline || hasNoKyBodySignal)) {
+```
+
+**Article that triggered this fix:**
+- *USPS wants to raise the price of a stamp to almost $1* from `wymt.com` — tagged **Kentucky + Floyd County**. The article is a "(Gray News) -" national wire story with no Kentucky content. WYMT is a genuine Kentucky outlet (Hazard) but syndicates national Gray News content.
+
+**Root cause:**
+`NATIONAL_WIRE_OVERRIDE_RE` matched "(Gray News)" → `isNationalWireStory = true`. However the strip condition `(hasOnlyPoliticianKyMention || hasNonKyDateline)` did not fire:
+- No KY politician mention.
+- No non-KY city dateline (the article has no "CITY, STATE —" prefix).
+So `fallback.isKentucky = true` (from WYMT site-chrome KY nav text) was returned via the early-exit `return fallback`. Floyd County came from a WYMT sidebar link to a Floyd County-related story appearing in `semanticText`.
+
+**`hasNoKyBodySignal` definition:**
+`!detectedKyGeo.county && !detectedKyGeo.city && relevance.mentionCount < 2`
+- `detectedKyGeo.county = null` — no KY county found by geo detector in article body
+- `detectedKyGeo.city = null` — no KY city found in article body
+- `relevance.mentionCount < 2` — after nav-line filtering, fewer than 2 meaningful KY mentions
+
+**Safety for genuine WYMT local stories:**
+A real WYMT story about a crash in Floyd County would have "Floyd, KY", "Floyd County", or "Prestonsburg" → `detectedKyGeo.county = 'Floyd'` → condition fails → stays Kentucky. ✓
+A FRANKFORT AP story would have "Frankfort" city detected → condition fails. ✓
+A national wire story from WYMT (USPS, NFL, national politics) → no KY geo → condition passes → national. ✓
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| State bill moving to "governor's desk" or needing "full Senate" vote | Add these phrases to statewide bill context; they are unambiguous signs of bicameral legislation reaching final stage |
+| Statewide public media outlet (LPM, WFPL) getting lawmaker-hometown county | Add to `COUNTY_REQUIRES_EXPLICIT_EVIDENCE`; a quoted senator's hometown is not the story's geographic subject |
+| National outdoor/travel/lifestyle publication not in any list | Add to `ALWAYS_NATIONAL_SOURCES`; site-chrome leakage will always produce false KY tags |
+| `isNationalWireStory = true` but `hasNonKyDateline = false` and article has no KY body content | The two existing conditions are insufficient — add `hasNoKyBodySignal` (no county, no city, < 2 KY mentions) as third condition |
+
+---
+
+### Change 58 — Upgrade `hasNoKyBodySignal` to `mentionCount === 0` (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+```diff
+- const hasNoKyBodySignal =
+-   !detectedKyGeo.county && !detectedKyGeo.city && relevance.mentionCount < 2;
++ // Using mentionCount === 0 (rather than also checking !detectedKyGeo.county)
++ // ensures that sidebar-bleed county names without any "Kentucky"/"Ky." text
++ // in the article body are correctly stripped.
++ const hasNoKyBodySignal = relevance.mentionCount === 0;
+```
+
+**Articles that triggered this fix:**
+- *Trump makes joke about Pearl Harbor* from `wbko.com` — tagged **Kentucky + Knox County**
+- *Nearly 90,000 bottles of children's ibuprofen recalled* from `wbko.com` — tagged **Kentucky + Knox County**
+- *Housing market won't bounce back to normal* from `wymt.com` — tagged **Kentucky + Knox County** (InvestigateTV wire)
+
+**Root cause of Change 57 gap:**
+Change 57's `hasNoKyBodySignal` only fired when `!detectedKyGeo.county`. But Knox County and Floyd County names appearing in sidebar/navigation text scraped from the wbko.com/wymt.com pages were being detected by `detectKentuckyGeo(semanticText)`, setting `detectedKyGeo.county = 'Knox'` or `'Floyd'`. This made the `!detectedKyGeo.county` part of the condition false, so the strip didn't fire, even though `relevance.mentionCount = 0` (zero "Kentucky"/"Ky." text in the article).
+
+**Updated logic:**
+`hasNoKyBodySignal = relevance.mentionCount === 0` — fires when there is absolutely zero organic Kentucky keyword content in the article. A county name in a sidebar link is NOT a Kentucky keyword; it doesn't produce any `mentionCount`. So articles with ONLY sidebar-bleed county names and no actual Kentucky language are correctly identified.
+
+**Safety for genuine local stories:**
+A genuine AP brief filed from Kentucky ("PIKEVILLE, Ky. (AP) — A Pike County man was...") always contains at least one "Ky." in the dateline → `mentionCount >= 1` → condition fails → article stays Kentucky. ✓
+Any local KY story with a Kentucky dateline, city name written as "City, Ky.", or explicit "Kentucky" in the body → `mentionCount >= 1` → not stripped. ✓
+
+---
+
+### Change 59 — `isStatewideKyPoliticalStory`: recognize abbreviated "Gov." (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Added a new check after the existing `hasFrankfortDateline && hasPoliticalSignal` check:
+```typescript
+// Governor's office announcement (abbreviated "Gov.") from Frankfort
+if (hasFrankfortDateline && /\bgov\.\s+[A-Z]/i.test(text)) return true;
+```
+
+**Article that triggered this fix:**
+- *Team Kentucky's second Safe Teen Driving Challenge offers cash prizes* from `wnky.com` — tagged **Kentucky + Warren County**. Article has dateline "FRANKFORT, Ky. –" and body says "Gov. Andy Beshear announced..." — a statewide governor's press release that was incorrectly tagged Warren County (wnky.com's source default).
+
+**Root cause:**
+`hasPoliticalSignal` regex matches `\bgovernor\b` (the full word) but not the abbreviation `Gov.`. The article used `Gov. Andy Beshear` throughout. Zero other political signals fired (no bill text, no statewide keyword in the regex). So `isStatewideKyPoliticalStory` returned `false` → source default Warren County applied.
+
+**Why this is safe:**
+The condition requires BOTH a Frankfort dateline AND the `gov. [Capital letter]` pattern. An article about Frankfort history that happens to mention "Gov. [Historical figure]" would still pass both conditions — but those articles are genuinely statewide stories about historical Kentucky governors, so suppressing the county is correct.
+
+---
+
+### Change 60 — `isStatewideKyPoliticalStory`: add "targeting Kentuckians"/"across Kentucky" signals (2026-03-19)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Added a new early-return block in `isStatewideKyPoliticalStory` after the existing roundup-language check:
+```typescript
+// Statewide alert/warning language
+if (/\btargeting\s+(?:all\s+)?kentuckians?\b|\bacross\s+(?:all\s+of\s+)?kentucky\b/i.test(text)) {
+  return true;
+}
+```
+
+**Article that triggered this fix:**
+- *FBI warns of rising sheriff impersonation scams in Kentucky* from `harlanenterprise.net` — tagged **Kentucky + Harlan County**. Article body: "schemes targeting Kentuckians" and "law enforcement agencies across Kentucky". This is a statewide FBI warning, not a Harlan-county-specific story.
+
+**Root cause:**
+The article has a Louisville dateline (not Frankfort), no bill text, no legislative signals, fewer than 4 KY cities. None of the existing `isStatewideKyPoliticalStory` checks fired. The harlanenterprise.net source default (Harlan County) was applied.
+
+**Safety:**
+`targeting Kentuckians` only appears in statewide-scope alert/advisory articles. `across Kentucky` (or `across all of Kentucky`) is a reliable indicator that the story has statewide scope with no single-county subject. False-positive risk is very low.
+
+---
+
+### Change 61 — Strip "What you need to know" CMS section header in summarization (2026-03-19)
+
+**File:** `worker/src/lib/ai.ts`
+
+**What changed:**
+Added a strip in `cleanContentForSummarization`:
+```typescript
+// Strip "What you need to know" CMS summary boxes (linknky.com / LINK nky).
+t = t.replace(/^What\s+you\s+need\s+to\s+know\b.+?(?=\n{2,})/gims, '');
+```
+
+**Article that triggered this fix:**
+- *Independence opposes bill to partially abolish property tax* from `linknky.com` — summary started with "What you need to know" section header and bullet points instead of the article narrative.
+
+**Root cause:**
+linknky.com (LINK nky) articles use a CMS pattern where a "What you need to know" header precedes 2–4 bullet-synopsis lines before the article body. The `cleanContentForSummarization` function did not strip this header, so the AI summarizer was receiving the teaser bullets as the lead content and incorporating the header phrase into the summary.
+
+**Pattern details:**
+- `^What\s+you\s+need\s+to\s+know\b` — anchored at line start
+- `.+?(?=\n{2,})` with `gims` flags — matches everything up to (but not including) the first blank line (the section separator). The `s` (dotAll) flag allows `.` to match newlines within the section.
+- After stripping, the blank line remains as a paragraph break before the article body.
+
+**Also applies to:** Any other publication that uses identical "What you need to know" section headers (common in modern CMS templates).
+
+---
+
+## Rules derived from these additional fixes
+
+| Pattern | Rule |
+|---|---|
+| Wire story (`isNationalWireStory = true`) with county name only from sidebar bleed, no "Kentucky"/"Ky." in article body | Use `mentionCount === 0` for `hasNoKyBodySignal`; county-only bleed without any KY language is always sidebar noise |
+| Governor's press release from Frankfort with abbreviated "Gov." title | Extend `isStatewideKyPoliticalStory` Gov.-abbreviation check; `hasPoliticalSignal` only catches full "governor" |
+| Statewide law-enforcement/health warning "targeting Kentuckians" from local outlet | Add `targeting Kentuckians` as statewide signal; these always affect the entire Commonwealth |
+| CMS "What you need to know" bullet list before article body | Strip in `cleanContentForSummarization`; prevents summary from parroting teaser bullets |

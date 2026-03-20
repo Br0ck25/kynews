@@ -1044,6 +1044,12 @@ export function cleanContentForSummarization(text: string, title: string): strin
   t = t.replace(/^[^\n]{10,300}(?:Source:\s*Envato|Getty\s*Images?|iStock|Shutterstock|AP\s*Photo)[^\n]*\n?/gim, '');
 
   t = t.replace(/^\s*Summary\s*\n?/gim, '');
+  // Strip "What you need to know" CMS summary boxes (linknky.com / LINK nky).
+  // These appear as a standalone header followed by 2-5 brief summary bullets
+  // before the article body proper; they start at a line boundary and end at
+  // the next double newline.  Stripping prevents the AI from summarizing the
+  // teaser bullets instead of the article narrative.
+  t = t.replace(/^What\s+you\s+need\s+to\s+know\b.+?(?=\n{2,})/gims, '');
 
   // Publisher-specific boilerplate
   t = t.replace(/Listen to this article with a (?:free|paid)?\s*account[^\n]*/gi, '');
