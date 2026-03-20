@@ -86,6 +86,21 @@ import {
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
 const MAX_SEED_LIMIT_PER_SOURCE = 10000;
+
+const DIGEST_AUTOPOST_ENABLED_KEY = 'admin:digest:autopost:enabled';
+
+async function getDigestAutopostEnabled(env: Env): Promise<boolean> {
+	if (!env.CACHE) return true;
+	const raw = await (env.CACHE as any).get(DIGEST_AUTOPOST_ENABLED_KEY);
+	if (raw === null || raw === undefined) return true;
+	return String(raw).toLowerCase() !== 'false';
+}
+
+async function setDigestAutopostEnabled(env: Env, enabled: boolean): Promise<void> {
+	if (!env.CACHE) return;
+	await (env.CACHE as any).put(DIGEST_AUTOPOST_ENABLED_KEY, enabled ? 'true' : 'false');
+}
+
 // If an article has fewer than this many raw words (measured at ingest)
 // we serve a noindex directive to crawlers.
 // Thin but valid content is indexed but should be capped in the snippet.
@@ -2729,18 +2744,38 @@ if (url.pathname === '/api/admin/digest/save' && request.method === 'POST') {
 }
 
 // ── GET /api/admin/digest/autopost ─────────────────────────────────────────
-// Returns the pending/suppressed/posted status for the morning/evening auto-post.
+// Returns the pending/suppressed/posted status for the morning/evening auto-post
+// along with the global enabled/disabled state.
 if (url.pathname === '/api/admin/digest/autopost' && request.method === 'GET') {
 	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
-	if (!env.CACHE) return json({ morning: null, evening: null });
+	if (!env.CACHE) return json({ enabled: true, morning: null, evening: null });
 	const [morningRaw, eveningRaw] = await Promise.all([
 		(env.CACHE as any).get('admin:digest:morning:autopost'),
 		(env.CACHE as any).get('admin:digest:evening:autopost'),
 	]);
+	const enabled = await getDigestAutopostEnabled(env);
 	return json({
+		enabled,
 		morning: morningRaw ? JSON.parse(morningRaw) : null,
 		evening: eveningRaw ? JSON.parse(eveningRaw) : null,
 	});
+}
+
+// ── POST /api/admin/digest/autopost ────────────────────────────────────────
+// Enable or disable global digest auto-posting.
+if (url.pathname === '/api/admin/digest/autopost' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ enabled?: boolean }>(request);
+	if (!body || typeof body.enabled !== 'boolean') return badRequest('Missing or invalid enabled flag');
+	await setDigestAutopostEnabled(env, body.enabled);
+	if (env.CACHE) {
+		const status = body.enabled ? { status: 'idle' } : { status: 'disabled', disabledAt: new Date().toISOString() };
+		await Promise.all([
+			(env.CACHE as any).put('admin:digest:morning:autopost', JSON.stringify(status), { expirationTtl: 7200 }),
+			(env.CACHE as any).put('admin:digest:evening:autopost', JSON.stringify(status), { expirationTtl: 7200 }),
+		]);
+	}
+	return json({ ok: true, enabled: body.enabled });
 }
 
 // ── POST /api/admin/digest/suppress ───────────────────────────────────────
@@ -6829,6 +6864,8 @@ async function maybeRunDigest(env: Env): Promise<void> {
   // ensures the digest is only generated once per calendar day.  Widening from
   // a single-minute check to a 30-minute window means a missed cron tick can
   // never silently prevent the morning post from firing.
+  const digestAutopostEnabled = await getDigestAutopostEnabled(env);
+
   if (hour === 6 && minute >= 30) {
     const generatedKey = `admin:digest:morning:generated:${todayEt}`;
     const alreadyGenerated = await (env.CACHE as any).get(generatedKey);
@@ -6836,14 +6873,25 @@ async function maybeRunDigest(env: Env): Promise<void> {
       const text = await generateDigestText(env, 'morning');
       const entry = { text, generatedAt: new Date().toISOString() };
       await (env.CACHE as any).put('admin:digest:morning', JSON.stringify(entry));
-      await (env.CACHE as any).put(
-        'admin:digest:morning:autopost',
-        JSON.stringify({ status: 'pending', scheduledFor: '7:00 AM', generatedAt: new Date().toISOString() }),
-        { expirationTtl: 7200 },
-      );
+
+      if (digestAutopostEnabled) {
+        await (env.CACHE as any).put(
+          'admin:digest:morning:autopost',
+          JSON.stringify({ status: 'pending', scheduledFor: '7:00 AM', generatedAt: new Date().toISOString() }),
+          { expirationTtl: 7200 },
+        );
+        console.log(`[DIGEST] Generated morning digest for ${todayEt}, autopost pending at 7:00 AM`);
+      } else {
+        await (env.CACHE as any).put(
+          'admin:digest:morning:autopost',
+          JSON.stringify({ status: 'disabled', disabledAt: new Date().toISOString() }),
+          { expirationTtl: 7200 },
+        );
+        console.log(`[DIGEST] Generated morning digest for ${todayEt}, autopost disabled`);
+      }
+
       // Mark as generated for today so later ticks in this window are no-ops.
       await (env.CACHE as any).put(generatedKey, '1', { expirationTtl: 3600 * 8 });
-      console.log(`[DIGEST] Generated morning digest for ${todayEt}, autopost pending at 7:00 AM`);
     }
   }
 
@@ -6855,7 +6903,7 @@ async function maybeRunDigest(env: Env): Promise<void> {
     const raw = await (env.CACHE as any).get('admin:digest:morning:autopost');
     if (raw) {
       const flag = JSON.parse(raw) as { status: string };
-      if (flag.status === 'pending') {
+      if (digestAutopostEnabled && flag.status === 'pending') {
         const digestRaw = await (env.CACHE as any).get('admin:digest:morning');
         if (digestRaw) {
           const digest = JSON.parse(digestRaw) as { text: string };
@@ -6885,13 +6933,24 @@ async function maybeRunDigest(env: Env): Promise<void> {
       const text = await generateDigestText(env, 'evening');
       const entry = { text, generatedAt: new Date().toISOString() };
       await (env.CACHE as any).put('admin:digest:evening', JSON.stringify(entry));
-      await (env.CACHE as any).put(
-        'admin:digest:evening:autopost',
-        JSON.stringify({ status: 'pending', scheduledFor: '6:00 PM', generatedAt: new Date().toISOString() }),
-        { expirationTtl: 7200 },
-      );
+
+      if (digestAutopostEnabled) {
+        await (env.CACHE as any).put(
+          'admin:digest:evening:autopost',
+          JSON.stringify({ status: 'pending', scheduledFor: '6:00 PM', generatedAt: new Date().toISOString() }),
+          { expirationTtl: 7200 },
+        );
+        console.log(`[DIGEST] Generated evening digest for ${todayEt}, autopost pending at 6:00 PM`);
+      } else {
+        await (env.CACHE as any).put(
+          'admin:digest:evening:autopost',
+          JSON.stringify({ status: 'disabled', disabledAt: new Date().toISOString() }),
+          { expirationTtl: 7200 },
+        );
+        console.log(`[DIGEST] Generated evening digest for ${todayEt}, autopost disabled`);
+      }
+
       await (env.CACHE as any).put(generatedKey, '1', { expirationTtl: 3600 * 8 });
-      console.log(`[DIGEST] Generated evening digest for ${todayEt}, autopost pending at 6:00 PM`);
     }
   }
 
@@ -6900,7 +6959,7 @@ async function maybeRunDigest(env: Env): Promise<void> {
     const raw = await (env.CACHE as any).get('admin:digest:evening:autopost');
     if (raw) {
       const flag = JSON.parse(raw) as { status: string };
-      if (flag.status === 'pending') {
+      if (digestAutopostEnabled && flag.status === 'pending') {
         const digestRaw = await (env.CACHE as any).get('admin:digest:evening');
         if (digestRaw) {
           const digest = JSON.parse(digestRaw) as { text: string };

@@ -24,7 +24,8 @@ export default function DigestTab({ service }) {
   const [postingEvening, setPostingEvening] = useState(false);
   const [copiedMorning, setCopiedMorning] = useState(false);
   const [copiedEvening, setCopiedEvening] = useState(false);
-  const [autopost, setAutopost] = useState({ morning: null, evening: null });
+  const [autopost, setAutopost] = useState({ enabled: true, morning: null, evening: null });
+  const [autopostToggleLoading, setAutopostToggleLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -51,7 +52,13 @@ export default function DigestTab({ service }) {
   async function loadAutopostStatus() {
     try {
       const data = await service.getAutopostStatus();
-      if (data) setAutopost(data);
+      if (data) {
+        setAutopost({
+          enabled: data.enabled !== false,
+          morning: data.morning || null,
+          evening: data.evening || null,
+        });
+      }
     } catch {
       // silent fail — autopost status is non-critical
     }
@@ -115,6 +122,21 @@ export default function DigestTab({ service }) {
       setError(`Failed to post ${when} digest.`);
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function toggleAutopostEnabled() {
+    setAutopostToggleLoading(true);
+    setError("");
+    try {
+      const newEnabled = !autopost.enabled;
+      await service.setAutopostEnabled(newEnabled);
+      setAutopost((prev) => ({ ...prev, enabled: newEnabled }));
+      await loadAutopostStatus();
+    } catch {
+      setError(`Failed to ${autopost.enabled ? 'disable' : 'enable'} auto-posting.`);
+    } finally {
+      setAutopostToggleLoading(false);
     }
   }
 
@@ -403,6 +425,23 @@ export default function DigestTab({ service }) {
         <strong>Edit</strong> to modify before posting, and{" "}
         <strong>Copy for Facebook</strong> to copy the formatted text to your clipboard.
       </Typography>
+
+      <Box style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <Typography variant="body2" style={{ fontWeight: 600 }}>
+          Auto-posting is {autopost.enabled ? 'enabled' : 'disabled'}.
+        </Typography>
+        <Button
+          variant={autopost.enabled ? 'outlined' : 'contained'}
+          color={autopost.enabled ? 'secondary' : 'primary'}
+          size="small"
+          onClick={toggleAutopostEnabled}
+          disabled={autopostToggleLoading}
+        >
+          {autopostToggleLoading
+            ? (autopost.enabled ? 'Disabling...' : 'Enabling...')
+            : (autopost.enabled ? 'Disable Auto-Post' : 'Enable Auto-Post')}
+        </Button>
+      </Box>
 
       {error && (
         <Typography color="error" variant="body2" style={{ marginBottom: 12 }}>

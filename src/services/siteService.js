@@ -1050,6 +1050,13 @@ export default class SiteService {
     return this.request("/api/admin/digest/autopost");
   }
 
+  async setAutopostEnabled(enabled) {
+    return this.request("/api/admin/digest/autopost", {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
   async suppressAutopost(when) {
     const res = await this.request("/api/admin/digest/suppress", {
       method: "POST",
