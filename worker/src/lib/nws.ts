@@ -702,6 +702,13 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
   }
 
   for (const alert of alerts) {
+    // Auto-post to the Live Weather Alerts Facebook page for every active alert.
+    // postLiveAlertToFacebook has its own KV dedup key so each alert only
+    // posts once, regardless of whether it was already ingested as an article.
+    await postLiveAlertToFacebook(env, alert).catch((err) => {
+      console.error('[LIVE-ALERTS-FB] Auto-post failed:', err);
+    });
+
     try {
       // 1. KV dedup — skip if we've already published this NWS alert ID
       const isNew = await markAlertIfNew(env, alert.id);
@@ -741,15 +748,9 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
       published++;
       console.log(`[NWS] Published alert: "${article.title}" → id=${id} counties=${(article.counties ?? []).join(', ')}`);
 
-      // 6a. Auto-post to Local KY News Facebook page — failure must never block ingestion
+      // 6. Auto-post to Local KY News Facebook page — failure must never block ingestion
       await postWeatherAlertToFacebook(env, alert).catch((err) => {
         console.error('[NWS-FB] Auto-post failed:', err);
-      });
-
-      // 6b. Auto-post to the separate Live Weather Alerts Facebook page,
-      //     but only if the per-category flag is enabled.
-      await postLiveAlertToFacebook(env, alert).catch((err) => {
-        console.error('[LIVE-ALERTS-FB] Auto-post failed:', err);
       });
     } catch (err) {
       console.error(`[NWS] Failed to publish alert ${alert.id}:`, err);
@@ -763,11 +764,23 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
  * Post an NWS alert to the Live Weather Alerts Facebook page.
  * Reads the per-category KV flag before posting; silently skips when the
  * flag is disabled or the LIVE_ALERTS_PAGE_* secrets are not configured.
+ * Uses its own KV dedup key (separate from the article ingestion key) so
+ * that alerts already ingested as articles still get posted here.
  */
 export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promise<void> {
   const livePageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
   const livePageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
   if (!livePageId || !livePageToken) return; // secrets not configured — skip silently
+
+  // Separate dedup key — prevents double-posting to Live Alerts FB page
+  // without blocking article ingestion dedup.
+  if (env.CACHE) {
+    const fbKey = `live:alerts:fb:${await sha256Hex(alert.id)}`;
+    const alreadyPosted = await env.CACHE.get(fbKey);
+    if (alreadyPosted) return;
+    // Mark immediately (before posting) to prevent races on concurrent runs
+    await env.CACHE.put(fbKey, '1', { expirationTtl: 172800 });
+  }
 
   const category = classifyAlertCategory(alert.event);
   const enabled  = await getLiveAlertAutopostFlag(env, category);
