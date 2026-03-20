@@ -55,6 +55,39 @@ const SEVERITY_COLOR = {
   Extreme: "#d32f2f", Severe: "#f57c00", Moderate: "#fbc02d", Minor: "#388e3c",
 };
 
+// Mirror the worker's cleanNwsDescription for preview
+function cleanNwsDescription(text) {
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  const blocks = normalized.split(/\n{2,}/);
+  const result = blocks.map(block => {
+    const lines = block.split("\n");
+    const items = [];
+    let current = "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/^\* /.test(trimmed) || /^- /.test(trimmed)) {
+        if (current) items.push(current);
+        current = trimmed;
+      } else if (current) {
+        current += " " + trimmed;
+      } else {
+        current = trimmed;
+      }
+    }
+    if (current) items.push(current);
+    return items.map(item => {
+      item = item.replace(/^\* ([A-Z ]+)\.\.\./, "$1: ");
+      item = item.replace(/^\* ([A-Z ]+)\.\.\.$/, "$1:");
+      item = item.replace(/^\.\.\./, "");
+      item = item.replace(/\.\.\.$/, "");
+      item = item.replace(/^(- [A-Za-z ]+)\.\.\./, "$1: ");
+      return item.trim();
+    }).filter(s => s.length > 0).join("\n");
+  });
+  return result.filter(s => s.length > 0).join("\n\n");
+}
+
 // Mirror the worker's buildWeatherAlertFbCaption for preview
 function buildPreviewCaption(props) {
   const area = (props.areaDesc || "").split(/;\s*/).join(",  ");
@@ -74,11 +107,11 @@ function buildPreviewCaption(props) {
   lines.push("");
   if (props.headline) lines.push(props.headline);
   lines.push("");
-  lines.push((props.description || "").trim());
+  lines.push(cleanNwsDescription((props.description || "").trim()));
   lines.push("");
-  lines.push(
-    "#WeatherAlert #SevereWeather #NWS #LocalKYNews #StaySafe #WeatherWarning #EmergencyAlert"
-  );
+  lines.push("https://localkynews.com/live-weather-alerts");
+  lines.push("");
+  lines.push("#weatheralert #weather #alert");
   return lines.join("\n");
 }
 

@@ -90,7 +90,11 @@ export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
  */
 export async function fetchNwsAlertById(alertId: string): Promise<NwsAlert | null> {
   if (!alertId) return null;
-  const url = `https://api.weather.gov/alerts/${encodeURIComponent(alertId)}`;
+  // If the caller passes the full NWS URL, use it directly; otherwise build
+  // the URL from the bare resource ID (e.g. "urn:oid:...").
+  const url = alertId.startsWith('https://')
+    ? alertId
+    : `https://api.weather.gov/alerts/${encodeURIComponent(alertId)}`;
   const res = await fetch(url, {
     headers: {
       'User-Agent': NWS_USER_AGENT,
@@ -489,24 +493,56 @@ export function getWeatherAlertImageUrl(event: string): string {
   return map[event] ?? WEATHER_ALERT_IMAGE_URL;
 }
 
-/** Fixed hashtag block appended to every weather alert FB post. */
-const WEATHER_ALERT_HASHTAGS = '#localkynews #kentuckyalerts #weatheralert #kentuckyweather';
+/**
+ * Clean NWS alert description text:
+ * - Joins hard-wrapped continuation lines back into full sentences.
+ * - Converts "* WHAT...text" bullets to "WHAT: text".
+ * - Strips leading/trailing "..." NWS section markers.
+ * - Converts "- Label...text" sub-bullet separators to "- Label: text".
+ */
+function cleanNwsDescription(text: string): string {
+  const normalized = text.replace(/\r\n/g, '\n').trim();
+  const blocks = normalized.split(/\n{2,}/);
+
+  const result = blocks.map(block => {
+    const lines = block.split('\n');
+    const items: string[] = [];
+    let current = '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/^\* /.test(trimmed) || /^- /.test(trimmed)) {
+        if (current) items.push(current);
+        current = trimmed;
+      } else if (current) {
+        current += ' ' + trimmed;
+      } else {
+        current = trimmed;
+      }
+    }
+    if (current) items.push(current);
+
+    return items.map(item => {
+      // "* WHAT...text" → "WHAT: text"
+      item = item.replace(/^\* ([A-Z ]+)\.\.\./, '$1: ');
+      // "* ADDITIONAL DETAILS..." (no following text) → "ADDITIONAL DETAILS:"
+      item = item.replace(/^\* ([A-Z ]+)\.\.\.$/, '$1:');
+      // Strip leading "..."
+      item = item.replace(/^\.\.\./, '');
+      // Strip trailing "..."
+      item = item.replace(/\.\.\.$/, '');
+      // "- Label...text" sub-bullet separator → "- Label: text"
+      item = item.replace(/^(- [A-Za-z ]+)\.\.\./, '$1: ');
+      return item.trim();
+    }).filter(s => s.length > 0).join('\n');
+  });
+
+  return result.filter(s => s.length > 0).join('\n\n');
+}
 
 /**
- * Build the Facebook post caption for an NWS alert in the format the user
- * expects:
- *
- *   SPECIAL WEATHER STATEMENT
- *
- *   Area: Orange,  Washington,  Scott,  Jefferson,  Dubois
- *   Expires: Mar 18, 5:00 AM EDT
- *   Severity: Moderate
- *
- *   Special Weather Statement issued March 17 at 8:54PM EDT by NWS Louisville KY
- *
- *   <description text>
- *
- *   #localkynews #kentuckyalerts #weatheralert #kentuckyweather
+ * Build the Facebook post caption for an NWS alert.
  */
 export function buildWeatherAlertFbCaption(alert: NwsAlert): string {
   // Area: NWS separates areas with "; " — replace with ",  " to match expected style
@@ -535,9 +571,11 @@ export function buildWeatherAlertFbCaption(alert: NwsAlert): string {
   lines.push('');
   if (alert.headline) lines.push(alert.headline);
   lines.push('');
-  lines.push(alert.description.trim());
+  lines.push(cleanNwsDescription(alert.description.trim()));
   lines.push('');
-  lines.push(WEATHER_ALERT_HASHTAGS);
+  lines.push('https://localkynews.com/live-weather-alerts');
+  lines.push('');
+  lines.push('#weatheralert #weather #alert');
 
   return lines.join('\n');
 }

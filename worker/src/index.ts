@@ -2449,8 +2449,15 @@ if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
 	const body = await parseJsonBody<{ alertId?: string }>(request);
-	const alertId = (body?.alertId ?? '').trim();
+	let alertId = (body?.alertId ?? '').trim();
 	if (!alertId) return badRequest('Missing alertId');
+
+	// NWS alert IDs from the GeoJSON API are full URLs like
+	// "https://api.weather.gov/alerts/urn:oid:...". Strip to just the resource
+	// path so fetchNwsAlertById can construct the correct request URL.
+	if (alertId.startsWith('https://api.weather.gov/alerts/')) {
+		alertId = alertId.slice('https://api.weather.gov/alerts/'.length);
+	}
 
 	const liveAlertsPageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
 	const liveAlertsPageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
