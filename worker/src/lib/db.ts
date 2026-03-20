@@ -1489,8 +1489,18 @@ export async function listAdminArticles(env: Env, options: {
     }
   }
 
-  const hasMore = mapped.length > options.limit;
-  const items = hasMore ? mapped.slice(0, options.limit) : mapped;
+  // Ensure we never return duplicate article IDs, even if some upstream
+  // query anomalies make duplicates slip through.
+  const uniqueById = new Map<number, ArticleRecord>();
+  for (const item of mapped) {
+    if (!uniqueById.has(item.id)) {
+      uniqueById.set(item.id, item);
+    }
+  }
+  const deduped = Array.from(uniqueById.values());
+
+  const hasMore = deduped.length > options.limit;
+  const items = hasMore ? deduped.slice(0, options.limit) : deduped;
   return {
     items,
     nextCursor: hasMore ? String(items[items.length - 1]?.id ?? '') : null,

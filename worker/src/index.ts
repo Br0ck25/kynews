@@ -5327,12 +5327,15 @@ let sourceErrors = 0;
 const rejectedSamples: IngestDecisionSample[] = [];
 const duplicateSamples: IngestDecisionSample[] = [];
 const insertedSamples: IngestDecisionSample[] = [];
+// Keep a shared set of normalized links across the run so the same article
+// content from multiple sources isn't processed twice in the same ingestion run.
+const globalSeenLinks = new Set<string>();
 
 // Process sources in concurrent batches so we don't hit the wall-clock limit
 // with 160+ sequential network calls. INGEST_CONCURRENCY sources run at once.
 for (let i = 0; i < sourcesForRun.length; i += INGEST_CONCURRENCY) {
 const batch = sourcesForRun.slice(i, i + INGEST_CONCURRENCY);
-const results = await Promise.allSettled(batch.map((sourceUrl) => ingestSeedSource(env, sourceUrl, limitPerSource)));
+const results = await Promise.allSettled(batch.map((sourceUrl) => ingestSeedSource(env, sourceUrl, limitPerSource, globalSeenLinks)));
 for (const result of results) {
 if (result.status === 'rejected') {
 sourceErrors += 1;
@@ -5596,7 +5599,12 @@ function isAdminAuthorized(request: Request, env: Env): boolean {
 	return provided.length > 0 && provided === configured;
 }
 
-async function ingestSeedSource(env: Env, sourceUrl: string, limitPerSource: number): Promise<SeedSourceStatus> {
+async function ingestSeedSource(
+	env: Env,
+	sourceUrl: string,
+	limitPerSource: number,
+	globalSeenLinks: Set<string>,
+): Promise<SeedSourceStatus> {
 const status: SeedSourceStatus = {
 sourceUrl,
 discoveredFeeds: 0,
@@ -5636,8 +5644,9 @@ if (parsedItems.length > 0) {
 if (!status.selectedFeed) status.selectedFeed = feedUrl;
 for (const item of parsedItems) {
 const normalizedLink = normalizeCanonicalUrl(item.link || '');
-if (!normalizedLink || seenLinks.has(normalizedLink)) continue;
+if (!normalizedLink || seenLinks.has(normalizedLink) || globalSeenLinks.has(normalizedLink)) continue;
 seenLinks.add(normalizedLink);
+globalSeenLinks.add(normalizedLink);
 feedItems.push({ ...item, link: normalizedLink });
 }
 }

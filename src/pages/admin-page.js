@@ -539,7 +539,11 @@ export default function AdminPage() {
       });
 
       const nextItems = response.items || [];
-      setArticleRows((prev) => [...prev, ...nextItems]);
+      setArticleRows((prev) => {
+        const combined = [...prev, ...nextItems];
+        const unique = Array.from(new Map(combined.map((item) => [item.id, item])).values());
+        return unique;
+      });
       setArticleCursor(response.nextCursor || null);
       setHasMoreArticles(Boolean(response.nextCursor));
     } catch (err) {
@@ -604,7 +608,8 @@ export default function AdminPage() {
         limit: ADMIN_ARTICLES_PAGE_SIZE,
       });
       const initialItems = articleResp.items || [];
-      setArticleRows(initialItems);
+      const uniqueItems = Array.from(new Map(initialItems.map((item) => [item.id, item])).values());
+      setArticleRows(uniqueItems);
       setArticleCursor(articleResp.nextCursor || null);
       setHasMoreArticles(Boolean(articleResp.nextCursor));
       setEdits({});

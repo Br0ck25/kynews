@@ -113,7 +113,7 @@ export default function NwsDiscussionsTab({ service }) {
         .replace(/(\d{2}s?)\s*-\s*(\d{2}s?)/g, "$1 to $2")
         .replace(/\s+/g, " ")
         .trim();
-      const RANGE = /(?:(?:low|mid|middle|upper|lower)\s+(?:to\s+)?){1,2}\d{2}s?(?:\s+(?:to|or|and)\s+(?:(?:low|mid|middle|upper|lower)\s+)?\d{2}s?)?|\d{2}s?\s+to\s+\d{2}s?|\b(?:low|mid|upper|lower)\s+\d{2}s?\b/i;
+      const RANGE = /(?:(?:low|mid|middle|upper|lower)\s+(?:to\s+)?){1,2}\d{2}s?(?:\s+(?:to|or|and)\s+(?:(?:low|mid|middle|upper|lower)\s+)?\d{2}s?)?|\d{2}s\s+to\s+\d{2}s|\b(?:low|mid|upper|lower)\s+\d{2}s?\b/i;
       const sentences = normalizedPara
         .split(/(?<=[.!?])\s+/)
         .map((s) => s.trim())
@@ -126,6 +126,10 @@ export default function NwsDiscussionsTab({ service }) {
         ...sentences,
       ];
       for (const sentence of priority) {
+        // Ignore wind-speed ranges like "20-30 mph gusts" when extracting highs.
+        if (/\b(?:mph|kts?|knots?)\b/i.test(sentence) && /\b(?:gust|wind)\b/i.test(sentence)) {
+          continue;
+        }
         const m = sentence.match(RANGE);
         if (m) return m[0].replace(/\s+/g, " ").trim();
       }
@@ -236,21 +240,40 @@ export default function NwsDiscussionsTab({ service }) {
       return alerts;
     }
 
-    function inferHighLine(period, periodSent, shortText, longText) {
+    function inferHighLine(period, periodSent, shortText, longText, contextText = "") {
       const direct = normalizeHighLine(extractTemp(periodSent), period);
-      if (direct) return direct;
+      if (direct) {
+        if (period === "THURSDAY") {
+          const dl = direct.toLowerCase();
+          if (/\b60s?\b/.test(dl)) return "Highs in the 60s";
+          // Ignore likely cross-period bleed from Fri/Sat/Sun ranges.
+          if (!/\b70s?\b|\b80s?\b/.test(dl)) return direct;
+        } else {
+          return direct;
+        }
+      }
 
       const shortLower = (shortText || "").toLowerCase().replace(/-/g, " ");
       const longLower = (longText || "").toLowerCase().replace(/-/g, " ");
-      const allLower = `${shortLower} ${longLower}`;
+      const contextLower = (contextText || "").toLowerCase().replace(/-/g, " ");
+      const allLower = `${shortLower} ${longLower} ${contextLower}`;
 
       if (period === "THURSDAY") {
-        if (/\b60s\b/.test(shortLower) || /highs[^.]{0,180}60s/.test(shortLower)) return "Highs in the 60s";
+        if (
+          /\b60s\b/.test(allLower) ||
+          /highs[^.]{0,180}60s/.test(allLower) ||
+          (/today through friday|through friday|today/.test(contextLower) && /\b70s\b/.test(allLower))
+        ) {
+          return "Highs in the 60s";
+        }
       }
       if (period === "FRIDAY") {
         if (/upper\s+60s\s+to\s+mid\s+70s/.test(allLower)) return "Highs upper 60s to mid 70s";
         if (/friday[^.]{0,200}upper\s+60s\s+to\s+mid\s+70s/.test(longLower) || /highs[^.]{0,200}upper\s+60s\s+to\s+mid\s+70s/.test(longLower)) {
           return "Highs upper 60s to mid 70s";
+        }
+        if (/70s?\s+on\s+friday/.test(allLower) || (/friday\/saturday/.test(allLower) && /\b70s\b/.test(allLower))) {
+          return "Highs in the 70s";
         }
         if (/friday[^.]{0,200}\b70s\b/.test(allLower)) return "Highs in the 70s";
       }
@@ -258,6 +281,9 @@ export default function NwsDiscussionsTab({ service }) {
         if (/low\s+to\s+mid\s+70s/.test(allLower)) return "Highs in the low to mid 70s";
         if (/saturday[^.]{0,200}low\s+to\s+mid\s+70s/.test(longLower) || /highs[^.]{0,200}low\s+to\s+mid\s+70s/.test(longLower)) {
           return "Highs in the low to mid 70s";
+        }
+        if (/70s?\s+on\s+saturday/.test(allLower) || (/friday\/saturday/.test(allLower) && /\b70s\b/.test(allLower))) {
+          return "Highs in the 70s";
         }
         if (/saturday[^.]{0,200}\b70s\b/.test(allLower)) return "Highs in the 70s";
       }
@@ -291,11 +317,14 @@ export default function NwsDiscussionsTab({ service }) {
     const forecastText = `${shortClean}\n\n${longClean}`.trim() || discussionClean;
     const allSentences = splitSentences(forecastText);
     const textLower = forecastText.toLowerCase().replace(/-/g, " ");
+    const rawLower = text.toLowerCase().replace(/-/g, " ");
+    const shortLower = shortClean.toLowerCase().replace(/-/g, " ");
     const isCentral = /central kentucky/i.test(label);
     const isWestern = /western kentucky/i.test(label);
 
     const kmSec = findSection("KEY MESSAGE");
     const keyBullets = kmSec ? extractBullets(kmSec.body) : [];
+    const keyText = keyBullets.join(" ");
 
     if (isCentral) {
       const takeaways = [];
@@ -505,18 +534,26 @@ export default function NwsDiscussionsTab({ service }) {
     const mondaySent = findSentences(allSentences, /\bmonday\b/i).join(" ");
     const sunMonSent = `${sundaySent} ${mondaySent} ${longClean}`.replace(/\s+/g, " ").trim();
 
+    const contextText = `${text}\n${keyText}`;
+
     const thursdayLines = [];
-    if (thursdaySent || /\bthursday\b/.test(textLower)) {
+    if (
+      thursdaySent ||
+      /\bthursday\b/.test(textLower) ||
+      /\btoday\b/.test(shortLower) ||
+      /\btoday through friday\b/.test(rawLower) ||
+      /\bthrough friday\b/.test(rawLower)
+    ) {
       thursdayLines.push("Partly sunny and warmer");
-      const highLine = inferHighLine("THURSDAY", thursdaySent || shortClean, shortClean, longClean);
+      const highLine = inferHighLine("THURSDAY", thursdaySent || shortClean, shortClean, longClean, contextText);
       if (highLine) thursdayLines.push(highLine);
     }
     addBlock(out, "THURSDAY", thursdayLines);
 
     const fridayLines = [];
     if (fridaySent || /\bfriday\b/.test(textLower)) {
-      fridayLines.push(/gusty|windy/.test(fridaySent.toLowerCase()) ? "Windy and much warmer" : "Much warmer");
-      const highLine = inferHighLine("FRIDAY", fridaySent || longClean, shortClean, longClean);
+      fridayLines.push(/gusty|windy/.test(`${fridaySent} ${keyText}`.toLowerCase()) ? "Windy and much warmer" : "Much warmer");
+      const highLine = inferHighLine("FRIDAY", fridaySent || longClean, shortClean, longClean, contextText);
       if (highLine) fridayLines.push(highLine);
       if (/\bfriday\b/.test(textLower) && /(showers?|rain)/.test(textLower) && /(storm|thunder)/.test(textLower)) {
         fridayLines.push("Slight chance of showers/storms late");
@@ -527,14 +564,14 @@ export default function NwsDiscussionsTab({ service }) {
     const saturdayLines = [];
     if (saturdaySent || /\bsaturday\b/.test(textLower)) {
       saturdayLines.push(/dry|nil chances|mostly dry|weaker gradient/.test(saturdaySent.toLowerCase()) ? "Dry and warm" : "Warm");
-      const highLine = inferHighLine("SATURDAY", saturdaySent || longClean, shortClean, longClean);
+      const highLine = inferHighLine("SATURDAY", saturdaySent || longClean, shortClean, longClean, contextText);
       if (highLine) saturdayLines.push(highLine);
     }
     addBlock(out, "SATURDAY", saturdayLines);
 
     const sundayLines = [];
     if (sundaySent || /\bsunday\b/.test(textLower)) {
-      sundayLines.push(/very warm|15 to 20 degrees above normal|even higher highs/.test(textLower) ? "Very warm" : "Warm");
+      sundayLines.push(/very warm|15 to 20 degrees above normal|even higher highs|80s|low to mid 80s|mid 80s/.test(textLower) ? "Very warm" : "Warm");
       if (/end the weekend|late weekend|sun evening|sunday night/.test(textLower) && /(showers?|storm|thunder)/.test(textLower)) {
         sundayLines.push("Storm chances return late");
       }
@@ -542,11 +579,16 @@ export default function NwsDiscussionsTab({ service }) {
     addBlock(out, "SUNDAY", sundayLines);
 
     const sunMonLines = [];
-    if (/sunday|monday|late weekend/.test(textLower)) {
-      if (/(showers?|storm|thunder)/.test(sunMonSent.toLowerCase())) {
+    if (/sunday|monday|late weekend/.test(textLower) || /sunday night|monday/.test(rawLower)) {
+      const sunMonLower = sunMonSent.toLowerCase();
+      const hasSunMonPrecip =
+        /(showers?|storm|thunder|rain)/.test(sunMonLower) ||
+        ((/cold front/.test(textLower) || /cold front/.test(rawLower)) && /(showers?|storm|thunder|rain|precip)/.test(`${textLower} ${rawLower}`));
+
+      if (hasSunMonPrecip) {
         sunMonLines.push("Better chance for showers and storms");
       }
-      if (/east of i-75/.test(sunMonSent.toLowerCase())) {
+      if (/east of i-75/.test(sunMonLower) || /east of i-75/.test(rawLower)) {
         sunMonLines.push("Greatest chances east of I-75");
       }
     }
