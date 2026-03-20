@@ -2448,16 +2448,7 @@ if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 // (separate from the Local KY News page credentials FACEBOOK_PAGE_ID / FACEBOOK_PAGE_ACCESS_TOKEN).
 if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
-	const body = await parseJsonBody<{ alertId?: string }>(request);
-	let alertId = (body?.alertId ?? '').trim();
-	if (!alertId) return badRequest('Missing alertId');
-
-	// NWS alert IDs from the GeoJSON API are full URLs like
-	// "https://api.weather.gov/alerts/urn:oid:...". Strip to just the resource
-	// path so fetchNwsAlertById can construct the correct request URL.
-	if (alertId.startsWith('https://api.weather.gov/alerts/')) {
-		alertId = alertId.slice('https://api.weather.gov/alerts/'.length);
-	}
+	const body = await parseJsonBody<{ alertId?: string; caption?: string; event?: string }>(request);
 
 	const liveAlertsPageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
 	const liveAlertsPageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
@@ -2465,31 +2456,58 @@ if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POS
 		return json({ error: 'LIVE_ALERTS_PAGE_ID / LIVE_ALERTS_PAGE_ACCESS_TOKEN secrets not configured for the Live Weather Alerts Facebook page' }, 500);
 	}
 
-	const alert = await fetchNwsAlertById(alertId);
-	if (!alert) return json({ error: 'Alert not found on NWS API' }, 404);
+	// Use the caption passed from the frontend when available (avoids a NWS
+	// re-fetch that would 404 if the alert has already expired).
+	let caption = (body?.caption ?? '').trim();
+	let eventType = (body?.event ?? '').trim();
 
-	const caption  = buildWeatherAlertFbCaption(alert);
-	const imageUrl = getWeatherAlertImageUrl(alert.event);
+	if (!caption) {
+		// Fallback: try to re-fetch the alert from NWS.
+		let alertId = (body?.alertId ?? '').trim();
+		if (!alertId) return badRequest('Missing caption or alertId');
+		if (alertId.startsWith('https://api.weather.gov/alerts/')) {
+			alertId = alertId.slice('https://api.weather.gov/alerts/'.length);
+		}
+		const alert = await fetchNwsAlertById(alertId);
+		if (!alert) return json({ error: 'Alert not found on NWS API and no caption was provided' }, 422);
+		caption   = buildWeatherAlertFbCaption(alert);
+		eventType = alert.event;
+	}
 
-	const params = new URLSearchParams({
-		caption,
-		access_token: liveAlertsPageToken,
-	});
-	if (imageUrl) params.set('url', imageUrl);
+	const imageUrl = eventType ? getWeatherAlertImageUrl(eventType) : '';
 
 	try {
-		const respFb = await fetch(`https://graph.facebook.com/v19.0/${liveAlertsPageId}/photos`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-			body: params,
-		});
-		const fbData = await respFb.json() as any;
-		if (!respFb.ok || fbData?.error) {
-			const msg = fbData?.error?.message ?? `HTTP ${respFb.status}`;
-			const code = fbData?.error?.code ? ` (code ${fbData.error.code})` : '';
-			return json({ ok: false, error: `${msg}${code}`, details: fbData }, 500);
+		if (imageUrl) {
+			// Photo post with banner image.
+			const params = new URLSearchParams({ caption, url: imageUrl, access_token: liveAlertsPageToken });
+			const respFb = await fetch(`https://graph.facebook.com/v19.0/${liveAlertsPageId}/photos`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: params,
+			});
+			const fbData = await respFb.json() as any;
+			if (!respFb.ok || fbData?.error) {
+				const msg = fbData?.error?.message ?? `HTTP ${respFb.status}`;
+				const code = fbData?.error?.code ? ` (code ${fbData.error.code})` : '';
+				return json({ ok: false, error: `${msg}${code}`, details: fbData }, 500);
+			}
+			return json({ ok: true, fbPostId: String(fbData?.id ?? ''), result: fbData });
+		} else {
+			// Text-only post via /feed when no specific banner image exists.
+			const params = new URLSearchParams({ message: caption, access_token: liveAlertsPageToken });
+			const respFb = await fetch(`https://graph.facebook.com/v19.0/${liveAlertsPageId}/feed`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: params,
+			});
+			const fbData = await respFb.json() as any;
+			if (!respFb.ok || fbData?.error) {
+				const msg = fbData?.error?.message ?? `HTTP ${respFb.status}`;
+				const code = fbData?.error?.code ? ` (code ${fbData.error.code})` : '';
+				return json({ ok: false, error: `${msg}${code}`, details: fbData }, 500);
+			}
+			return json({ ok: true, fbPostId: String(fbData?.id ?? ''), result: fbData });
 		}
-		return json({ ok: true, fbPostId: String(fbData?.id ?? ''), result: fbData });
 	} catch (err: any) {
 		return json({ ok: false, error: 'Network error posting to Facebook', details: String(err) }, 500);
 	}

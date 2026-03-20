@@ -460,6 +460,11 @@ const IMG_BASE = 'https://localkynews.com/img';
  * NWS alert event type.  Falls back to the generic weather-alert banner when
  * no specific image is available.
  */
+/**
+ * Return the public URL of the banner image for the given NWS alert event
+ * type, or an empty string when no specific image is mapped (caller should
+ * fall back to a text-only post).
+ */
 export function getWeatherAlertImageUrl(event: string): string {
   const map: Record<string, string> = {
     'Tornado Warning':               `${IMG_BASE}/tornado-warning.png`,
@@ -490,7 +495,7 @@ export function getWeatherAlertImageUrl(event: string): string {
     'Red Flag Warning':              `${IMG_BASE}/Red-Flag-Warning.png`,
     'Rip Current Statement':         `${IMG_BASE}/Rip-Current-Statement.png`,
   };
-  return map[event] ?? WEATHER_ALERT_IMAGE_URL;
+  return map[event] ?? '';
 }
 
 /**

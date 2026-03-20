@@ -128,7 +128,9 @@ function AlertAdminCard({ alert }) {
     setPosting(true);
     setPostResult(null);
     try {
-      const result = await service.postWeatherAlertToFacebook(alertId);
+      // Pass the pre-built caption and event type so the worker can post
+      // without re-fetching from NWS (alerts may expire before posting).
+      const result = await service.postWeatherAlertToFacebook(alertId, previewCaption, props.event);
       setPostResult({ ok: true, fbPostId: result?.fbPostId ?? result?.result?.id ?? "" });
     } catch (err) {
       setPostResult({ ok: false, error: err?.message || String(err) });
