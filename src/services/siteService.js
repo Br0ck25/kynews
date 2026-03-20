@@ -1072,4 +1072,18 @@ export default class SiteService {
     });
     return res;
   }
+
+  async postWeatherAlertToFacebook(alertId) {
+    return this.request("/api/admin/facebook/post-alert", {
+      method: "POST",
+      body: JSON.stringify({ alertId }),
+    });
+  }
+
+  async exchangeFacebookToken(shortLivedToken) {
+    return this.request("/api/admin/facebook/exchange-token", {
+      method: "POST",
+      body: JSON.stringify({ shortLivedToken }),
+    });
+  }
 }

@@ -69,7 +69,7 @@ import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption, generateAiFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
-import { processNwsAlerts, processNwsProducts, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl } from './lib/nws';
+import { processNwsAlerts, processNwsProducts, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl, buildWeatherAlertFbCaption } from './lib/nws';
 import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
 import { fetchNwsStories } from './lib/nwsStories';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
@@ -2441,6 +2441,99 @@ if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 		return json(result);
 	}
 	return json({ error: result.error || 'Failed to post to Facebook', details: result.details }, 500);
+}
+
+// POST /api/admin/facebook/post-alert — post a specific NWS alert to the Live Weather
+// Alerts Facebook page. Uses LIVE_ALERTS_PAGE_ID and LIVE_ALERTS_PAGE_ACCESS_TOKEN
+// (separate from the Local KY News page credentials FACEBOOK_PAGE_ID / FACEBOOK_PAGE_ACCESS_TOKEN).
+if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ alertId?: string }>(request);
+	const alertId = (body?.alertId ?? '').trim();
+	if (!alertId) return badRequest('Missing alertId');
+
+	const liveAlertsPageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
+	const liveAlertsPageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
+	if (!liveAlertsPageId || !liveAlertsPageToken) {
+		return json({ error: 'LIVE_ALERTS_PAGE_ID / LIVE_ALERTS_PAGE_ACCESS_TOKEN secrets not configured for the Live Weather Alerts Facebook page' }, 500);
+	}
+
+	const alert = await fetchNwsAlertById(alertId);
+	if (!alert) return json({ error: 'Alert not found on NWS API' }, 404);
+
+	const caption  = buildWeatherAlertFbCaption(alert);
+	const imageUrl = getWeatherAlertImageUrl(alert.event);
+
+	const params = new URLSearchParams({
+		caption,
+		access_token: liveAlertsPageToken,
+	});
+	if (imageUrl) params.set('url', imageUrl);
+
+	try {
+		const respFb = await fetch(`https://graph.facebook.com/v19.0/${liveAlertsPageId}/photos`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: params,
+		});
+		const fbData = await respFb.json() as any;
+		if (!respFb.ok || fbData?.error) {
+			const msg = fbData?.error?.message ?? `HTTP ${respFb.status}`;
+			const code = fbData?.error?.code ? ` (code ${fbData.error.code})` : '';
+			return json({ ok: false, error: `${msg}${code}`, details: fbData }, 500);
+		}
+		return json({ ok: true, fbPostId: String(fbData?.id ?? ''), result: fbData });
+	} catch (err: any) {
+		return json({ ok: false, error: 'Network error posting to Facebook', details: String(err) }, 500);
+	}
+}
+
+// POST /api/admin/facebook/exchange-token — exchange a short-lived user token for a
+// long-lived page access token for the Live Weather Alerts Facebook page.
+// Requires FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, and LIVE_ALERTS_PAGE_ID secrets.
+// Does NOT touch any Local KY News page credentials.
+if (url.pathname === '/api/admin/facebook/exchange-token' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+
+	const body = await parseJsonBody<{ shortLivedToken?: string }>(request);
+	const shortLivedToken = (body?.shortLivedToken ?? '').trim();
+	if (!shortLivedToken) return badRequest('Missing shortLivedToken');
+
+	const appId      = ((env as any).FACEBOOK_APP_ID    || '').trim();
+	const appSecret  = ((env as any).FACEBOOK_APP_SECRET || '').trim();
+	const pageId     = ((env as any).LIVE_ALERTS_PAGE_ID || '').trim();
+	if (!appId || !appSecret) return json({ error: 'FACEBOOK_APP_ID / FACEBOOK_APP_SECRET secrets not configured' }, 500);
+	if (!pageId) return json({ error: 'LIVE_ALERTS_PAGE_ID secret not configured' }, 500);
+
+	// Step 1: exchange short-lived user token for a long-lived user token (60 days)
+	const exchangeUrl = new URL('https://graph.facebook.com/oauth/access_token');
+	exchangeUrl.searchParams.set('grant_type', 'fb_exchange_token');
+	exchangeUrl.searchParams.set('client_id', appId);
+	exchangeUrl.searchParams.set('client_secret', appSecret);
+	exchangeUrl.searchParams.set('fb_exchange_token', shortLivedToken);
+	const exchangeRes = await fetch(exchangeUrl.toString());
+	const exchangeData = await exchangeRes.json() as any;
+	if (!exchangeRes.ok || !exchangeData?.access_token) {
+		return json({ error: 'Failed to exchange token', details: exchangeData?.error?.message ?? exchangeData }, 500);
+	}
+	const longLivedUserToken = String(exchangeData.access_token);
+
+	// Step 2: use long-lived user token to get a non-expiring page access token
+	const pageTokenUrl = new URL(`https://graph.facebook.com/${encodeURIComponent(pageId)}`);
+	pageTokenUrl.searchParams.set('fields', 'access_token,name');
+	pageTokenUrl.searchParams.set('access_token', longLivedUserToken);
+	const pageTokenRes  = await fetch(pageTokenUrl.toString());
+	const pageTokenData = await pageTokenRes.json() as any;
+	if (!pageTokenRes.ok || !pageTokenData?.access_token) {
+		return json({ error: 'Failed to get page access token', details: pageTokenData?.error?.message ?? pageTokenData }, 500);
+	}
+
+	return json({
+		ok: true,
+		pageName: pageTokenData.name ?? '',
+		pageAccessToken: String(pageTokenData.access_token),
+		instruction: 'Run: npx wrangler secret put LIVE_ALERTS_PAGE_ACCESS_TOKEN  and paste this token.',
+	});
 }
 
 // POST /api/admin/nws-alerts/run — manually trigger NWS alert ingestion
