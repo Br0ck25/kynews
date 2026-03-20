@@ -770,16 +770,16 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
 export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promise<void> {
   const livePageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
   const livePageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
-  if (!livePageId || !livePageToken) return; // secrets not configured — skip silently
+  if (!livePageId || !livePageToken) {
+    console.warn('[LIVE-ALERTS-FB] Skipping — LIVE_ALERTS_PAGE_ID or LIVE_ALERTS_PAGE_ACCESS_TOKEN not configured');
+    return;
+  }
 
-  // Separate dedup key — prevents double-posting to Live Alerts FB page
-  // without blocking article ingestion dedup.
-  if (env.CACHE) {
-    const fbKey = `live:alerts:fb:${await sha256Hex(alert.id)}`;
+  // Check own FB dedup key — only skip if already successfully posted
+  const fbKey = env.CACHE ? `live:alerts:fb:${await sha256Hex(alert.id)}` : null;
+  if (fbKey) {
     const alreadyPosted = await env.CACHE.get(fbKey);
-    if (alreadyPosted) return;
-    // Mark immediately (before posting) to prevent races on concurrent runs
-    await env.CACHE.put(fbKey, '1', { expirationTtl: 172800 });
+    if (alreadyPosted) return; // already posted, silent skip
   }
 
   const category = classifyAlertCategory(alert.event);
@@ -792,10 +792,8 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
   const startDate = await getLiveAlertAutopostStart(env);
   if (startDate) {
     const alertSent = new Date(alert.sent);
-    if (Number.isNaN(alertSent.valueOf())) {
-      console.warn(`[LIVE-ALERTS-FB] alert.sent invalid, cannot date-check: ${alert.sent}`);
-    } else if (alertSent.getTime() < startDate.getTime()) {
-      console.log(`[LIVE-ALERTS-FB] Skipping "${alert.event}" from ${alertSent.toISOString()} (before start ${startDate.toISOString()})`);
+    if (!Number.isNaN(alertSent.valueOf()) && alertSent.getTime() < startDate.getTime()) {
+      console.log(`[LIVE-ALERTS-FB] Skipping "${alert.event}" sent=${alertSent.toISOString()} (before start ${startDate.toISOString()})`);
       return;
     }
   }
@@ -804,6 +802,7 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
   const imageUrl = getWeatherAlertImageUrl(alert.event);
 
   try {
+    let posted = false;
     if (imageUrl) {
       const params = new URLSearchParams({ caption, url: imageUrl, access_token: livePageToken });
       const resp = await fetch(`https://graph.facebook.com/v19.0/${livePageId}/photos`, {
@@ -813,12 +812,12 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
       });
       const data: any = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        console.error(`[LIVE-ALERTS-FB] Photo post failed (${resp.status}):`, JSON.stringify(data));
+        console.error(`[LIVE-ALERTS-FB] Photo post failed (${resp.status}) "${alert.event}":`, JSON.stringify(data));
       } else {
         console.log(`[LIVE-ALERTS-FB] Posted "${alert.event}" → id=${data?.id ?? 'unknown'}`);
+        posted = true;
       }
     } else {
-      // Text-only fallback when no banner image is mapped for this event type
       const params = new URLSearchParams({ message: caption, access_token: livePageToken });
       const resp = await fetch(`https://graph.facebook.com/v19.0/${livePageId}/feed`, {
         method: 'POST',
@@ -827,10 +826,15 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
       });
       const data: any = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        console.error(`[LIVE-ALERTS-FB] Feed post failed (${resp.status}):`, JSON.stringify(data));
+        console.error(`[LIVE-ALERTS-FB] Feed post failed (${resp.status}) "${alert.event}":`, JSON.stringify(data));
       } else {
         console.log(`[LIVE-ALERTS-FB] Posted "${alert.event}" (text-only) → id=${data?.id ?? 'unknown'}`);
+        posted = true;
       }
+    }
+    // Only mark as posted after a confirmed successful post
+    if (posted && fbKey) {
+      await env.CACHE.put(fbKey, '1', { expirationTtl: 172800 });
     }
   } catch (err) {
     console.error('[LIVE-ALERTS-FB] Unexpected error:', err);

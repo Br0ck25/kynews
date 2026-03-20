@@ -5448,9 +5448,7 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
   // Check NWS for Kentucky weather alerts on every tick
   ctx.waitUntil(
     processNwsAlerts(env).then(({ published, skipped }) => {
-      if (published > 0) {
-        console.log(`[NWS] Alert run complete: ${published} published, ${skipped} skipped`);
-      }
+      console.log(`[NWS] Tick complete: ${published} published, ${skipped} skipped`);
     }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
   );
 
