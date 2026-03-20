@@ -537,17 +537,81 @@ const WEATHER_ALERT_IMAGE_URL = 'https://localkynews.com/img/weather-alert.jpg';
 /** Base URL for the public image folder. */
 const IMG_BASE = 'https://localkynews.com/img';
 
+/** Maps 2-letter NWS state/territory codes to lowercase names used in image filenames. */
+const STATE_CODE_TO_NAME: Record<string, string> = {
+  AL: 'alabama', AK: 'alaska', AZ: 'arizona', AR: 'arkansas', CA: 'california',
+  CO: 'colorado', CT: 'connecticut', DE: 'delaware', FL: 'florida', GA: 'georgia',
+  HI: 'hawaii', ID: 'idaho', IL: 'illinois', IN: 'indiana', IA: 'iowa',
+  KS: 'kansas', KY: 'kentucky', LA: 'louisiana', ME: 'maine', MD: 'maryland',
+  MA: 'massachusetts', MI: 'michigan', MN: 'minnesota', MS: 'mississippi',
+  MO: 'missouri', MT: 'montana', NE: 'nebraska', NV: 'nevada', NH: 'new-hampshire',
+  NJ: 'new-jersey', NM: 'new-mexico', NY: 'new-york', NC: 'north-carolina',
+  ND: 'north-dakota', OH: 'ohio', OK: 'oklahoma', OR: 'oregon', PA: 'pennsylvania',
+  RI: 'rhode-island', SC: 'south-carolina', SD: 'south-dakota', TN: 'tennessee',
+  TX: 'texas', UT: 'utah', VT: 'vermont', VA: 'virginia', WA: 'washington',
+  DC: 'washington', WV: 'west-virginia', WI: 'wisconsin', WY: 'wyoming',
+};
+
 /**
- * Return the public URL of the banner image that best represents the given
- * NWS alert event type.  Falls back to the generic weather-alert banner when
- * no specific image is available.
+ * Extract the most-represented 2-letter state code from an NWS areaDesc string.
+ * NWS formats area descriptions as "County, ST; County, ST; ..." — we tally
+ * each state code and return whichever appears most often.  Returns null when
+ * no state codes are found.
  */
+export function extractPrimaryStateCode(areaDesc: string): string | null {
+  if (!areaDesc) return null;
+  const tally: Record<string, number> = {};
+  // Match ", ST" at the end of each semicolon-separated segment
+  const segmentRe = /,\s*([A-Z]{2})\s*(?:;|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = segmentRe.exec(areaDesc)) !== null) {
+    const code = m[1];
+    tally[code] = (tally[code] ?? 0) + 1;
+  }
+  // Also try the last token on each segment for zone-format areas ("Z001...KY")
+  for (const seg of areaDesc.split(';')) {
+    const stateMatch = seg.trim().match(/\b([A-Z]{2})\b/g);
+    if (stateMatch) {
+      for (const code of stateMatch) {
+        if (STATE_CODE_TO_NAME[code]) {
+          tally[code] = (tally[code] ?? 0) + 0.5; // lower weight for zone style
+        }
+      }
+    }
+  }
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [code, count] of Object.entries(tally)) {
+    if (count > bestCount) { bestCount = count; best = code; }
+  }
+  return best;
+}
+
 /**
  * Return the public URL of the banner image for the given NWS alert event
- * type, or an empty string when no specific image is mapped (caller should
- * fall back to a text-only post).
+ * type and optional state code.  For Tornado Warning, Tornado Watch, and
+ * Severe Thunderstorm Warning the state-specific image from a dedicated
+ * sub-folder is used when available.  Falls back to the generic per-event
+ * image, then to an empty string (caller should use a text-only post).
  */
-export function getWeatherAlertImageUrl(event: string): string {
+export function getWeatherAlertImageUrl(event: string, stateCode?: string): string {
+  const stateName = stateCode ? (STATE_CODE_TO_NAME[stateCode.toUpperCase()] ?? null) : null;
+
+  // ── State-specific images for the three alert types that have sub-folders ──
+  if (stateName) {
+    if (event === 'Tornado Warning') {
+      return `${IMG_BASE}/Tornado Warning/tornado-warning-${stateName}.png`;
+    }
+    if (event === 'Tornado Watch') {
+      return `${IMG_BASE}/Tornado Watch/tornado-watch-${stateName}.png`;
+    }
+    if (event === 'Severe Thunderstorm Warning') {
+      // Note: the folder name on disk is "Severe Thunder Strom Warning" (typo preserved)
+      return `${IMG_BASE}/Severe Thunder Strom Warning/severe-thunderstorm-warning-${stateName}.jpg`;
+    }
+  }
+
+  // ── Generic per-event images (all other alert types, or missing state) ──
   const map: Record<string, string> = {
     'Tornado Warning':               `${IMG_BASE}/tornado-warning.png`,
     'Tornado Watch':                 `${IMG_BASE}/Tornado-Watch.png`,
@@ -709,7 +773,8 @@ export async function postFacebookPhotoCaption(env: Env, caption: string, imageU
 
 export async function postWeatherAlertToFacebook(env: Env, alert: NwsAlert): Promise<any> {
   const caption = buildWeatherAlertFbCaption(alert);
-  const imageUrl = getWeatherAlertImageUrl(alert.event);
+  const stateCode = extractPrimaryStateCode(alert.areaDesc);
+  const imageUrl = getWeatherAlertImageUrl(alert.event, stateCode ?? undefined);
   return postFacebookPhotoCaption(env, caption, imageUrl);
 }
 
@@ -822,7 +887,8 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
   }
 
   const caption  = buildWeatherAlertFbCaption(alert);
-  const imageUrl = getWeatherAlertImageUrl(alert.event);
+  const stateCode = extractPrimaryStateCode(alert.areaDesc);
+  const imageUrl = getWeatherAlertImageUrl(alert.event, stateCode ?? undefined);
 
   try {
     let posted = false;

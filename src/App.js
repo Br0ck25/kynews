@@ -92,6 +92,7 @@ const SECTIONS = [
   { title: "National", url: "/national" },
   { title: "Sports", url: "/sports" },
   { title: "Weather", url: "/weather" },
+  { title: "Live Alerts", url: "/live-weather-alerts" },
   { title: "Schools", url: "/schools" },
 ];
 

@@ -1073,10 +1073,10 @@ export default class SiteService {
     return res;
   }
 
-  async postWeatherAlertToFacebook(alertId, caption, event) {
+  async postWeatherAlertToFacebook(alertId, caption, event, areaDesc) {
     return this.request("/api/admin/facebook/post-alert", {
       method: "POST",
-      body: JSON.stringify({ alertId, caption, event }),
+      body: JSON.stringify({ alertId, caption, event, areaDesc }),
     });
   }
 

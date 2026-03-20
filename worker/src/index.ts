@@ -69,7 +69,7 @@ import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption, generateAiFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
-import { processNwsAlerts, processNwsProducts, processLiveAlertsNationwide, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl, buildWeatherAlertFbCaption, getLiveAlertAutopostFlag, setLiveAlertAutopostFlag, getLiveAlertAutopostStart, setLiveAlertAutopostStart } from './lib/nws';
+import { processNwsAlerts, processNwsProducts, processLiveAlertsNationwide, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl, buildWeatherAlertFbCaption, getLiveAlertAutopostFlag, setLiveAlertAutopostFlag, getLiveAlertAutopostStart, setLiveAlertAutopostStart, extractPrimaryStateCode } from './lib/nws';
 import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
 import { fetchNwsStories } from './lib/nwsStories';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
@@ -2448,7 +2448,7 @@ if (url.pathname === '/api/admin/facebook/post' && request.method === 'POST') {
 // (separate from the Local KY News page credentials FACEBOOK_PAGE_ID / FACEBOOK_PAGE_ACCESS_TOKEN).
 if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
-	const body = await parseJsonBody<{ alertId?: string; caption?: string; event?: string }>(request);
+	const body = await parseJsonBody<{ alertId?: string; caption?: string; event?: string; areaDesc?: string }>(request);
 
 	const liveAlertsPageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
 	const liveAlertsPageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
@@ -2460,6 +2460,7 @@ if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POS
 	// re-fetch that would 404 if the alert has already expired).
 	let caption = (body?.caption ?? '').trim();
 	let eventType = (body?.event ?? '').trim();
+	let areaDesc = (body?.areaDesc ?? '').trim();
 
 	if (!caption) {
 		// Fallback: try to re-fetch the alert from NWS.
@@ -2472,9 +2473,11 @@ if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POS
 		if (!alert) return json({ error: 'Alert not found on NWS API and no caption was provided' }, 422);
 		caption   = buildWeatherAlertFbCaption(alert);
 		eventType = alert.event;
+		areaDesc  = alert.areaDesc;
 	}
 
-	const imageUrl = eventType ? getWeatherAlertImageUrl(eventType) : '';
+	const stateCode = areaDesc ? extractPrimaryStateCode(areaDesc) : null;
+	const imageUrl = eventType ? getWeatherAlertImageUrl(eventType, stateCode ?? undefined) : '';
 
 	try {
 		if (imageUrl) {
