@@ -1279,21 +1279,6 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
       if (!state) {
         // ── NEW ALERT — create a new Facebook post ────────────────────────
 
-        // Recency gate: only post alerts sent within the last 2 hours.
-        // Older unseen alerts (e.g. after a cold-start or missed invocations)
-        // are silently marked as seen so they are never retried as new posts.
-        // If NWS later reissues the same zone/event, the new alertId will have
-        // a fresh sent time and will pass this check normally.
-        const NEW_POST_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
-        const sentMs = alert.sent ? new Date(alert.sent).getTime() : 0;
-        if (!sentMs || Date.now() - sentMs > NEW_POST_MAX_AGE_MS) {
-          // Too old — mark seen and move on (no Facebook post)
-          tickSeen.add(seenKey);
-          if (env.CACHE) await env.CACHE.put(seenKey, '1', { expirationTtl: ttl });
-          cntSkipped++;
-          continue;
-        }
-
         // If Facebook rate-limited us earlier this tick, skip new anchor posts.
         // The seen-key won't be written, so the alert will be retried next tick.
         if (rateLimited) {
