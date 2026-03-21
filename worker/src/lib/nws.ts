@@ -597,7 +597,61 @@ export function extractPrimaryStateCode(areaDesc: string): string | null {
 export function getWeatherAlertImageUrl(event: string, stateCode?: string): string {
   const stateName = stateCode ? (STATE_CODE_TO_NAME[stateCode.toUpperCase()] ?? null) : null;
 
-  // ── State-specific images for the three alert types that have sub-folders ──
+  // ── Prefer per-state image folders when available. Example: /img/alabama/tornado-warning.png ──
+  const perStateFilenameMap: Record<string, string> = {
+    'Tornado Warning': 'tornado-warning.png',
+    'Tornado Watch': 'Tornado-Watch.png',
+    'Severe Thunderstorm Warning': 'Severe-Thunderstorm-Warning.png',
+    'Severe Thunderstorm Watch': 'Severe-Thunderstorm-Watch.png',
+    'Flash Flood Warning': 'Flash-Flood-Warning.png',
+    'Flash Flood Watch': 'Flash-Flood-Watch.png',
+    'Flood Warning': 'Flood-Statement.png',
+    'Flood Watch': 'Flood-Statement.png',
+    'Flood Advisory': 'Flood-Statement.png',
+    'Winter Storm Warning': 'Winter-Storm-Warning.png',
+    'Winter Storm Watch': 'Winter-Storm-Watch.png',
+    'Winter Weather Advisory': 'Winter-Weather-Advisory.png',
+    'Ice Storm Warning': 'Ice-Storm-Warning.png',
+    'Blizzard Warning': 'Blizzard-Warning.png',
+    'High Wind Warning': 'Wind-Advisory.png',
+    'High Wind Watch': 'Wind-Advisory.png',
+    'Wind Advisory': 'Wind-Advisory.png',
+    'Excessive Heat Warning': 'Extreme-Heat-Warning.png',
+    'Excessive Heat Watch': 'Extreme-Heat-Warning.png',
+    'Heat Advisory': 'Heat-Advisory.png',
+    'Dense Fog Advisory': 'Dense-Fog-Advisory.png',
+    'Freeze Warning': 'Frost-Advisory.png',
+    'Frost Advisory': 'Frost-Advisory.png',
+    'Special Weather Statement': 'Special-Weather-Statement.png',
+    'Significant Weather Advisory': 'Significant-Weather-Advisory.png',
+    'Red Flag Warning': 'Red-Flag-Warning.png',
+    'Rip Current Statement': 'Rip-Current-Statement.png',
+  };
+
+  if (stateName && perStateFilenameMap[event]) {
+    const fullName = perStateFilenameMap[event];
+    const dot = fullName.lastIndexOf('.');
+    if (dot > 0) {
+      const prefix = fullName.slice(0, dot);
+      const ext = fullName.slice(dot);
+      return `${IMG_BASE}/${stateName}/${prefix}-${stateName}${ext}`;
+    }
+    return `${IMG_BASE}/${stateName}/${fullName}-${stateName}`;
+  }
+
+  // ── New generic state-specific folder naming (event-based slug + -state) ──
+  if (stateName) {
+    const slug = event
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    if (slug) {
+      return `${IMG_BASE}/${stateName}/${slug}-${stateName}.jpg`;
+    }
+  }
+
+  // ── Existing state-specific folders for legacy behavior ──
   if (stateName) {
     if (event === 'Tornado Warning') {
       return `${IMG_BASE}/Tornado Warning/tornado-warning-${stateName}.png`;
