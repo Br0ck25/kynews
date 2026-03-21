@@ -1630,3 +1630,93 @@ In `isStatewideKyPoliticalStory`, extended both the bill-detection regex and the
 | Bill that "heads to governor" or "passed both chambers" | Final-passage language always means statewide; add as statewide suffix signals |
 | Program covering "all 120 counties" or "across the Commonwealth" | Explicitly statewide; no county should be assigned |
 | Source default county surviving on a statewide program article | Root cause is missing statewide-signal coverage in `isStatewideKyPoliticalStory`; fix the function, not the source map |
+
+---
+
+## 2026-03-20 — Three tagging bugs: directional school names, statewide agency advisories, talker.news block
+
+---
+
+### Change 64 — Treat directional school name prefixes as county evidence in sports context (2026-03-20)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Added a new `hasSchoolDirectionalCounty` check immediately before the `hasExplicitCountyMention` block. When the article has school/sports context (basketball, team, coach, tournament, KHSAA, etc.) AND a county in `baseGeo.counties` appears in a directional school-name pattern (`North X`, `South X`, `East X`, `West X`, `Central X`, etc.), it is treated as explicit county evidence and `hasExplicitCountyMention` becomes true.
+
+```diff
++ const hasSchoolDirectionalCounty =
++   SCHOOL_SPORTS_CONTEXT_RE.test(semanticText) &&
++   baseGeo.counties.some((county) =>
++     new RegExp(
++       `\\b(?:north|south|east|west|central|upper|lower|...)\\s+${escapeRegExp(county)}\\b`,
++       'i',
++     ).test(semanticText),
++   );
+
+  const hasExplicitCountyMention =
+    baseGeo.counties.some(...) ||
+    (baseGeo.city && baseGeo.county && !HIGH_AMBIGUITY_CITIES...) ||
++   hasSchoolDirectionalCounty;
+```
+
+**Article that triggered this fix:**
+- *North Laurel ends their season as State Quarterfinalists* from `wymt.com` — tagged **Kentucky + Perry County** (wrong). North Laurel High School is in Laurel County (London, KY). Geo Pass C correctly detected `Laurel` from the phrase "North Laurel" in a basketball context, but `hasExplicitCountyMention` was false (since "Laurel County" never appears literally), causing `effectiveGeoCounty` to be null and `allowedSourceDefaultCounty` (Perry — WYMT's home base) to win.
+
+**Root cause:**
+Geo Pass C (directional school prefixes) detected `Laurel` correctly but the downstream `hasExplicitCountyMention` guard required either a literal "Laurel County" substring or a non-ambiguous city. Neither condition was met: the dateline was "LEXINGTON, Ky." (HIGH_AMBIGUITY_CITY) and "Laurel County" never appeared verbatim. This caused the source default (Perry) to override the correct geo result.
+
+**Why "North Laurel" is authoritative:**
+A high-school team named "North Laurel" is unambiguously tied to Laurel County public schools. This is the same reasoning as `Johnson Central` → Johnson County or `Pike Central` → Pike County. The directional prefix pattern already existed in geo.ts Pass C precisely to handle this case; the gap was only in the `hasExplicitCountyMention` filter in classify.ts.
+
+---
+
+### Change 65 — Add "Head's up Kentuckians" to statewide alert detection (2026-03-20)
+
+**File:** `worker/src/lib/classify.ts`
+
+**What changed:**
+Extended the statewide alert regex in `isStatewideKyPoliticalStory` to match direct-address phrases like "Head's up Kentuckians" and "Heads up Kentuckians":
+
+```diff
+- if (/\btargeting\s+(?:all\s+)?kentuckians?\b|\bacross\s+(?:all\s+of\s+)?kentucky\b/i.test(text)) {
++ if (/\btargeting\s+(?:all\s+)?kentuckians?\b|\bacross\s+(?:all\s+of\s+)?kentucky\b|\bheads?\s*[''']?\s*up\s*,?\s*(?:all\s+)?kentuckians?\b/i.test(text)) {
+```
+
+**Article that triggered this fix:**
+- *Kentucky Transportation Cabinet warns of scam texts impersonating state agency* from `whas11.com` — tagged **Kentucky + Jefferson County** (wrong). The article is a statewide advisory from KYTC (a Kentucky state agency) warning all residents about impersonation scams, published by the Louisville ABC affiliate with a "LOUISVILLE, Ky." dateline. Jefferson County came from `whas11.com`'s `SOURCE_DEFAULT_COUNTY` since the dateline city (Louisville) is in `HIGH_AMBIGUITY_CITIES` and no city-to-county mapping was applied. The article should have been Kentucky-only with no county, since the KYTC warning targets every Kentuckian, not just Jefferson County residents. The article opens with "Head's up Kentuckians" — a clear all-state address that was not matched by the previous statewide alert regex.
+
+**Why no county:**
+`isStatewideKyPoliticalStory` returning `true` sets `isStatewideKyPolitics = true`, which forces `mergedCounty = null` in the merge step, overriding both the source default and any AI-suggested county.
+
+---
+
+### Change 66 — Block talker.news from ingestion (2026-03-20)
+
+**File:** `worker/src/lib/ingest.ts`
+
+**What changed:**
+Added `talker.news` to `BLOCKED_SOURCE_HOSTNAMES`:
+
+```diff
+  const BLOCKED_SOURCE_HOSTNAMES = new Set([
+    'afp.com',
+    'news.afp.com',
++   'talker.news',
+  ]);
+```
+
+**Why:**
+`talker.news` publishes AI-generated content aggregated from other sources. It does not produce original reporting and its articles are not appropriate for ingestion as local news. User explicitly flagged this domain as a source that should never be imported.
+
+---
+
+## Rules derived from these fixes
+
+| Pattern | Rule |
+|---|---|
+| School name with directional prefix (North/South/East/West/Central + County) detected by Pass C | Treat as explicit county evidence when school/sports context is present; do not let source-default county override it |
+| WYMT (Perry County default) publishing state-tournament coverage | The game location or school name (not WYMT's base) should determine county; directional school detection now handles this |
+| State agency advisory addressed to "Kentuckians" (any dateline) | Add the direct-address phrase to `isStatewideKyPoliticalStory`; statewide agency warnings are never single-county |
+| "Head's up Kentuckians" / "Heads up Kentuckians" | Direct address to all residents = statewide story; suppress source default county |
+| AI-generated content aggregators (talker.news) | Block at ingestion; never genuine local reporting |

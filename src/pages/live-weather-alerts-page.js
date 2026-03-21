@@ -7,6 +7,7 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  TextField,
   Box,
   useMediaQuery,
 } from "@material-ui/core";
@@ -108,6 +109,28 @@ const SEVERITY_ORDER = { "Extreme": 0, "Severe": 1, "Moderate": 2, "Minor": 3, "
 
 function getAlertStyle(event = "") {
   return ALERT_COLORS[event] || ALERT_COLORS.default;
+}
+
+function alertMatchesSearch(alert, query) {
+  if (!query) return true;
+  const term = query.toLowerCase();
+  const props = alert.properties || {};
+  const fields = [
+    props.event,
+    props.headline,
+    props.description,
+    props.instruction,
+    props.areaDesc,
+    props.severity,
+    props.urgency,
+    props.certainty,
+    props.senderName,
+    props.sender,
+  ];
+
+  return fields
+    .filter(Boolean)
+    .some(field => field.toString().toLowerCase().includes(term));
 }
 
 function formatAlertDescription(desc = "") {
@@ -313,6 +336,9 @@ export default function LiveWeatherAlertsPage() {
   const primary = theme.palette.primary.main;
 
   const [selectedArea, setSelectedArea] = useState("ALL");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [severityFilter, setSeverityFilter] = useState("All");
+  const [eventFilter, setEventFilter] = useState("All");
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -353,10 +379,15 @@ export default function LiveWeatherAlertsPage() {
       });
       if (!res.ok) throw new Error(`NWS API returned ${res.status}`);
       const data = await res.json();
-      const sorted = (data.features || []).sort((a, b) => {
-        const sa = SEVERITY_ORDER[a.properties?.severity] ?? 4;
-        const sb = SEVERITY_ORDER[b.properties?.severity] ?? 4;
-        return sa - sb;
+      const sorted = (data.features || []).slice().sort((a, b) => {
+        const getTime = (item) => {
+          const props = item?.properties || {};
+          const effective = props.effective || props.sent || props.onset || null;
+          const value = effective ? new Date(effective).getTime() : 0;
+          return Number.isNaN(value) ? 0 : value;
+        };
+
+        return getTime(b) - getTime(a); // newest first
       });
       setAlerts(sorted);
       setLastUpdated(new Date());
@@ -383,6 +414,16 @@ export default function LiveWeatherAlertsPage() {
   const extremeCount = alerts.filter(a => a.properties?.severity === "Extreme").length;
   const severeCount = alerts.filter(a => a.properties?.severity === "Severe").length;
   const moderateCount = alerts.filter(a => a.properties?.severity === "Moderate").length;
+
+  const eventTypes = [
+    "All",
+    ...Array.from(new Set(alerts.map(a => a.properties?.event).filter(Boolean))).sort(),
+  ];
+
+  const visibleAlerts = alerts
+    .filter(alert => alertMatchesSearch(alert, searchTerm))
+    .filter(alert => severityFilter === "All" || alert.properties?.severity === severityFilter)
+    .filter(alert => eventFilter === "All" || alert.properties?.event === eventFilter);
 
   return (
     <div style={{ fontFamily: "Georgia, serif", background: theme.palette.background.default, color: textColor, paddingBottom: 40 }}>
@@ -425,6 +466,50 @@ export default function LiveWeatherAlertsPage() {
             {US_AREAS.map(area => (
               <MenuItem key={area.code} value={area.code}>
                 {area.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <TextField
+          id="alert-search"
+          label="Search alerts"
+          variant="outlined"
+          size="small"
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          style={{ minWidth: isMobile ? "100%" : 260 }}
+        />
+
+        <FormControl variant="outlined" size="small" style={{ minWidth: isMobile ? "100%" : 175 }}>
+          <InputLabel id="severity-filter-label">Severity</InputLabel>
+          <Select
+            labelId="severity-filter-label"
+            id="severity-filter"
+            value={severityFilter}
+            onChange={e => setSeverityFilter(e.target.value)}
+            label="Severity"
+          >
+            {['All', 'Extreme', 'Severe', 'Moderate'].map(option => (
+              <MenuItem key={option} value={option}>
+                {option}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <FormControl variant="outlined" size="small" style={{ minWidth: isMobile ? "100%" : 220 }}>
+          <InputLabel id="event-filter-label">Alert Type</InputLabel>
+          <Select
+            labelId="event-filter-label"
+            id="event-filter"
+            value={eventFilter}
+            onChange={e => setEventFilter(e.target.value)}
+            label="Alert Type"
+          >
+            {eventTypes.map(type => (
+              <MenuItem key={type} value={type}>
+                {type}
               </MenuItem>
             ))}
           </Select>
@@ -555,9 +640,15 @@ export default function LiveWeatherAlertsPage() {
           </div>
         )}
 
-        {!loading && !error && alerts.length > 0 && (
+        {!loading && !error && alerts.length > 0 && visibleAlerts.length === 0 && (
+          <div style={{ textAlign: "center", padding: 32, color: theme.palette.text.secondary }}>
+            No alerts match your search for "{searchTerm}".
+          </div>
+        )}
+
+        {!loading && !error && visibleAlerts.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {alerts.map((alert, i) => (
+            {visibleAlerts.map((alert, i) => (
               <AlertCard key={alert.id || i} alert={alert} theme={theme} />
             ))}
           </div>

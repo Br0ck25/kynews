@@ -565,10 +565,11 @@ export function isStatewideKyPoliticalStory(text: string): boolean {
     return true;
   }
   // Statewide alert/warning language — articles targeting ALL Kentuckians
-  // (e.g. FBI Louisville warning all Kentuckians about scams, health advisories).
-  // "targeting Kentuckians", "across Kentucky" without a specific single-city
-  // focus are reliable signals that the story has no single-county scope.
-  if (/\btargeting\s+(?:all\s+)?kentuckians?\b|\bacross\s+(?:all\s+of\s+)?kentucky\b/i.test(text)) {
+  // (e.g. FBI Louisville warning all Kentuckians about scams, health advisories,
+  // KYTC scam text warnings).  "targeting Kentuckians", "across Kentucky", or
+  // a direct address like "Head's up Kentuckians" indicate the story has no
+  // single-county scope — suppress any source-default county assignment.
+  if (/\btargeting\s+(?:all\s+)?kentuckians?\b|\bacross\s+(?:all\s+of\s+)?kentucky\b|\bheads?\s*[''']?\s*up\s*,?\s*(?:all\s+)?kentuckians?\b/i.test(text)) {
     return true;
   }
   // detect three or more distinct legislative districts
@@ -832,6 +833,27 @@ export async function classifyArticleWithAi(
   // in a list like "Grayson, Meade and Hardin counties"), treat the county
   // information as explicit even if the first detected county doesn't include
   // the word "County" itself.
+
+  // Directional school name prefixes (e.g. "North Laurel" → Laurel County,
+  // "South Warren" → Warren County) are reliable county indicators when there
+  // is a school or sports context.  Geo Pass C already detects these, but the
+  // hasExplicitCountyMention guard below would normally filter them out because
+  // "Laurel County" never appears literally. Re-check using the same patterns
+  // so that a WYMT article about "North Laurel basketball" is tagged Laurel,
+  // not the station's home-base default (Perry).
+  const SCHOOL_DIRECTIONAL_RE =
+    /\b(?:north|south|east|west|central|upper|lower|western|eastern|northern|southern|northeastern|northwestern|southeastern|southwestern)\s+(\w+)\b/gi;
+  const SCHOOL_SPORTS_CONTEXT_RE =
+    /\b(?:school|high school|team|coach|tournament|district|region|game|score|player|roster|season|basketball|football|softball|baseball|volleyball|soccer|wrestling|swimming|track|cross\s+country|tennis|golf|quiz\s+bowl|khsaa)\b/i;
+  const hasSchoolDirectionalCounty =
+    SCHOOL_SPORTS_CONTEXT_RE.test(semanticText) &&
+    baseGeo.counties.some((county) =>
+      new RegExp(
+        `\\b(?:north|south|east|west|central|upper|lower|western|eastern|northern|southern|northeastern|northwestern|southeastern|southwestern)\\s+${escapeRegExp(county)}\\b`,
+        'i',
+      ).test(semanticText),
+    );
+
   const hasExplicitCountyMention =
     baseGeo.counties.some((county) =>
       COUNTY_PATTERNS.some((p) => p.county === county && p.pattern.test(semanticText)),
@@ -840,7 +862,10 @@ export async function classifyArticleWithAi(
     // as implicit county evidence unless the city is known to be ambiguous.
     (baseGeo.city &&
       baseGeo.county &&
-      !HIGH_AMBIGUITY_CITIES.has(baseGeo.city.toLowerCase()));
+      !HIGH_AMBIGUITY_CITIES.has(baseGeo.city.toLowerCase())) ||
+    // Treat a directional school name prefix ("North Laurel", "South Warren",
+    // "East Carter", etc.) as county evidence when school/sports context is present.
+    hasSchoolDirectionalCounty;
 
   // If the article explicitly (or via a strong dateline signal) lists counties,
   // avoid falling back to the source default county (e.g. Jefferson for wave3.com)

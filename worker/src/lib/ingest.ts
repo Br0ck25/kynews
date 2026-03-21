@@ -78,6 +78,9 @@ function deriveAuthorFromHostname(sourceUrl: string): string | null {
 const BLOCKED_SOURCE_HOSTNAMES = new Set([
   'afp.com',
   'news.afp.com',
+  // talker.news — AI-generated content aggregator; articles are not genuine
+  // local news and should never be ingested.
+  'talker.news',
 ]);
 
 function isBlockedSourceUrl(url: string): boolean {
