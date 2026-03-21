@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useTheme } from "@material-ui/core/styles";
 import {
   Typography,
@@ -236,9 +236,8 @@ function AlertCard({ alert, theme }) {
 
           {/* Affected areas — show up to 5 zones before truncating */}
           {props.areaDesc && (
-            <div style={{ fontSize: 13, color: "#333", marginBottom: 3, lineHeight: 1.4 }}>
-              📍 {props.areaDesc.split(";").map(s => s.trim()).filter(Boolean).slice(0, 5).join(" • ")}
-              {props.areaDesc.split(";").length > 5 && ` • +${props.areaDesc.split(";").length - 5} more areas`}
+            <div style={{ fontSize: 13, color: "#333", marginBottom: 3, lineHeight: 1.4, wordBreak: "break-word" }}>
+              📍 {props.areaDesc.split(";").map(s => s.trim()).filter(Boolean).join(" • ")}
             </div>
           )}
 
@@ -336,6 +335,7 @@ export default function LiveWeatherAlertsPage() {
   const primary = theme.palette.primary.main;
 
   const [selectedArea, setSelectedArea] = useState("ALL");
+  const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [severityFilter, setSeverityFilter] = useState("All");
   const [eventFilter, setEventFilter] = useState("All");
@@ -343,6 +343,7 @@ export default function LiveWeatherAlertsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [alertsCache, setAlertsCache] = useState({});
 
   // Set page meta
   useEffect(() => {
@@ -370,14 +371,24 @@ export default function LiveWeatherAlertsPage() {
     setLoading(true);
     setError(null);
     try {
+      if (alertsCache[areaCode]) {
+        setAlerts(alertsCache[areaCode]);
+        setLastUpdated(new Date());
+        setLoading(false);
+        return;
+      }
+
       const url =
         areaCode === "ALL"
           ? "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update"
           : `https://api.weather.gov/alerts/active?area=${areaCode}&status=actual&message_type=alert,update`;
+
       const res = await fetch(url, {
         headers: { "User-Agent": "LocalKYNews/1.0 (kynews.com)" },
       });
+
       if (!res.ok) throw new Error(`NWS API returned ${res.status}`);
+
       const data = await res.json();
       const sorted = (data.features || []).slice().sort((a, b) => {
         const getTime = (item) => {
@@ -389,18 +400,26 @@ export default function LiveWeatherAlertsPage() {
 
         return getTime(b) - getTime(a); // newest first
       });
+
       setAlerts(sorted);
+      setAlertsCache(prev => ({ ...prev, [areaCode]: sorted }));
       setLastUpdated(new Date());
     } catch (err) {
       setError("Unable to load weather alerts. The NWS API may be temporarily unavailable.");
       setAlerts([]);
     }
     setLoading(false);
-  }, []);
+  }, [alertsCache]);
 
   useEffect(() => {
     fetchAlerts(selectedArea);
   }, [selectedArea, fetchAlerts]);
+
+  // Sync searchTerm to throttled input
+  useEffect(() => {
+    const timeout = setTimeout(() => setSearchTerm(searchInput), 200);
+    return () => clearTimeout(timeout);
+  }, [searchInput]);
 
   // Auto-refresh every 3 minutes
   useEffect(() => {
@@ -415,15 +434,16 @@ export default function LiveWeatherAlertsPage() {
   const severeCount = alerts.filter(a => a.properties?.severity === "Severe").length;
   const moderateCount = alerts.filter(a => a.properties?.severity === "Moderate").length;
 
-  const eventTypes = [
+  const eventTypes = useMemo(() => [
     "All",
     ...Array.from(new Set(alerts.map(a => a.properties?.event).filter(Boolean))).sort(),
-  ];
+  ], [alerts]);
 
-  const visibleAlerts = alerts
+  const visibleAlerts = useMemo(() => alerts
     .filter(alert => alertMatchesSearch(alert, searchTerm))
     .filter(alert => severityFilter === "All" || alert.properties?.severity === severityFilter)
-    .filter(alert => eventFilter === "All" || alert.properties?.event === eventFilter);
+    .filter(alert => eventFilter === "All" || alert.properties?.event === eventFilter)
+  , [alerts, searchTerm, severityFilter, eventFilter]);
 
   return (
     <div style={{ fontFamily: "Georgia, serif", background: theme.palette.background.default, color: textColor, paddingBottom: 40 }}>
@@ -476,8 +496,8 @@ export default function LiveWeatherAlertsPage() {
           label="Search alerts"
           variant="outlined"
           size="small"
-          value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
+          value={searchInput}
+          onChange={e => setSearchInput(e.target.value)}
           style={{ minWidth: isMobile ? "100%" : 260 }}
         />
 
