@@ -188,20 +188,26 @@ export async function fetchAllActiveAlerts(): Promise<NwsAlert[]> {
     },
   });
 
-  if (!res.ok) return [];
+  if (!res.ok) {
+    console.error(`[LIVE-ALERTS-FB] NWS fetch failed: HTTP ${res.status} ${res.statusText}`);
+    return [];
+  }
 
   let data: any;
   try {
     data = await res.json();
-  } catch {
+  } catch (err) {
+    console.error('[LIVE-ALERTS-FB] NWS response JSON parse failed:', err);
     return [];
   }
 
   const features: any[] = Array.isArray(data?.features) ? data.features : [];
-
-  return features
+  const mapped = features
     .map(mapNwsFeatureToAlertAny)
     .filter((a): a is NwsAlert => a !== null);
+
+  console.log(`[LIVE-ALERTS-FB] NWS returned ${features.length} features → ${mapped.length} valid alerts`);
+  return mapped;
 }
 
 /**
@@ -750,6 +756,16 @@ export function resolveAlertStateCode(alert: NwsAlert): string | null {
  * image, then to an empty string (caller should use a text-only post).
  */
 export function getWeatherAlertImageUrl(event: string, stateCode?: string): string {
+  // Some NWS event names differ from our image filenames — normalize them here.
+  const NWS_EVENT_ALIASES: Record<string, string> = {
+    'Extreme Heat Warning':          'Excessive Heat Warning',
+    'Extreme Heat Watch':            'Excessive Heat Watch',
+    // NWS has no "Heavy Freezing Spray Warning" in most state image sets;
+    // map it to the advisory variant which is universally available.
+    'Heavy Freezing Spray Warning':  'Heavy Freezing Spray Advisory',
+  };
+  const normalizedEvent = NWS_EVENT_ALIASES[event] ?? event;
+
   const stateName = stateCode ? (STATE_CODE_TO_NAME[stateCode.toUpperCase()] ?? null) : null;
 
   // ── Prefer per-state image folders when available. Example: /img/alabama/tornado-warning.png ──
@@ -784,7 +800,7 @@ export function getWeatherAlertImageUrl(event: string, stateCode?: string): stri
   };
 
   if (stateName) {
-    const slug = event
+    const slug = normalizedEvent
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -797,8 +813,8 @@ export function getWeatherAlertImageUrl(event: string, stateCode?: string): stri
   }
 
   // ── Existing state-specific folders for legacy behavior ──
-  if (stateName && perStateFilenameMap[event]) {
-    const fullName = perStateFilenameMap[event];
+  if (stateName && perStateFilenameMap[normalizedEvent]) {
+    const fullName = perStateFilenameMap[normalizedEvent];
     const dot = fullName.lastIndexOf('.');
     if (dot > 0) {
       const prefix = fullName.slice(0, dot);
@@ -822,6 +838,11 @@ export function getWeatherAlertImageUrl(event: string, stateCode?: string): stri
 
   // ── Generic per-event images (all other alert types, or missing state) ──
   const map: Record<string, string> = {
+    'Heavy Freezing Spray Advisory': `${IMG_BASE}/weather-alert.jpg`,
+    'Heavy Freezing Spray Watch':    `${IMG_BASE}/weather-alert.jpg`,
+    'Heavy Freezing Spray Warning':  `${IMG_BASE}/weather-alert.jpg`,
+    'Extreme Heat Warning':          `${IMG_BASE}/Extreme-Heat-Warning.png`,
+    'Extreme Heat Watch':            `${IMG_BASE}/Extreme-Heat-Warning.png`,
     'Tornado Warning':               `${IMG_BASE}/tornado-warning.png`,
     'Tornado Watch':                 `${IMG_BASE}/Tornado-Watch.png`,
     'Severe Thunderstorm Warning':   `${IMG_BASE}/Severe-Thunderstorm-Warning.png`,
@@ -850,7 +871,7 @@ export function getWeatherAlertImageUrl(event: string, stateCode?: string): stri
     'Red Flag Warning':              `${IMG_BASE}/Red-Flag-Warning.png`,
     'Rip Current Statement':         `${IMG_BASE}/Rip-Current-Statement.png`,
   };
-  return map[event] ?? WEATHER_ALERT_IMAGE_URL;
+  return map[normalizedEvent] ?? map[event] ?? WEATHER_ALERT_IMAGE_URL;
 }
 
 /**
@@ -1169,6 +1190,36 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
   const startDate = await getLiveAlertAutopostStart(env);
   const nowSec = Math.floor(Date.now() / 1000);
 
+  // Pre-fetch all three category flags once — avoids a KV read per alert
+  // (with 500+ nationwide alerts, per-alert KV reads can stall the Worker).
+  const categoryFlags: Record<LiveAlertCategory, boolean> = {
+    warnings: await getLiveAlertAutopostFlag(env, 'warnings'),
+    watches:  await getLiveAlertAutopostFlag(env, 'watches'),
+    others:   await getLiveAlertAutopostFlag(env, 'others'),
+  };
+  console.log(`[LIVE-ALERTS-FB] Category flags — warnings:${categoryFlags.warnings} watches:${categoryFlags.watches} others:${categoryFlags.others}`);
+
+  // Per-tick counters for the summary log
+  let cntNew = 0, cntUpdate = 0, cntCancel = 0, cntExpiry = 0, cntAlreadySeen = 0, cntSkipped = 0;
+
+  // Stop creating new anchor posts if Facebook returns a rate-limit error (code
+  // 368) during this tick.  Updates/comments on existing threads are unaffected.
+  // Persist the flag to KV so a rate-limit encountered in tick N automatically
+  // suppresses new-post attempts in ticks N+1…N+M until the 15-min cooldown expires.
+  let rateLimited = false;
+  // Cap new anchor posts per tick to prevent a backlog of deferred alerts from
+  // firing all at once when the cooldown clears and immediately re-triggering 368.
+  let newPostsThisTick = 0;
+  const MAX_NEW_POSTS_PER_TICK = 3;
+  const RL_COOLDOWN_KEY = 'live_alert_rl_cooldown';
+  if (env.CACHE) {
+    const onCooldown = await env.CACHE.get(RL_COOLDOWN_KEY);
+    if (onCooldown) {
+      console.log('[LIVE-ALERTS-FB] Rate-limit cooldown active — new anchor posts deferred this tick');
+      rateLimited = true;
+    }
+  }
+
   // In-memory caches for the duration of this tick.
   // Cloudflare KV has eventual consistency: a put() in one iteration of the
   // loop is not guaranteed to be visible to get() in a later iteration within
@@ -1190,9 +1241,10 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
 
       // ── Category flag gate ───────────────────────────────────────────────
       const category = classifyAlertCategory(alert.event);
-      const enabled  = await getLiveAlertAutopostFlag(env, category);
+      const enabled  = categoryFlags[category];
       if (!enabled) {
         console.log(`[LIVE-ALERTS-FB] Skipping "${alert.event}" — ${category} auto-post is disabled`);
+        cntSkipped++;
         continue;
       }
 
@@ -1209,10 +1261,10 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
       const ttl = Math.max(expiresAt - nowSec + 7200, 3600);
 
       // ── Seen check — skip if already handled this tick ───────────────────
-      if (tickSeen.has(seenKey)) continue;
+      if (tickSeen.has(seenKey)) { cntAlreadySeen++; continue; }
       if (env.CACHE) {
         const alreadySeen = await env.CACHE.get(seenKey);
-        if (alreadySeen) continue;
+        if (alreadySeen) { cntAlreadySeen++; continue; }
       }
 
       // ── Read existing active-alert state — check in-memory cache first ───
@@ -1226,14 +1278,46 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
 
       if (!state) {
         // ── NEW ALERT — create a new Facebook post ────────────────────────
+
+        // Recency gate: only post alerts sent within the last 2 hours.
+        // Older unseen alerts (e.g. after a cold-start or missed invocations)
+        // are silently marked as seen so they are never retried as new posts.
+        // If NWS later reissues the same zone/event, the new alertId will have
+        // a fresh sent time and will pass this check normally.
+        const NEW_POST_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
+        const sentMs = alert.sent ? new Date(alert.sent).getTime() : 0;
+        if (!sentMs || Date.now() - sentMs > NEW_POST_MAX_AGE_MS) {
+          // Too old — mark seen and move on (no Facebook post)
+          tickSeen.add(seenKey);
+          if (env.CACHE) await env.CACHE.put(seenKey, '1', { expirationTtl: ttl });
+          cntSkipped++;
+          continue;
+        }
+
+        // If Facebook rate-limited us earlier this tick, skip new anchor posts.
+        // The seen-key won't be written, so the alert will be retried next tick.
+        if (rateLimited) {
+          console.log(`[LIVE-ALERTS-FB] Rate-limited this tick — deferring "${alert.event}" ugc=${ugcCode}`);
+          continue;
+        }
+
+        // Per-tick cap: post at most MAX_NEW_POSTS_PER_TICK new anchor posts per tick.
+        // When the 15-min cooldown clears, a large backlog would otherwise fire all at
+        // once and immediately re-trigger another 368, creating an indefinite loop.
+        if (newPostsThisTick >= MAX_NEW_POSTS_PER_TICK) {
+          continue;
+        }
+
         const caption   = buildAnchorPostCaption(buildWeatherAlertFbCaption(alert));
         const stateCode = resolveAlertStateCode(alert);
-        const imageUrl  = getWeatherAlertImageUrl(alert.event, stateCode ?? undefined);
+        let imageUrl    = getWeatherAlertImageUrl(alert.event, stateCode ?? undefined);
 
         let fbPostId: string | null = null;
         let posted = false;
 
-        if (imageUrl) {
+        // Photo post — retry once with generic fallback on 1366046 (image not
+        // readable); bail immediately on 368 (rate limit).
+        for (let attempt = 0; attempt < 2 && imageUrl && !posted && !rateLimited; attempt++) {
           const params = new URLSearchParams({ caption, url: imageUrl, access_token: livePageToken });
           const resp = await fetch(`https://graph.facebook.com/v22.0/${livePageId}/photos`, {
             method: 'POST',
@@ -1241,14 +1325,26 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
             body: params,
           });
           const data: any = await resp.json().catch(() => ({}));
-          if (!resp.ok) {
-            console.error(`[LIVE-ALERTS-FB] Photo post failed (${resp.status}) "${alert.event}":`, JSON.stringify(data));
-          } else {
+          if (resp.ok) {
             fbPostId = String(data?.id ?? '');
             posted   = true;
             console.log(`[LIVE-ALERTS-FB] New post "${alert.event}" ugc=${ugcCode} → fb id=${fbPostId}`);
+          } else if (data?.error?.code === 368) {
+            rateLimited = true;
+            if (env.CACHE) await env.CACHE.put(RL_COOLDOWN_KEY, '1', { expirationTtl: 900 });
+            console.warn(`[LIVE-ALERTS-FB] Rate-limited on "${alert.event}" — cooldown set for 15 min`);
+          } else if (data?.error?.error_subcode === 1366046 && attempt === 0 && imageUrl !== WEATHER_ALERT_IMAGE_URL) {
+            console.warn(`[LIVE-ALERTS-FB] Image not readable for "${alert.event}" (${imageUrl}) — retrying with generic fallback`);
+            imageUrl = WEATHER_ALERT_IMAGE_URL;
+          } else {
+            console.error(`[LIVE-ALERTS-FB] Photo post failed (${resp.status}) "${alert.event}":`, JSON.stringify(data));
+            imageUrl = ''; // exhaust loop, fall through to text-only
           }
-        } else {
+        }
+        if (rateLimited) continue;
+
+        if (!posted) {
+          // Text-only fallback — image URL was empty or all photo attempts failed
           const params = new URLSearchParams({ message: caption, access_token: livePageToken });
           const resp = await fetch(`https://graph.facebook.com/v22.0/${livePageId}/feed`, {
             method: 'POST',
@@ -1257,6 +1353,12 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
           });
           const data: any = await resp.json().catch(() => ({}));
           if (!resp.ok) {
+            if (data?.error?.code === 368) {
+              rateLimited = true;
+              if (env.CACHE) await env.CACHE.put(RL_COOLDOWN_KEY, '1', { expirationTtl: 900 });
+              console.warn(`[LIVE-ALERTS-FB] Rate-limited (feed, "${alert.event}") — cooldown set for 15 min`);
+              continue;
+            }
             console.error(`[LIVE-ALERTS-FB] Feed post failed (${resp.status}) "${alert.event}":`, JSON.stringify(data));
           } else {
             fbPostId = String(data?.id ?? '');
@@ -1279,6 +1381,8 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
           tickSeen.add(seenKey);
           await env.CACHE.put(kvKey,    JSON.stringify(newState), { expirationTtl: ttl });
           await env.CACHE.put(seenKey,  '1',                      { expirationTtl: ttl });
+          cntNew++;
+          newPostsThisTick++;
 
           // Record in D1 for admin visibility
           await insertWeatherAlertPost(env, {
@@ -1297,6 +1401,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
 
       } else if (state.nwsAlertId === alert.id) {
         // ── SAME ALERT ID — already posted, just mark seen ────────────────
+        cntAlreadySeen++;
         tickSeen.add(seenKey);
         if (env.CACHE) {
           await env.CACHE.put(seenKey, '1', { expirationTtl: ttl });
@@ -1311,6 +1416,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
           ].join('\n');
           const cancelPosted = await postWeatherAlertComment(state.fbPostId, cancelMsg, livePageId, livePageToken);
           if (cancelPosted) {
+            cntCancel++;
             await insertWeatherAlertComment(env, {
               fb_post_id:   state.fbPostId,
               ugc_code:     ugcCode,
@@ -1331,6 +1437,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
             const updateMsg = `🔄 UPDATE — ${alert.event} for ${alert.areaDesc}\n\n${buildCommentText(buildWeatherAlertFbCaption(alert))}`;
             const updatePosted = await postWeatherAlertComment(state.fbPostId, updateMsg, livePageId, livePageToken);
             if (updatePosted) {
+              cntUpdate++;
               await insertWeatherAlertComment(env, {
                 fb_post_id:   state.fbPostId,
                 ugc_code:     ugcCode,
@@ -1353,6 +1460,11 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
             tickStates.set(kvKey, updatedState);
           } else {
             // ── Chain limit reached — start a new anchor post ────────────
+            // Skip if rate-limited this tick; the same state (updateCount >= 3)
+            // will be encountered next tick and retried cleanly.
+            if (rateLimited) {
+              console.log(`[LIVE-ALERTS-FB] Rate-limited — deferring chain post for "${alert.event}" ugc=${ugcCode}`);
+            } else {
             const chainTransMsg = `🔄 Continuing coverage of this ${alert.event} has moved to a new post.`;
             const chainTransPosted = await postWeatherAlertComment(
               state.fbPostId,
@@ -1435,6 +1547,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
                 console.error('[LIVE-ALERTS-FB] D1 chain insert failed:', err);
               });
             }
+            } // end !rateLimited chain block
           }
         }
 
@@ -1467,6 +1580,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
             const expiryMsg = `✅ This ${s.eventType} for ${s.areaDesc} has expired.`;
             const expiryPosted = await postWeatherAlertComment(s.fbPostId, expiryMsg, livePageId, livePageToken);
             if (expiryPosted) {
+              cntExpiry++;
               await insertWeatherAlertComment(env, {
                 fb_post_id:   s.fbPostId,
                 ugc_code:     s.ugcCode,
@@ -1488,7 +1602,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
     }
   }
 
-  console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts`);
+  console.log(`[LIVE-ALERTS-FB] Tick complete: fetched=${alerts.length} new=${cntNew} updates=${cntUpdate} cancels=${cntCancel} expiries=${cntExpiry} already-seen=${cntAlreadySeen} skipped(disabled)=${cntSkipped}`);
 }
 
 // ─── NWS product (HWO) ingestion ──────────────────────────────────────────

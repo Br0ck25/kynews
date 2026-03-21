@@ -1091,6 +1091,12 @@ export default class SiteService {
     });
   }
 
+  async clearLiveAlertRateLimit() {
+    return this.request("/api/admin/live-alerts/clear-ratelimit", {
+      method: "POST",
+    });
+  }
+
   async exchangeFacebookToken(shortLivedToken) {
     return this.request("/api/admin/facebook/exchange-token", {
       method: "POST",

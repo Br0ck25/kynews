@@ -2606,6 +2606,16 @@ if (url.pathname === '/api/admin/live-alerts/autopost' && request.method === 'PO
 	return json({ ok: true, warnings, watches, others, startDateTime: startDate?.toISOString() ?? null });
 }
 
+// POST /api/admin/live-alerts/clear-ratelimit — clear the FB posting rate-limit cooldown KV key.
+// Use this when auto-posting has been silently stuck for more than 15 minutes.
+if (url.pathname === '/api/admin/live-alerts/clear-ratelimit' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	if (env.CACHE) {
+		await (env.CACHE as any).delete('live_alert_rl_cooldown');
+	}
+	return json({ ok: true, message: 'Rate-limit cooldown cleared. New anchor posts will resume on the next tick.' });
+}
+
 // POST /api/admin/nws-alerts/run — manually trigger NWS alert ingestion
 if (url.pathname === '/api/admin/nws-alerts/run' && request.method === 'POST') {
 	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
