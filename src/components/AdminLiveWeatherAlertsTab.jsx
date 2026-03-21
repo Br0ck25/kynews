@@ -527,9 +527,19 @@ export default function AdminLiveWeatherAlertsTab() {
       if (!res.ok) throw new Error(`NWS API returned ${res.status}`);
       const data = await res.json();
       const SEVERITY_ORDER = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3, Unknown: 4 };
-      const sorted = (data.features || []).sort((a, b) =>
-        (SEVERITY_ORDER[a.properties?.severity] ?? 4) - (SEVERITY_ORDER[b.properties?.severity] ?? 4)
-      );
+      const sorted = (data.features || []).sort((a, b) => {
+        const aTime = Date.parse(a.properties?.sent || a.properties?.effective || '');
+        const bTime = Date.parse(b.properties?.sent || b.properties?.effective || '');
+
+        if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
+          return bTime - aTime; // newest first
+        }
+        if (!Number.isNaN(aTime)) return -1;
+        if (!Number.isNaN(bTime)) return 1;
+
+        // fallback to severity order when date isn't available
+        return (SEVERITY_ORDER[a.properties?.severity] ?? 4) - (SEVERITY_ORDER[b.properties?.severity] ?? 4);
+      });
       setAlerts(sorted);
       setLastUpdated(new Date());
     } catch (err) {
