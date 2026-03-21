@@ -113,17 +113,33 @@ export default function KYWeatherHub() {
   const [alerts, setAlerts] = useState([]);
   const [forecast, setForecast] = useState(null);
   const [currentObs, setCurrentObs] = useState(null);
-  const [selectedCounty, setSelectedCounty] = useState(() => {
+  const [zipCode, setZipCode] = useState(() => {
     try {
-      const stored = localStorage.getItem("kyWeather.selectedCounty");
+      return localStorage.getItem("kyWeather.zipCode") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [selectedLocation, setSelectedLocation] = useState(() => {
+    try {
+      const stored = localStorage.getItem("kyWeather.selectedLocation");
       if (stored) return JSON.parse(stored);
+      const old = localStorage.getItem("kyWeather.selectedCounty");
+      if (old) {
+        const parsed = JSON.parse(old);
+        if (parsed && parsed.lat && parsed.lon) {
+          return { ...parsed, source: "county" };
+        }
+      }
     } catch {
       // ignore
     }
-    return KY_COUNTIES[0];
+    return { ...KY_COUNTIES[0], source: "county" };
   });
   const [loading, setLoading] = useState(true);
   const [alertsLoading, setAlertsLoading] = useState(true);
+  const [zipError, setZipError] = useState("");
+  const [zipLoading, setZipLoading] = useState(false);
   const [time, setTime] = useState(new Date());
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -154,11 +170,19 @@ export default function KYWeatherHub() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("kyWeather.selectedCounty", JSON.stringify(selectedCounty));
+      localStorage.setItem("kyWeather.selectedLocation", JSON.stringify(selectedLocation));
     } catch {
       // ignore
     }
-  }, [selectedCounty]);
+  }, [selectedLocation]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("kyWeather.zipCode", zipCode);
+    } catch {
+      // ignore
+    }
+  }, [zipCode]);
 
   useEffect(() => {
     try {
@@ -178,12 +202,19 @@ export default function KYWeatherHub() {
     setAlertsLoading(false);
   }, []);
 
-  const fetchWeather = useCallback(async (county) => {
+  const fetchWeather = useCallback(async (location) => {
+    if (!location?.lat || !location?.lon) {
+      setForecast([]);
+      setCurrentObs(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setForecast(null);
     setCurrentObs(null);
     try {
-      const res = await fetch(`/api/weather?lat=${county.lat}&lon=${county.lon}`);
+      const res = await fetch(`/api/weather?lat=${location.lat}&lon=${location.lon}`);
       const data = await res.json();
       setForecast(data.forecast || []);
       setCurrentObs(data.observation || null);
@@ -194,8 +225,45 @@ export default function KYWeatherHub() {
     setLoading(false);
   }, []);
 
+  const fetchLocationByZip = useCallback(async (zip) => {
+    const cleanZip = (zip || "").trim();
+    if (!/^[0-9]{5}$/.test(cleanZip)) {
+      setZipError("Please enter a valid 5-digit ZIP code.");
+      return;
+    }
+
+    setZipError("");
+    setZipLoading(true);
+    try {
+      const res = await fetch(`https://api.zippopotam.us/us/${cleanZip}`);
+      if (!res.ok) {
+        throw new Error("ZIP code not found.");
+      }
+      const data = await res.json();
+      const place = (data.places || [])[0];
+      if (!place || !place.latitude || !place.longitude) {
+        throw new Error("Unable to resolve ZIP code location.");
+      }
+
+      const location = {
+        name: `${place["place name"] || data["place name"] || "Unknown"}, ${data["state abbreviation"] || place["state abbreviation"] || ""} (ZIP ${cleanZip})`,
+        lat: Number(place.latitude),
+        lon: Number(place.longitude),
+        source: "zip",
+      };
+
+      setZipCode(cleanZip);
+      setSelectedLocation(location);
+      setZipError("");
+    } catch (err) {
+      setZipError(err?.message || "ZIP code lookup failed. Please try again.");
+    } finally {
+      setZipLoading(false);
+    }
+  }, []);
+
   useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
-  useEffect(() => { fetchWeather(selectedCounty); }, [selectedCounty, fetchWeather]);
+  useEffect(() => { fetchWeather(selectedLocation); }, [selectedLocation, fetchWeather]);
 
   useEffect(() => {
     const svc = new SiteService();
@@ -294,28 +362,64 @@ export default function KYWeatherHub() {
         {/* County Selector */}
         <div style={{ background: paperBg, border: `1px solid ${divider}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: primary, textTransform: "uppercase", letterSpacing: 2, marginBottom: 10, fontWeight: "bold" }}>{"📍 Select Your Area"}</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             {KY_COUNTIES.map(c => (
-              <button key={c.name} onClick={() => setSelectedCounty(c)} style={{
+              <button key={c.name} onClick={() => setSelectedLocation({ ...c, source: "county" })} style={{
                 padding: "6px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12,
-                border: selectedCounty.name === c.name ? `2px solid ${theme.palette.primary.main}` : "1px solid #2a4a6f",
-                background: selectedCounty.name === c.name ? theme.palette.action.hover : "rgba(255,255,255,0.04)",
-                color: selectedCounty.name === c.name ? theme.palette.primary.main : theme.palette.text.secondary,
-                fontWeight: selectedCounty.name === c.name ? "bold" : "normal",
+                border: selectedLocation?.source === "county" && selectedLocation.name === c.name ? `2px solid ${theme.palette.primary.main}` : "1px solid #2a4a6f",
+                background: selectedLocation?.source === "county" && selectedLocation.name === c.name ? theme.palette.action.hover : "rgba(255,255,255,0.04)",
+                color: selectedLocation?.source === "county" && selectedLocation.name === c.name ? theme.palette.primary.main : theme.palette.text.secondary,
+                fontWeight: selectedLocation?.source === "county" && selectedLocation.name === c.name ? "bold" : "normal",
               }}>{c.name.split(" ")[0]}</button>
             ))}
+
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                type="text"
+                value={zipCode}
+                placeholder="ZIP"
+                aria-label="ZIP code"
+                maxLength={5}
+                onChange={(e) => setZipCode(e.target.value.replace(/[^0-9]/g, ""))}
+                style={{
+                  width: 96,
+                  border: `1px solid ${divider}`,
+                  borderRadius: 20,
+                  padding: "6px 10px",
+                  background: paperBg,
+                  color: textColor,
+                  fontSize: 12,
+                }}
+              />
+              <button
+                onClick={() => fetchLocationByZip(zipCode)}
+                disabled={zipLoading}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 20,
+                  cursor: zipLoading ? "not-allowed" : "pointer",
+                  fontSize: 12,
+                  border: `1px solid ${theme.palette.primary.main}`,
+                  background: theme.palette.action.hover,
+                  color: theme.palette.primary.main,
+                }}
+              >
+                {zipLoading ? "Searching..." : "Lookup ZIP"}
+              </button>
+            </div>
           </div>
+          {zipError && <div style={{ marginTop: 8, color: "#ff1744", fontSize: 12 }}>{zipError}</div>}
         </div>
 
         {/* Current Conditions */}
         <div className="current-conditions" style={{ background: paperBg, border: `1px solid ${divider}`, borderRadius: 16, padding: "20px 24px", marginBottom: 16, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
           {loading ? (
-            <div style={{ color: primary, fontSize: 15 }}>{"⏳ Loading conditions for "}{selectedCounty.name}...</div>
+            <div style={{ color: primary, fontSize: 15 }}>{"⏳ Loading conditions for "}{selectedLocation?.name || "selected location"}...</div>
           ) : (
             <>
               <div style={{ fontSize: 64, lineHeight: 1 }}>{forecast?.[0] ? getWeatherIcon(forecast[0].shortForecast) : "🌤️"}</div>
               <div style={{ flex: "1 1 180px" }}>
-                <div style={{ fontSize: 11, color: primary, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Current — {selectedCounty.name}</div>
+                <div style={{ fontSize: 11, color: primary, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Current — {selectedLocation?.name || "Unknown"}</div>
                 <div style={{ fontSize: 48, fontWeight: "bold", color: textColor, lineHeight: 1 }}>{tempF != null ? `${tempF}°F` : "—"}</div>
                 <div style={{ fontSize: 14, color: theme.palette.text.secondary, marginTop: 4 }}>{currentObs?.textDescription || forecast?.[0]?.shortForecast || "—"}</div>
               </div>
