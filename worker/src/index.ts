@@ -459,7 +459,7 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 			access_token: pageToken,
 		};
 
-		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
+		const postResp = await fetch(`https://graph.facebook.com/v22.0/${pageId}/feed`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 			body: new URLSearchParams(params),
@@ -2199,7 +2199,7 @@ if (url.pathname === '/api/admin/facebook/preview' && request.method === 'POST')
 	// --- Path 1: Graph API (token available) ---
 	if (fbToken && postId) {
 		try {
-			const apiUrl = `https://graph.facebook.com/v19.0/${postId}?fields=message,full_picture,created_time&access_token=${encodeURIComponent(fbToken)}`;
+			const apiUrl = `https://graph.facebook.com/v22.0/${postId}?fields=message,full_picture,created_time&access_token=${encodeURIComponent(fbToken)}`;
 			const fbResponse = await fetch(apiUrl, { headers: { accept: 'application/json' } });
 			const fbData = await fbResponse.json() as { message?: string; full_picture?: string; created_time?: string; error?: { message?: string } };
 
@@ -2483,7 +2483,7 @@ if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POS
 		if (imageUrl) {
 			// Photo post with banner image.
 			const params = new URLSearchParams({ caption, url: imageUrl, access_token: liveAlertsPageToken });
-			const respFb = await fetch(`https://graph.facebook.com/v19.0/${liveAlertsPageId}/photos`, {
+			const respFb = await fetch(`https://graph.facebook.com/v22.0/${liveAlertsPageId}/photos`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: params,
@@ -2498,7 +2498,7 @@ if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POS
 		} else {
 			// Text-only post via /feed when no specific banner image exists.
 			const params = new URLSearchParams({ message: caption, access_token: liveAlertsPageToken });
-			const respFb = await fetch(`https://graph.facebook.com/v19.0/${liveAlertsPageId}/feed`, {
+			const respFb = await fetch(`https://graph.facebook.com/v22.0/${liveAlertsPageId}/feed`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: params,
@@ -2844,6 +2844,7 @@ if (url.pathname === '/api/admin/weather-alert-posts/post' && request.method ===
 
 	let postText = typeof body.post_text === 'string' ? body.post_text.trim() : '';
 	let alertEvent: string | undefined;
+	let alertArea: string | undefined;
 	if (!postText) {
 		const id = Number(body.id ?? 0);
 		if (!Number.isFinite(id) || id <= 0) return badRequest('Missing post text or id');
@@ -2851,10 +2852,12 @@ if (url.pathname === '/api/admin/weather-alert-posts/post' && request.method ===
 		if (!post) return json({ error: 'Post not found' }, 404);
 		postText = post.post_text;
 		alertEvent = post.event;
+		alertArea = post.area;
 	}
 	if (!postText) return badRequest('Missing post text');
 
-	const imageUrl = alertEvent ? getWeatherAlertImageUrl(alertEvent) : undefined;
+	const stateCode = alertArea ? extractPrimaryStateCode(alertArea) : null;
+	const imageUrl = alertEvent ? getWeatherAlertImageUrl(alertEvent, stateCode ?? undefined) : undefined;
 	const result = await postFacebookPhotoCaption(env, postText, imageUrl);
 	return json(result);
 }
@@ -6952,7 +6955,7 @@ async function postDigestToFacebook(env: Env, text: string, when?: 'morning' | '
         url: imageUrl,
       });
       const res = await fetch(
-        `https://graph.facebook.com/v19.0/${fbPageId}/photos`,
+        `https://graph.facebook.com/v22.0/${fbPageId}/photos`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -6978,7 +6981,7 @@ async function postDigestToFacebook(env: Env, text: string, when?: 'morning' | '
       message: text,
     });
     const res = await fetch(
-      `https://graph.facebook.com/v19.0/${fbPageId}/feed`,
+      `https://graph.facebook.com/v22.0/${fbPageId}/feed`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
