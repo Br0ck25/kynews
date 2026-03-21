@@ -351,20 +351,6 @@ function AutoPostSettingsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null); // which key is being saved
   const [error, setError] = useState(null);
-  const [clearingRateLimit, setClearingRateLimit] = useState(false);
-  const [clearRateLimitResult, setClearRateLimitResult] = useState(null);
-
-  const handleClearRateLimit = async () => {
-    setClearingRateLimit(true);
-    setClearRateLimitResult(null);
-    try {
-      await service.clearLiveAlertRateLimit();
-      setClearRateLimitResult({ ok: true });
-    } catch (err) {
-      setClearRateLimitResult({ ok: false, error: err?.message || String(err) });
-    }
-    setClearingRateLimit(false);
-  };
 
   useEffect(() => {
     service.getLiveAlertAutopostSettings()
@@ -510,28 +496,6 @@ function AutoPostSettingsPanel() {
           </Box>
 
           {saving === 'startDateTime' && <Typography variant="caption" style={{ color: "#1b5e20", marginTop: 8 }}>Saving start date/time...</Typography>}
-
-          <Box style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid #e0e0e0" }}>
-            <Typography variant="subtitle2" style={{ fontWeight: 600, marginBottom: 4 }}>⏱ FB Rate-Limit Cooldown</Typography>
-            <Typography variant="caption" color="textSecondary" style={{ display: "block", marginBottom: 8 }}>
-              If auto-posting has been silently paused for more than 15 minutes, click below to clear the rate-limit cooldown and resume immediately.
-            </Typography>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={handleClearRateLimit}
-              disabled={clearingRateLimit}
-              style={{ borderColor: "#f57c00", color: "#f57c00" }}
-            >
-              {clearingRateLimit ? <CircularProgress size={14} /> : "🔓 Clear Rate-Limit Cooldown"}
-            </Button>
-            {clearRateLimitResult?.ok && (
-              <Typography variant="caption" style={{ color: "#1b5e20", marginLeft: 12 }}>✅ Cooldown cleared — posts will resume next tick</Typography>
-            )}
-            {clearRateLimitResult && !clearRateLimitResult.ok && (
-              <Typography variant="caption" color="error" style={{ marginLeft: 12 }}>❌ {clearRateLimitResult.error}</Typography>
-            )}
-          </Box>
 
           {error && (
             <Box style={{ marginTop: 10, padding: "8px 12px", background: "#fdecea", border: "1px solid #ef9a9a", borderRadius: 4 }}>
