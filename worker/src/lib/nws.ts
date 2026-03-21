@@ -1202,21 +1202,22 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
   // Per-tick counters for the summary log
   let cntNew = 0, cntUpdate = 0, cntCancel = 0, cntExpiry = 0, cntAlreadySeen = 0, cntSkipped = 0;
 
-  // Stop creating new anchor posts if Facebook returns a rate-limit error (code
-  // 368) during this tick.  Updates/comments on existing threads are unaffected.
-  // Persist the flag to KV so a rate-limit encountered in tick N automatically
-  // suppresses new-post attempts in ticks N+1…N+M until the 15-min cooldown expires.
+  // When Facebook returns error 368 (rate limit), set a KV cooldown key for 15 min.
+  // During cooldown: allow 1 new anchor post per tick instead of 3, so the system
+  // keeps posting slowly rather than stopping completely. If the cooldown key gets
+  // stuck (Worker restart, KV propagation issue), alerts still trickle through.
   let rateLimited = false;
-  // Cap new anchor posts per tick to prevent a backlog of deferred alerts from
-  // firing all at once when the cooldown clears and immediately re-triggering 368.
   let newPostsThisTick = 0;
   const MAX_NEW_POSTS_PER_TICK = 3;
   const RL_COOLDOWN_KEY = 'live_alert_rl_cooldown';
+  // maxPostsThisTick is reduced to 1 during cooldown, stays at 3 normally.
+  let maxPostsThisTick = MAX_NEW_POSTS_PER_TICK;
   if (env.CACHE) {
     const onCooldown = await env.CACHE.get(RL_COOLDOWN_KEY);
     if (onCooldown) {
-      console.log('[LIVE-ALERTS-FB] Rate-limit cooldown active — new anchor posts deferred this tick');
+      console.log('[LIVE-ALERTS-FB] Rate-limit cooldown active — throttling to 1 new post this tick');
       rateLimited = true;
+      maxPostsThisTick = 1;
     }
   }
 
@@ -1286,10 +1287,10 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
           continue;
         }
 
-        // Per-tick cap: post at most MAX_NEW_POSTS_PER_TICK new anchor posts per tick.
-        // When the 15-min cooldown clears, a large backlog would otherwise fire all at
-        // once and immediately re-trigger another 368, creating an indefinite loop.
-        if (newPostsThisTick >= MAX_NEW_POSTS_PER_TICK) {
+        // Per-tick cap: post at most maxPostsThisTick new anchor posts per tick.
+        // Normally 3; reduced to 1 during cooldown so the system keeps posting
+        // slowly rather than stopping completely if the cooldown key gets stuck.
+        if (newPostsThisTick >= maxPostsThisTick) {
           continue;
         }
 
