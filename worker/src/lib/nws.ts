@@ -56,12 +56,13 @@ export async function setLiveAlertAutopostFlag(env: Env, category: LiveAlertCate
  * are posted as comments rather than new posts.
  */
 export interface ActiveAlertState {
-  nwsAlertId: string;  // current NWS alert ID
-  fbPostId: string;    // Facebook post ID to comment on
-  expiresAt: number;   // Unix timestamp (seconds); 0 = unknown
-  ugcCode: string;     // e.g. "KYC095"
-  eventType: string;   // e.g. "Flood Warning"
-  areaDesc: string;    // e.g. "Pike, KY"
+  nwsAlertId: string;   // current NWS alert ID
+  fbPostId: string;     // Facebook post ID to comment on
+  expiresAt: number;    // Unix timestamp (seconds); 0 = unknown
+  ugcCode: string;      // e.g. "KYC095"
+  eventType: string;    // e.g. "Flood Warning"
+  areaDesc: string;     // e.g. "Pike, KY"
+  updateCount: number;  // how many update comments have been posted on this anchor post
 }
 
 /** Classify an NWS event string into one of the three categories. */
@@ -749,6 +750,38 @@ export function buildWeatherAlertFbCaption(alert: NwsAlert): string {
 }
 
 /**
+ * Wrap a base caption for a new anchor post.
+ * Inserts "Updates will be posted in the comments" between the dashboard
+ * link and the hashtags so followers know to watch the thread.
+ */
+function buildAnchorPostCaption(caption: string): string {
+  const hashtagLine = '#weatheralert #weather #alert';
+  const base = caption.endsWith(hashtagLine)
+    ? caption.slice(0, -hashtagLine.length).trimEnd()
+    : caption.trimEnd();
+  return `${base}\n\n🔄 Updates will be posted in the comments as conditions change.\n\n${hashtagLine}`;
+}
+
+/**
+ * Strip the dashboard link and hashtag footer from a caption for use as a
+ * comment.  Comments should be self-contained text with no promotional links.
+ */
+function buildCommentText(caption: string): string {
+  const lines = caption.split('\n');
+  const filtered = lines.filter(line => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('#')) return false;
+    if (trimmed.includes('localkynews.com')) return false;
+    if (trimmed.includes('weather.gov/safety')) return false;
+    return true;
+  });
+  while (filtered.length > 0 && filtered[filtered.length - 1].trim() === '') {
+    filtered.pop();
+  }
+  return filtered.join('\n');
+}
+
+/**
  * Post a weather alert to the Facebook page as a photo post.
  * Uses the event-specific banner image when provided, otherwise falls back to
  * the generic weather-alert banner.  Silently skips if Facebook credentials
@@ -1066,7 +1099,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
 
       if (!state) {
         // ── New alert: create a new Facebook post ─────────────────────────────
-        const caption   = buildWeatherAlertFbCaption(alert);
+        const caption   = buildAnchorPostCaption(buildWeatherAlertFbCaption(alert));
         const stateCode = extractPrimaryStateCode(alert.areaDesc);
         const imageUrl  = getWeatherAlertImageUrl(alert.event, stateCode ?? undefined);
 
@@ -1103,12 +1136,13 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
 
         if (fbPostId && env.CACHE) {
           const newState: ActiveAlertState = {
-            nwsAlertId: alert.id,
+            nwsAlertId:  alert.id,
             fbPostId,
-            expiresAt: expiresAtUnix,
+            expiresAt:   expiresAtUnix,
             ugcCode,
-            eventType: alert.event,
-            areaDesc:  alert.areaDesc,
+            eventType:   alert.event,
+            areaDesc:    alert.areaDesc,
+            updateCount: 0,
           };
           await env.CACHE.put(kvKey,   JSON.stringify(newState), { expirationTtl: ttl });
           await env.CACHE.put(seenKey, '1',                      { expirationTtl: ttl });
@@ -1140,8 +1174,6 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
           const commentText = [
             `✅ NWS has cancelled this ${alert.event} for ${alert.areaDesc}.`,
             'This was determined to not be an imminent threat.',
-            '',
-            'Monitor conditions at localkynews.com/live-weather-alerts',
           ].join('\n');
 
           await postWeatherAlertComment(state.fbPostId, commentText, livePageId, livePageToken);
@@ -1152,29 +1184,101 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
           }
         } else {
           // "Update" or reissued "Alert"
-          const newCaption = buildWeatherAlertFbCaption(alert)
-            // Strip the URL and hashtag footer — those belong on the original
-            // post only, not on threaded update comments.
-            .replace(/\nhttps?:\/\/localkynews\.com\/[^\n]*/g, '')
-            .replace(/\n#[^\n]*/g, '')
-            .trimEnd();
-          const commentText = [
-            `🔄 UPDATE — ${alert.event} for ${alert.areaDesc}`,
-            '',
-            newCaption,
-          ].join('\n');
+          const currentUpdateCount = state.updateCount ?? 0;
 
-          await postWeatherAlertComment(state.fbPostId, commentText, livePageId, livePageToken);
+          if (currentUpdateCount < 3) {
+            // Under the chain limit — post a comment on the existing anchor post
+            const commentText = [
+              `🔄 UPDATE — ${alert.event} for ${alert.areaDesc}`,
+              '',
+              buildCommentText(buildWeatherAlertFbCaption(alert)),
+            ].join('\n');
 
-          if (env.CACHE) {
-            const updatedState: ActiveAlertState = {
-              ...state,
-              nwsAlertId: alert.id,
-              expiresAt:  expiresAtUnix,
-              areaDesc:   alert.areaDesc,
-            };
-            await env.CACHE.put(kvKey,   JSON.stringify(updatedState), { expirationTtl: ttl });
-            await env.CACHE.put(seenKey, '1',                          { expirationTtl: ttl });
+            await postWeatherAlertComment(state.fbPostId, commentText, livePageId, livePageToken);
+
+            if (env.CACHE) {
+              const updatedState: ActiveAlertState = {
+                ...state,
+                nwsAlertId:  alert.id,
+                expiresAt:   expiresAtUnix,
+                areaDesc:    alert.areaDesc,
+                updateCount: currentUpdateCount + 1,
+              };
+              await env.CACHE.put(kvKey,   JSON.stringify(updatedState), { expirationTtl: ttl });
+              await env.CACHE.put(seenKey, '1',                          { expirationTtl: ttl });
+            }
+          } else {
+            // Chain limit reached — post a transition comment and start a new anchor post
+            await postWeatherAlertComment(
+              state.fbPostId,
+              `🔄 Continuing coverage of this ${state.eventType} has moved to a new post.`,
+              livePageId,
+              livePageToken,
+            );
+
+            const newCaption  = buildAnchorPostCaption(buildWeatherAlertFbCaption(alert));
+            const stateCode   = extractPrimaryStateCode(alert.areaDesc);
+            const imageUrl    = getWeatherAlertImageUrl(alert.event, stateCode ?? undefined);
+
+            let newFbPostId: string | null = null;
+            if (imageUrl) {
+              const params = new URLSearchParams({ caption: newCaption, url: imageUrl, access_token: livePageToken });
+              const resp = await fetch(`https://graph.facebook.com/v19.0/${livePageId}/photos`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params,
+              });
+              const data: any = await resp.json().catch(() => ({}));
+              if (resp.ok && data?.id) {
+                newFbPostId = String(data.id);
+                console.log(`[LIVE-ALERTS-FB] Chain-break new post "${alert.event}" ${ugcCode} → ${newFbPostId}`);
+              } else {
+                console.error(`[LIVE-ALERTS-FB] Chain-break photo post failed "${alert.event}" ${ugcCode} (${resp.status}):`, JSON.stringify(data));
+              }
+            } else {
+              const params = new URLSearchParams({ message: newCaption, access_token: livePageToken });
+              const resp = await fetch(`https://graph.facebook.com/v19.0/${livePageId}/feed`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params,
+              });
+              const data: any = await resp.json().catch(() => ({}));
+              if (resp.ok && data?.id) {
+                newFbPostId = String(data.id);
+                console.log(`[LIVE-ALERTS-FB] Chain-break new feed post "${alert.event}" ${ugcCode} → ${newFbPostId}`);
+              } else {
+                console.error(`[LIVE-ALERTS-FB] Chain-break feed post failed "${alert.event}" ${ugcCode} (${resp.status}):`, JSON.stringify(data));
+              }
+            }
+
+            if (newFbPostId && env.CACHE) {
+              const newState: ActiveAlertState = {
+                nwsAlertId:  alert.id,
+                fbPostId:    newFbPostId,
+                expiresAt:   expiresAtUnix,
+                ugcCode,
+                eventType:   alert.event,
+                areaDesc:    alert.areaDesc,
+                updateCount: 0,
+              };
+              await env.CACHE.put(kvKey,   JSON.stringify(newState), { expirationTtl: ttl });
+              await env.CACHE.put(seenKey, '1',                      { expirationTtl: ttl });
+            } else if (env.CACHE) {
+              // New post failed — preserve old state, just mark seen
+              await env.CACHE.put(seenKey, '1', { expirationTtl: ttl });
+            }
+
+            // Persist new anchor post to D1
+            await insertWeatherAlertPost(env, {
+              nws_alert_id: alert.id,
+              event:        alert.event,
+              area:         alert.areaDesc,
+              severity:     alert.severity,
+              expires_at:   alert.expires  || null,
+              sent_at:      alert.sent     || null,
+              post_text:    newCaption,
+              fb_post_id:   newFbPostId,
+            }).catch((err) => console.error('[LIVE-ALERTS-FB] D1 insert (chain-break) failed:', err));
           }
         }
       }
@@ -1198,11 +1302,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
         try { s = JSON.parse(raw) as ActiveAlertState; } catch { continue; }
         if (!s || s.expiresAt === 0) continue; // unknown expiry — let KV TTL clean up
         if (s.expiresAt < sweepNow) {
-          const commentText = [
-            `✅ This ${s.eventType} for ${s.areaDesc} has expired.`,
-            '',
-            'Monitor conditions at localkynews.com/live-weather-alerts',
-          ].join('\n');
+          const commentText = `✅ This ${s.eventType} for ${s.areaDesc} has expired.`;
           await postWeatherAlertComment(s.fbPostId, commentText, livePageId, livePageToken);
           await env.CACHE.delete(entry.name);
         }
