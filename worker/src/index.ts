@@ -428,9 +428,9 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 	// If this is a weather alert article (auto-ingested from the NWS API), use
 	// the dedicated weather alert caption + photo post handler, which ensures the
 	// post matches the expected "SPECIAL WEATHER STATEMENT" format.
-	if (article.category === 'weather' && article.sourceUrl?.includes('/alerts/')) {
-		const match = article.sourceUrl.match(/alerts\/(.+)$/);
-		const alertId = match?.[1] ?? '';
+	// NWS articles have slugs starting with "nws-" (sourceUrl is set to weather.gov homepage, not the alert API URL).
+	if (article.category === 'weather' && article.slug?.startsWith('nws-')) {
+		const alertId = article.canonicalUrl?.match(/\/nws-(.+)$/)?.[1] ?? '';
 		if (alertId) {
 			const nwsAlert = await fetchNwsAlertById(alertId);
 			if (nwsAlert) {
@@ -459,7 +459,7 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 			access_token: pageToken,
 		};
 
-		const postResp = await fetch(`https://graph.facebook.com/v15.0/${pageId}/feed`, {
+		const postResp = await fetch(`https://graph.facebook.com/v19.0/${pageId}/feed`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 			body: new URLSearchParams(params),
@@ -5470,11 +5470,28 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
     }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
   );
 
-  // Post ALL active US alerts to the Live Weather Alerts Facebook page
-  ctx.waitUntil(
-    processLiveAlertsNationwide(env)
-      .catch((err) => console.error('[LIVE-ALERTS-FB] processLiveAlertsNationwide threw', err))
-  );
+  // Post ALL active US alerts to the Live Weather Alerts Facebook page.
+  // Gate this to a 120-second minimum via KV when cron is every 2 minutes.
+  const liveFbKey = 'live-alerts:last-run';
+  let allowLiveFb = true;
+  if (env.CACHE) {
+    const lastRaw = await env.CACHE.get(liveFbKey);
+    const lastTs = lastRaw ? Date.parse(String(lastRaw)) : 0;
+    const now = Date.now();
+    if (!Number.isNaN(lastTs) && now - lastTs < 120 * 1000) {
+      allowLiveFb = false;
+      console.log(`[LIVE-ALERTS-FB] Skipping run: last run ${now - lastTs}ms ago`);
+    } else {
+      await env.CACHE.put(liveFbKey, new Date().toISOString(), { expirationTtl: 6 * 60 });
+    }
+  }
+
+  if (allowLiveFb) {
+    ctx.waitUntil(
+      processLiveAlertsNationwide(env)
+        .catch((err) => console.error('[LIVE-ALERTS-FB] processLiveAlertsNationwide threw', err))
+    );
+  }
 
   // Also fetch hazardous weather outlook products from the three offices
   ctx.waitUntil(

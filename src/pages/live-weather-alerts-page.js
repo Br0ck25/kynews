@@ -423,7 +423,7 @@ export default function LiveWeatherAlertsPage() {
 
   // Auto-refresh every 3 minutes
   useEffect(() => {
-    const interval = setInterval(() => fetchAlerts(selectedArea), 3 * 60 * 1000);
+    const interval = setInterval(() => fetchAlerts(selectedArea), 90 * 1000);
     return () => clearInterval(interval);
   }, [selectedArea, fetchAlerts]);
 

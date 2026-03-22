@@ -63,6 +63,7 @@ export interface ActiveAlertState {
   eventType: string;    // e.g. "Flood Warning"
   areaDesc: string;     // e.g. "Pike, KY"
   updateCount: number;  // how many update comments have been posted on this anchor post
+  lastUpdated?: string; // optional properties.updated for update detection
 }
 
 /** Classify an NWS event string into one of the three categories. */
@@ -75,29 +76,112 @@ export function classifyAlertCategory(event: string): LiveAlertCategory {
 
 const NWS_ALERTS_URL = 'https://api.weather.gov/alerts/active?area=KY';
 const NWS_ALL_ALERTS_URL = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert,update';
-const NWS_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
-const NWS_BASE_HEADERS = {
-  'Accept': 'application/geo+json',
-  'From': 'news@localkynews.com',
-  'Referer': 'https://localkynews.com',
-};
-
-const NWS_ACCEPT_ENCODING = 'gzip, deflate, br';
-const NWS_ACCEPT_LANGUAGE = 'en-US,en;q=0.9';
+const NWS_RSS_URL = 'https://api.weather.gov/alerts/active.atom';
+const NWS_RSS_USER_AGENT = 'LocalKYNews (contact@localkynews.com)';
+const NWS_RSS_ACCEPT = 'application/atom+xml';
+// NWS docs specify format: (website, contact_email)
+const NWS_USER_AGENT = '(localkynews.com, news@localkynews.com)';
 
 function buildNwsRequestHeaders(): Record<string, string> {
-  const randomOS = `rv:${Math.floor(Math.random() * 100)}.${Math.floor(Math.random() * 100)}`;
-  const randomUID = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `uuid-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-
   return {
-    ...NWS_BASE_HEADERS,
-    'User-Agent': `${NWS_USER_AGENT} ${randomUID} (${randomOS})`,
-    'Accept-Encoding': NWS_ACCEPT_ENCODING,
-    'Accept-Language': NWS_ACCEPT_LANGUAGE,
-    'Cache-Control': 'no-cache',
+    'Accept': 'application/geo+json',
+    'User-Agent': NWS_USER_AGENT,
   };
+}
+
+export interface NationalRssEntry {
+  id: string;
+  updated: string;
+}
+
+export async function fetchNationalRssFeed(): Promise<NationalRssEntry[]> {
+  const maxAttempts = 3;
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; ++attempt) {
+    try {
+      const res = await fetch(NWS_RSS_URL, {
+        headers: {
+          'User-Agent': NWS_RSS_USER_AGENT,
+          'Accept': NWS_RSS_ACCEPT,
+        },
+      });
+
+      if (!res.ok) {
+        lastError = `RSS ${res.status} ${res.statusText}`;
+        console.warn(`[LIVE-ALERTS-FB] fetchNationalRssFeed attempt ${attempt} got status ${res.status}`);
+        if (attempt < maxAttempts) continue;
+        return [];
+      }
+
+      const text = await res.text();
+      const feedEntries: NationalRssEntry[] = [];
+
+      try {
+        const entryRegexp = /<entry[^>]*>([\s\S]*?)<\/entry>/gi;
+        let entryMatch: RegExpExecArray | null;
+
+        while ((entryMatch = entryRegexp.exec(text)) !== null) {
+          const entryXml = entryMatch[1];
+
+          const idMatch = entryXml.match(/<id[^>]*>([\s\S]*?)<\/id>/i);
+          const updatedMatch = entryXml.match(/<updated[^>]*>([\s\S]*?)<\/updated>/i);
+
+          if (!idMatch || !updatedMatch) continue;
+
+          const idText = (idMatch[1] || '').trim();
+          const updatedText = (updatedMatch[1] || '').trim();
+
+          if (!idText || !updatedText) continue;
+
+          feedEntries.push({ id: idText, updated: updatedText });
+        }
+
+        return feedEntries;
+      } catch (err) {
+        lastError = err;
+        console.error('[LIVE-ALERTS-FB] fetchNationalRssFeed XML parse failed', err);
+        if (attempt < maxAttempts) continue;
+        return [];
+      }
+    } catch (err) {
+      lastError = err;
+      console.error(`[LIVE-ALERTS-FB] fetchNationalRssFeed attempt ${attempt} failed`, err);
+      if (attempt < maxAttempts) continue;
+      return [];
+    }
+  }
+
+  console.error('[LIVE-ALERTS-FB] fetchNationalRssFeed failed all attempts', lastError);
+  return [];
+}
+
+export async function getNewNationalAlertIds(env: Env, rssEntries: NationalRssEntry[]): Promise<string[]> {
+  if (!env.CACHE) {
+    return rssEntries.map((entry) => entry.id);
+  }
+
+  const newIds: string[] = [];
+
+  for (const entry of rssEntries) {
+    if (!entry.id || !entry.updated) continue;
+
+    const hash = await sha256Hex(entry.id);
+    const key = `rss:national:seen:${hash}`;
+    const existing = await env.CACHE.get(key);
+
+    const existingUpdated = existing ? String(existing).trim() : null;
+    if (!existingUpdated || new Date(entry.updated).getTime() > new Date(existingUpdated).getTime()) {
+      newIds.push(entry.id);
+      await env.CACHE.put(key, entry.updated, { expirationTtl: 172800 });
+    }
+  }
+
+  return newIds;
+}
+
+export async function fetchAlertById(alertId: string): Promise<NwsAlert | null> {
+  return fetchNwsAlertById(alertId);
 }
 
 export interface NwsAlert {
@@ -112,6 +196,7 @@ export interface NwsAlert {
   sent: string;
   effective: string;
   expires: string;
+  updated: string;
   status: string;
   messageType: string;
   ugcCodes: string[];
@@ -139,6 +224,7 @@ function mapNwsFeatureToAlert(f: any): NwsAlert | null {
     sent: String(p.sent ?? p.effective ?? new Date().toISOString()),
     effective: String(p.effective ?? new Date().toISOString()),
     expires: String(p.expires ?? ''),
+    updated: String(p.updated ?? p.sent ?? p.effective ?? new Date().toISOString()),
     status: String(p.status ?? 'Actual'),
     messageType: String(p.messageType ?? 'Alert'),
     ugcCodes: Array.isArray(p.geocode?.UGC) ? (p.geocode.UGC as string[]) : [],
@@ -151,9 +237,7 @@ function mapNwsFeatureToAlert(f: any): NwsAlert | null {
  * Fetch active Kentucky alerts from the NWS API.
  */
 export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
-  const res = await fetch(NWS_ALERTS_URL, {
-    headers: buildNwsRequestHeaders(),
-  });
+  const res = await fetch(NWS_ALERTS_URL, { headers: buildNwsRequestHeaders() });
 
   if (!res.ok) {
     console.error(`[NWS] fetchActiveKyAlerts returned http ${res.status}`);
@@ -190,9 +274,7 @@ export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
  * Article ingestion is still KY-only via fetchActiveKyAlerts().
  */
 export async function fetchAllActiveAlerts(): Promise<NwsAlert[]> {
-  const res = await fetch(NWS_ALL_ALERTS_URL, {
-    headers: buildNwsRequestHeaders(),
-  });
+  const res = await fetch(NWS_ALL_ALERTS_URL, { headers: buildNwsRequestHeaders() });
 
   if (!res.ok) {
     console.error(`[LIVE-ALERTS-FB] fetchAllActiveAlerts returned http ${res.status}`);
@@ -227,9 +309,7 @@ export async function fetchNwsAlertById(alertId: string): Promise<NwsAlert | nul
   const url = alertId.startsWith('https://')
     ? alertId
     : `https://api.weather.gov/alerts/${encodeURIComponent(alertId)}`;
-  const res = await fetch(url, {
-    headers: buildNwsRequestHeaders(),
-  });
+  const res = await fetch(url, { headers: buildNwsRequestHeaders() });
   if (!res.ok) return null;
 
   let data: any;
@@ -824,7 +904,7 @@ export async function postFacebookPhotoCaption(env: Env, caption: string, imageU
   }
 
   const params = new URLSearchParams({
-    url: imageUrl ?? WEATHER_ALERT_IMAGE_URL,
+    url: imageUrl || WEATHER_ALERT_IMAGE_URL,
     caption,
     access_token: pageToken,
   });
@@ -941,9 +1021,10 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
   }
 
   // Check own FB dedup key — only skip if already successfully posted
-  const fbKey = env.CACHE ? `live:alerts:fb:${await sha256Hex(alert.id)}` : null;
+  const cache = env.CACHE;
+  const fbKey = cache ? `live:alerts:fb:${await sha256Hex(alert.id)}` : null;
   if (fbKey) {
-    const alreadyPosted = await env.CACHE.get(fbKey);
+    const alreadyPosted = await (cache as any).get(fbKey);
     if (alreadyPosted) return; // already posted, silent skip
   }
 
@@ -999,8 +1080,8 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
       }
     }
     // Only mark as posted after a confirmed successful post
-    if (posted && fbKey) {
-      await env.CACHE.put(fbKey, '1', { expirationTtl: 172800 });
+    if (posted && fbKey && cache) {
+      await (cache as any).put(fbKey, '1', { expirationTtl: 172800 });
     }
   } catch (err) {
     console.error('[LIVE-ALERTS-FB] Unexpected error:', err);
@@ -1066,18 +1147,38 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
     return;
   }
 
-  let alerts: NwsAlert[];
-  try {
-    alerts = await fetchAllActiveAlerts();
-    console.log(`[LIVE-ALERTS-FB] fetched ${alerts.length} active alert(s) from NWS`);
-  } catch (err) {
-    console.error('[LIVE-ALERTS-FB] fetchAllActiveAlerts failed', err);
+  const rssEntries = await fetchNationalRssFeed();
+  if (!rssEntries || rssEntries.length === 0) {
+    console.log('[LIVE-ALERTS-FB] No entries found from national RSS feed');
     return;
   }
 
+  const newIds = await getNewNationalAlertIds(env, rssEntries);
+  if (!newIds || newIds.length === 0) {
+    console.log('[LIVE-ALERTS-FB] No new national alert IDs since last run');
+    return;
+  }
+
+  const newAlerts: NwsAlert[] = [];
+  for (const id of newIds) {
+    const alert = await fetchAlertById(id);
+    if (!alert) {
+      console.warn(`[LIVE-ALERTS-FB] Alert ${id} from RSS could not be fetched`);
+      continue;
+    }
+    newAlerts.push(alert);
+  }
+
+  if (newAlerts.length === 0) {
+    console.log('[LIVE-ALERTS-FB] No fetchable new alerts found');
+    return;
+  }
+
+  console.log(`[LIVE-ALERTS-FB] processing ${newAlerts.length} new alert(s) from RSS`);
+
   const startDate = await getLiveAlertAutopostStart(env);
 
-  for (const alert of alerts) {
+  for (const alert of newAlerts) {
     try {
       // ── Per-category autopost flag ────────────────────────────────────────
       const category = classifyAlertCategory(alert.event);
@@ -1171,6 +1272,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
             eventType:   alert.event,
             areaDesc:    alert.areaDesc,
             updateCount: 0,
+            lastUpdated: alert.updated,
           };
           await env.CACHE.put(kvKey,   JSON.stringify(newState), { expirationTtl: ttl });
           await env.CACHE.put(seenKey, '1',                      { expirationTtl: ttl });
@@ -1189,7 +1291,29 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
         }).catch((err) => console.error('[LIVE-ALERTS-FB] D1 insert failed:', err));
 
       } else if (state.nwsAlertId === alert.id) {
-        // ── Same alert ID: already posted — just mark seen ────────────────────
+        // ── Same alert ID: already posted — if updated payload shows newer data,
+        // post a comment update; then mark seen.
+        const lastUpdated = state.lastUpdated ? new Date(state.lastUpdated).getTime() : 0;
+        const currentUpdated = alert.updated ? new Date(alert.updated).getTime() : 0;
+
+        if (currentUpdated > lastUpdated && state.fbPostId) {
+          const commentText = [
+            `🔄 UPDATE — ${alert.event} for ${alert.areaDesc}`,
+            '',
+            buildCommentText(buildWeatherAlertFbCaption(alert)),
+          ].join('\n');
+
+          await postWeatherAlertComment(state.fbPostId, commentText, livePageId, livePageToken);
+
+          if (env.CACHE) {
+            const updatedState: ActiveAlertState = {
+              ...state,
+              lastUpdated: alert.updated,
+            };
+            await env.CACHE.put(kvKey, JSON.stringify(updatedState), { expirationTtl: ttl });
+          }
+        }
+
         if (env.CACHE) {
           await env.CACHE.put(seenKey, '1', { expirationTtl: ttl });
         }
@@ -1288,6 +1412,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
                 eventType:   alert.event,
                 areaDesc:    alert.areaDesc,
                 updateCount: 0,
+                lastUpdated: alert.updated,
               };
               await env.CACHE.put(kvKey,   JSON.stringify(newState), { expirationTtl: ttl });
               await env.CACHE.put(seenKey, '1',                      { expirationTtl: ttl });
@@ -1340,7 +1465,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
     }
   }
 
-  console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts`);
+  console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${newAlerts.length} nationwide alerts`);
 }
 
 // ─── NWS product (HWO) ingestion ──────────────────────────────────────────
@@ -1380,9 +1505,7 @@ export async function fetchHwoProducts(office: string): Promise<NwsProduct[]> {
   const listUrl = `https://api.weather.gov/products?office=${office}&type=HWO`;
   let listData: any;
   try {
-    const res = await fetch(listUrl, {
-      headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' },
-    });
+    const res = await fetch(listUrl, { headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' } });
     if (!res.ok) return [];
     listData = await res.json();
   } catch (err) {
@@ -1421,9 +1544,7 @@ export async function fetchHwoProducts(office: string): Promise<NwsProduct[]> {
       productText = String(stub.productText);
     } else {
       try {
-        const pRes = await fetch(productUrl, {
-          headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' },
-        });
+        const pRes = await fetch(productUrl, { headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' } });
         if (pRes.ok) {
           const pData: any = await pRes.json();
           productText = String(pData.productText || pData.body || pData.text || '');
@@ -1799,6 +1920,7 @@ const WEATHER_EVENT_TYPES = new Set([
   'Frost Advisory',
   'Special Weather Statement',
   'Hazardous Weather Outlook',
+  'Red Flag Warning',
 ]);
 
 function isWeatherEventType(event: string): boolean {

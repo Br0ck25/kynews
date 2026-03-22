@@ -4,7 +4,7 @@
 //   JKL — NWS Jackson     (Eastern KY)
 //   PAH — NWS Paducah     (Western KY / lower Ohio Valley)
 
-const NWS_UA = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
+const NWS_UA = '(localkynews.com, news@localkynews.com)';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

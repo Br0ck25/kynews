@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en-US">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
+  <meta name="theme-color" content="#0d47a1" />
+  <meta name="description" content="Local KY News — AI-assisted news summaries covering all 120 Kentucky counties. Local government, schools, sports, weather, and more. Original reporting credited to Kentucky news organizations." />
+  <link rel="canonical" href="https://localkynews.com/" />
+  <link rel="alternate" hreflang="en-US" href="https://localkynews.com/" />
+  <link rel="alternate" hreflang="x-default" href="https://localkynews.com/" />
+  <link rel="sitemap" type="application/xml" href="/sitemap-index.xml" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Local KY News — Kentucky's Local News Aggregator" />
+  <meta property="og:description" content="AI-assisted news summaries from credentialed Kentucky news organizations. All 120 counties covered. Full attribution to original reporters." />
+  <meta property="og:site_name" content="Local KY News" />
+  <meta property="og:url" content="https://localkynews.com/" />
+  <meta property="og:image" content="https://localkynews.com/img/preview.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Local KY News — Kentucky's Local News Aggregator" />
+  <meta name="twitter:description" content="AI-assisted news summaries from credentialed Kentucky news organizations. All 120 counties covered." />
+  <meta name="twitter:image" content="https://localkynews.com/img/preview.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <title>Local KY News — Kentucky's Local News Aggregator</title>
+  <!-- DNS-prefetch for Google Fonts stylesheet (avoids exceeding the 4-preconnect limit) -->
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+  <!-- Preconnect only for gstatic where actual font binary files are fetched -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- Load fonts asynchronously (media=print trick) to avoid render blocking.
+       Est. savings: ~550 ms on FCP/LCP. -->
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:wght@700;900&display=swap"
+    media="print"
+    onload="this.media='all'"
+  />
+  <noscript>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:wght@700;900&display=swap"
+    />
+  </noscript>
+  <!-- Preconnect to the API worker to reduce LCP resource-load delay -->
+  <link rel="preconnect" href="https://worker.jamesbrock25.workers.dev" />
+  <!-- WebSite + Organization JSON-LD (Section 5.5: Required Schema) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://localkynews.com/#website",
+        "name": "Local KY News",
+        "url": "https://localkynews.com/",
+        "description": "AI-assisted local news summaries covering all 120 Kentucky counties with full attribution to original publishers.",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://localkynews.com/search?q={search_term_string}"
+          },
+          "query-input": "required name=search_term_string"
+        }
+      },
+      {
+        "@type": "Organization",
+        "@id": "https://localkynews.com/#organization",
+        "name": "Local KY News",
+        "url": "https://localkynews.com/",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://localkynews.com/img/logo-wide.png",
+          "width": 600,
+          "height": 60
+        },
+        "foundingDate": "2025",
+        "description": "Local KY News is an AI-assisted news aggregation platform covering all 120 Kentucky counties, summarizing original reporting from credentialed local news organizations with full attribution.",
+        "areaServed": {
+          "@type": "State",
+          "name": "Kentucky",
+          "sameAs": "https://www.wikidata.org/wiki/Q1603"
+        },
+        "knowsAbout": [
+          "Kentucky local news",
+          "Kentucky county government",
+          "Kentucky schools",
+          "Kentucky public safety",
+          "Kentucky sports",
+          "Kentucky weather"
+        ],
+        "publishingPrinciples": "https://localkynews.com/editorial-policy",
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "contactType": "editorial",
+          "email": "contact@localkynews.com"
+        }
+      }
+    ]
+  }
+  </script>
+  <script type="module" crossorigin src="/assets/index-0629f1f1.js"></script>
+  <link rel="stylesheet" href="/assets/index-08d22b52.css">
+</head>
+
+<body>
+  <noscript>
+    <div style="font-family:sans-serif;max-width:640px;margin:32px auto;padding:16px;color:#111">
+      <h1>Local KY News — Kentucky's Local News Aggregator</h1>
+      <p>AI-assisted local news summaries covering all 120 Kentucky counties. Local government, schools, sports, weather, and community stories.</p>
+      <ul>
+        <li><a href="/today">Kentucky Today</a></li>
+        <li><a href="/local">Browse by County</a></li>
+        <li><a href="/national">National News</a></li>
+        <li><a href="/sports">Kentucky Sports</a></li>
+        <li><a href="/weather">Kentucky Weather</a></li>
+        <li><a href="/schools">Kentucky Schools</a></li>
+      </ul>
+      <p>JavaScript is required for the full experience. Please enable it in your browser.</p>
+    </div>
+  </noscript>
+  <div id="root"></div>
+  
+</body>
+
+</html>

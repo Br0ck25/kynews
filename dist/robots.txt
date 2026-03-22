@@ -1,0 +1,2 @@
+# This file is intentionally empty. robots.txt is served dynamically by the Cloudflare Worker at /robots.txt.
+# See worker/src/index.ts.
