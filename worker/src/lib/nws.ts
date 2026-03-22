@@ -62,6 +62,7 @@ const NWS_ALERTS_URL = 'https://api.weather.gov/alerts/active?area=KY';
 const NWS_ALL_ALERTS_URL = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert,update,cancel';
 const NWS_ALERTS_ATOM_URL = 'https://api.weather.gov/alerts/active.atom?area=KY';
 const NWS_ALL_ALERTS_ATOM_URL = 'https://api.weather.gov/alerts/active.atom?status=actual&message_type=alert,update,cancel';
+const LIVE_ALERTS_TARGET_STATE = 'HI';
 const NWS_CONTACT_EMAIL = 'news@localkynews.com';
 const NWS_CONTACT_URL = 'https://localkynews.com';
 const NWS_USER_AGENT = `LocalKYNews/1.1 (${NWS_CONTACT_URL}; ${NWS_CONTACT_EMAIL})`;
@@ -1006,6 +1007,30 @@ export function extractPrimaryStateCode(areaDesc: string): string | null {
   return best;
 }
 
+function normalizeUgcToStateCode(ugcCode: string): string | null {
+  const normalized = ugcCode.trim().toUpperCase();
+  if (!normalized) return null;
+  // PHZ codes represent Hawaiian coastal/offshore marine zones.
+  if (normalized.startsWith('PHZ')) return 'HI';
+  const direct = normalized.match(/^([A-Z]{2})[CZ]/);
+  return direct ? direct[1] : null;
+}
+
+function isHawaiiAreaText(areaDesc: string): boolean {
+  if (!areaDesc) return false;
+  if (extractPrimaryStateCode(areaDesc) === LIVE_ALERTS_TARGET_STATE) return true;
+  return /\bhawaii(?:an)?\b|,\s*HI\b/i.test(areaDesc);
+}
+
+function isHawaiiUgcCode(ugcCode: string): boolean {
+  return normalizeUgcToStateCode(ugcCode) === LIVE_ALERTS_TARGET_STATE;
+}
+
+function isHawaiiAlert(alert: Pick<NwsAlert, 'ugcCodes' | 'areaDesc'>): boolean {
+  if (alert.ugcCodes.some((code) => isHawaiiUgcCode(code))) return true;
+  return isHawaiiAreaText(alert.areaDesc);
+}
+
 /**
  * Return the public URL of the banner image for the given NWS alert event
  * type and optional state code.  For Tornado Warning, Tornado Watch, and
@@ -1400,8 +1425,9 @@ async function postWeatherAlertComment(
 }
 
 /**
- * Check ALL active NWS alerts nationwide and maintain comment-threaded posts
- * on the Live Weather Alerts Facebook page.
+ * Check active NWS alerts and maintain comment-threaded posts on the Live
+ * Weather Alerts Facebook page.
+ * The feed is nationwide, but only Hawaii alerts are eligible for posting.
  *
  * Rule: one Facebook post per active alert (UGC code + event type). Any update
  * to that alert posts as a comment on the existing post until it expires.
@@ -1427,6 +1453,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
     console.error('[LIVE-ALERTS-FB] fetchAllActiveAlerts failed', err);
     return;
   }
+  const hawaiiAlerts = alerts.filter((alert) => isHawaiiAlert(alert));
 
   const startDate = await getLiveAlertAutopostStart(env);
   const nowSec = Math.floor(Date.now() / 1000);
@@ -1442,7 +1469,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
     const backoff = await liveKv.get(FB_BACKOFF_KEY);
     if (backoff) {
       console.log('[LIVE-ALERTS-FB] In backoff period after 368 rate-limit — skipping all FB posts this tick');
-      console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts`);
+      console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts (${hawaiiAlerts.length} Hawaii)`);
       return;
     }
   }
@@ -1452,7 +1479,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
   const MAX_NEW_POSTS_PER_TICK = 3;
   let newPostsThisTick = 0;
 
-  for (const alert of alerts) {
+  for (const alert of hawaiiAlerts) {
     try {
       // ── Apply existing category and start-date filters ──────────────────
       const category = classifyAlertCategory(alert.event);
@@ -1471,7 +1498,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
       }
 
       // ── Threading keys ─────────────────────────────────────────────────
-      const ugcCode = alert.ugcCodes[0] ?? '';
+      const ugcCode = alert.ugcCodes.find((code) => isHawaiiUgcCode(code)) ?? alert.ugcCodes[0] ?? '';
       if (!ugcCode) continue; // skip if no UGC code
 
       const eventSlug = alert.event.toLowerCase().replace(/\s+/g, '_');
@@ -1511,7 +1538,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
         // Derive state code from the UGC code (first 2 chars: e.g. "AKZ201" → "AK")
         // This is more reliable than parsing areaDesc, which often omits state abbreviations
         // for NWS zone descriptions like "Central Beaufort Sea Coast".
-        const stateCodeFromUgc = ugcCode.length >= 2 ? ugcCode.slice(0, 2).toUpperCase() : null;
+        const stateCodeFromUgc = normalizeUgcToStateCode(ugcCode);
         const stateCode = stateCodeFromUgc ?? extractPrimaryStateCode(alert.areaDesc);
         const imageUrl  = getWeatherAlertImageUrl(alert.event, stateCode ?? undefined);
 
@@ -1662,6 +1689,14 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
           let state: ActiveAlertState;
           try { state = JSON.parse(raw) as ActiveAlertState; } catch { continue; }
 
+          // The Live Weather Alerts Hawaii page should only receive Hawaii updates.
+          // Remove any legacy non-Hawaii state entries without posting comments.
+          const isHawaiiState = isHawaiiUgcCode(state.ugcCode) || isHawaiiAreaText(state.areaDesc);
+          if (!isHawaiiState) {
+            await liveKv.delete(key);
+            continue;
+          }
+
           if (state.expiresAt < nowSec) {
             const commentText =
               `✅ This ${state.eventType} for ${state.areaDesc} has expired.\n\n` +
@@ -1679,7 +1714,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
     }
   }
 
-  console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts`);
+  console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts (${hawaiiAlerts.length} Hawaii)`);
 }
 
 // ─── NWS product (HWO) ingestion ──────────────────────────────────────────

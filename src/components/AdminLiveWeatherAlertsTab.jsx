@@ -286,7 +286,7 @@ function TokenManagementPanel() {
         <Box style={{ width: "100%" }}>
           <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8, fontSize: 12 }}>
             Paste a short-lived Facebook User Token to exchange it for a long-lived Page Access Token.
-            The resulting token should be saved as the <code>FACEBOOK_PAGE_ACCESS_TOKEN</code> Wrangler secret.
+            The resulting token should be saved as the <code>LIVE_ALERTS_PAGE_ACCESS_TOKEN</code> Wrangler secret.
           </Typography>
           <Box style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
             <TextField
@@ -510,7 +510,7 @@ function AutoPostSettingsPanel() {
 
 // ── Main tab component ────────────────────────────────────────────────────────
 export default function AdminLiveWeatherAlertsTab() {
-  const [selectedArea, setSelectedArea] = useState("KY");
+  const [selectedArea, setSelectedArea] = useState("HI");
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -557,7 +557,7 @@ export default function AdminLiveWeatherAlertsTab() {
         Live Weather Alerts
       </Typography>
       <Typography variant="body2" color="textSecondary" style={{ marginBottom: 16, fontSize: 12 }}>
-        Fetch active NWS alerts and post them directly to Facebook. Each card shows a caption preview before you post.
+        Fetch active NWS alerts and post Hawaii weather alerts directly to Facebook. Each card shows a caption preview before you post.
       </Typography>
 
       <TokenManagementPanel />

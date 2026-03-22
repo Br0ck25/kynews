@@ -2476,8 +2476,18 @@ if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POS
 		areaDesc  = alert.areaDesc;
 	}
 
-	const stateCode = areaDesc ? extractPrimaryStateCode(areaDesc) : null;
-	const imageUrl = eventType ? getWeatherAlertImageUrl(eventType, stateCode ?? undefined) : '';
+	const isHawaiiArea = (text: string): boolean => {
+		const trimmed = text.trim();
+		if (!trimmed) return false;
+		if (extractPrimaryStateCode(trimmed) === 'HI') return true;
+		return /\bhawaii(?:an)?\b|,\s*HI\b/i.test(trimmed);
+	};
+	if (!isHawaiiArea(areaDesc)) {
+		return json({ ok: false, error: 'Only Hawaii alerts can be posted to Live Weather Alerts Hawaii.' }, 400);
+	}
+
+	const stateCode = extractPrimaryStateCode(areaDesc) ?? 'HI';
+	const imageUrl = eventType ? getWeatherAlertImageUrl(eventType, stateCode) : '';
 
 	try {
 		if (imageUrl) {
@@ -5456,7 +5466,8 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
     }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
   );
 
-  // Post ALL active US alerts to the Live Weather Alerts Facebook page
+  // Process active US alerts but only post/comment Hawaii alerts to the
+  // Live Weather Alerts Hawaii Facebook page.
   ctx.waitUntil(
     processLiveAlertsNationwide(env)
       .catch((err) => console.error('[LIVE-ALERTS-FB] processLiveAlertsNationwide threw', err))

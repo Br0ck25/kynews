@@ -17,12 +17,11 @@ export interface WeatherAlertPost {
   created_at: string;
 }
 
-/** Return Kentucky posts ordered newest-first. */
+/** Return live weather alert posts ordered newest-first. */
 export async function listWeatherAlertPosts(env: Env): Promise<WeatherAlertPost[]> {
   const result = await env.ky_news_db
     .prepare(
       `SELECT * FROM weather_alert_posts
-       WHERE area LIKE '%KY%' OR area LIKE '%Kentucky%'
        ORDER BY COALESCE(sent_at, created_at) DESC, id DESC`
     )
     .all<WeatherAlertPost>();
