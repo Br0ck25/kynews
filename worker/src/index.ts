@@ -2545,38 +2545,43 @@ if (url.pathname === '/api/admin/facebook/exchange-token' && request.method === 
 	const appId      = ((env as any).FACEBOOK_APP_ID    || '').trim();
 	const appSecret  = ((env as any).FACEBOOK_APP_SECRET || '').trim();
 	const pageId     = ((env as any).LIVE_ALERTS_PAGE_ID || '').trim();
-	if (!appId || !appSecret) return json({ error: 'FACEBOOK_APP_ID / FACEBOOK_APP_SECRET secrets not configured' }, 500);
-	if (!pageId) return json({ error: 'LIVE_ALERTS_PAGE_ID secret not configured' }, 500);
+	if (!appId || !appSecret) return badRequest('FACEBOOK_APP_ID / FACEBOOK_APP_SECRET secrets not configured');
+	if (!pageId) return badRequest('LIVE_ALERTS_PAGE_ID secret not configured');
 
-	// Step 1: exchange short-lived user token for a long-lived user token (60 days)
-	const exchangeUrl = new URL('https://graph.facebook.com/oauth/access_token');
-	exchangeUrl.searchParams.set('grant_type', 'fb_exchange_token');
-	exchangeUrl.searchParams.set('client_id', appId);
-	exchangeUrl.searchParams.set('client_secret', appSecret);
-	exchangeUrl.searchParams.set('fb_exchange_token', shortLivedToken);
-	const exchangeRes = await fetch(exchangeUrl.toString());
-	const exchangeData = await exchangeRes.json() as any;
-	if (!exchangeRes.ok || !exchangeData?.access_token) {
-		return json({ error: 'Failed to exchange token', details: exchangeData?.error?.message ?? exchangeData }, 500);
+	try {
+		// Step 1: exchange short-lived user token for a long-lived user token (60 days)
+		const exchangeUrl = new URL('https://graph.facebook.com/oauth/access_token');
+		exchangeUrl.searchParams.set('grant_type', 'fb_exchange_token');
+		exchangeUrl.searchParams.set('client_id', appId);
+		exchangeUrl.searchParams.set('client_secret', appSecret);
+		exchangeUrl.searchParams.set('fb_exchange_token', shortLivedToken);
+		const exchangeRes = await fetch(exchangeUrl.toString());
+		const exchangeData = await exchangeRes.json().catch(() => null) as any;
+		if (!exchangeRes.ok || !exchangeData?.access_token) {
+			return json({ error: 'Failed to exchange token', details: exchangeData?.error?.message ?? exchangeData ?? 'Unknown response from Facebook' }, 500);
+		}
+		const longLivedUserToken = String(exchangeData.access_token);
+
+		// Step 2: use long-lived user token to get a non-expiring page access token
+		const pageTokenUrl = new URL(`https://graph.facebook.com/${encodeURIComponent(pageId)}`);
+		pageTokenUrl.searchParams.set('fields', 'access_token,name');
+		pageTokenUrl.searchParams.set('access_token', longLivedUserToken);
+		const pageTokenRes = await fetch(pageTokenUrl.toString());
+		const pageTokenData = await pageTokenRes.json().catch(() => null) as any;
+		if (!pageTokenRes.ok || !pageTokenData?.access_token) {
+			return json({ error: 'Failed to get page access token', details: pageTokenData?.error?.message ?? pageTokenData ?? 'Unknown response from Facebook' }, 500);
+		}
+
+		return json({
+			ok: true,
+			pageName: pageTokenData.name ?? '',
+			pageAccessToken: String(pageTokenData.access_token),
+			instruction: 'Run: npx wrangler secret put LIVE_ALERTS_PAGE_ACCESS_TOKEN  and paste this token.',
+		});
+	} catch (err: any) {
+		console.error('[FACEBOOK TOKEN EXCHANGE FAILED]', String(err));
+		return json({ error: 'Facebook token exchange failed', details: String(err) }, 500);
 	}
-	const longLivedUserToken = String(exchangeData.access_token);
-
-	// Step 2: use long-lived user token to get a non-expiring page access token
-	const pageTokenUrl = new URL(`https://graph.facebook.com/${encodeURIComponent(pageId)}`);
-	pageTokenUrl.searchParams.set('fields', 'access_token,name');
-	pageTokenUrl.searchParams.set('access_token', longLivedUserToken);
-	const pageTokenRes  = await fetch(pageTokenUrl.toString());
-	const pageTokenData = await pageTokenRes.json() as any;
-	if (!pageTokenRes.ok || !pageTokenData?.access_token) {
-		return json({ error: 'Failed to get page access token', details: pageTokenData?.error?.message ?? pageTokenData }, 500);
-	}
-
-	return json({
-		ok: true,
-		pageName: pageTokenData.name ?? '',
-		pageAccessToken: String(pageTokenData.access_token),
-		instruction: 'Run: npx wrangler secret put LIVE_ALERTS_PAGE_ACCESS_TOKEN  and paste this token.',
-	});
 }
 
 // GET /api/admin/live-alerts/autopost — read the three category auto-post flags

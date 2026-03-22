@@ -139,7 +139,7 @@ function AlertAdminCard({ alert }) {
         setPostResult({ ok: false, error: result?.error || "Failed to post to Facebook" });
       }
     } catch (err) {
-      setPostResult({ ok: false, error: err?.message || String(err) });
+      setPostResult({ ok: false, error: err?.errorMessage || err?.message || String(err) });
     }
     setPosting(false);
   };
@@ -274,7 +274,7 @@ function TokenManagementPanel() {
       const data = await service.exchangeFacebookToken(shortToken.trim());
       setResult({ ok: true, ...data });
     } catch (err) {
-      setResult({ ok: false, error: err?.message || String(err) });
+      setResult({ ok: false, error: err?.errorMessage || err?.message || String(err) });
     }
     setExchanging(false);
   };

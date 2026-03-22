@@ -210,7 +210,18 @@ function mapNwsFeatureToAlert(f: any): NwsAlert | null {
   const p = f?.properties;
   if (!p) return null;
   if (p.status !== 'Actual') return null;
-  if (!isWeatherEventType(p.event ?? '')) return null;
+  if (String(p.category ?? '').toLowerCase() !== 'met') return null;
+
+  const event = String(p.event ?? '').toLowerCase();
+  const isRelevant =
+    event.includes('warning') ||
+    event.includes('watch') ||
+    event.includes('advisory');
+
+  if (!isRelevant) {
+    console.log(`[LIVE-ALERTS-FB] Skipping non-weather alert: ${p.event ?? 'UNKNOWN'}`);
+    return null;
+  }
 
   return {
     id: String(f.id ?? p.id ?? ''),
@@ -304,24 +315,38 @@ export async function fetchAllActiveAlerts(): Promise<NwsAlert[]> {
  */
 export async function fetchNwsAlertById(alertId: string): Promise<NwsAlert | null> {
   if (!alertId) return null;
-  // If the caller passes the full NWS URL, use it directly; otherwise build
-  // the URL from the bare resource ID (e.g. "urn:oid:...").
+
   const url = alertId.startsWith('https://')
     ? alertId
     : `https://api.weather.gov/alerts/${encodeURIComponent(alertId)}`;
+
   const res = await fetch(url, { headers: buildNwsRequestHeaders() });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.warn(`[LIVE-ALERTS-FB] fetchNwsAlertById non-OK for ${alertId}: ${res.status} ${res.statusText}`);
+    return null;
+  }
 
   let data: any;
   try {
     data = await res.json();
-  } catch {
+  } catch (err) {
+    console.warn(`[LIVE-ALERTS-FB] fetchNwsAlertById JSON parse failed for ${alertId}:`, err);
     return null;
   }
 
-  // The response may be a single feature or a feature collection.
   const feature = Array.isArray(data?.features) ? data.features[0] : data;
-  return mapNwsFeatureToAlert(feature);
+  const mapped = mapNwsFeatureToAlert(feature);
+
+  if (!mapped) {
+    const p = feature?.properties ?? {};
+    console.warn(
+      `[LIVE-ALERTS-FB] fetchNwsAlertById mapped null for ${alertId} ` +
+      `status=${String(p.status ?? '')} event=${String(p.event ?? '')} messageType=${String(p.messageType ?? '')}`
+    );
+    return null;
+  }
+
+  return mapped;
 }
 
 /** Derive a stable KV deduplication key for an alert. */
@@ -1013,12 +1038,20 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
  * that alerts already ingested as articles still get posted here.
  */
 export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promise<void> {
-  const livePageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
-  const livePageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
+  const livePageIdPrimary    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
+  const livePageTokenPrimary = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
+  const livePageIdFallback   = ((env as any).FACEBOOK_PAGE_ID    || '').trim();
+  const livePageTokenFallback= ((env as any).FACEBOOK_PAGE_ACCESS_TOKEN || '').trim();
+
+  const livePageId = livePageIdPrimary || livePageIdFallback;
+  const livePageToken = livePageTokenPrimary || livePageTokenFallback;
+
   if (!livePageId || !livePageToken) {
-    console.warn('[LIVE-ALERTS-FB] Skipping — LIVE_ALERTS_PAGE_ID or LIVE_ALERTS_PAGE_ACCESS_TOKEN not configured');
+    console.warn('[LIVE-ALERTS-FB] Skipping — LIVE_ALERTS_PAGE_ID/ACCESS_TOKEN or FACEBOOK_PAGE_ID/ACCESS_TOKEN not configured');
     return;
   }
+
+  console.log(`[LIVE-ALERTS-FB] Using pageId=${livePageIdPrimary ? 'LIVE_ALERTS_PAGE_ID' : 'FACEBOOK_PAGE_ID'} for posting`);
 
   // Check own FB dedup key — only skip if already successfully posted
   const cache = env.CACHE;
@@ -1148,12 +1181,16 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
   }
 
   const rssEntries = await fetchNationalRssFeed();
+  console.log(`[LIVE-ALERTS-FB] RSS entries=${rssEntries.length}`);
   if (!rssEntries || rssEntries.length === 0) {
     console.log('[LIVE-ALERTS-FB] No entries found from national RSS feed');
     return;
   }
 
   const newIds = await getNewNationalAlertIds(env, rssEntries);
+  console.log(`[LIVE-ALERTS-FB] New IDs=${newIds.length}`);
+  console.log(`[LIVE-ALERTS-FB] Warning auto-post enabled=${await getLiveAlertAutopostFlag(env, 'warnings')}`);
+  console.log(`[LIVE-ALERTS-FB] RSS entries=${rssEntries.length} newIds=${newIds.length}`);
   if (!newIds || newIds.length === 0) {
     console.log('[LIVE-ALERTS-FB] No new national alert IDs since last run');
     return;
@@ -1161,9 +1198,10 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
 
   const newAlerts: NwsAlert[] = [];
   for (const id of newIds) {
+    console.log(`[LIVE-ALERTS-FB] Fetching new alert ${id}`);
     const alert = await fetchAlertById(id);
     if (!alert) {
-      console.warn(`[LIVE-ALERTS-FB] Alert ${id} from RSS could not be fetched`);
+      console.warn(`[LIVE-ALERTS-FB] Alert ${id} from RSS returned null after fetch/map`);
       continue;
     }
     newAlerts.push(alert);
@@ -1179,6 +1217,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
   const startDate = await getLiveAlertAutopostStart(env);
 
   for (const alert of newAlerts) {
+    console.log(`[LIVE-ALERTS-FB] Ready to post ${alert.event} id=${alert.id}`);
     try {
       // ── Per-category autopost flag ────────────────────────────────────────
       const category = classifyAlertCategory(alert.event);
@@ -1233,6 +1272,16 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
         const imageUrl  = getWeatherAlertImageUrl(alert.event, stateCode ?? undefined);
 
         let fbPostId: string | null = null;
+        const logFbGraphError = (resp: Response, data: any) => {
+          const payload = JSON.stringify(data);
+          if (resp.status === 403 || data?.error?.code === 200) {
+            console.error(`[LIVE-ALERTS-FB] Facebook permission error (${resp.status}) "${alert.event}" ${ugcCode}: ${payload}`);
+            console.error('[LIVE-ALERTS-FB] Please verify LIVE_ALERTS_PAGE_ACCESS_TOKEN or FACEBOOK_PAGE_ACCESS_TOKEN has publish permissions, is still valid, and the app has required scope.');
+          } else {
+            console.error(`[LIVE-ALERTS-FB] Facebook post failed (${resp.status}) "${alert.event}" ${ugcCode}: ${payload}`);
+          }
+        };
+
         if (imageUrl) {
           const params = new URLSearchParams({ caption, url: imageUrl, access_token: livePageToken });
           const resp = await fetch(`https://graph.facebook.com/v19.0/${livePageId}/photos`, {
@@ -1245,7 +1294,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
             fbPostId = String(data.id);
             console.log(`[LIVE-ALERTS-FB] New photo post "${alert.event}" ${ugcCode} → ${fbPostId}`);
           } else {
-            console.error(`[LIVE-ALERTS-FB] Photo post failed "${alert.event}" ${ugcCode} (${resp.status}):`, JSON.stringify(data));
+            logFbGraphError(resp, data);
           }
         } else {
           const params = new URLSearchParams({ message: caption, access_token: livePageToken });
@@ -1259,7 +1308,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
             fbPostId = String(data.id);
             console.log(`[LIVE-ALERTS-FB] New feed post "${alert.event}" ${ugcCode} → ${fbPostId}`);
           } else {
-            console.error(`[LIVE-ALERTS-FB] Feed post failed "${alert.event}" ${ugcCode} (${resp.status}):`, JSON.stringify(data));
+            logFbGraphError(resp, data);
           }
         }
 
