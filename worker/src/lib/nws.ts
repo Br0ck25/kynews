@@ -76,6 +76,29 @@ export function classifyAlertCategory(event: string): LiveAlertCategory {
 const NWS_ALERTS_URL = 'https://api.weather.gov/alerts/active?area=KY';
 const NWS_ALL_ALERTS_URL = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert,update';
 const NWS_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
+const NWS_BASE_HEADERS = {
+  'Accept': 'application/geo+json',
+  'From': 'news@localkynews.com',
+  'Referer': 'https://localkynews.com',
+};
+
+const NWS_ACCEPT_ENCODING = 'gzip, deflate, br';
+const NWS_ACCEPT_LANGUAGE = 'en-US,en;q=0.9';
+
+function buildNwsRequestHeaders(): Record<string, string> {
+  const randomOS = `rv:${Math.floor(Math.random() * 100)}.${Math.floor(Math.random() * 100)}`;
+  const randomUID = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `uuid-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+  return {
+    ...NWS_BASE_HEADERS,
+    'User-Agent': `${NWS_USER_AGENT} ${randomUID} (${randomOS})`,
+    'Accept-Encoding': NWS_ACCEPT_ENCODING,
+    'Accept-Language': NWS_ACCEPT_LANGUAGE,
+    'Cache-Control': 'no-cache',
+  };
+}
 
 export interface NwsAlert {
   id: string;
@@ -129,13 +152,16 @@ function mapNwsFeatureToAlert(f: any): NwsAlert | null {
  */
 export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
   const res = await fetch(NWS_ALERTS_URL, {
-    headers: {
-      'User-Agent': NWS_USER_AGENT,
-      'Accept': 'application/geo+json',
-    },
+    headers: buildNwsRequestHeaders(),
   });
 
-  if (!res.ok) return [];
+  if (!res.ok) {
+    console.error(`[NWS] fetchActiveKyAlerts returned http ${res.status}`);
+    if (res.status === 403) {
+      console.error('[NWS] NWS 403 indicates possible API blocking/rate-limiting for this worker IP');
+    }
+    return [];
+  }
 
   let data: any;
   try {
@@ -165,18 +191,22 @@ export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
  */
 export async function fetchAllActiveAlerts(): Promise<NwsAlert[]> {
   const res = await fetch(NWS_ALL_ALERTS_URL, {
-    headers: {
-      'User-Agent': NWS_USER_AGENT,
-      'Accept': 'application/geo+json',
-    },
+    headers: buildNwsRequestHeaders(),
   });
 
-  if (!res.ok) return [];
+  if (!res.ok) {
+    console.error(`[LIVE-ALERTS-FB] fetchAllActiveAlerts returned http ${res.status}`);
+    if (res.status === 403) {
+      console.error('[LIVE-ALERTS-FB] NWS 403 indicates possible API blocking/rate-limiting for this worker IP');
+    }
+    return [];
+  }
 
   let data: any;
   try {
     data = await res.json();
-  } catch {
+  } catch (err) {
+    console.error('[LIVE-ALERTS-FB] fetchAllActiveAlerts JSON parse failed', err);
     return [];
   }
 
@@ -198,10 +228,7 @@ export async function fetchNwsAlertById(alertId: string): Promise<NwsAlert | nul
     ? alertId
     : `https://api.weather.gov/alerts/${encodeURIComponent(alertId)}`;
   const res = await fetch(url, {
-    headers: {
-      'User-Agent': NWS_USER_AGENT,
-      'Accept': 'application/geo+json',
-    },
+    headers: buildNwsRequestHeaders(),
   });
   if (!res.ok) return null;
 
@@ -1042,6 +1069,7 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
   let alerts: NwsAlert[];
   try {
     alerts = await fetchAllActiveAlerts();
+    console.log(`[LIVE-ALERTS-FB] fetched ${alerts.length} active alert(s) from NWS`);
   } catch (err) {
     console.error('[LIVE-ALERTS-FB] fetchAllActiveAlerts failed', err);
     return;

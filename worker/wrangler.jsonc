@@ -130,6 +130,6 @@
 	"triggers": {
 		// Single 2-minute cron rotates through all current sources (~108) 10 at a time.
 		// Full cycle: ~108 ÷ 10 × 2 min ≈ 22 minutes. Offset persisted in KV.
-		"crons": ["* * * * *"]
+		"crons": ["*/2 * * * *"]
 	}
 }

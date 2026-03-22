@@ -2452,8 +2452,12 @@ if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POS
 
 	const liveAlertsPageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
 	const liveAlertsPageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
-	if (!liveAlertsPageId || !liveAlertsPageToken) {
-		return json({ error: 'LIVE_ALERTS_PAGE_ID / LIVE_ALERTS_PAGE_ACCESS_TOKEN secrets not configured for the Live Weather Alerts Facebook page' }, 500);
+	const mainPageId          = ((env as any).FACEBOOK_PAGE_ID || '').trim();
+	const mainPageToken       = ((env as any).FACEBOOK_PAGE_ACCESS_TOKEN || '').trim();
+	const targetPageId = liveAlertsPageId || mainPageId;
+	const targetPageToken = liveAlertsPageToken || mainPageToken;
+	if (!targetPageId || !targetPageToken) {
+		return json({ error: 'LIVE_ALERTS_PAGE_ID/LIVE_ALERTS_PAGE_ACCESS_TOKEN or FACEBOOK_PAGE_ID/FACEBOOK_PAGE_ACCESS_TOKEN must be configured to post weather alerts to Facebook' }, 500);
 	}
 
 	// Use the caption passed from the frontend when available (avoids a NWS
@@ -2479,38 +2483,49 @@ if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POS
 	const stateCode = areaDesc ? extractPrimaryStateCode(areaDesc) : null;
 	const imageUrl = eventType ? getWeatherAlertImageUrl(eventType, stateCode ?? undefined) : '';
 
-	try {
-		if (imageUrl) {
-			// Photo post with banner image.
-			const params = new URLSearchParams({ caption, url: imageUrl, access_token: liveAlertsPageToken });
-			const respFb = await fetch(`https://graph.facebook.com/v19.0/${liveAlertsPageId}/photos`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-				body: params,
-			});
-			const fbData = await respFb.json() as any;
-			if (!respFb.ok || fbData?.error) {
-				const msg = fbData?.error?.message ?? `HTTP ${respFb.status}`;
-				const code = fbData?.error?.code ? ` (code ${fbData.error.code})` : '';
-				return json({ ok: false, error: `${msg}${code}`, details: fbData }, 500);
-			}
-			return json({ ok: true, fbPostId: String(fbData?.id ?? ''), result: fbData });
-		} else {
-			// Text-only post via /feed when no specific banner image exists.
-			const params = new URLSearchParams({ message: caption, access_token: liveAlertsPageToken });
-			const respFb = await fetch(`https://graph.facebook.com/v19.0/${liveAlertsPageId}/feed`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-				body: params,
-			});
-			const fbData = await respFb.json() as any;
-			if (!respFb.ok || fbData?.error) {
-				const msg = fbData?.error?.message ?? `HTTP ${respFb.status}`;
-				const code = fbData?.error?.code ? ` (code ${fbData.error.code})` : '';
-				return json({ ok: false, error: `${msg}${code}`, details: fbData }, 500);
-			}
-			return json({ ok: true, fbPostId: String(fbData?.id ?? ''), result: fbData });
+	const postToFacebookPage = async (pageId: string, pageToken: string): Promise<any> => {
+		const endpoint = imageUrl
+			? `https://graph.facebook.com/v19.0/${pageId}/photos`
+			: `https://graph.facebook.com/v19.0/${pageId}/feed`;
+
+		const params = new URLSearchParams(
+			imageUrl
+				? { caption, url: imageUrl, access_token: pageToken }
+				: { message: caption, access_token: pageToken }
+		);
+
+		const respFb = await fetch(endpoint, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: params,
+		});
+
+		const fbData = await respFb.json().catch(() => ({}));
+		if (respFb.ok && !fbData?.error) {
+			return { ok: true, fbPostId: String(fbData?.id ?? ''), result: fbData };
 		}
+
+		const msg = fbData?.error?.message ?? `HTTP ${respFb.status}`;
+		const code = fbData?.error?.code ? ` (code ${fbData.error.code})` : '';
+		return { ok: false, error: `${msg}${code}`, details: fbData };
+	};
+
+	try {
+		const result = await postToFacebookPage(targetPageId, targetPageToken);
+		if (result.ok) {
+			return json(result);
+		}
+
+		// If we were trying a photo post and it failed, fallback to a text-only feed post.
+		if (imageUrl && liveAlertsPageId && targetPageToken) {
+			const fallbackResult = await postToFacebookPage(targetPageId, targetPageToken);
+			if (fallbackResult.ok) {
+				return json({ ok: true, fbPostId: fallbackResult.fbPostId, result: fallbackResult.result, fallbackToFeed: true });
+			}
+			return json({ ok: false, error: `Photo post failed and fallback feed post failed: ${result.error}`, details: { photoError: result, feedError: fallbackResult } }, 500);
+		}
+
+		return json({ ok: false, error: result.error ?? 'Failed to post to Facebook', details: result.details }, 500);
 	} catch (err: any) {
 		return json({ ok: false, error: 'Network error posting to Facebook', details: String(err) }, 500);
 	}
