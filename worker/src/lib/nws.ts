@@ -50,6 +50,20 @@ export async function setLiveAlertAutopostFlag(env: Env, category: LiveAlertCate
   await (env.CACHE as any).put(LIVE_ALERT_AUTOPOST_KEYS[category], enabled ? 'true' : 'false');
 }
 
+/**
+ * KV state stored per active alert thread (key: `live_alert:{ugcCode}:{eventSlug}`).
+ * Tracks the anchor Facebook post and current NWS alert ID so that NWS reissues
+ * are posted as comments rather than new posts.
+ */
+export interface ActiveAlertState {
+  nwsAlertId: string;  // current NWS alert ID
+  fbPostId: string;    // Facebook post ID to comment on
+  expiresAt: number;   // Unix timestamp (seconds); 0 = unknown
+  ugcCode: string;     // e.g. "KYC095"
+  eventType: string;   // e.g. "Flood Warning"
+  areaDesc: string;    // e.g. "Pike, KY"
+}
+
 /** Classify an NWS event string into one of the three categories. */
 export function classifyAlertCategory(event: string): LiveAlertCategory {
   const lower = event.toLowerCase();
@@ -59,424 +73,8 @@ export function classifyAlertCategory(event: string): LiveAlertCategory {
 }
 
 const NWS_ALERTS_URL = 'https://api.weather.gov/alerts/active?area=KY';
-const NWS_ALL_ALERTS_URL = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert,update,cancel';
-const NWS_ALERTS_ATOM_URL = 'https://api.weather.gov/alerts/active.atom?area=KY';
-const NWS_ALL_ALERTS_ATOM_URL = 'https://api.weather.gov/alerts/active.atom?status=actual&message_type=alert,update,cancel';
-const LIVE_ALERTS_TARGET_STATE = 'HI';
-const NWS_CONTACT_EMAIL = 'news@localkynews.com';
-const NWS_CONTACT_URL = 'https://localkynews.com';
-const NWS_USER_AGENT = `LocalKYNews/1.1 (${NWS_CONTACT_URL}; ${NWS_CONTACT_EMAIL})`;
-
-const NWS_CACHE_STALE_SUFFIX = ':stale';
-const NWS_CACHE_ETAG_SUFFIX = ':etag';
-const NWS_CACHE_LAST_MODIFIED_SUFFIX = ':last-modified';
-const NWS_CACHE_BACKOFF_UNTIL_SUFFIX = ':backoff-until';
-const NWS_ALERTS_CACHE_KEY = 'nws_ky_alerts_raw';
-const NWS_ALL_ALERTS_CACHE_KEY = 'nws_all_alerts_raw';
-const NWS_ALERTS_ATOM_CACHE_KEY = 'nws_ky_alerts_atom_raw';
-const NWS_ALL_ALERTS_ATOM_CACHE_KEY = 'nws_all_alerts_atom_raw';
-const NWS_ALERTS_CACHE_TTL = 180; // seconds
-const NWS_ALL_ALERTS_CACHE_TTL = 180; // seconds
-
-function buildNwsHeaders(
-  accept: string,
-  extraHeaders: Record<string, string> = {},
-): Record<string, string> {
-  return {
-    'User-Agent': NWS_USER_AGENT,
-    'From': NWS_CONTACT_EMAIL,
-    Accept: accept,
-    ...extraHeaders,
-  };
-}
-
-function summarizeResponseBody(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().slice(0, 240);
-}
-
-function nwsBackoffSeconds(status: number): number {
-  if (status === 403) return 15 * 60;
-  if (status === 429) return 5 * 60;
-  if (status >= 500) return 2 * 60;
-  return 0;
-}
-
-async function getStaleCachedPayload(
-  cache: KVNamespace | undefined,
-  cacheKey: string,
-): Promise<any | null> {
-  if (!cache) return null;
-  const staleRaw = await cache.get(cacheKey + NWS_CACHE_STALE_SUFFIX);
-  if (!staleRaw) return null;
-  try {
-    return JSON.parse(staleRaw);
-  } catch {
-    return null;
-  }
-}
-
-async function getStaleCachedText(
-  cache: KVNamespace | undefined,
-  cacheKey: string,
-): Promise<string | null> {
-  if (!cache) return null;
-  return await cache.get(cacheKey + NWS_CACHE_STALE_SUFFIX);
-}
-
-async function fetchNwsGeoJsonCached(
-  url: string,
-  cache: KVNamespace | undefined,
-  cacheKey: string,
-  cacheTtl: number,
-  extraHeaders: Record<string, string> = {},
-): Promise<any | null> {
-  let cachedData: any = null;
-
-  if (cache) {
-    const primary = await cache.get(cacheKey);
-    if (primary) {
-      try {
-        cachedData = JSON.parse(primary);
-      } catch {
-        cachedData = null;
-      }
-      if (cachedData) {
-        // Cache hit, short-circuit to match existing throttling behavior.
-        return cachedData;
-      }
-    }
-  }
-
-  const backoffKey = cacheKey + NWS_CACHE_BACKOFF_UNTIL_SUFFIX;
-  if (cache) {
-    const backoffUntilRaw = await cache.get(backoffKey);
-    const backoffUntil = backoffUntilRaw ? Number(backoffUntilRaw) : 0;
-    const nowSec = Math.floor(Date.now() / 1000);
-    if (Number.isFinite(backoffUntil) && backoffUntil > nowSec) {
-      const staleData = await getStaleCachedPayload(cache, cacheKey);
-      if (staleData) {
-        console.warn(`[NWS] ${url} backoff active until ${new Date(backoffUntil * 1000).toISOString()} — using stale payload`);
-        return staleData;
-      }
-      console.warn(`[NWS] ${url} backoff active but no stale payload is available`);
-      return null;
-    }
-  }
-
-  const conditionalHeaders: Record<string, string> = buildNwsHeaders('application/geo+json', extraHeaders);
-
-  if (cache) {
-    const etag = await cache.get(cacheKey + NWS_CACHE_ETAG_SUFFIX);
-    const lastModified = await cache.get(cacheKey + NWS_CACHE_LAST_MODIFIED_SUFFIX);
-    if (etag) {
-      conditionalHeaders['If-None-Match'] = etag;
-    }
-    if (lastModified) {
-      conditionalHeaders['If-Modified-Since'] = lastModified;
-    }
-  }
-
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      headers: conditionalHeaders,
-    });
-  } catch (err) {
-    console.error(`[NWS] ${url} request failed:`, err);
-    const staleData = await getStaleCachedPayload(cache, cacheKey);
-    if (staleData) return staleData;
-    return null;
-  }
-
-  if (res.status === 304) {
-    if (cachedData) {
-      console.log(`[NWS] ${url} 304 Not Modified — using cached response`);
-      return cachedData;
-    }
-
-    // We might not have primary cache (expired). Try stale fallback.
-    const staleData = await getStaleCachedPayload(cache, cacheKey);
-    if (staleData) {
-      console.log(`[NWS] ${url} 304 Not Modified — using stale fallback response`);
-      return staleData;
-    }
-
-    console.warn(`[NWS] ${url} returned 304 but no cached or stale payload is available`);
-    return null;
-  }
-
-  if (!res.ok) {
-    const bodySnippet = summarizeResponseBody(await res.text().catch(() => ''));
-    const message =
-      `[NWS] ${url} returned ${res.status} ${res.statusText}` +
-      (bodySnippet ? ` | body=${JSON.stringify(bodySnippet)}` : '');
-    if (res.status === 403 || res.status === 429) {
-      console.warn(message);
-    } else {
-      console.error(message);
-    }
-
-    const backoffSeconds = nwsBackoffSeconds(res.status);
-    if (cache && backoffSeconds > 0) {
-      const backoffUntil = Math.floor(Date.now() / 1000) + backoffSeconds;
-      try {
-        await cache.put(backoffKey, String(backoffUntil), { expirationTtl: backoffSeconds + 60 });
-      } catch (err) {
-        console.warn('[NWS] failed to persist backoff marker:', err);
-      }
-    }
-
-    // Fall back to stale cache or empty.
-    const staleData = await getStaleCachedPayload(cache, cacheKey);
-    if (staleData) return staleData;
-    return null;
-  }
-
-  let freshData: any;
-  try {
-    freshData = await res.json();
-  } catch (err) {
-    console.error(`[NWS] ${url} JSON parse failed:`, err);
-    return null;
-  }
-
-  if (cache) {
-    try {
-      await cache.put(cacheKey, JSON.stringify(freshData), { expirationTtl: cacheTtl });
-      await cache.put(cacheKey + NWS_CACHE_STALE_SUFFIX, JSON.stringify(freshData), { expirationTtl: 86400 });
-
-      const etag = res.headers.get('ETag');
-      if (etag) {
-        await cache.put(cacheKey + NWS_CACHE_ETAG_SUFFIX, etag, { expirationTtl: 604800 });
-      }
-
-      const lastModified = res.headers.get('Last-Modified');
-      if (lastModified) {
-        await cache.put(cacheKey + NWS_CACHE_LAST_MODIFIED_SUFFIX, lastModified, { expirationTtl: 604800 });
-      }
-      await cache.delete(backoffKey).catch(() => {});
-    } catch (err) {
-      console.warn('[NWS] cache write failed:', err);
-    }
-  }
-
-  return freshData;
-}
-
-async function fetchNwsTextCached(
-  url: string,
-  cache: KVNamespace | undefined,
-  cacheKey: string,
-  cacheTtl: number,
-  accept: string,
-  extraHeaders: Record<string, string> = {},
-): Promise<string | null> {
-  let cachedText: string | null = null;
-
-  if (cache) {
-    cachedText = await cache.get(cacheKey);
-    if (cachedText) {
-      return cachedText;
-    }
-  }
-
-  const backoffKey = cacheKey + NWS_CACHE_BACKOFF_UNTIL_SUFFIX;
-  if (cache) {
-    const backoffUntilRaw = await cache.get(backoffKey);
-    const backoffUntil = backoffUntilRaw ? Number(backoffUntilRaw) : 0;
-    const nowSec = Math.floor(Date.now() / 1000);
-    if (Number.isFinite(backoffUntil) && backoffUntil > nowSec) {
-      const staleText = await getStaleCachedText(cache, cacheKey);
-      if (staleText) {
-        console.warn(`[NWS] ${url} backoff active until ${new Date(backoffUntil * 1000).toISOString()} — using stale text payload`);
-        return staleText;
-      }
-      console.warn(`[NWS] ${url} backoff active but no stale text payload is available`);
-      return null;
-    }
-  }
-
-  const headers = buildNwsHeaders(accept, extraHeaders);
-  if (cache) {
-    const etag = await cache.get(cacheKey + NWS_CACHE_ETAG_SUFFIX);
-    const lastModified = await cache.get(cacheKey + NWS_CACHE_LAST_MODIFIED_SUFFIX);
-    if (etag) headers['If-None-Match'] = etag;
-    if (lastModified) headers['If-Modified-Since'] = lastModified;
-  }
-
-  let res: Response;
-  try {
-    res = await fetch(url, { headers });
-  } catch (err) {
-    console.error(`[NWS] ${url} text request failed:`, err);
-    const staleText = await getStaleCachedText(cache, cacheKey);
-    if (staleText) return staleText;
-    return null;
-  }
-
-  if (res.status === 304) {
-    if (cachedText) {
-      console.log(`[NWS] ${url} 304 Not Modified — using cached text response`);
-      return cachedText;
-    }
-    const staleText = await getStaleCachedText(cache, cacheKey);
-    if (staleText) {
-      console.log(`[NWS] ${url} 304 Not Modified — using stale text fallback response`);
-      return staleText;
-    }
-    console.warn(`[NWS] ${url} returned 304 but no cached text payload is available`);
-    return null;
-  }
-
-  if (!res.ok) {
-    const bodySnippet = summarizeResponseBody(await res.text().catch(() => ''));
-    const message =
-      `[NWS] ${url} returned ${res.status} ${res.statusText}` +
-      (bodySnippet ? ` | body=${JSON.stringify(bodySnippet)}` : '');
-    if (res.status === 403 || res.status === 429) {
-      console.warn(message);
-    } else {
-      console.error(message);
-    }
-
-    const backoffSeconds = nwsBackoffSeconds(res.status);
-    if (cache && backoffSeconds > 0) {
-      const backoffUntil = Math.floor(Date.now() / 1000) + backoffSeconds;
-      try {
-        await cache.put(backoffKey, String(backoffUntil), { expirationTtl: backoffSeconds + 60 });
-      } catch (err) {
-        console.warn('[NWS] failed to persist text-fetch backoff marker:', err);
-      }
-    }
-
-    const staleText = await getStaleCachedText(cache, cacheKey);
-    if (staleText) return staleText;
-    return null;
-  }
-
-  const text = await res.text().catch(() => '');
-  if (!text.trim()) return null;
-
-  if (cache) {
-    try {
-      await cache.put(cacheKey, text, { expirationTtl: cacheTtl });
-      await cache.put(cacheKey + NWS_CACHE_STALE_SUFFIX, text, { expirationTtl: 86400 });
-
-      const etag = res.headers.get('ETag');
-      if (etag) {
-        await cache.put(cacheKey + NWS_CACHE_ETAG_SUFFIX, etag, { expirationTtl: 604800 });
-      }
-
-      const lastModified = res.headers.get('Last-Modified');
-      if (lastModified) {
-        await cache.put(cacheKey + NWS_CACHE_LAST_MODIFIED_SUFFIX, lastModified, { expirationTtl: 604800 });
-      }
-      await cache.delete(backoffKey).catch(() => {});
-    } catch (err) {
-      console.warn('[NWS] text cache write failed:', err);
-    }
-  }
-
-  return text;
-}
-
-function decodeXmlEntities(input: string): string {
-  return input
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => {
-      const n = Number.parseInt(hex, 16);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
-    })
-    .replace(/&#([0-9]+);/g, (_, dec: string) => {
-      const n = Number.parseInt(dec, 10);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
-    })
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-}
-
-function stripXmlTags(input: string): string {
-  return input.replace(/<[^>]+>/g, '');
-}
-
-function getXmlTagValue(xml: string, tagName: string): string {
-  const escapedTag = tagName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`<${escapedTag}[^>]*>([\\s\\S]*?)<\\/${escapedTag}>`, 'i').exec(xml);
-  if (!match) return '';
-  return decodeXmlEntities(stripXmlTags(match[1])).trim();
-}
-
-function parseCapPolygon(polygon: string): any | null {
-  const text = polygon.trim();
-  if (!text) return null;
-  const pairs = text.split(/\s+/).map((token) => token.trim()).filter(Boolean);
-  if (pairs.length < 3) return null;
-
-  const coords: number[][] = [];
-  for (const pair of pairs) {
-    const [latRaw, lonRaw] = pair.split(',');
-    const lat = Number(latRaw);
-    const lon = Number(lonRaw);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-    coords.push([lon, lat]);
-  }
-
-  if (coords.length < 3) return null;
-  const first = coords[0];
-  const last = coords[coords.length - 1];
-  if (first[0] !== last[0] || first[1] !== last[1]) {
-    coords.push([first[0], first[1]]);
-  }
-
-  return { type: 'Polygon', coordinates: [coords] };
-}
-
-function parseNwsAlertsFromAtom(xml: string): NwsAlert[] {
-  if (!xml || !/<entry[\s>]/i.test(xml)) return [];
-
-  const entries = xml.match(/<entry\b[\s\S]*?<\/entry>/gi) ?? [];
-  const alerts: NwsAlert[] = [];
-
-  for (const entry of entries) {
-    const ugcCodes: string[] = [];
-    const geocodeRe = /<cap:geocode>\s*<valueName>\s*([^<]+)\s*<\/valueName>\s*<value>\s*([^<]+)\s*<\/value>\s*<\/cap:geocode>/gi;
-    let gm: RegExpExecArray | null;
-    while ((gm = geocodeRe.exec(entry)) !== null) {
-      const name = decodeXmlEntities(gm[1]).trim().toUpperCase();
-      const value = decodeXmlEntities(gm[2]).trim();
-      if (name === 'UGC' && value) ugcCodes.push(value);
-    }
-
-    const polygon = getXmlTagValue(entry, 'cap:polygon');
-    const feature = {
-      id: getXmlTagValue(entry, 'id'),
-      properties: {
-        event: getXmlTagValue(entry, 'cap:event'),
-        headline: getXmlTagValue(entry, 'title'),
-        description: getXmlTagValue(entry, 'summary'),
-        instruction: getXmlTagValue(entry, 'cap:instruction') || null,
-        areaDesc: getXmlTagValue(entry, 'cap:areaDesc'),
-        severity: getXmlTagValue(entry, 'cap:severity') || 'Unknown',
-        urgency: getXmlTagValue(entry, 'cap:urgency') || 'Unknown',
-        sent: getXmlTagValue(entry, 'cap:sent'),
-        effective: getXmlTagValue(entry, 'cap:effective'),
-        expires: getXmlTagValue(entry, 'cap:expires'),
-        status: getXmlTagValue(entry, 'cap:status') || 'Actual',
-        geocode: { UGC: ugcCodes },
-        messageType: getXmlTagValue(entry, 'cap:msgType') || 'Alert',
-      },
-      geometry: parseCapPolygon(polygon),
-    };
-
-    const mapped = mapNwsFeatureToAlert(feature);
-    if (mapped) alerts.push(mapped);
-  }
-
-  return alerts;
-}
+const NWS_ALL_ALERTS_URL = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert,update';
+const NWS_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
 
 export interface NwsAlert {
   id: string;
@@ -491,11 +89,9 @@ export interface NwsAlert {
   effective: string;
   expires: string;
   status: string;
-  counties: string[];
-  /** NWS Universal Geographic Code list from properties.geocode.UGC. */
-  ugcCodes: string[];
-  /** NWS message type: "Alert", "Update", or "Cancel". */
   messageType: string;
+  ugcCodes: string[];
+  counties: string[];
   /** Raw GeoJSON geometry from the NWS feature (Polygon or MultiPolygon). Null when absent. */
   geometry: any | null;
 }
@@ -520,9 +116,9 @@ function mapNwsFeatureToAlert(f: any): NwsAlert | null {
     effective: String(p.effective ?? new Date().toISOString()),
     expires: String(p.expires ?? ''),
     status: String(p.status ?? 'Actual'),
-    counties: extractKyCountiesFromAreaDesc(String(p.areaDesc ?? '')),
-    ugcCodes: Array.isArray(p.geocode?.UGC) ? (p.geocode.UGC as unknown[]).map(String) : [],
     messageType: String(p.messageType ?? 'Alert'),
+    ugcCodes: Array.isArray(p.geocode?.UGC) ? (p.geocode.UGC as string[]) : [],
+    counties: extractKyCountiesFromAreaDesc(String(p.areaDesc ?? '')),
     geometry: f.geometry ?? null,
   };
 }
@@ -530,26 +126,21 @@ function mapNwsFeatureToAlert(f: any): NwsAlert | null {
 /**
  * Fetch active Kentucky alerts from the NWS API.
  */
-export async function fetchActiveKyAlerts(cache?: KVNamespace): Promise<NwsAlert[]> {
-  const data = await fetchNwsGeoJsonCached(NWS_ALERTS_URL, cache, NWS_ALERTS_CACHE_KEY, NWS_ALERTS_CACHE_TTL);
-  if (!data) {
-    console.warn('[NWS] GeoJSON alerts request unavailable — falling back to ATOM feed for KY');
-    const atomXml = await fetchNwsTextCached(
-      NWS_ALERTS_ATOM_URL,
-      cache,
-      NWS_ALERTS_ATOM_CACHE_KEY,
-      NWS_ALERTS_CACHE_TTL,
-      'application/atom+xml',
-    );
-    if (!atomXml) return [];
+export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
+  const res = await fetch(NWS_ALERTS_URL, {
+    headers: {
+      'User-Agent': NWS_USER_AGENT,
+      'Accept': 'application/geo+json',
+    },
+  });
 
-    const atomAlerts = parseNwsAlertsFromAtom(atomXml)
-      .filter((a) =>
-        a.counties.length > 0 ||
-        /\bkentucky\b|,\s*ky\b/i.test(a.areaDesc)
-      );
-    console.log(`[NWS] ATOM fallback produced ${atomAlerts.length} KY alerts`);
-    return atomAlerts;
+  if (!res.ok) return [];
+
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    return [];
   }
 
   const features: any[] = Array.isArray(data?.features) ? data.features : [];
@@ -570,39 +161,29 @@ export async function fetchActiveKyAlerts(cache?: KVNamespace): Promise<NwsAlert
  * Fetch ALL active NWS alerts nationwide (no state gate).
  * Used exclusively for the Live Weather Alerts Facebook page auto-posting.
  * Article ingestion is still KY-only via fetchActiveKyAlerts().
- *
- * Responses are cached in CACHE KV for 3 minutes to avoid NWS rate-limits
- * and datacenter IP blocks triggered by the every-minute cron.
  */
-export async function fetchAllActiveAlerts(cache?: KVNamespace): Promise<NwsAlert[]> {
-  const data = await fetchNwsGeoJsonCached(NWS_ALL_ALERTS_URL, cache, NWS_ALL_ALERTS_CACHE_KEY, NWS_ALL_ALERTS_CACHE_TTL);
-  if (!data) {
-    console.warn('[LIVE-ALERTS-FB] GeoJSON alerts request unavailable — falling back to ATOM feed');
-    const atomXml = await fetchNwsTextCached(
-      NWS_ALL_ALERTS_ATOM_URL,
-      cache,
-      NWS_ALL_ALERTS_ATOM_CACHE_KEY,
-      NWS_ALL_ALERTS_CACHE_TTL,
-      'application/atom+xml',
-    );
-    if (!atomXml) return [];
+export async function fetchAllActiveAlerts(): Promise<NwsAlert[]> {
+  const res = await fetch(NWS_ALL_ALERTS_URL, {
+    headers: {
+      'User-Agent': NWS_USER_AGENT,
+      'Accept': 'application/geo+json',
+    },
+  });
 
-    const alerts = parseNwsAlertsFromAtom(atomXml);
-    console.log(`[LIVE-ALERTS-FB] fetchAllActiveAlerts (ATOM fallback): ${alerts.length} valid alerts`);
-    return alerts;
+  if (!res.ok) return [];
+
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    return [];
   }
 
   const features: any[] = Array.isArray(data?.features) ? data.features : [];
-  if (features.length === 0) {
-    console.warn('[LIVE-ALERTS-FB] NWS API returned 0 features (empty feed or unexpected response shape)');
-  }
 
-  const alerts = features
+  return features
     .map(mapNwsFeatureToAlert)
     .filter((a): a is NwsAlert => a !== null);
-
-  console.log(`[LIVE-ALERTS-FB] fetchAllActiveAlerts: ${features.length} raw features → ${alerts.length} valid alerts`);
-  return alerts;
 }
 
 /**
@@ -616,7 +197,10 @@ export async function fetchNwsAlertById(alertId: string): Promise<NwsAlert | nul
     ? alertId
     : `https://api.weather.gov/alerts/${encodeURIComponent(alertId)}`;
   const res = await fetch(url, {
-    headers: buildNwsHeaders('application/geo+json'),
+    headers: {
+      'User-Agent': NWS_USER_AGENT,
+      'Accept': 'application/geo+json',
+    },
   });
   if (!res.ok) return null;
 
@@ -803,6 +387,7 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
         const rest = [starMatch[2], ...lines.slice(1)].join(' ').trim();
         // Collect any "- bullet" sub-lines that follow
         const bulletLines: string[] = [];
+        const textParts: string[] = [];
         for (const item of rest.split(/\s*-\s+/).filter(Boolean)) {
           if (item.trim()) bulletLines.push(item.trim());
         }
@@ -893,6 +478,20 @@ export async function buildAlertArticle(alert: NwsAlert): Promise<NewArticle> {
   const contentText = textLines.join('\n').trim();
 
   // ── HTML — plan §6 template with labeled sections + radar ────────────────
+  // derive radar image URL so we can also expose it as the article
+  // preview image (front‐end uses `imageUrl` for open graph, etc).
+  const radarUrl = (() => {
+    const easternKyCounties = new Set([
+      'Perry','Leslie','Breathitt','Knott','Letcher','Floyd','Pike','Martin',
+      'Johnson','Lawrence','Magoffin','Owsley','Lee','Wolfe','Morgan','Elliott',
+      'Harlan','Bell','Knox','Whitley','McCreary','Laurel','Clay','Jackson',
+      'Rockcastle','Estill','Powell','Menifee','Bath','Rowan','Carter','Lewis',
+    ]);
+    const isEasternKy = alert.counties.some((c) => easternKyCounties.has(c));
+    const radarStation = isEasternKy ? 'KJKL' : 'KLVX';
+    return `https://radar.weather.gov/ridge/standard/${radarStation}_loop.gif`;
+  })();
+
   const radarHtml = getRadarImageHtml(alert.counties);
 
   const instrHtml = instrParts.length > 0
@@ -1007,50 +606,30 @@ export function extractPrimaryStateCode(areaDesc: string): string | null {
   return best;
 }
 
-function normalizeUgcToStateCode(ugcCode: string): string | null {
-  const normalized = ugcCode.trim().toUpperCase();
-  if (!normalized) return null;
-  // PHZ codes represent Hawaiian coastal/offshore marine zones.
-  if (normalized.startsWith('PHZ')) return 'HI';
-  const direct = normalized.match(/^([A-Z]{2})[CZ]/);
-  return direct ? direct[1] : null;
-}
-
-function isHawaiiAreaText(areaDesc: string): boolean {
-  if (!areaDesc) return false;
-  if (extractPrimaryStateCode(areaDesc) === LIVE_ALERTS_TARGET_STATE) return true;
-  return /\bhawaii(?:an)?\b|,\s*HI\b/i.test(areaDesc);
-}
-
-function isHawaiiUgcCode(ugcCode: string): boolean {
-  return normalizeUgcToStateCode(ugcCode) === LIVE_ALERTS_TARGET_STATE;
-}
-
-function isHawaiiAlert(alert: Pick<NwsAlert, 'ugcCodes' | 'areaDesc'>): boolean {
-  if (alert.ugcCodes.some((code) => isHawaiiUgcCode(code))) return true;
-  return isHawaiiAreaText(alert.areaDesc);
-}
-
 /**
  * Return the public URL of the banner image for the given NWS alert event
- * type and optional state code.  For Tornado Warning, Tornado Watch, and
- * Severe Thunderstorm Warning the state-specific image from a dedicated
- * sub-folder is used when available.  Falls back to the generic per-event
- * image, then to an empty string (caller should use a text-only post).
+ * type and optional state code.
+ * Always uses the new per-state JPG images at /img/{state}/{event-slug}-{state}.jpg.
+ * Falls back to the generic per-event PNG images only when no state is known.
  */
 export function getWeatherAlertImageUrl(event: string, stateCode?: string): string {
   const stateName = stateCode ? (STATE_CODE_TO_NAME[stateCode.toUpperCase()] ?? null) : null;
 
-  // All state image folders follow a single consistent naming convention:
-  //   /img/{stateName}/{event-slug}-{stateName}.jpg
-  // e.g. /img/louisiana/flood-warning-louisiana.jpg
+  // ── Per-state JPG images (new naming convention) ──
+  // Pattern: /img/{state}/{event-slug}-{state}.jpg
+  // e.g. /img/alaska/winter-storm-warning-alaska.jpg
   if (stateName) {
-    const slug = event.toLowerCase().replace(/\s+/g, '-');
-    return `${IMG_BASE}/${stateName}/${slug}-${stateName}.jpg`;
+    const slug = event
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    if (slug) {
+      return `${IMG_BASE}/${stateName}/${slug}-${stateName}.jpg`;
+    }
   }
 
-  // No state code — fall back to the generic root-level images
-  const rootMap: Record<string, string> = {
+  // ── Fallback: generic per-event PNG images (no state known) ──
+  const map: Record<string, string> = {
     'Tornado Warning':               `${IMG_BASE}/tornado-warning.png`,
     'Tornado Watch':                 `${IMG_BASE}/Tornado-Watch.png`,
     'Severe Thunderstorm Warning':   `${IMG_BASE}/Severe-Thunderstorm-Warning.png`,
@@ -1079,7 +658,7 @@ export function getWeatherAlertImageUrl(event: string, stateCode?: string): stri
     'Red Flag Warning':              `${IMG_BASE}/Red-Flag-Warning.png`,
     'Rip Current Statement':         `${IMG_BASE}/Rip-Current-Statement.png`,
   };
-  return rootMap[event] ?? '';
+  return map[event] ?? '';
 }
 
 /**
@@ -1228,7 +807,7 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
 
   let alerts: NwsAlert[];
   try {
-    alerts = await fetchActiveKyAlerts(env.CACHE);
+    alerts = await fetchActiveKyAlerts();
   } catch (err) {
     console.error('[NWS] fetchActiveKyAlerts failed', err);
     return { published: 0, skipped: 0 };
@@ -1303,7 +882,7 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
 
   // Check own FB dedup key — only skip if already successfully posted
   const fbKey = env.CACHE ? `live:alerts:fb:${await sha256Hex(alert.id)}` : null;
-  if (fbKey && env.CACHE) {
+  if (fbKey) {
     const alreadyPosted = await env.CACHE.get(fbKey);
     if (alreadyPosted) return; // already posted, silent skip
   }
@@ -1360,7 +939,7 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
       }
     }
     // Only mark as posted after a confirmed successful post
-    if (posted && fbKey && env.CACHE) {
+    if (posted && fbKey) {
       await env.CACHE.put(fbKey, '1', { expirationTtl: 172800 });
     }
   } catch (err) {
@@ -1368,24 +947,8 @@ export async function postLiveAlertToFacebook(env: Env, alert: NwsAlert): Promis
   }
 }
 
-// ─── Comment threading for Live Weather Alerts ──────────────────────────────
-
 /**
- * Tracks an active Live Alerts Facebook anchor post so updates can be
- * posted as comments instead of new top-level posts.
- * Stored in KV under: live_alert:{ugcCode}:{eventSlug}
- */
-interface ActiveAlertState {
-  nwsAlertId: string;   // Current NWS alert ID for this slot
-  fbPostId: string;     // Facebook post ID to comment on
-  expiresAt: number;    // Unix timestamp (seconds) from NWS expires field
-  ugcCode: string;      // e.g. "KYC095"
-  eventType: string;    // e.g. "Flood Warning"
-  areaDesc: string;     // e.g. "Pike, KY"
-}
-
-/**
- * Post a comment on an existing Facebook post.
+ * Post a comment on an existing Facebook post (used for alert threading).
  * Returns the new comment ID on success, or null on failure.
  */
 async function postWeatherAlertComment(
@@ -1408,7 +971,7 @@ async function postWeatherAlertComment(
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params,
         signal: controller.signal,
-      }
+      },
     );
     const data = await resp.json() as any;
     if (!resp.ok || data?.error) {
@@ -1425,18 +988,15 @@ async function postWeatherAlertComment(
 }
 
 /**
- * Check active NWS alerts and maintain comment-threaded posts on the Live
- * Weather Alerts Facebook page.
- * The feed is nationwide, but only Hawaii alerts are eligible for posting.
+ * Check ALL active NWS alerts nationwide and post any that haven't been
+ * seen before to the Live Weather Alerts Facebook page.
+ * Called from the scheduled handler separately from processNwsAlerts so that
+ * the article ingestion pipeline (KY-only) and the Live Alerts FB feed
+ * (all US) remain fully independent.
  *
- * Rule: one Facebook post per active alert (UGC code + event type). Any update
- * to that alert posts as a comment on the existing post until it expires.
- * When an alert expires or is cancelled, a closing comment is posted.
- * The next alert for the same UGC+event type starts a new post.
- *
- * KV state (CACHE binding):
- *   live_alert:{ugcCode}:{eventSlug}       → ActiveAlertState JSON
- *   live_alert_seen:{alertId}:{ugcCode}    → "1"  (dedup within one cron tick)
+ * Threading model: one Facebook post per active UGC+event combination.
+ * NWS reissues are posted as comments; expiry/cancellation posts a final comment
+ * then clears the KV entry so the next alert starts a fresh post.
  */
 export async function processLiveAlertsNationwide(env: Env): Promise<void> {
   const livePageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
@@ -1448,47 +1008,25 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
 
   let alerts: NwsAlert[];
   try {
-    alerts = await fetchAllActiveAlerts(env.CACHE);
+    alerts = await fetchAllActiveAlerts();
   } catch (err) {
     console.error('[LIVE-ALERTS-FB] fetchAllActiveAlerts failed', err);
     return;
   }
-  const hawaiiAlerts = alerts.filter((alert) => isHawaiiAlert(alert));
 
   const startDate = await getLiveAlertAutopostStart(env);
-  const nowSec = Math.floor(Date.now() / 1000);
-  // Threading state uses its own dedicated KV namespace, separate from the general CACHE
-  const liveKv: KVNamespace | undefined = (env as any).LIVE_WEATHER_ALERTS;
 
-  // ── Facebook 368 backoff check ─────────────────────────────────────────
-  // If we were rate-limited (368) recently, skip all posting this tick.
-  // Continuing to attempt posts during a 368 block extends the block duration.
-  const FB_BACKOFF_KEY = 'live_alerts_fb:backoff';
-  const FB_BACKOFF_TTL = 15 * 60; // 15 minutes
-  if (liveKv) {
-    const backoff = await liveKv.get(FB_BACKOFF_KEY);
-    if (backoff) {
-      console.log('[LIVE-ALERTS-FB] In backoff period after 368 rate-limit — skipping all FB posts this tick');
-      console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts (${hawaiiAlerts.length} Hawaii)`);
-      return;
-    }
-  }
-
-  // Cap new posts per tick to avoid Facebook rate-limiting (error 368).
-  // Alerts skipped here will be retried on the next cron tick.
-  const MAX_NEW_POSTS_PER_TICK = 3;
-  let newPostsThisTick = 0;
-
-  for (const alert of hawaiiAlerts) {
+  for (const alert of alerts) {
     try {
-      // ── Apply existing category and start-date filters ──────────────────
+      // ── Per-category autopost flag ────────────────────────────────────────
       const category = classifyAlertCategory(alert.event);
-      const enabled = await getLiveAlertAutopostFlag(env, category);
+      const enabled  = await getLiveAlertAutopostFlag(env, category);
       if (!enabled) {
         console.log(`[LIVE-ALERTS-FB] Skipping "${alert.event}" — ${category} auto-post is disabled`);
         continue;
       }
 
+      // ── Autopost start-date gate ──────────────────────────────────────────
       if (startDate) {
         const alertSent = new Date(alert.sent);
         if (!Number.isNaN(alertSent.valueOf()) && alertSent.getTime() < startDate.getTime()) {
@@ -1497,60 +1035,43 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
         }
       }
 
-      // ── Threading keys ─────────────────────────────────────────────────
-      const ugcCode = alert.ugcCodes.find((code) => isHawaiiUgcCode(code)) ?? alert.ugcCodes[0] ?? '';
-      if (!ugcCode) continue; // skip if no UGC code
+      // ── UGC code — required for threading ────────────────────────────────
+      const ugcCode = alert.ugcCodes[0] ?? null;
+      if (!ugcCode) {
+        // No UGC code: fall back to the legacy one-shot post path
+        await postLiveAlertToFacebook(env, alert).catch((err) =>
+          console.error(`[LIVE-ALERTS-FB] Legacy fallback failed for "${alert.event}":`, err),
+        );
+        continue;
+      }
 
       const eventSlug = alert.event.toLowerCase().replace(/\s+/g, '_');
-      const kvKey   = `live_alert:${ugcCode}:${eventSlug}`;
-      const seenKey = `live_alert_seen:${alert.id}:${ugcCode}`;
+      const kvKey     = `live_alert:${ugcCode}:${eventSlug}`;
+      const seenKey   = `live_alert_seen:${alert.id}:${ugcCode}`;
 
-      // Skip if we already handled this exact alert ID + UGC code this tick
-      if (liveKv) {
-        const alreadySeen = await liveKv.get(seenKey);
-        if (alreadySeen) continue;
+      // ── Skip if already handled this alert ID for this UGC code this tick ─
+      const alreadySeen = env.CACHE ? await env.CACHE.get(seenKey) : null;
+      if (alreadySeen) continue;
+
+      // ── Read existing thread state ────────────────────────────────────────
+      const stateRaw = env.CACHE ? await env.CACHE.get(kvKey) : null;
+      let state: ActiveAlertState | null = null;
+      if (stateRaw) {
+        try { state = JSON.parse(stateRaw) as ActiveAlertState; } catch { /* corrupt — treat as missing */ }
       }
 
-      // KV TTL = distance to alert expiry + 2 hour buffer
-      const expiresAt: number = alert.expires
-        ? Math.floor(new Date(alert.expires).getTime() / 1000)
-        : nowSec + 86400;
-      const ttl = Math.max(60, expiresAt - nowSec + 7200);
+      const expiresAtUnix = alert.expires ? Math.floor(new Date(alert.expires).getTime() / 1000) : 0;
+      const nowUnix       = Math.floor(Date.now() / 1000);
+      const ttl           = expiresAtUnix > nowUnix ? expiresAtUnix - nowUnix + 7200 : 7200;
 
-      // Read existing state for this UGC+event slot
-      let existingState: ActiveAlertState | null = null;
-      if (liveKv) {
-        const raw = await liveKv.get(kvKey);
-        if (raw) {
-          try { existingState = JSON.parse(raw) as ActiveAlertState; } catch { /* ignore malformed */ }
-        }
-      }
-
-      // ── Case 1: No existing post — create a new Facebook post ──────────
-      if (!existingState) {
-        // Respect the per-tick cap — skip without marking seen so the next tick retries
-        if (newPostsThisTick >= MAX_NEW_POSTS_PER_TICK) {
-          console.log(`[LIVE-ALERTS-FB] Per-tick cap (${MAX_NEW_POSTS_PER_TICK}) reached — deferring "${alert.event}" (${ugcCode}) to next tick`);
-          continue;
-        }
-
+      if (!state) {
+        // ── New alert: create a new Facebook post ─────────────────────────────
         const caption   = buildWeatherAlertFbCaption(alert);
-        // Derive state code from the UGC code (first 2 chars: e.g. "AKZ201" → "AK")
-        // This is more reliable than parsing areaDesc, which often omits state abbreviations
-        // for NWS zone descriptions like "Central Beaufort Sea Coast".
-        const stateCodeFromUgc = normalizeUgcToStateCode(ugcCode);
-        const stateCode = stateCodeFromUgc ?? extractPrimaryStateCode(alert.areaDesc);
+        const stateCode = extractPrimaryStateCode(alert.areaDesc);
         const imageUrl  = getWeatherAlertImageUrl(alert.event, stateCode ?? undefined);
 
         let fbPostId: string | null = null;
-        // Try photo post first; fall back to text-only if the image URL is missing
-        // or if Facebook can't fetch it (error_subcode 1366046 — file not readable).
-        // If Facebook returns error 368 (rate-limit), abort the entire tick — retrying
-        // immediately just burns more quota against an active block.
-        let triedPhoto = false;
-        let fbRateLimited = false;
         if (imageUrl) {
-          triedPhoto = true;
           const params = new URLSearchParams({ caption, url: imageUrl, access_token: livePageToken });
           const resp = await fetch(`https://graph.facebook.com/v19.0/${livePageId}/photos`, {
             method: 'POST',
@@ -1558,24 +1079,13 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
             body: params,
           });
           const data: any = await resp.json().catch(() => ({}));
-          if (!resp.ok) {
-            if (data?.error?.code === 368) {
-              console.warn(`[LIVE-ALERTS-FB] Rate-limited by Facebook (368) on photo post for "${alert.event}" — entering ${FB_BACKOFF_TTL / 60}-min backoff`);
-              if (liveKv) await liveKv.put(FB_BACKOFF_KEY, '1', { expirationTtl: FB_BACKOFF_TTL });
-              fbRateLimited = true;
-            } else {
-              console.warn(`[LIVE-ALERTS-FB] Photo post failed (${resp.status}) "${alert.event}" — falling back to text-only:`, data?.error?.message ?? '');
-            }
+          if (resp.ok && data?.id) {
+            fbPostId = String(data.id);
+            console.log(`[LIVE-ALERTS-FB] New photo post "${alert.event}" ${ugcCode} → ${fbPostId}`);
           } else {
-            fbPostId = String(data?.id ?? '');
-            console.log(`[LIVE-ALERTS-FB] New post "${alert.event}" (${ugcCode}) → id=${fbPostId}`);
+            console.error(`[LIVE-ALERTS-FB] Photo post failed "${alert.event}" ${ugcCode} (${resp.status}):`, JSON.stringify(data));
           }
-        }
-        // Abort this tick entirely if Facebook rate-limited us
-        if (fbRateLimited) break;
-        // Text-only fallback: used when no imageUrl, or when photo post failed (non-368)
-        if (!fbPostId) {
-          if (triedPhoto) console.log(`[LIVE-ALERTS-FB] Retrying "${alert.event}" (${ugcCode}) as text-only`);
+        } else {
           const params = new URLSearchParams({ message: caption, access_token: livePageToken });
           const resp = await fetch(`https://graph.facebook.com/v19.0/${livePageId}/feed`, {
             method: 'POST',
@@ -1583,138 +1093,126 @@ export async function processLiveAlertsNationwide(env: Env): Promise<void> {
             body: params,
           });
           const data: any = await resp.json().catch(() => ({}));
-          if (!resp.ok) {
-            if (data?.error?.code === 368) {
-              console.warn(`[LIVE-ALERTS-FB] Rate-limited by Facebook (368) on text post for "${alert.event}" — entering ${FB_BACKOFF_TTL / 60}-min backoff`);
-              if (liveKv) await liveKv.put(FB_BACKOFF_KEY, '1', { expirationTtl: FB_BACKOFF_TTL });
-              break;
-            }
-            console.error(`[LIVE-ALERTS-FB] Feed post failed (${resp.status}) "${alert.event}":`, JSON.stringify(data));
+          if (resp.ok && data?.id) {
+            fbPostId = String(data.id);
+            console.log(`[LIVE-ALERTS-FB] New feed post "${alert.event}" ${ugcCode} → ${fbPostId}`);
           } else {
-            fbPostId = String(data?.id ?? '');
-            console.log(`[LIVE-ALERTS-FB] New post (text-only) "${alert.event}" (${ugcCode}) → id=${fbPostId}`);
+            console.error(`[LIVE-ALERTS-FB] Feed post failed "${alert.event}" ${ugcCode} (${resp.status}):`, JSON.stringify(data));
           }
         }
 
-        if (fbPostId && liveKv) {
-          const state: ActiveAlertState = {
+        if (fbPostId && env.CACHE) {
+          const newState: ActiveAlertState = {
             nwsAlertId: alert.id,
             fbPostId,
-            expiresAt,
+            expiresAt: expiresAtUnix,
             ugcCode,
             eventType: alert.event,
-            areaDesc: alert.areaDesc,
+            areaDesc:  alert.areaDesc,
           };
-          await liveKv.put(kvKey, JSON.stringify(state), { expirationTtl: ttl });
-          await liveKv.put(seenKey, '1', { expirationTtl: ttl });
-          // Record in D1 for admin dashboard visibility
-          await insertWeatherAlertPost(env, {
-            nws_alert_id: alert.id,
-            event: alert.event,
-            area: alert.areaDesc,
-            severity: alert.severity,
-            expires_at: alert.expires || null,
-            sent_at: alert.sent || null,
-            post_text: caption,
-            fb_post_id: fbPostId,
-          }).catch((err) => console.error('[LIVE-ALERTS-FB] D1 insert failed:', err));
-          newPostsThisTick++;
-          // Brief pause between new posts so Facebook doesn't see them as a burst
-          if (newPostsThisTick < MAX_NEW_POSTS_PER_TICK) {
-            await new Promise((r) => setTimeout(r, 1000));
-          }
-        } else if (liveKv) {
-          // Post failed — still mark seen to prevent retry spam this tick
-          await liveKv.put(seenKey, '1', { expirationTtl: ttl });
+          await env.CACHE.put(kvKey,   JSON.stringify(newState), { expirationTtl: ttl });
+          await env.CACHE.put(seenKey, '1',                      { expirationTtl: ttl });
         }
-        continue;
-      }
 
-      // ── Case 2: Same alert ID — already handled, just mark seen ─────────
-      if (existingState.nwsAlertId === alert.id) {
-        if (liveKv) {
-          await liveKv.put(seenKey, '1', { expirationTtl: ttl });
-        }
-        continue;
-      }
+        // Persist to D1 (best-effort — failure must not block the loop)
+        await insertWeatherAlertPost(env, {
+          nws_alert_id: alert.id,
+          event:        alert.event,
+          area:         alert.areaDesc,
+          severity:     alert.severity,
+          expires_at:   alert.expires  || null,
+          sent_at:      alert.sent     || null,
+          post_text:    caption,
+          fb_post_id:   fbPostId,
+        }).catch((err) => console.error('[LIVE-ALERTS-FB] D1 insert failed:', err));
 
-      // ── Case 3: New alert ID for same slot — NWS reissued this event ────
-      if (alert.messageType === 'Cancel') {
-        const commentText =
-          `✅ NWS has cancelled this ${alert.event} for ${alert.areaDesc}.\n` +
-          `This was determined to not be an imminent threat.\n\n` +
-          `Monitor conditions at localkynews.com/live-weather-alerts`;
-        await postWeatherAlertComment(existingState.fbPostId, commentText, livePageId, livePageToken);
-        if (liveKv) {
-          await liveKv.delete(kvKey);
-          await liveKv.put(seenKey, '1', { expirationTtl: ttl });
+      } else if (state.nwsAlertId === alert.id) {
+        // ── Same alert ID: already posted — just mark seen ────────────────────
+        if (env.CACHE) {
+          await env.CACHE.put(seenKey, '1', { expirationTtl: ttl });
         }
-        console.log(`[LIVE-ALERTS-FB] Cancellation comment for "${alert.event}" (${ugcCode})`);
+
       } else {
-        // Update or reissue — post an update comment and refresh KV state
-        const newCaption  = buildWeatherAlertFbCaption(alert);
-        // Strip the trailing URL and hashtag lines — they don't belong in threaded comments
-        const captionForComment = newCaption
-          .replace(/\nhttps:\/\/localkynews\.com\/live-weather-alerts[\s\S]*$/, '')
-          .trim();
-        const commentText = `🔄 UPDATE — ${alert.event} for ${alert.areaDesc}\n\n${captionForComment}`;
-        await postWeatherAlertComment(existingState.fbPostId, commentText, livePageId, livePageToken);
-        const updatedState: ActiveAlertState = {
-          ...existingState,
-          nwsAlertId: alert.id,
-          expiresAt,
-          areaDesc: alert.areaDesc,
-        };
-        if (liveKv) {
-          await liveKv.put(kvKey, JSON.stringify(updatedState), { expirationTtl: ttl });
-          await liveKv.put(seenKey, '1', { expirationTtl: ttl });
+        // ── Reissued alert (new NWS ID, same UGC+event type) ─────────────────
+        const messageType = alert.messageType ?? 'Alert';
+
+        if (messageType === 'Cancel') {
+          const commentText = [
+            `✅ NWS has cancelled this ${alert.event} for ${alert.areaDesc}.`,
+            'This was determined to not be an imminent threat.',
+            '',
+            'Monitor conditions at localkynews.com/live-weather-alerts',
+          ].join('\n');
+
+          await postWeatherAlertComment(state.fbPostId, commentText, livePageId, livePageToken);
+
+          if (env.CACHE) {
+            await env.CACHE.delete(kvKey);
+            await env.CACHE.put(seenKey, '1', { expirationTtl: ttl });
+          }
+        } else {
+          // "Update" or reissued "Alert"
+          const newCaption = buildWeatherAlertFbCaption(alert)
+            // Strip the URL and hashtag footer — those belong on the original
+            // post only, not on threaded update comments.
+            .replace(/\nhttps?:\/\/localkynews\.com\/[^\n]*/g, '')
+            .replace(/\n#[^\n]*/g, '')
+            .trimEnd();
+          const commentText = [
+            `🔄 UPDATE — ${alert.event} for ${alert.areaDesc}`,
+            '',
+            newCaption,
+          ].join('\n');
+
+          await postWeatherAlertComment(state.fbPostId, commentText, livePageId, livePageToken);
+
+          if (env.CACHE) {
+            const updatedState: ActiveAlertState = {
+              ...state,
+              nwsAlertId: alert.id,
+              expiresAt:  expiresAtUnix,
+              areaDesc:   alert.areaDesc,
+            };
+            await env.CACHE.put(kvKey,   JSON.stringify(updatedState), { expirationTtl: ttl });
+            await env.CACHE.put(seenKey, '1',                          { expirationTtl: ttl });
+          }
         }
-        console.log(`[LIVE-ALERTS-FB] Update comment for "${alert.event}" (${ugcCode})`);
       }
     } catch (err) {
-      console.error(`[LIVE-ALERTS-FB] Unexpected error for "${alert.event}":`, err);
+      console.error(`[LIVE-ALERTS-FB] Error processing "${alert.event}":`, err);
     }
   }
 
-  // ── Expiry sweep: close out alerts that dropped off the NWS feed ─────────
-  if (liveKv) {
+  // ── Expiry sweep: catch alerts the NWS feed stopped returning ─────────────
+  // Lists all active-thread KV keys and posts an expiry comment for any whose
+  // expiresAt has passed and that NWS is no longer reissuing.
+  if (env.CACHE) {
     try {
-      // Prefix "live_alert:" only matches active-state keys, not "live_alert_seen:" keys
-      const listResult = await liveKv.list({ prefix: 'live_alert:', limit: 500 });
+      const listResult = await env.CACHE.list({ prefix: 'live_alert:' });
+      const sweepNow   = Math.floor(Date.now() / 1000);
+
       for (const entry of listResult.keys) {
-        const key = entry.name;
-        try {
-          const raw = await liveKv.get(key);
-          if (!raw) continue;
-          let state: ActiveAlertState;
-          try { state = JSON.parse(raw) as ActiveAlertState; } catch { continue; }
-
-          // The Live Weather Alerts Hawaii page should only receive Hawaii updates.
-          // Remove any legacy non-Hawaii state entries without posting comments.
-          const isHawaiiState = isHawaiiUgcCode(state.ugcCode) || isHawaiiAreaText(state.areaDesc);
-          if (!isHawaiiState) {
-            await liveKv.delete(key);
-            continue;
-          }
-
-          if (state.expiresAt < nowSec) {
-            const commentText =
-              `✅ This ${state.eventType} for ${state.areaDesc} has expired.\n\n` +
-              `Monitor conditions at localkynews.com/live-weather-alerts`;
-            await postWeatherAlertComment(state.fbPostId, commentText, livePageId, livePageToken);
-            await liveKv.delete(key);
-            console.log(`[LIVE-ALERTS-FB] Expiry comment for "${state.eventType}" (${state.ugcCode})`);
-          }
-        } catch (err) {
-          console.error(`[LIVE-ALERTS-FB] Expiry sweep error for key ${key}:`, err);
+        const raw = await env.CACHE.get(entry.name);
+        if (!raw) continue;
+        let s: ActiveAlertState | null = null;
+        try { s = JSON.parse(raw) as ActiveAlertState; } catch { continue; }
+        if (!s || s.expiresAt === 0) continue; // unknown expiry — let KV TTL clean up
+        if (s.expiresAt < sweepNow) {
+          const commentText = [
+            `✅ This ${s.eventType} for ${s.areaDesc} has expired.`,
+            '',
+            'Monitor conditions at localkynews.com/live-weather-alerts',
+          ].join('\n');
+          await postWeatherAlertComment(s.fbPostId, commentText, livePageId, livePageToken);
+          await env.CACHE.delete(entry.name);
         }
       }
     } catch (err) {
-      console.error('[LIVE-ALERTS-FB] Expiry sweep list failed:', err);
+      console.error('[LIVE-ALERTS-FB] Expiry sweep failed:', err);
     }
   }
 
-  console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts (${hawaiiAlerts.length} Hawaii)`);
+  console.log(`[LIVE-ALERTS-FB] Tick complete: checked ${alerts.length} nationwide alerts`);
 }
 
 // ─── NWS product (HWO) ingestion ──────────────────────────────────────────
@@ -1755,7 +1253,7 @@ export async function fetchHwoProducts(office: string): Promise<NwsProduct[]> {
   let listData: any;
   try {
     const res = await fetch(listUrl, {
-      headers: buildNwsHeaders('application/json'),
+      headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' },
     });
     if (!res.ok) return [];
     listData = await res.json();
@@ -1796,7 +1294,7 @@ export async function fetchHwoProducts(office: string): Promise<NwsProduct[]> {
     } else {
       try {
         const pRes = await fetch(productUrl, {
-          headers: buildNwsHeaders('application/json'),
+          headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' },
         });
         if (pRes.ok) {
           const pData: any = await pRes.json();

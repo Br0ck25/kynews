@@ -13,17 +13,13 @@ export interface WeatherAlertPost {
   sent_at: string | null;
   post_text: string;
   fb_post_id: string | null;
-  update_count: number;
   created_at: string;
 }
 
-/** Return live weather alert posts ordered newest-first. */
+/** Return all posts ordered newest-first. */
 export async function listWeatherAlertPosts(env: Env): Promise<WeatherAlertPost[]> {
   const result = await env.ky_news_db
-    .prepare(
-      `SELECT * FROM weather_alert_posts
-       ORDER BY COALESCE(sent_at, created_at) DESC, id DESC`
-    )
+    .prepare('SELECT * FROM weather_alert_posts ORDER BY COALESCE(sent_at, created_at) DESC, id DESC')
     .all<WeatherAlertPost>();
   return result.results ?? [];
 }
@@ -81,25 +77,26 @@ export async function insertWeatherAlertPost(
   return Number((result.meta as any)?.last_row_id ?? 0);
 }
 
-/** Update the post_text of an existing post. Optionally backfills fb_post_id when it was previously NULL. */
+/**
+ * Update the post_text of an existing post.
+ * When fb_post_id is provided and the current value is NULL, also sets fb_post_id
+ * (backfill for rows created before comment threading was added).
+ */
 export async function updateWeatherAlertPostText(
   env: Env,
   id: number,
   post_text: string,
   fb_post_id?: string | null,
 ): Promise<boolean> {
-  if (fb_post_id !== undefined) {
-    // COALESCE preserves any existing fb_post_id — only fills it when NULL
-    const result = await env.ky_news_db
-      .prepare('UPDATE weather_alert_posts SET post_text = ?, fb_post_id = COALESCE(fb_post_id, ?) WHERE id = ?')
-      .bind(post_text, fb_post_id ?? null, id)
-      .run();
-    return ((result.meta as any)?.changes ?? 0) > 0;
-  }
-  const result = await env.ky_news_db
-    .prepare('UPDATE weather_alert_posts SET post_text = ? WHERE id = ?')
-    .bind(post_text, id)
-    .run();
+  const result = fb_post_id != null
+    ? await env.ky_news_db
+        .prepare('UPDATE weather_alert_posts SET post_text = ?, fb_post_id = COALESCE(fb_post_id, ?) WHERE id = ?')
+        .bind(post_text, fb_post_id, id)
+        .run()
+    : await env.ky_news_db
+        .prepare('UPDATE weather_alert_posts SET post_text = ? WHERE id = ?')
+        .bind(post_text, id)
+        .run();
   return ((result.meta as any)?.changes ?? 0) > 0;
 }
 

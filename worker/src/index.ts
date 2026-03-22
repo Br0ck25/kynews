@@ -2476,18 +2476,8 @@ if (url.pathname === '/api/admin/facebook/post-alert' && request.method === 'POS
 		areaDesc  = alert.areaDesc;
 	}
 
-	const isHawaiiArea = (text: string): boolean => {
-		const trimmed = text.trim();
-		if (!trimmed) return false;
-		if (extractPrimaryStateCode(trimmed) === 'HI') return true;
-		return /\bhawaii(?:an)?\b|,\s*HI\b/i.test(trimmed);
-	};
-	if (!isHawaiiArea(areaDesc)) {
-		return json({ ok: false, error: 'Only Hawaii alerts can be posted to Live Weather Alerts Hawaii.' }, 400);
-	}
-
-	const stateCode = extractPrimaryStateCode(areaDesc) ?? 'HI';
-	const imageUrl = eventType ? getWeatherAlertImageUrl(eventType, stateCode) : '';
+	const stateCode = areaDesc ? extractPrimaryStateCode(areaDesc) : null;
+	const imageUrl = eventType ? getWeatherAlertImageUrl(eventType, stateCode ?? undefined) : '';
 
 	try {
 		if (imageUrl) {
@@ -2671,8 +2661,7 @@ if (url.pathname === '/api/weather' && request.method === 'GET') {
 
 	// NWS API requires a User-Agent header; requests without one are rejected.
 	const nwsHeaders = {
-		'User-Agent': 'LocalKYNews/1.1 (https://localkynews.com; news@localkynews.com)',
-		From: 'news@localkynews.com',
+		'User-Agent': 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)',
 		Accept: 'application/geo+json, application/json',
 	};
 
@@ -5466,8 +5455,7 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
     }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
   );
 
-  // Process active US alerts but only post/comment Hawaii alerts to the
-  // Live Weather Alerts Hawaii Facebook page.
+  // Post ALL active US alerts to the Live Weather Alerts Facebook page
   ctx.waitUntil(
     processLiveAlertsNationwide(env)
       .catch((err) => console.error('[LIVE-ALERTS-FB] processLiveAlertsNationwide threw', err))

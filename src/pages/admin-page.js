@@ -1270,7 +1270,7 @@ export default function AdminPage() {
             draftCount > 0 ? `Articles (${draftCount} draft${draftCount !== 1 ? "s" : ""})` : "Articles",
             "Blocked",
             "FB Scraper",
-            "Kentucky Weather Alerts",
+            "Weather Alerts",
             "NWS Discussions",
             "Storm Reports",
             "Weather",
