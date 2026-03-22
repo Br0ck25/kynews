@@ -12,13 +12,19 @@ export interface WeatherAlertPost {
   expires_at: string | null;
   sent_at: string | null;
   post_text: string;
+  fb_post_id: string | null;
+  update_count: number;
   created_at: string;
 }
 
-/** Return all posts ordered newest-first. */
+/** Return Kentucky posts ordered newest-first. */
 export async function listWeatherAlertPosts(env: Env): Promise<WeatherAlertPost[]> {
   const result = await env.ky_news_db
-    .prepare('SELECT * FROM weather_alert_posts ORDER BY COALESCE(sent_at, created_at) DESC, id DESC')
+    .prepare(
+      `SELECT * FROM weather_alert_posts
+       WHERE area LIKE '%KY%' OR area LIKE '%Kentucky%'
+       ORDER BY COALESCE(sent_at, created_at) DESC, id DESC`
+    )
     .all<WeatherAlertPost>();
   return result.results ?? [];
 }
@@ -48,6 +54,7 @@ export interface NewWeatherAlertPost {
   expires_at: string | null;
   sent_at: string | null;
   post_text: string;
+  fb_post_id?: string | null;
 }
 
 /** Insert a new post. Returns the inserted row id. */
@@ -58,8 +65,8 @@ export async function insertWeatherAlertPost(
   const result = await env.ky_news_db
     .prepare(
       `INSERT INTO weather_alert_posts
-         (nws_alert_id, event, area, severity, expires_at, sent_at, post_text)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (nws_alert_id, event, area, severity, expires_at, sent_at, post_text, fb_post_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       post.nws_alert_id ?? null,
@@ -69,17 +76,27 @@ export async function insertWeatherAlertPost(
       post.expires_at ?? null,
       post.sent_at ?? null,
       post.post_text,
+      post.fb_post_id ?? null,
     )
     .run();
   return Number((result.meta as any)?.last_row_id ?? 0);
 }
 
-/** Update only the post_text of an existing post. */
+/** Update the post_text of an existing post. Optionally backfills fb_post_id when it was previously NULL. */
 export async function updateWeatherAlertPostText(
   env: Env,
   id: number,
   post_text: string,
+  fb_post_id?: string | null,
 ): Promise<boolean> {
+  if (fb_post_id !== undefined) {
+    // COALESCE preserves any existing fb_post_id — only fills it when NULL
+    const result = await env.ky_news_db
+      .prepare('UPDATE weather_alert_posts SET post_text = ?, fb_post_id = COALESCE(fb_post_id, ?) WHERE id = ?')
+      .bind(post_text, fb_post_id ?? null, id)
+      .run();
+    return ((result.meta as any)?.changes ?? 0) > 0;
+  }
   const result = await env.ky_news_db
     .prepare('UPDATE weather_alert_posts SET post_text = ? WHERE id = ?')
     .bind(post_text, id)

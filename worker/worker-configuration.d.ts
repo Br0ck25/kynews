@@ -7,6 +7,7 @@ declare namespace Cloudflare {
 	}
 	interface Env {
 		CACHE: KVNamespace;
+		LIVE_WEATHER_ALERTS: KVNamespace;
 		ky_news_media: R2Bucket;
 		ky_news_db: D1Database;
 		INGEST_QUEUE: Queue;
