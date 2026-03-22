@@ -19,6 +19,15 @@ export const LIVE_ALERT_AUTOPOST_START_KEY = 'live:alerts:autopost:start';
 
 export type LiveAlertCategory = keyof typeof LIVE_ALERT_AUTOPOST_KEYS;
 
+/**
+ * Kill switch for scheduled NWS auto-posting and polling.
+ * Set env `DISABLE_NWS_AUTOPOST=true` to stop all poll/post activity.
+ */
+export function isLiveAlertsAutopostDisabled(env: Env): boolean {
+  // Disabled by default unless explicitly overridden with DISABLE_NWS_AUTOPOST=false.
+  return String((env as any).DISABLE_NWS_AUTOPOST ?? 'true').toLowerCase() === 'true';
+}
+
 /** Returns true (default) when the KV flag is absent or set to any value other than "false". */
 export async function getLiveAlertAutopostFlag(env: Env, category: LiveAlertCategory): Promise<boolean> {
   if (!env.CACHE) return true;
@@ -967,6 +976,11 @@ export async function postWeatherAlertToFacebook(env: Env, alert: NwsAlert): Pro
  * seen before. Called from the scheduled handler via ctx.waitUntil().
  */
 export async function processNwsAlerts(env: Env): Promise<{ published: number; skipped: number }> {
+  if (isLiveAlertsAutopostDisabled(env)) {
+    console.log('[NWS] Skipping processNwsAlerts because DISABLE_NWS_AUTOPOST=true');
+    return { published: 0, skipped: 0 };
+  }
+
   let published = 0;
   let skipped = 0;
 
@@ -1019,9 +1033,13 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
       console.log(`[NWS] Published alert: "${article.title}" → id=${id} counties=${(article.counties ?? []).join(', ')}`);
 
       // 6. Auto-post to Local KY News Facebook page — failure must never block ingestion
-      await postWeatherAlertToFacebook(env, alert).catch((err) => {
-        console.error('[NWS-FB] Auto-post failed:', err);
-      });
+      if (!isLiveAlertsAutopostDisabled(env)) {
+        await postWeatherAlertToFacebook(env, alert).catch((err) => {
+          console.error('[NWS-FB] Auto-post failed:', err);
+        });
+      } else {
+        console.log('[NWS] Auto-post disabled (DISABLE_NWS_AUTOPOST=true), not posting to Local KY News Facebook page');
+      }
     } catch (err) {
       console.error(`[NWS] Failed to publish alert ${alert.id}:`, err);
     }
@@ -1173,6 +1191,11 @@ async function postWeatherAlertComment(
  * then clears the KV entry so the next alert starts a fresh post.
  */
 export async function processLiveAlertsNationwide(env: Env): Promise<void> {
+  if (isLiveAlertsAutopostDisabled(env)) {
+    console.log('[LIVE-ALERTS-FB] Skipping processLiveAlertsNationwide because DISABLE_NWS_AUTOPOST=true');
+    return;
+  }
+
   const livePageId    = ((env as any).LIVE_ALERTS_PAGE_ID    || '').trim();
   const livePageToken = ((env as any).LIVE_ALERTS_PAGE_ACCESS_TOKEN || '').trim();
   if (!livePageId || !livePageToken) {

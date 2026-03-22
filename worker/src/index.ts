@@ -5468,34 +5468,42 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
   // Check recent articles for content updates (self-limits to 20 per run).
   ctx.waitUntil(checkArticleUpdates(env));
 
-  // Check NWS for Kentucky weather alerts on every tick
-  ctx.waitUntil(
-    processNwsAlerts(env).then(({ published, skipped }) => {
-      console.log(`[NWS] Tick complete: ${published} published, ${skipped} skipped`);
-    }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
-  );
+  // NWS LIVE ALERTS AUTOPOST is DISABLED by default to stop polling and FB posts.
+  // Set DISABLE_NWS_AUTOPOST=false to re-enable (optional).
+  const disableNwsAutoPost = String((env as any).DISABLE_NWS_AUTOPOST ?? 'true').toLowerCase() === 'true';
 
-  // Post ALL active US alerts to the Live Weather Alerts Facebook page.
-  // Gate this to a 120-second minimum via KV when cron is every 2 minutes.
-  const liveFbKey = 'live-alerts:last-run';
-  let allowLiveFb = true;
-  if (env.CACHE) {
-    const lastRaw = await env.CACHE.get(liveFbKey);
-    const lastTs = lastRaw ? Date.parse(String(lastRaw)) : 0;
-    const now = Date.now();
-    if (!Number.isNaN(lastTs) && now - lastTs < 120 * 1000) {
-      allowLiveFb = false;
-      console.log(`[LIVE-ALERTS-FB] Skipping run: last run ${now - lastTs}ms ago`);
-    } else {
-      await env.CACHE.put(liveFbKey, new Date().toISOString(), { expirationTtl: 6 * 60 });
-    }
-  }
-
-  if (allowLiveFb) {
+  if (disableNwsAutoPost) {
+    console.log('[SCHEDULE] NWS auto polling and Facebook alert posting is disabled (DISABLE_NWS_AUTOPOST=true)');
+  } else {
+    // Check NWS for Kentucky weather alerts on every tick
     ctx.waitUntil(
-      processLiveAlertsNationwide(env)
-        .catch((err) => console.error('[LIVE-ALERTS-FB] processLiveAlertsNationwide threw', err))
+      processNwsAlerts(env).then(({ published, skipped }) => {
+        console.log(`[NWS] Tick complete: ${published} published, ${skipped} skipped`);
+      }).catch((err) => console.error('[NWS] processNwsAlerts threw', err))
     );
+
+    // Post ALL active US alerts to the Live Weather Alerts Facebook page.
+    // Gate this to a 120-second minimum via KV when cron is every 2 minutes.
+    const liveFbKey = 'live-alerts:last-run';
+    let allowLiveFb = true;
+    if (env.CACHE) {
+      const lastRaw = await env.CACHE.get(liveFbKey);
+      const lastTs = lastRaw ? Date.parse(String(lastRaw)) : 0;
+      const now = Date.now();
+      if (!Number.isNaN(lastTs) && now - lastTs < 120 * 1000) {
+        allowLiveFb = false;
+        console.log(`[LIVE-ALERTS-FB] Skipping run: last run ${now - lastTs}ms ago`);
+      } else {
+        await env.CACHE.put(liveFbKey, new Date().toISOString(), { expirationTtl: 6 * 60 });
+      }
+    }
+
+    if (allowLiveFb) {
+      ctx.waitUntil(
+        processLiveAlertsNationwide(env)
+          .catch((err) => console.error('[LIVE-ALERTS-FB] processLiveAlertsNationwide threw', err))
+      );
+    }
   }
 
   // Also fetch hazardous weather outlook products from the three offices
