@@ -578,7 +578,7 @@ export async function buildDailyWeatherArticle(
   // Fetch all live data concurrently
   const [hwoData, alerts] = await Promise.all([
     fetchAllHwoData(),
-    fetchActiveKyAlerts().catch((): NwsAlert[] => []),
+    fetchActiveKyAlerts(env?.CACHE).catch((): NwsAlert[] => []),
   ]);
 
   // Build context string from live source data, then let AI write the article

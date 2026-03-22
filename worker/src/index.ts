@@ -2661,7 +2661,8 @@ if (url.pathname === '/api/weather' && request.method === 'GET') {
 
 	// NWS API requires a User-Agent header; requests without one are rejected.
 	const nwsHeaders = {
-		'User-Agent': 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)',
+		'User-Agent': 'LocalKYNews/1.1 (https://localkynews.com; news@localkynews.com)',
+		From: 'news@localkynews.com',
 		Accept: 'application/geo+json, application/json',
 	};
 

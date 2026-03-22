@@ -60,7 +60,422 @@ export function classifyAlertCategory(event: string): LiveAlertCategory {
 
 const NWS_ALERTS_URL = 'https://api.weather.gov/alerts/active?area=KY';
 const NWS_ALL_ALERTS_URL = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert,update,cancel';
-const NWS_USER_AGENT = 'LocalKYNews/1.0 (localkynews.com; news@localkynews.com)';
+const NWS_ALERTS_ATOM_URL = 'https://api.weather.gov/alerts/active.atom?area=KY';
+const NWS_ALL_ALERTS_ATOM_URL = 'https://api.weather.gov/alerts/active.atom?status=actual&message_type=alert,update,cancel';
+const NWS_CONTACT_EMAIL = 'news@localkynews.com';
+const NWS_CONTACT_URL = 'https://localkynews.com';
+const NWS_USER_AGENT = `LocalKYNews/1.1 (${NWS_CONTACT_URL}; ${NWS_CONTACT_EMAIL})`;
+
+const NWS_CACHE_STALE_SUFFIX = ':stale';
+const NWS_CACHE_ETAG_SUFFIX = ':etag';
+const NWS_CACHE_LAST_MODIFIED_SUFFIX = ':last-modified';
+const NWS_CACHE_BACKOFF_UNTIL_SUFFIX = ':backoff-until';
+const NWS_ALERTS_CACHE_KEY = 'nws_ky_alerts_raw';
+const NWS_ALL_ALERTS_CACHE_KEY = 'nws_all_alerts_raw';
+const NWS_ALERTS_ATOM_CACHE_KEY = 'nws_ky_alerts_atom_raw';
+const NWS_ALL_ALERTS_ATOM_CACHE_KEY = 'nws_all_alerts_atom_raw';
+const NWS_ALERTS_CACHE_TTL = 180; // seconds
+const NWS_ALL_ALERTS_CACHE_TTL = 180; // seconds
+
+function buildNwsHeaders(
+  accept: string,
+  extraHeaders: Record<string, string> = {},
+): Record<string, string> {
+  return {
+    'User-Agent': NWS_USER_AGENT,
+    'From': NWS_CONTACT_EMAIL,
+    Accept: accept,
+    ...extraHeaders,
+  };
+}
+
+function summarizeResponseBody(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
+function nwsBackoffSeconds(status: number): number {
+  if (status === 403) return 15 * 60;
+  if (status === 429) return 5 * 60;
+  if (status >= 500) return 2 * 60;
+  return 0;
+}
+
+async function getStaleCachedPayload(
+  cache: KVNamespace | undefined,
+  cacheKey: string,
+): Promise<any | null> {
+  if (!cache) return null;
+  const staleRaw = await cache.get(cacheKey + NWS_CACHE_STALE_SUFFIX);
+  if (!staleRaw) return null;
+  try {
+    return JSON.parse(staleRaw);
+  } catch {
+    return null;
+  }
+}
+
+async function getStaleCachedText(
+  cache: KVNamespace | undefined,
+  cacheKey: string,
+): Promise<string | null> {
+  if (!cache) return null;
+  return await cache.get(cacheKey + NWS_CACHE_STALE_SUFFIX);
+}
+
+async function fetchNwsGeoJsonCached(
+  url: string,
+  cache: KVNamespace | undefined,
+  cacheKey: string,
+  cacheTtl: number,
+  extraHeaders: Record<string, string> = {},
+): Promise<any | null> {
+  let cachedData: any = null;
+
+  if (cache) {
+    const primary = await cache.get(cacheKey);
+    if (primary) {
+      try {
+        cachedData = JSON.parse(primary);
+      } catch {
+        cachedData = null;
+      }
+      if (cachedData) {
+        // Cache hit, short-circuit to match existing throttling behavior.
+        return cachedData;
+      }
+    }
+  }
+
+  const backoffKey = cacheKey + NWS_CACHE_BACKOFF_UNTIL_SUFFIX;
+  if (cache) {
+    const backoffUntilRaw = await cache.get(backoffKey);
+    const backoffUntil = backoffUntilRaw ? Number(backoffUntilRaw) : 0;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (Number.isFinite(backoffUntil) && backoffUntil > nowSec) {
+      const staleData = await getStaleCachedPayload(cache, cacheKey);
+      if (staleData) {
+        console.warn(`[NWS] ${url} backoff active until ${new Date(backoffUntil * 1000).toISOString()} — using stale payload`);
+        return staleData;
+      }
+      console.warn(`[NWS] ${url} backoff active but no stale payload is available`);
+      return null;
+    }
+  }
+
+  const conditionalHeaders: Record<string, string> = buildNwsHeaders('application/geo+json', extraHeaders);
+
+  if (cache) {
+    const etag = await cache.get(cacheKey + NWS_CACHE_ETAG_SUFFIX);
+    const lastModified = await cache.get(cacheKey + NWS_CACHE_LAST_MODIFIED_SUFFIX);
+    if (etag) {
+      conditionalHeaders['If-None-Match'] = etag;
+    }
+    if (lastModified) {
+      conditionalHeaders['If-Modified-Since'] = lastModified;
+    }
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: conditionalHeaders,
+    });
+  } catch (err) {
+    console.error(`[NWS] ${url} request failed:`, err);
+    const staleData = await getStaleCachedPayload(cache, cacheKey);
+    if (staleData) return staleData;
+    return null;
+  }
+
+  if (res.status === 304) {
+    if (cachedData) {
+      console.log(`[NWS] ${url} 304 Not Modified — using cached response`);
+      return cachedData;
+    }
+
+    // We might not have primary cache (expired). Try stale fallback.
+    const staleData = await getStaleCachedPayload(cache, cacheKey);
+    if (staleData) {
+      console.log(`[NWS] ${url} 304 Not Modified — using stale fallback response`);
+      return staleData;
+    }
+
+    console.warn(`[NWS] ${url} returned 304 but no cached or stale payload is available`);
+    return null;
+  }
+
+  if (!res.ok) {
+    const bodySnippet = summarizeResponseBody(await res.text().catch(() => ''));
+    const message =
+      `[NWS] ${url} returned ${res.status} ${res.statusText}` +
+      (bodySnippet ? ` | body=${JSON.stringify(bodySnippet)}` : '');
+    if (res.status === 403 || res.status === 429) {
+      console.warn(message);
+    } else {
+      console.error(message);
+    }
+
+    const backoffSeconds = nwsBackoffSeconds(res.status);
+    if (cache && backoffSeconds > 0) {
+      const backoffUntil = Math.floor(Date.now() / 1000) + backoffSeconds;
+      try {
+        await cache.put(backoffKey, String(backoffUntil), { expirationTtl: backoffSeconds + 60 });
+      } catch (err) {
+        console.warn('[NWS] failed to persist backoff marker:', err);
+      }
+    }
+
+    // Fall back to stale cache or empty.
+    const staleData = await getStaleCachedPayload(cache, cacheKey);
+    if (staleData) return staleData;
+    return null;
+  }
+
+  let freshData: any;
+  try {
+    freshData = await res.json();
+  } catch (err) {
+    console.error(`[NWS] ${url} JSON parse failed:`, err);
+    return null;
+  }
+
+  if (cache) {
+    try {
+      await cache.put(cacheKey, JSON.stringify(freshData), { expirationTtl: cacheTtl });
+      await cache.put(cacheKey + NWS_CACHE_STALE_SUFFIX, JSON.stringify(freshData), { expirationTtl: 86400 });
+
+      const etag = res.headers.get('ETag');
+      if (etag) {
+        await cache.put(cacheKey + NWS_CACHE_ETAG_SUFFIX, etag, { expirationTtl: 604800 });
+      }
+
+      const lastModified = res.headers.get('Last-Modified');
+      if (lastModified) {
+        await cache.put(cacheKey + NWS_CACHE_LAST_MODIFIED_SUFFIX, lastModified, { expirationTtl: 604800 });
+      }
+      await cache.delete(backoffKey).catch(() => {});
+    } catch (err) {
+      console.warn('[NWS] cache write failed:', err);
+    }
+  }
+
+  return freshData;
+}
+
+async function fetchNwsTextCached(
+  url: string,
+  cache: KVNamespace | undefined,
+  cacheKey: string,
+  cacheTtl: number,
+  accept: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<string | null> {
+  let cachedText: string | null = null;
+
+  if (cache) {
+    cachedText = await cache.get(cacheKey);
+    if (cachedText) {
+      return cachedText;
+    }
+  }
+
+  const backoffKey = cacheKey + NWS_CACHE_BACKOFF_UNTIL_SUFFIX;
+  if (cache) {
+    const backoffUntilRaw = await cache.get(backoffKey);
+    const backoffUntil = backoffUntilRaw ? Number(backoffUntilRaw) : 0;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (Number.isFinite(backoffUntil) && backoffUntil > nowSec) {
+      const staleText = await getStaleCachedText(cache, cacheKey);
+      if (staleText) {
+        console.warn(`[NWS] ${url} backoff active until ${new Date(backoffUntil * 1000).toISOString()} — using stale text payload`);
+        return staleText;
+      }
+      console.warn(`[NWS] ${url} backoff active but no stale text payload is available`);
+      return null;
+    }
+  }
+
+  const headers = buildNwsHeaders(accept, extraHeaders);
+  if (cache) {
+    const etag = await cache.get(cacheKey + NWS_CACHE_ETAG_SUFFIX);
+    const lastModified = await cache.get(cacheKey + NWS_CACHE_LAST_MODIFIED_SUFFIX);
+    if (etag) headers['If-None-Match'] = etag;
+    if (lastModified) headers['If-Modified-Since'] = lastModified;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers });
+  } catch (err) {
+    console.error(`[NWS] ${url} text request failed:`, err);
+    const staleText = await getStaleCachedText(cache, cacheKey);
+    if (staleText) return staleText;
+    return null;
+  }
+
+  if (res.status === 304) {
+    if (cachedText) {
+      console.log(`[NWS] ${url} 304 Not Modified — using cached text response`);
+      return cachedText;
+    }
+    const staleText = await getStaleCachedText(cache, cacheKey);
+    if (staleText) {
+      console.log(`[NWS] ${url} 304 Not Modified — using stale text fallback response`);
+      return staleText;
+    }
+    console.warn(`[NWS] ${url} returned 304 but no cached text payload is available`);
+    return null;
+  }
+
+  if (!res.ok) {
+    const bodySnippet = summarizeResponseBody(await res.text().catch(() => ''));
+    const message =
+      `[NWS] ${url} returned ${res.status} ${res.statusText}` +
+      (bodySnippet ? ` | body=${JSON.stringify(bodySnippet)}` : '');
+    if (res.status === 403 || res.status === 429) {
+      console.warn(message);
+    } else {
+      console.error(message);
+    }
+
+    const backoffSeconds = nwsBackoffSeconds(res.status);
+    if (cache && backoffSeconds > 0) {
+      const backoffUntil = Math.floor(Date.now() / 1000) + backoffSeconds;
+      try {
+        await cache.put(backoffKey, String(backoffUntil), { expirationTtl: backoffSeconds + 60 });
+      } catch (err) {
+        console.warn('[NWS] failed to persist text-fetch backoff marker:', err);
+      }
+    }
+
+    const staleText = await getStaleCachedText(cache, cacheKey);
+    if (staleText) return staleText;
+    return null;
+  }
+
+  const text = await res.text().catch(() => '');
+  if (!text.trim()) return null;
+
+  if (cache) {
+    try {
+      await cache.put(cacheKey, text, { expirationTtl: cacheTtl });
+      await cache.put(cacheKey + NWS_CACHE_STALE_SUFFIX, text, { expirationTtl: 86400 });
+
+      const etag = res.headers.get('ETag');
+      if (etag) {
+        await cache.put(cacheKey + NWS_CACHE_ETAG_SUFFIX, etag, { expirationTtl: 604800 });
+      }
+
+      const lastModified = res.headers.get('Last-Modified');
+      if (lastModified) {
+        await cache.put(cacheKey + NWS_CACHE_LAST_MODIFIED_SUFFIX, lastModified, { expirationTtl: 604800 });
+      }
+      await cache.delete(backoffKey).catch(() => {});
+    } catch (err) {
+      console.warn('[NWS] text cache write failed:', err);
+    }
+  }
+
+  return text;
+}
+
+function decodeXmlEntities(input: string): string {
+  return input
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => {
+      const n = Number.parseInt(hex, 16);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
+    })
+    .replace(/&#([0-9]+);/g, (_, dec: string) => {
+      const n = Number.parseInt(dec, 10);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
+    })
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function stripXmlTags(input: string): string {
+  return input.replace(/<[^>]+>/g, '');
+}
+
+function getXmlTagValue(xml: string, tagName: string): string {
+  const escapedTag = tagName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`<${escapedTag}[^>]*>([\\s\\S]*?)<\\/${escapedTag}>`, 'i').exec(xml);
+  if (!match) return '';
+  return decodeXmlEntities(stripXmlTags(match[1])).trim();
+}
+
+function parseCapPolygon(polygon: string): any | null {
+  const text = polygon.trim();
+  if (!text) return null;
+  const pairs = text.split(/\s+/).map((token) => token.trim()).filter(Boolean);
+  if (pairs.length < 3) return null;
+
+  const coords: number[][] = [];
+  for (const pair of pairs) {
+    const [latRaw, lonRaw] = pair.split(',');
+    const lat = Number(latRaw);
+    const lon = Number(lonRaw);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    coords.push([lon, lat]);
+  }
+
+  if (coords.length < 3) return null;
+  const first = coords[0];
+  const last = coords[coords.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) {
+    coords.push([first[0], first[1]]);
+  }
+
+  return { type: 'Polygon', coordinates: [coords] };
+}
+
+function parseNwsAlertsFromAtom(xml: string): NwsAlert[] {
+  if (!xml || !/<entry[\s>]/i.test(xml)) return [];
+
+  const entries = xml.match(/<entry\b[\s\S]*?<\/entry>/gi) ?? [];
+  const alerts: NwsAlert[] = [];
+
+  for (const entry of entries) {
+    const ugcCodes: string[] = [];
+    const geocodeRe = /<cap:geocode>\s*<valueName>\s*([^<]+)\s*<\/valueName>\s*<value>\s*([^<]+)\s*<\/value>\s*<\/cap:geocode>/gi;
+    let gm: RegExpExecArray | null;
+    while ((gm = geocodeRe.exec(entry)) !== null) {
+      const name = decodeXmlEntities(gm[1]).trim().toUpperCase();
+      const value = decodeXmlEntities(gm[2]).trim();
+      if (name === 'UGC' && value) ugcCodes.push(value);
+    }
+
+    const polygon = getXmlTagValue(entry, 'cap:polygon');
+    const feature = {
+      id: getXmlTagValue(entry, 'id'),
+      properties: {
+        event: getXmlTagValue(entry, 'cap:event'),
+        headline: getXmlTagValue(entry, 'title'),
+        description: getXmlTagValue(entry, 'summary'),
+        instruction: getXmlTagValue(entry, 'cap:instruction') || null,
+        areaDesc: getXmlTagValue(entry, 'cap:areaDesc'),
+        severity: getXmlTagValue(entry, 'cap:severity') || 'Unknown',
+        urgency: getXmlTagValue(entry, 'cap:urgency') || 'Unknown',
+        sent: getXmlTagValue(entry, 'cap:sent'),
+        effective: getXmlTagValue(entry, 'cap:effective'),
+        expires: getXmlTagValue(entry, 'cap:expires'),
+        status: getXmlTagValue(entry, 'cap:status') || 'Actual',
+        geocode: { UGC: ugcCodes },
+        messageType: getXmlTagValue(entry, 'cap:msgType') || 'Alert',
+      },
+      geometry: parseCapPolygon(polygon),
+    };
+
+    const mapped = mapNwsFeatureToAlert(feature);
+    if (mapped) alerts.push(mapped);
+  }
+
+  return alerts;
+}
 
 export interface NwsAlert {
   id: string;
@@ -114,21 +529,26 @@ function mapNwsFeatureToAlert(f: any): NwsAlert | null {
 /**
  * Fetch active Kentucky alerts from the NWS API.
  */
-export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
-  const res = await fetch(NWS_ALERTS_URL, {
-    headers: {
-      'User-Agent': NWS_USER_AGENT,
-      'Accept': 'application/geo+json',
-    },
-  });
+export async function fetchActiveKyAlerts(cache?: KVNamespace): Promise<NwsAlert[]> {
+  const data = await fetchNwsGeoJsonCached(NWS_ALERTS_URL, cache, NWS_ALERTS_CACHE_KEY, NWS_ALERTS_CACHE_TTL);
+  if (!data) {
+    console.warn('[NWS] GeoJSON alerts request unavailable — falling back to ATOM feed for KY');
+    const atomXml = await fetchNwsTextCached(
+      NWS_ALERTS_ATOM_URL,
+      cache,
+      NWS_ALERTS_ATOM_CACHE_KEY,
+      NWS_ALERTS_CACHE_TTL,
+      'application/atom+xml',
+    );
+    if (!atomXml) return [];
 
-  if (!res.ok) return [];
-
-  let data: any;
-  try {
-    data = await res.json();
-  } catch {
-    return [];
+    const atomAlerts = parseNwsAlertsFromAtom(atomXml)
+      .filter((a) =>
+        a.counties.length > 0 ||
+        /\bkentucky\b|,\s*ky\b/i.test(a.areaDesc)
+      );
+    console.log(`[NWS] ATOM fallback produced ${atomAlerts.length} KY alerts`);
+    return atomAlerts;
   }
 
   const features: any[] = Array.isArray(data?.features) ? data.features : [];
@@ -145,9 +565,6 @@ export async function fetchActiveKyAlerts(): Promise<NwsAlert[]> {
     );
 }
 
-const NWS_ALL_ALERTS_CACHE_KEY = 'nws_all_alerts_raw';
-const NWS_ALL_ALERTS_CACHE_TTL = 90; // seconds — 90s is safely above the 1-min cron interval to avoid NWS rate-limiting/403s
-
 /**
  * Fetch ALL active NWS alerts nationwide (no state gate).
  * Used exclusively for the Live Weather Alerts Facebook page auto-posting.
@@ -157,46 +574,21 @@ const NWS_ALL_ALERTS_CACHE_TTL = 90; // seconds — 90s is safely above the 1-mi
  * and datacenter IP blocks triggered by the every-minute cron.
  */
 export async function fetchAllActiveAlerts(cache?: KVNamespace): Promise<NwsAlert[]> {
-  // Try KV cache first to avoid hammering the NWS API every minute.
-  if (cache) {
-    const cached = await cache.get(NWS_ALL_ALERTS_CACHE_KEY);
-    if (cached) {
-      try {
-        const data = JSON.parse(cached);
-        const features: any[] = Array.isArray(data?.features) ? data.features : [];
-        const alerts = features.map(mapNwsFeatureToAlert).filter((a): a is NwsAlert => a !== null);
-        console.log(`[LIVE-ALERTS-FB] fetchAllActiveAlerts (cache hit): ${features.length} features → ${alerts.length} alerts`);
-        return alerts;
-      } catch {
-        // Bad cached value — fall through to live fetch
-      }
-    }
-  }
+  const data = await fetchNwsGeoJsonCached(NWS_ALL_ALERTS_URL, cache, NWS_ALL_ALERTS_CACHE_KEY, NWS_ALL_ALERTS_CACHE_TTL);
+  if (!data) {
+    console.warn('[LIVE-ALERTS-FB] GeoJSON alerts request unavailable — falling back to ATOM feed');
+    const atomXml = await fetchNwsTextCached(
+      NWS_ALL_ALERTS_ATOM_URL,
+      cache,
+      NWS_ALL_ALERTS_ATOM_CACHE_KEY,
+      NWS_ALL_ALERTS_CACHE_TTL,
+      'application/atom+xml',
+    );
+    if (!atomXml) return [];
 
-  const res = await fetch(NWS_ALL_ALERTS_URL, {
-    headers: {
-      'User-Agent': NWS_USER_AGENT,
-      'Accept': 'application/geo+json',
-      'From': 'news@localkynews.com',
-    },
-  });
-
-  if (!res.ok) {
-    console.error(`[LIVE-ALERTS-FB] NWS API returned ${res.status} ${res.statusText} — no alerts fetched`);
-    return [];
-  }
-
-  let data: any;
-  try {
-    data = await res.json();
-  } catch (err) {
-    console.error('[LIVE-ALERTS-FB] NWS API JSON parse failed:', err);
-    return [];
-  }
-
-  // Cache the raw response so subsequent ticks within the TTL window skip the NWS call.
-  if (cache) {
-    await cache.put(NWS_ALL_ALERTS_CACHE_KEY, JSON.stringify(data), { expirationTtl: NWS_ALL_ALERTS_CACHE_TTL });
+    const alerts = parseNwsAlertsFromAtom(atomXml);
+    console.log(`[LIVE-ALERTS-FB] fetchAllActiveAlerts (ATOM fallback): ${alerts.length} valid alerts`);
+    return alerts;
   }
 
   const features: any[] = Array.isArray(data?.features) ? data.features : [];
@@ -208,7 +600,7 @@ export async function fetchAllActiveAlerts(cache?: KVNamespace): Promise<NwsAler
     .map(mapNwsFeatureToAlert)
     .filter((a): a is NwsAlert => a !== null);
 
-  console.log(`[LIVE-ALERTS-FB] fetchAllActiveAlerts (live): ${features.length} raw features → ${alerts.length} valid alerts`);
+  console.log(`[LIVE-ALERTS-FB] fetchAllActiveAlerts: ${features.length} raw features → ${alerts.length} valid alerts`);
   return alerts;
 }
 
@@ -223,10 +615,7 @@ export async function fetchNwsAlertById(alertId: string): Promise<NwsAlert | nul
     ? alertId
     : `https://api.weather.gov/alerts/${encodeURIComponent(alertId)}`;
   const res = await fetch(url, {
-    headers: {
-      'User-Agent': NWS_USER_AGENT,
-      'Accept': 'application/geo+json',
-    },
+    headers: buildNwsHeaders('application/geo+json'),
   });
   if (!res.ok) return null;
 
@@ -814,7 +1203,7 @@ export async function processNwsAlerts(env: Env): Promise<{ published: number; s
 
   let alerts: NwsAlert[];
   try {
-    alerts = await fetchActiveKyAlerts();
+    alerts = await fetchActiveKyAlerts(env.CACHE);
   } catch (err) {
     console.error('[NWS] fetchActiveKyAlerts failed', err);
     return { published: 0, skipped: 0 };
@@ -1331,7 +1720,7 @@ export async function fetchHwoProducts(office: string): Promise<NwsProduct[]> {
   let listData: any;
   try {
     const res = await fetch(listUrl, {
-      headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' },
+      headers: buildNwsHeaders('application/json'),
     });
     if (!res.ok) return [];
     listData = await res.json();
@@ -1372,7 +1761,7 @@ export async function fetchHwoProducts(office: string): Promise<NwsProduct[]> {
     } else {
       try {
         const pRes = await fetch(productUrl, {
-          headers: { 'User-Agent': NWS_USER_AGENT, Accept: 'application/json' },
+          headers: buildNwsHeaders('application/json'),
         });
         if (pRes.ok) {
           const pData: any = await pRes.json();
