@@ -6,6 +6,12 @@ declare namespace Cloudflare {
 		mainModule: typeof import("./src/index");
 	}
 	interface Env {
+		WEATHER_KV: KVNamespace;
+		LIVE_WEATHER_ALERTS_FB_PAGE_TOKEN: string;
+		LIVE_WEATHER_ALERTS_FB_PAGE_ID: string;
+		LIVE_WEATHER_ALERTS_FB_APP_ID: string;
+		LIVE_WEATHER_ALERTS_FB_APP_SECRET: string;
+		ADMIN_KEY: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

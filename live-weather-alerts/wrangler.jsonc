@@ -12,6 +12,15 @@
 	},
 	"compatibility_flags": [
 		"nodejs_compat"
+	],
+	"triggers": {
+		"crons": ["* * * * *"]
+	},
+	"kv_namespaces": [
+		{
+			"binding": "WEATHER_KV",
+			"id": "e48c86e12b5143a48271034d6289af66"
+		}
 	]
 	/**
 	 * Smart Placement

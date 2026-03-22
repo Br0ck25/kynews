@@ -46,6 +46,7 @@ import DigestTab from "../components/DigestTab";
 import ArticleTestingTab from "../components/ArticleTestingTab";
 import TrimarcTrafficHub from "../components/TrimarcTrafficHub";
 import AdminLiveWeatherAlertsTab from "../components/AdminLiveWeatherAlertsTab";
+import WeatherAlertWorkerTab from "../components/WeatherAlertWorkerTab";
 
 // `SiteService` already handles environment configuration internally.
 const service = new SiteService();
@@ -1277,6 +1278,7 @@ export default function AdminPage() {
             "Morning/Evening",
             "Traffic / TRIMARC",
             "Live Weather Alerts",
+            "Live Weather Alerts Worker",
           ].map((label, i) => (
             <Box
               key={i}
@@ -2702,6 +2704,15 @@ export default function AdminPage() {
       {activeTab === 11 && (
         <Box>
           <AdminLiveWeatherAlertsTab />
+        </Box>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB 12 — Live Weather Alerts Worker (auto-post settings)         */}
+      {/* ================================================================ */}
+      {activeTab === 12 && (
+        <Box>
+          <WeatherAlertWorkerTab />
         </Box>
       )}
     </Box>

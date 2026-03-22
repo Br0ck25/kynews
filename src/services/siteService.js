@@ -1097,4 +1097,58 @@ export default class SiteService {
       body: JSON.stringify({ shortLivedToken }),
     });
   }
+
+  // ── Live Weather Alerts Worker config ──────────────────────────────────────
+  // Calls the live-weather-alerts Cloudflare Worker directly (not through the
+  // main worker).  The admin panel key is re-used as the X-Admin-Key secret.
+
+  _weatherWorkerUrl() {
+    // The live-weather-alerts worker lives on the same Cloudflare account.
+    // WORKER_FALLBACK_BASE_URL is "https://worker.jamesbrock25.workers.dev"
+    // so we derive the weather worker URL by substituting the worker name.
+    return WORKER_FALLBACK_BASE_URL.replace(
+      /\/\/worker\./,
+      "//live-weather-alerts."
+    );
+  }
+
+  async getWeatherWorkerConfig() {
+    const adminKey = this.getAdminPanelKey();
+    const res = await fetch(`${this._weatherWorkerUrl()}/config`, {
+      headers: { "X-Admin-Key": adminKey },
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return json;
+  }
+
+  async setWeatherWorkerConfig(config) {
+    const adminKey = this.getAdminPanelKey();
+    const res = await fetch(`${this._weatherWorkerUrl()}/config`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Admin-Key": adminKey,
+      },
+      body: JSON.stringify(config),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return json;
+  }
+
+  async exchangeWeatherWorkerToken(shortLivedToken) {
+    const adminKey = this.getAdminPanelKey();
+    const res = await fetch(`${this._weatherWorkerUrl()}/exchange-token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Admin-Key": adminKey,
+      },
+      body: JSON.stringify({ shortLivedToken }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return json;
+  }
 }
