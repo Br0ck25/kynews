@@ -39,7 +39,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/postbuild-pages-assets.cjs",
     "preview": "vite preview",
     "test": "react-scripts test --watchAll=false",
     "audit:sitemap": "ts-node --project worker/scripts/tsconfig.scripts.json worker/scripts/audit-sitemap.ts"

@@ -122,3 +122,45 @@
 /news/whitley-county /news/kentucky/whitley-county 301
 /news/wolfe-county /news/kentucky/wolfe-county 301
 /news/woodford-county /news/kentucky/woodford-county 301
+
+# Explicit SPA rewrites. A top-level 404.html disables Cloudflare Pages'
+# implicit "all missing paths -> /index.html" behavior, so we map only real
+# app routes back to the SPA and let missing assets/files return 404.
+/today /index.html 200
+/today/* /index.html 200
+/national /index.html 200
+/national/* /index.html 200
+/sports /index.html 200
+/sports/* /index.html 200
+/weather /index.html 200
+/weather/* /index.html 200
+/schools /index.html 200
+/schools/* /index.html 200
+/search /index.html 200
+/search/* /index.html 200
+/local /index.html 200
+/local/* /index.html 200
+/news /index.html 200
+/news/national/* /index.html 200
+/news/kentucky /index.html 200
+/news/kentucky/* /index.html 200
+/favorites /index.html 200
+/favorites/* /index.html 200
+/saved /index.html 200
+/saved/* /index.html 200
+/settings /index.html 200
+/settings/* /index.html 200
+/post /index.html 200
+/post/* /index.html 200
+/admin /index.html 200
+/admin/* /index.html 200
+/live-weather-alerts /index.html 200
+/live-weather-alerts/* /index.html 200
+/about /index.html 200
+/about/* /index.html 200
+/contact /index.html 200
+/contact/* /index.html 200
+/editorial-policy /index.html 200
+/editorial-policy/* /index.html 200
+/privacy-policy /index.html 200
+/privacy-policy/* /index.html 200
