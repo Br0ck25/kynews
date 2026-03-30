@@ -869,6 +869,17 @@ export default class SiteService {
     });
   }
 
+  async getWeatherAlertAutopostSettings() {
+    return this.request("/api/admin/weather-alert-posts/autopost");
+  }
+
+  async setWeatherAlertAutopostSettings(settings) {
+    return this.request("/api/admin/weather-alert-posts/autopost", {
+      method: "POST",
+      body: JSON.stringify(settings),
+    });
+  }
+
   // ── End Weather Alert Posts ────────────────────────────────────────────────
 
   /**

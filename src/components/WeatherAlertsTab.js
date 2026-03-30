@@ -5,9 +5,12 @@ import {
   Chip,
   CircularProgress,
   Paper,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from "@material-ui/core";
+import WeatherAlertAutopostSettings from "./WeatherAlertAutopostSettings";
 
 export default function WeatherAlertsTab({ service }) {
   const [posts, setPosts] = React.useState([]);
@@ -27,6 +30,7 @@ export default function WeatherAlertsTab({ service }) {
   const [manualText, setManualText] = React.useState("");
   const [savingManual, setSavingManual] = React.useState(false);
   const [filter, setFilter] = React.useState("all");
+  const [activeView, setActiveView] = React.useState(0);
 
   // Summary mode state
   const [showSummary, setShowSummary] = React.useState(false);
@@ -226,6 +230,12 @@ export default function WeatherAlertsTab({ service }) {
       const res = await service.postWeatherAlertPost({ id });
       if (res.ok) {
         setPostResults((prev) => ({ ...prev, [id]: res }));
+        const fbPostId = res?.result?.id || res?.fbPostId || null;
+        if (fbPostId) {
+          setPosts((prev) =>
+            prev.map((post) => (post.id === id ? { ...post, fb_post_id: String(fbPostId) } : post))
+          );
+        }
       } else {
         setPostErrors((prev) => ({ ...prev, [id]: res.error || "unknown error" }));
       }
@@ -491,58 +501,76 @@ export default function WeatherAlertsTab({ service }) {
             Already-posted alerts are never duplicated.
           </Typography>
         </Box>
-        <Box style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={fetchAlerts}
-            disabled={loading || clearingAll}
-          >
-            {loading ? (
-              <>
-                <CircularProgress size={14} style={{ marginRight: 6 }} />
-                Fetching...
-              </>
-            ) : (
-              "Fetch NWS Alerts"
-            )}
-          </Button>
-          <Button
-            variant={showSummary ? "contained" : "outlined"}
-            color="default"
-            onClick={() => {
-              setShowSummary((prev) => !prev);
-              if (!showSummary && !summaryText) {
-                generateSummary();
-              }
-            }}
-          >
-            Summary
-          </Button>
-          <Button
-            variant="outlined"
-            color="secondary"
-            disabled={clearingAll || loading || posts.length === 0}
-            onClick={async () => {
-              if (!window.confirm(`Delete all ${posts.length} saved alert${posts.length !== 1 ? "s" : ""}? You can re-fetch them after.`)) return;
-              setClearingAll(true);
-              setError("");
-              try {
-                await service.deleteAllWeatherAlertPosts();
-                setPosts([]);
-                setPostedNwsIds(new Set());
-                setFetchStatus("All alerts cleared. Click Fetch NWS Alerts to reload.");
-              } catch (e) {
-                setError(e?.errorMessage || "Failed to clear alerts.");
-              } finally {
-                setClearingAll(false);
-              }
-            }}
-          >
-            {clearingAll ? "Clearing..." : "Clear All"}
-          </Button>
-        </Box>
+        {activeView === 0 && (
+          <Box style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={fetchAlerts}
+              disabled={loading || clearingAll}
+            >
+              {loading ? (
+                <>
+                  <CircularProgress size={14} style={{ marginRight: 6 }} />
+                  Fetching...
+                </>
+              ) : (
+                "Fetch NWS Alerts"
+              )}
+            </Button>
+            <Button
+              variant={showSummary ? "contained" : "outlined"}
+              color="default"
+              onClick={() => {
+                setShowSummary((prev) => !prev);
+                if (!showSummary && !summaryText) {
+                  generateSummary();
+                }
+              }}
+            >
+              Summary
+            </Button>
+            <Button
+              variant="outlined"
+              color="secondary"
+              disabled={clearingAll || loading || posts.length === 0}
+              onClick={async () => {
+                if (!window.confirm(`Delete all ${posts.length} saved alert${posts.length !== 1 ? "s" : ""}? You can re-fetch them after.`)) return;
+                setClearingAll(true);
+                setError("");
+                try {
+                  await service.deleteAllWeatherAlertPosts();
+                  setPosts([]);
+                  setPostedNwsIds(new Set());
+                  setFetchStatus("All alerts cleared. Click Fetch NWS Alerts to reload.");
+                } catch (e) {
+                  setError(e?.errorMessage || "Failed to clear alerts.");
+                } finally {
+                  setClearingAll(false);
+                }
+              }}
+            >
+              {clearingAll ? "Clearing..." : "Clear All"}
+            </Button>
+          </Box>
+        )}
       </Box>
+
+      <Tabs
+        value={activeView}
+        onChange={(_, value) => setActiveView(value)}
+        indicatorColor="primary"
+        textColor="primary"
+        style={{ marginBottom: 16 }}
+      >
+        <Tab label="Posts" />
+        <Tab label="Auto-Post" />
+      </Tabs>
+
+      {activeView === 1 ? (
+        <WeatherAlertAutopostSettings service={service} />
+      ) : (
+        <>
 
       {fetchStatus && (
         <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>
@@ -749,6 +777,13 @@ export default function WeatherAlertsTab({ service }) {
                   color={severityColor(post.severity)}
                 />
                 {!post.nws_alert_id && <Chip label="Manual" size="small" />}
+                {post.fb_post_id && (
+                  <Chip
+                    label="Posted"
+                    size="small"
+                    style={{ background: "#e8f5e9", color: "#1b5e20" }}
+                  />
+                )}
                 <Typography variant="subtitle2">{post.event}</Typography>
               </Box>
               {post.area && (
@@ -860,10 +895,10 @@ export default function WeatherAlertsTab({ service }) {
               size="small"
               variant="contained"
               color="primary"
-              disabled={postingId === post.id}
+              disabled={postingId === post.id || Boolean(post.fb_post_id)}
               onClick={() => handlePostToFacebook(post.id)}
             >
-              {postingId === post.id ? "Posting..." : "Post FB"}
+              {postingId === post.id ? "Posting..." : post.fb_post_id ? "Posted" : "Post FB"}
             </Button>
             <Button
               size="small"
@@ -922,6 +957,8 @@ export default function WeatherAlertsTab({ service }) {
           </Button>
         </Box>
       </Paper>
+        </>
+      )}
     </Box>
   );
 }

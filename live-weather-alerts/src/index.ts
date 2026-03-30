@@ -1,21 +1,20 @@
 /**
  * Live Weather Alerts Worker
- * Runs every 60 seconds via cron.  Fetches active NWS weather alerts for all
- * of Kentucky, decides which ones are new / updated / cancelled, and posts them
+ * Runs every 60 seconds via cron. Fetches ALL active NWS weather alerts
+ * nationwide, determines which are new/updated/cancelled, and posts them
  * to the "Live Weather Alerts" Facebook page.
  *
  * KV key schema
- *   alert:{UGC}:{eventSlug}          → {fbPostId, expires, headline, nwsId, updatedAt}
- *   seen:{nwsAlertId}:{ugcCode}       → "1"  (dedup: this exact NWS id+ugc was already handled)
- *   pending:{UGC}:{eventSlug}         → {reason, caption, retryCount, firstFailedAt}
- *   config:autopost                   → {warnings: bool, watches: bool, others: bool}
- *   system:last_sweep                 → ISO timestamp
+ *   alert:{UGC}:{eventSlug}      → {fbPostId, expires, headline, nwsId, updatedAt}
+ *   seen:{nwsAlertId}:{ugcCode}  → "1"  (dedup: this exact NWS id+ugc was already handled)
+ *   pending:{UGC}:{eventSlug}    → {reason, caption, retryCount, firstFailedAt, ...}
+ *   config:autopost              → {warnings: bool, watches: bool, others: bool}
+ *   system:last_sweep            → ISO timestamp
  */
 
 const NWS_BASE = "https://api.weather.gov";
-const NWS_USER_AGENT = "(LocalKYNews Weather Alerts, contact@localkynews.com)";
-const NWS_KY_URL =
-  `${NWS_BASE}/alerts/active?status=actual&message_type=alert&area=KY`;
+const NWS_USER_AGENT = "(LiveWeatherAlerts, contact@localkynews.com)";
+const NWS_ALL_URL = `${NWS_BASE}/alerts/active?status=actual`;
 const FB_API = "https://graph.facebook.com/v19.0";
 const SITE_URL = "https://localkynews.com/live-weather-alerts";
 
@@ -39,6 +38,19 @@ const WARNING_TYPES = new Set([
   "Dust Storm Warning",
   "Fire Weather Watch",
   "Red Flag Warning",
+  "Tsunami Warning",
+  "Earthquake Warning",
+  "Volcano Warning",
+  "Hurricane Warning",
+  "Tropical Storm Warning",
+  "Storm Surge Warning",
+  "Coastal Flood Warning",
+  "Avalanche Warning",
+  "Excessive Heat Warning",
+  "Heat Advisory",
+  "Wind Chill Warning",
+  "Lake Effect Snow Warning",
+  "Snow Squall Warning",
 ]);
 
 // Alert types that map to "watches"
@@ -54,9 +66,13 @@ const WATCH_TYPES = new Set([
   "Ice Storm Watch",
   "Hurricane Watch",
   "Tropical Storm Watch",
+  "Storm Surge Watch",
+  "Coastal Flood Watch",
+  "Avalanche Watch",
+  "Excessive Heat Watch",
+  "Wind Chill Watch",
+  "Lake Effect Snow Watch",
 ]);
-
-// Everything else = "other"
 
 function slugify(str: string): string {
   return str
@@ -120,7 +136,6 @@ interface NWSFeature {
     urgency: string;
     certainty: string;
     messageType: string;
-    // BUG FIX: NWS returns lowercase "status" values e.g. "actual", not "Actual"
     status: string;
     geocode?: { UGC?: string[] };
     references?: Array<{ identifier: string }>;
@@ -135,12 +150,15 @@ interface NWSResponse {
 
 async function fetchAllAlerts(): Promise<NWSFeature[]> {
   const features: NWSFeature[] = [];
-  let url: string | undefined = NWS_KY_URL;
+  let url: string | undefined = NWS_ALL_URL;
+  let page = 0;
 
   while (url) {
+    page++;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
+    const timer = setTimeout(() => controller.abort(), 20_000);
     let data: NWSResponse;
+
     try {
       const res = await fetch(url, {
         headers: {
@@ -150,21 +168,36 @@ async function fetchAllAlerts(): Promise<NWSFeature[]> {
         signal: controller.signal,
       });
       clearTimeout(timer);
-      if (!res.ok) throw new Error(`NWS ${res.status}: ${res.statusText}`);
+
+      console.log(`[NWS] page ${page} — HTTP ${res.status}`);
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`[NWS] non-OK response: ${errText.slice(0, 500)}`);
+        break;
+      }
+
       data = (await res.json()) as NWSResponse;
     } catch (err) {
       clearTimeout(timer);
-      console.error("[NWS] fetch error", err);
+      console.error(`[NWS] fetch/parse error on page ${page}:`, String(err));
       break;
     }
 
-    const count = data.features?.length ?? 0;
-    console.log(`[NWS] fetched ${count} feature(s) from ${url}`);
+    const pageCount = Array.isArray(data.features) ? data.features.length : 0;
+    console.log(`[NWS] page ${page}: ${pageCount} feature(s) | next: ${data.pagination?.next ?? "none"}`);
 
     if (Array.isArray(data.features)) features.push(...data.features);
     url = data.pagination?.next;
+
+    // Safety cap to avoid infinite loops if NWS pagination misbehaves
+    if (page >= 50) {
+      console.log(`[NWS] hit page cap (50), stopping`);
+      break;
+    }
   }
 
+  console.log(`[NWS] total alerts fetched nationwide: ${features.length}`);
   return features;
 }
 
@@ -187,9 +220,9 @@ async function fbPost(
     clearTimeout(timer);
     const json = (await res.json()) as { id?: string; error?: { message: string } };
     if (!res.ok || json.error) {
-      throw new Error(json.error?.message ?? `FB ${res.status}`);
+      throw new Error(json.error?.message ?? `FB HTTP ${res.status}`);
     }
-    console.log(`[FB] posted successfully, post id: ${json.id}`);
+    console.log(`[FB] posted successfully — post id: ${json.id}`);
     return json.id ?? "";
   } catch (err) {
     clearTimeout(timer);
@@ -214,7 +247,7 @@ async function fbComment(
     clearTimeout(timer);
     const json = (await res.json()) as { id?: string; error?: { message: string } };
     if (!res.ok || json.error) {
-      throw new Error(json.error?.message ?? `FB comment ${res.status}`);
+      throw new Error(json.error?.message ?? `FB comment HTTP ${res.status}`);
     }
     return json.id ?? "";
   } catch (err) {
@@ -266,17 +299,16 @@ function formatExpires(iso: string): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    timeZone: "America/New_York",
     timeZoneName: "short",
   });
 }
 
-function buildCaption(feature: NWSFeature, ugcName: string): string {
+function buildCaption(feature: NWSFeature): string {
   const p = feature.properties;
   const lines: string[] = [
     (p.event || "WEATHER ALERT").toUpperCase(),
     "",
-    `📍 Area: ${ugcName || p.areaDesc}`,
+    `📍 Area: ${p.areaDesc}`,
   ];
   if (p.expires) lines.push(`⏰ Expires: ${formatExpires(p.expires)}`);
   lines.push(`⚠️ Severity: ${p.severity ?? "Unknown"}`);
@@ -287,13 +319,13 @@ function buildCaption(feature: NWSFeature, ugcName: string): string {
   lines.push("");
   lines.push(SITE_URL);
   lines.push("");
-  lines.push("#weatheralert #weather #KentuckyWeather");
+  lines.push("#weatheralert #weather #LiveWeatherAlerts");
   return lines.join("\n");
 }
 
 function buildUpdateComment(feature: NWSFeature): string {
   const p = feature.properties;
-  const lines = [
+  return [
     "🔄 UPDATE",
     "",
     p.headline ?? p.event,
@@ -301,8 +333,7 @@ function buildUpdateComment(feature: NWSFeature): string {
     cleanNwsDescription((p.description ?? "").trim()),
     "",
     `⏰ Now expires: ${p.expires ? formatExpires(p.expires) : "Unknown"}`,
-  ];
-  return lines.join("\n");
+  ].join("\n");
 }
 
 function buildCancelComment(feature: NWSFeature): string {
@@ -341,39 +372,35 @@ async function runSweep(env: Env, ctx: ExecutionContext): Promise<void> {
   const pageToken = env.LIVE_WEATHER_ALERTS_FB_PAGE_TOKEN;
 
   if (!pageId || !pageToken) {
-    console.error("[sweep] Missing FB_PAGE_ID or FB_PAGE_TOKEN — aborting");
+    console.error("[sweep] FATAL: Missing FB_PAGE_ID or FB_PAGE_TOKEN — aborting");
     return;
   }
 
-  // 1. Fetch all active KY alerts from NWS
+  // 1. Fetch all active alerts nationwide
   const features = await fetchAllAlerts();
-  console.log(`[sweep] total features fetched: ${features.length}`);
+  console.log(`[sweep] features to process: ${features.length}`);
 
   const now = new Date().toISOString();
   await env.WEATHER_KV.put("system:last_sweep", now);
 
-  // Build a lookup of currently active alert keys (UGC+eventSlug pairs)
   const activeKeys = new Set<string>();
 
   for (const feature of features) {
     const p = feature.properties;
 
-    // FIX: NWS returns lowercase status values ("actual"), not title-case ("Actual")
-    // Previously this skipped every single alert because "actual" !== "Actual"
+    // NWS returns lowercase status: "actual", "exercise", "test", "draft", "system"
     if (p.status?.toLowerCase() !== "actual") {
-      console.log(`[sweep] skipping non-actual alert: status="${p.status}" event="${p.event}"`);
       continue;
     }
 
-    // Extract UGC codes from geocode
     const ugcCodes: string[] = p.geocode?.UGC ?? [];
     if (ugcCodes.length === 0) {
-      console.log(`[sweep] skipping alert with no UGC codes: "${p.event}" (${p.id})`);
-      continue;
+      // Some alerts don't have UGC codes — use the NWS alert id as the key
+      // so we still track and post it once.
+      ugcCodes.push(`nws:${p.id}`);
     }
 
     const eventSlug = slugify(p.event);
-    console.log(`[sweep] processing alert: "${p.event}" | ugcs: ${ugcCodes.join(", ")}`);
 
     for (const ugcCode of ugcCodes) {
       const alertKey = `alert:${ugcCode}:${eventSlug}`;
@@ -384,15 +411,14 @@ async function runSweep(env: Env, ctx: ExecutionContext): Promise<void> {
       const alreadySeen = await env.WEATHER_KV.get(seenKey);
 
       if (!existingRaw) {
-        // ── New alert for this UGC+event pair ────────────────────────────
+        // ── New alert ─────────────────────────────────────────────────────
         if (!shouldPost(p.event, config)) {
-          console.log(`[sweep] config says skip "${p.event}" (${ugcCode})`);
           await env.WEATHER_KV.put(seenKey, "1", { expirationTtl: 7 * 86400 });
           continue;
         }
 
-        console.log(`[sweep] NEW alert: posting to FB for ${alertKey}`);
-        const caption = buildCaption(feature, ugcCode);
+        console.log(`[sweep] NEW: "${p.event}" — ${p.areaDesc} [${ugcCode}]`);
+        const caption = buildCaption(feature);
         try {
           const fbPostId = await fbPost(pageId, pageToken, caption);
           const record: ActiveRecord = {
@@ -402,13 +428,11 @@ async function runSweep(env: Env, ctx: ExecutionContext): Promise<void> {
             nwsId: p.id,
             updatedAt: now,
           };
-          await env.WEATHER_KV.put(alertKey, JSON.stringify(record), {
-            expirationTtl: 7 * 86400,
-          });
+          await env.WEATHER_KV.put(alertKey, JSON.stringify(record), { expirationTtl: 7 * 86400 });
           await env.WEATHER_KV.put(seenKey, "1", { expirationTtl: 7 * 86400 });
           await env.WEATHER_KV.delete(`pending:${ugcCode}:${eventSlug}`);
         } catch (err) {
-          console.error(`[FB] post failed for ${alertKey}`, err);
+          console.error(`[FB] post failed for ${alertKey}:`, String(err));
           const pending: PendingRecord = {
             reason: String(err),
             caption,
@@ -425,8 +449,8 @@ async function runSweep(env: Env, ctx: ExecutionContext): Promise<void> {
           );
         }
       } else if (!alreadySeen) {
-        // ── Same UGC+event key exists, but new NWS ID = update ───────────
-        console.log(`[sweep] UPDATE alert: commenting on FB post ${existingRaw.fbPostId} for ${alertKey}`);
+        // ── Same UGC+event exists but new NWS id = update ─────────────────
+        console.log(`[sweep] UPDATE: "${p.event}" — ${p.areaDesc} [${ugcCode}]`);
         const comment = buildUpdateComment(feature);
         try {
           await fbComment(existingRaw.fbPostId, pageToken, comment);
@@ -437,21 +461,18 @@ async function runSweep(env: Env, ctx: ExecutionContext): Promise<void> {
             nwsId: p.id,
             updatedAt: now,
           };
-          await env.WEATHER_KV.put(alertKey, JSON.stringify(updated), {
-            expirationTtl: 7 * 86400,
-          });
+          await env.WEATHER_KV.put(alertKey, JSON.stringify(updated), { expirationTtl: 7 * 86400 });
           await env.WEATHER_KV.put(seenKey, "1", { expirationTtl: 7 * 86400 });
         } catch (err) {
-          console.error(`[FB] update comment failed for ${alertKey}`, err);
+          console.error(`[FB] update comment failed for ${alertKey}:`, String(err));
           await env.WEATHER_KV.put(seenKey, "1", { expirationTtl: 7 * 86400 });
         }
-      } else {
-        console.log(`[sweep] already seen ${seenKey}, skipping`);
       }
+      // else: already seen this exact NWS id+UGC — no action needed
     }
   }
 
-  // 2. Retry any pending posts
+  // 2. Retry any failed pending posts
   const { keys: pendingKeys } = await env.WEATHER_KV.list({ prefix: "pending:" });
   if (pendingKeys.length > 0) {
     console.log(`[sweep] retrying ${pendingKeys.length} pending post(s)`);
@@ -465,17 +486,16 @@ async function runSweep(env: Env, ctx: ExecutionContext): Promise<void> {
 
       const age = Date.now() - new Date(firstFailedAt).getTime();
       if (retryCount >= 5 || age > 2 * 3600 * 1000) {
-        console.log(`[sweep] giving up on pending ${kvKey.name} after ${retryCount} retries`);
+        console.log(`[sweep] giving up on ${kvKey.name} after ${retryCount} retries`);
         await env.WEATHER_KV.delete(kvKey.name);
         continue;
       }
-
       if (!shouldPost(feature.properties.event, config)) {
         await env.WEATHER_KV.delete(kvKey.name);
         continue;
       }
 
-      console.log(`[sweep] retrying pending post for ${kvKey.name} (attempt ${retryCount + 1})`);
+      console.log(`[sweep] retrying ${kvKey.name} (attempt ${retryCount + 1})`);
       const fbPostId = await fbPost(pageId, pageToken, caption);
       const record: ActiveRecord = {
         fbPostId,
@@ -484,12 +504,10 @@ async function runSweep(env: Env, ctx: ExecutionContext): Promise<void> {
         nwsId: feature.properties.id,
         updatedAt: now,
       };
-      await env.WEATHER_KV.put(`alert:${ugcCode}:${eventSlug}`, JSON.stringify(record), {
-        expirationTtl: 7 * 86400,
-      });
+      await env.WEATHER_KV.put(`alert:${ugcCode}:${eventSlug}`, JSON.stringify(record), { expirationTtl: 7 * 86400 });
       await env.WEATHER_KV.delete(kvKey.name);
     } catch (err) {
-      console.error(`[sweep] retry failed for ${kvKey.name}`, err);
+      console.error(`[sweep] retry failed for ${kvKey.name}:`, String(err));
       try {
         const raw = await env.WEATHER_KV.get(kvKey.name, "json") as PendingRecord | null;
         if (raw) {
@@ -503,12 +521,12 @@ async function runSweep(env: Env, ctx: ExecutionContext): Promise<void> {
     }
   }
 
-  // 3. Sweep for expired/cancelled alerts
+  // 3. Sweep for expired/cancelled alerts no longer in the active set
   const { keys: alertKeys } = await env.WEATHER_KV.list({ prefix: "alert:" });
   for (const kvKey of alertKeys) {
-    if (activeKeys.has(kvKey.name)) continue; // still active
+    if (activeKeys.has(kvKey.name)) continue;
 
-    console.log(`[sweep] alert no longer active, cleaning up: ${kvKey.name}`);
+    console.log(`[sweep] expired/cancelled: ${kvKey.name}`);
     try {
       const raw = await env.WEATHER_KV.get(kvKey.name, "json") as ActiveRecord | null;
       if (!raw) continue;
@@ -518,23 +536,21 @@ async function runSweep(env: Env, ctx: ExecutionContext): Promise<void> {
           f.properties.messageType === "Cancel" &&
           f.properties.references?.some((r) => r.identifier === raw.nwsId)
       );
-
       if (cancelFeature) {
-        const comment = buildCancelComment(cancelFeature);
         try {
-          await fbComment(raw.fbPostId, pageToken, comment);
+          await fbComment(raw.fbPostId, pageToken, buildCancelComment(cancelFeature));
         } catch (err) {
-          console.error(`[FB] cancel comment failed for ${kvKey.name}`, err);
+          console.error(`[FB] cancel comment failed for ${kvKey.name}:`, String(err));
         }
       }
 
       await env.WEATHER_KV.delete(kvKey.name);
     } catch (err) {
-      console.error(`[KV] sweep delete failed for ${kvKey.name}`, err);
+      console.error(`[KV] sweep delete failed for ${kvKey.name}:`, String(err));
     }
   }
 
-  console.log(`[sweep] done. active alert keys this sweep: ${activeKeys.size}`);
+  console.log(`[sweep] done — active alert keys this sweep: ${activeKeys.size}`);
 }
 
 // ─── HTTP handler (admin settings API) ───────────────────────────────────────
@@ -565,14 +581,27 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
-  // GET /config
+  if (request.method === "GET" && url.pathname === "/fb-debug") {
+    const pageId = env.LIVE_WEATHER_ALERTS_FB_PAGE_ID;
+    const pageToken = env.LIVE_WEATHER_ALERTS_FB_PAGE_TOKEN;
+    const r = await fetch(
+      `https://graph.facebook.com/v25.0/${pageId}?fields=id,name&access_token=${encodeURIComponent(pageToken)}`
+    );
+    const data = await r.json() as unknown;
+    return json({
+      ok: r.ok,
+      pageIdConfigured: pageId,
+      tokenPresent: !!pageToken,
+      graphResponse: data,
+    }, r.ok ? 200 : 500);
+  }
+
   if (request.method === "GET" && url.pathname === "/config") {
     const config = await getConfig(env.WEATHER_KV);
     const lastSweep = await env.WEATHER_KV.get("system:last_sweep");
     return json({ ok: true, config, lastSweep });
   }
 
-  // POST /config
   if (request.method === "POST" && url.pathname === "/config") {
     let body: Partial<AutopostConfig>;
     try {
@@ -590,7 +619,6 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, config: updated });
   }
 
-  // POST /exchange-token
   if (request.method === "POST" && url.pathname === "/exchange-token") {
     let body: { shortLivedToken?: string };
     try {
@@ -600,17 +628,12 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     }
 
     const shortLivedToken = (body.shortLivedToken ?? "").trim();
-    if (!shortLivedToken) {
-      return json({ ok: false, error: "shortLivedToken is required" }, 400);
-    }
+    if (!shortLivedToken) return json({ ok: false, error: "shortLivedToken is required" }, 400);
 
     const appId = env.LIVE_WEATHER_ALERTS_FB_APP_ID;
     const appSecret = env.LIVE_WEATHER_ALERTS_FB_APP_SECRET;
     if (!appId || !appSecret) {
-      return json({
-        ok: false,
-        error: "FB app credentials not configured — set LIVE_WEATHER_ALERTS_FB_APP_ID and LIVE_WEATHER_ALERTS_FB_APP_SECRET secrets",
-      }, 500);
+      return json({ ok: false, error: "FB app credentials not configured" }, 500);
     }
 
     const exchangeUrl =
@@ -623,19 +646,15 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     const exchangeRes = await fetch(exchangeUrl);
     const exchangeJson = (await exchangeRes.json()) as {
       access_token?: string;
-      token_type?: string;
       expires_in?: number;
       error?: { message: string };
     };
-
     if (!exchangeRes.ok || exchangeJson.error) {
       return json({ ok: false, error: exchangeJson.error?.message ?? `FB exchange HTTP ${exchangeRes.status}` }, 400);
     }
 
     const longLivedUserToken = exchangeJson.access_token ?? "";
-    if (!longLivedUserToken) {
-      return json({ ok: false, error: "No access_token in FB exchange response" }, 500);
-    }
+    if (!longLivedUserToken) return json({ ok: false, error: "No access_token in FB exchange response" }, 500);
 
     const accountsRes = await fetch(
       `${FB_API}/me/accounts?access_token=${encodeURIComponent(longLivedUserToken)}`
@@ -644,20 +663,13 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       data?: Array<{ id: string; name: string; access_token: string }>;
       error?: { message: string };
     };
-
     if (!accountsRes.ok || accountsJson.error) {
-      return json({
-        ok: false,
-        error: accountsJson.error?.message ?? `FB accounts HTTP ${accountsRes.status}`,
-        longLivedUserToken,
-      }, 400);
+      return json({ ok: false, error: accountsJson.error?.message ?? `FB accounts HTTP ${accountsRes.status}`, longLivedUserToken }, 400);
     }
 
     const pages = accountsJson.data ?? [];
     const configuredPageId = env.LIVE_WEATHER_ALERTS_FB_PAGE_ID;
-    const targetPage = configuredPageId
-      ? pages.find((p) => p.id === configuredPageId)
-      : pages[0];
+    const targetPage = configuredPageId ? pages.find((p) => p.id === configuredPageId) : pages[0];
 
     return json({
       ok: true,

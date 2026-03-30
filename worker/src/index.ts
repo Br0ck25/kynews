@@ -69,7 +69,7 @@ import { summarizeArticle, generateUpdateParagraph } from './lib/ai';
 import type { Category, NewArticle, ArticleRecord } from './types';
 import { generateFacebookCaption, generateAiFacebookCaption } from './lib/facebook';
 import { buildPageTitle } from './lib/pageTitle';
-import { processNwsAlerts, processNwsProducts, processLiveAlertsNationwide, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl, buildWeatherAlertFbCaption, getLiveAlertAutopostFlag, setLiveAlertAutopostFlag, getLiveAlertAutopostStart, setLiveAlertAutopostStart, extractPrimaryStateCode } from './lib/nws';
+import { processNwsAlerts, processNwsProducts, processLiveAlertsNationwide, fetchNwsAlertById, postWeatherAlertToFacebook, postFacebookPhotoCaption, getWeatherAlertImageUrl, buildWeatherAlertFbCaption, getLiveAlertAutopostFlag, setLiveAlertAutopostFlag, getLiveAlertAutopostStart, setLiveAlertAutopostStart, extractPrimaryStateCode, fetchActiveKyAlerts } from './lib/nws';
 import { processSpcFeed, parseSpcOutlooks } from './lib/spc';
 import { fetchNwsStories } from './lib/nwsStories';
 import { maybeRunWeatherSummary, publishWeatherSummary } from './lib/weatherSummary';
@@ -78,10 +78,15 @@ import {
 	listWeatherAlertPosts,
 	getPostedNwsAlertIds,
 	getWeatherAlertPostById,
+	getWeatherAlertPostByNwsAlertId,
 	insertWeatherAlertPost,
 	updateWeatherAlertPostText,
 	deleteWeatherAlertPost,
 	deleteAllWeatherAlertPosts,
+	getWeatherAlertAutopostSettings,
+	setWeatherAlertAutopostFlag,
+	classifyWeatherAlertAutopostCategory,
+	buildWeatherAlertPostText,
 } from './lib/weatherAlerts';
 
 const DEFAULT_SEED_LIMIT_PER_SOURCE = 0;
@@ -476,6 +481,91 @@ async function postArticleToFacebook(env: Env, article: ArticleRecord) {
 	} catch (err) {
 		return { ok: false, error: 'Failed to post to Facebook', details: String(err) };
 	}
+}
+
+async function processWeatherAlertPostAutopost(env: Env): Promise<{
+	scanned: number;
+	saved: number;
+	posted: number;
+	skipped: number;
+	failed: number;
+}> {
+	const settings = await getWeatherAlertAutopostSettings(env);
+	if (!settings.warnings && !settings.watches && !settings.others) {
+		return { scanned: 0, saved: 0, posted: 0, skipped: 0, failed: 0 };
+	}
+
+	let alerts = [] as Awaited<ReturnType<typeof fetchActiveKyAlerts>>;
+	try {
+		alerts = await fetchActiveKyAlerts();
+	} catch (err) {
+		console.error('[WEATHER_ALERT_POSTS_AUTOPOST] fetchActiveKyAlerts failed', err);
+		return { scanned: 0, saved: 0, posted: 0, skipped: 0, failed: 1 };
+	}
+
+	let saved = 0;
+	let posted = 0;
+	let skipped = 0;
+	let failed = 0;
+
+	for (const alert of alerts) {
+		const category = classifyWeatherAlertAutopostCategory(alert.event);
+		if (!settings[category]) {
+			skipped++;
+			continue;
+		}
+
+		try {
+			let post = await getWeatherAlertPostByNwsAlertId(env, alert.id);
+			if (!post) {
+				const postText = buildWeatherAlertPostText(alert);
+				const id = await insertWeatherAlertPost(env, {
+					nws_alert_id: alert.id,
+					event: alert.event,
+					area: alert.areaDesc,
+					severity: alert.severity,
+					expires_at: alert.expires || null,
+					sent_at: alert.sent || null,
+					post_text: postText,
+					fb_post_id: null,
+				});
+				saved++;
+				post = await getWeatherAlertPostById(env, id);
+			}
+
+			if (!post) {
+				failed++;
+				continue;
+			}
+
+			if (post.fb_post_id) {
+				skipped++;
+				continue;
+			}
+
+			const stateCode = extractPrimaryStateCode(post.area || alert.areaDesc);
+			const imageUrl = getWeatherAlertImageUrl(post.event || alert.event, stateCode ?? undefined);
+			const result = await postFacebookPhotoCaption(env, post.post_text, imageUrl);
+
+			if (!result?.ok) {
+				console.error(
+					`[WEATHER_ALERT_POSTS_AUTOPOST] Failed to post "${post.event}" (${alert.id}):`,
+					result?.error ?? result?.details ?? 'unknown error',
+				);
+				failed++;
+				continue;
+			}
+
+			const fbPostId = result?.result?.id ? String(result.result.id) : null;
+			await updateWeatherAlertPostText(env, post.id, post.post_text, fbPostId);
+			posted++;
+		} catch (err) {
+			console.error(`[WEATHER_ALERT_POSTS_AUTOPOST] Unexpected error for ${alert.id}:`, err);
+			failed++;
+		}
+	}
+
+	return { scanned: alerts.length, saved, posted, skipped, failed };
 }
 
 async function runFacebookScheduler(env: Env): Promise<void> {
@@ -2864,6 +2954,7 @@ if (url.pathname === '/api/admin/weather-alert-posts/post' && request.method ===
 
 	let postText = typeof body.post_text === 'string' ? body.post_text.trim() : '';
 	let alertEvent: string | undefined;
+	let existingPostId: number | null = null;
 	if (!postText) {
 		const id = Number(body.id ?? 0);
 		if (!Number.isFinite(id) || id <= 0) return badRequest('Missing post text or id');
@@ -2871,12 +2962,43 @@ if (url.pathname === '/api/admin/weather-alert-posts/post' && request.method ===
 		if (!post) return json({ error: 'Post not found' }, 404);
 		postText = post.post_text;
 		alertEvent = post.event;
+		existingPostId = post.id;
 	}
 	if (!postText) return badRequest('Missing post text');
 
 	const imageUrl = alertEvent ? getWeatherAlertImageUrl(alertEvent) : undefined;
 	const result = await postFacebookPhotoCaption(env, postText, imageUrl);
+	if (result?.ok && existingPostId) {
+		const fbPostId = result?.result?.id ? String(result.result.id) : null;
+		await updateWeatherAlertPostText(env, existingPostId, postText, fbPostId);
+	}
 	return json(result);
+}
+
+// ── GET /api/admin/weather-alert-posts/autopost ────────────────────────────
+// Returns the category toggles for scheduled Kentucky weather alert auto-posting.
+if (url.pathname === '/api/admin/weather-alert-posts/autopost' && request.method === 'GET') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const settings = await getWeatherAlertAutopostSettings(env);
+	return json(settings);
+}
+
+// ── POST /api/admin/weather-alert-posts/autopost ───────────────────────────
+// Updates one or more category toggles for scheduled Kentucky weather alert auto-posting.
+if (url.pathname === '/api/admin/weather-alert-posts/autopost' && request.method === 'POST') {
+	if (!isAdminAuthorized(request, env)) return json({ error: 'Unauthorized' }, 401);
+	const body = await parseJsonBody<{ warnings?: boolean; watches?: boolean; others?: boolean }>(request);
+	if (!body) return badRequest('Missing request body');
+
+	const updates: Promise<void>[] = [];
+	if (typeof body.warnings === 'boolean') updates.push(setWeatherAlertAutopostFlag(env, 'warnings', body.warnings));
+	if (typeof body.watches === 'boolean') updates.push(setWeatherAlertAutopostFlag(env, 'watches', body.watches));
+	if (typeof body.others === 'boolean') updates.push(setWeatherAlertAutopostFlag(env, 'others', body.others));
+	if (updates.length === 0) return badRequest('Provide at least one of: warnings, watches, others');
+
+	await Promise.all(updates);
+	const settings = await getWeatherAlertAutopostSettings(env);
+	return json({ ok: true, ...settings });
 }
 
 // ── GET /api/admin/digest ───────────────────────────────────────────────────
@@ -5505,6 +5627,20 @@ async scheduled(_event: any, env: Env, ctx: ExecutionContext): Promise<void> {
       );
     }
   }
+
+  // Weather Alert Posts auto-post settings are managed from the Weather Alert
+  // Posts admin tab and post directly to the Local KY News Facebook page.
+  ctx.waitUntil(
+    processWeatherAlertPostAutopost(env)
+      .then(({ scanned, saved, posted, skipped, failed }) => {
+        if (scanned > 0 || saved > 0 || posted > 0 || failed > 0) {
+          console.log(
+            `[WEATHER_ALERT_POSTS_AUTOPOST] scanned=${scanned} saved=${saved} posted=${posted} skipped=${skipped} failed=${failed}`,
+          );
+        }
+      })
+      .catch((err) => console.error('[WEATHER_ALERT_POSTS_AUTOPOST] processWeatherAlertPostAutopost threw', err))
+  );
 
   // Also fetch hazardous weather outlook products from the three offices
   ctx.waitUntil(
